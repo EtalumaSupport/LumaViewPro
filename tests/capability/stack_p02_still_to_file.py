@@ -21,22 +21,22 @@ def body(session):
     il.led_on('BF', 10)
     try:
         for mode in ('8bit', '12bit_scientific'):
-            session.set_image_mode(mode)
+            session.scope.camera.set_image_mode(mode)
             samples = []
             sizes = []
             for _ in range(N):
                 t = time.perf_counter()
-                fut = session.manual_capture.capture(layer='BF', false_color_on=False)
-                paths = fut.result(timeout=60)
+                fut = session.manual_capture.capture(false_color_on=False)
+                stills = fut.result(timeout=60)
                 samples.append(time.perf_counter() - t)
-                sizes.append(paths[0].stat().st_size)
+                sizes.append(stills[0].file.stat().st_size)
             figure(
                 f'S3.still_request_to_file_{mode}',
                 {
                     'median_s': round(statistics.median(samples), 3),
                     'max_s': round(max(samples), 3),
                     'file_kb': round(sizes[-1] / 1024),
-                    'frame': session.scope.imaging.frame_size_cached,
+                    'frame': session.scope.camera.frame_size.to_dict(),
                 },
             )
     finally:

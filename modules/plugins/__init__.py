@@ -2,7 +2,7 @@
 """Plugin platform for LumaViewPro.
 
 Single platform, namespace-scoped registries, lifecycle-aware.
-Spec: docs/PLUGIN_API_DESIGN_2026-05-09.md
+For plugin authors: docs/plugin-tutorial.md
 
 Four namespaces hardcoded for 4.x: ui, post_processing, live_processing,
 rest. Adding a fifth is a deliberate platform-spec change, not a runtime
@@ -17,7 +17,6 @@ Plugin authors implement:
     spec = PluginSpec(...)
     def register(ctx): ...
     def unregister(ctx): ...                    # optional
-    def on_settings_changed(ctx, settings): ... # optional, fires per spec.subscribes_to
 
 ``ctx`` is the ScopeSession hosting the plugin. A host asks its session
 for plugins (``session.load_plugins()``); the session discovers them via
@@ -26,14 +25,15 @@ entry_points group 'lvp.plugins'.
 
 from __future__ import annotations
 
-import copy
+import enum
 import importlib.metadata
 import logging
+import os
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 from modules.exceptions import (
     PluginFailedError,
@@ -42,8 +42,10 @@ from modules.exceptions import (
     Refusal,
     RefusalCause,
 )
+from drivers.camera import Frame
 from modules.notification_center import notifications
-from modules.api_surface import api_fields
+from modules.api_surface import FilePath, api, api_fields, host_wiring
+from modules.run_outcome import FilesOutcome
 
 logger = logging.getLogger('lvp_logger')
 
@@ -56,7 +58,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.56',
+    'etaluma_engineering': '1.0.172',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,
@@ -68,22 +70,25 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # version: no version can say it, since version.txt names the promoted
 # release and many trunk commits share one beta number. A commit that
 # changes behaviour a plugin relies on raises it by one, in that commit,
-# with its row in docs/LumascopeSkills.md ("Plugin API level"). A plugin
+# with its row in docs/plugin-tutorial.md ("The plugin API level"). A plugin
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 8
+PLUGIN_API_LEVEL = 68
 
-# Mount points are locked to the set the host knows how to attach.
-# Additional names are added when a real consumer needs them, paired
-# with a widget-shape contract for that specific mount. Plugins that
-# pass an unknown name get a PluginRegistrationError, not a silent
-# attach to nothing.
-UI_MOUNT_POINTS = frozenset(
-    {
-        'left_sidebar.accordion',
-    }
-)
+
+class UIMountPoint(enum.StrEnum):
+    """Where the host attaches a plugin's widget: the mounts it knows how to attach.
+
+    A mount is added when a real consumer needs one, with a widget-shape
+    contract for that mount.
+
+    Attributes:
+        LEFT_SIDEBAR_ACCORDION: An item of the left sidebar's accordion; the
+            builder answers a Kivy ``AccordionItem``.
+    """
+
+    LEFT_SIDEBAR_ACCORDION = 'left_sidebar.accordion'
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +106,12 @@ class PluginRegistrationError(Refusal, Exception):
 
     Attributes:
         reason: ``'name_taken'`` -- the namespace already holds a plugin of
-            that name; ``'unknown_mount_point'`` -- no UI mount point has
-            that name; ``'rest_namespace_reserved'`` -- the REST namespace
-            takes no routers yet.
+            that name; ``'rest_namespace_reserved'`` -- a plugin cannot add
+            REST routes in this release.
     """
 
-    cause = RefusalCause.REQUEST
     title = 'Plugin Not Registered'
+    causes = dict.fromkeys(('name_taken', 'rest_namespace_reserved'), RefusalCause.REQUEST)
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)
@@ -119,25 +123,37 @@ class PluginRegistrationError(Refusal, Exception):
 # ---------------------------------------------------------------------------
 
 
+@api_fields(
+    'name',
+    'version',
+    'requires_lvp_version',
+    'description',
+    'capabilities',
+    'author',
+    'url',
+    'auto_run_on_protocol_complete',
+)
 @dataclass(frozen=True)
 class PluginSpec:
     """Declarative metadata a plugin presents at registration time.
 
-    capabilities lists the API surfaces the plugin uses (dotted paths,
-    e.g. 'scope.imaging', 'modules.image_save'). Not enforced as a
-    sandbox in 4.x; used by the tech-support report and diagnostic
-    probes to record which plugins were loaded when data was collected.
-
-    subscribes_to lists settings-tree keys (dot-path notation, e.g.
-    'video.max_fps'). The host fires on_settings_changed only
-    when one of those keys changes. Empty tuple = hook never fires.
-
-    auto_run_on_protocol_complete (post_processing namespace only):
-    when True, the session invokes the registered processor
-    automatically after every Full Protocol run, whoever started it,
-    once its files are on disk and its hyperstack build has ended.
-    Defaults to False so registration is metadata-only; plugins opt in
-    explicitly. See PluginRegistry.run_protocol_complete_processors().
+    Attributes:
+        name: The plugin's name, unique within a namespace.
+        version: The plugin's version.
+        requires_lvp_version: The LumaViewPro versions it runs on, as a
+            requirement (``'>=4.0.0'``); pre-release suffixes are stripped
+            before comparing.
+        description: One sentence saying what the plugin does.
+        capabilities: The API surfaces it uses, as dotted paths
+            (``'scope.imaging'``). A declaration, not a sandbox: the
+            tech-support report and diagnostic probes record it.
+        author: Its author.
+        url: Its web address.
+        auto_run_on_protocol_complete: For a post-processing plugin, True
+            hands its processor the folder of every Full Protocol run,
+            whoever started it, once its files are on disk and its
+            hyperstack build has ended
+            (``PluginRegistry.run_protocol_complete_processors``).
     """
 
     name: str
@@ -145,7 +161,6 @@ class PluginSpec:
     requires_lvp_version: str
     description: str
     capabilities: tuple[str, ...] = ()
-    subscribes_to: tuple[str, ...] = ()
     author: str = ''
     url: str = ''
     auto_run_on_protocol_complete: bool = False
@@ -181,7 +196,7 @@ class PluginRuntimeError:
     """A runtime error caught from a plugin handler.
 
     Distinct from a load failure: the plugin loaded fine, but failed
-    while servicing a callback (e.g. on_settings_changed). Reported by
+    while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
     PluginRegistry.record_runtime_error and kept in
     NamespaceHealth.last_runtime_errors so diagnostic probes can
     attribute fault to the right plugin.
@@ -213,16 +228,23 @@ class PluginHealth:
     not_loaded: tuple[PluginNotLoaded, ...]
 
 
-# Processor result for post_processing namespace.
-# Plugins return this from their processor callable so the host knows
-# what artifacts to surface in the run-complete dialog and where to
-# log success/failure.
+@api_fields('success', 'outputs', 'message')
 @dataclass(frozen=True)
 class ProcessorResult:
+    """What a post-processing processor answers to the host that called it.
+
+    The host logs a success with its message and what it made, and reports
+    a failure to the person with its message.
+
+    Attributes:
+        success: Whether the processor completed.
+        outputs: The absolute paths of the files it wrote.
+        message: A one-line summary for the person using the microscope.
+    """
+
     success: bool
-    outputs: tuple[str, ...] = ()  # absolute paths to produced files
-    message: str = ''  # one-line user-facing summary
-    metadata: dict = field(default_factory=dict)
+    outputs: tuple[FilePath, ...] = ()
+    message: str = ''
 
 
 # ---------------------------------------------------------------------------
@@ -237,17 +259,12 @@ class _BaseNamespace:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._loaded: dict[str, PluginStatus] = {}
+        # The one record of who is registered here: plugin name -> (its spec,
+        # what it registered). health() and the namespace's reads all come
+        # from it, so a plugin is listed as loaded exactly while its
+        # registration is held.
+        self._entries: dict[str, tuple[PluginSpec, Any]] = {}
         self._runtime_errors: list[PluginRuntimeError] = []
-        self._handlers: dict[str, Any] = {}
-
-    def _record_loaded(self, spec: PluginSpec) -> None:
-        status = PluginStatus(
-            name=spec.name,
-            version=spec.version,
-            namespace=self.NAMESPACE,
-        )
-        self._loaded[spec.name] = status
 
     def _record_runtime_error(
         self, plugin_name: str, hook: str, exc_type: str, message: str
@@ -266,47 +283,64 @@ class _BaseNamespace:
         with self._lock:
             return NamespaceHealth(
                 namespace=self.NAMESPACE,
-                loaded=tuple(self._loaded.values()),
+                loaded=tuple(
+                    PluginStatus(name=spec.name, version=spec.version, namespace=self.NAMESPACE)
+                    for spec, _registered in self._entries.values()
+                ),
                 last_runtime_errors=tuple(self._runtime_errors),
             )
 
     def _assert_unique(self, spec: PluginSpec) -> None:
-        if spec.name in self._loaded:
+        if spec.name in self._entries:
             raise PluginRegistrationError(
                 'name_taken', f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
             )
 
+    def _discard(self, plugin_name: str) -> None:
+        """Remove *plugin_name*'s registration, if it has one here.
 
+        The host's, for a plugin that did not load: what its register()
+        registered before it raised goes with it.
+        """
+        with self._lock:
+            self._entries.pop(plugin_name, None)
+
+
+@host_wiring('mounts')
 class UIRegistry(_BaseNamespace):
-    """UI-extending plugins. Adds widgets at named mount points.
-
-    register(spec, mount_point, builder):
-        mount_point: a name from UI_MOUNT_POINTS
-        builder: callable returning a Kivy widget. Called by the host
-                 at attach time, not at registration time, so the host
-                 can defer instantiation until the mount-point widget
-                 exists in the tree.
-    """
+    """UI-extending plugins. Adds widgets at named mount points."""
 
     NAMESPACE = 'ui'
 
-    def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
-        if mount_point not in UI_MOUNT_POINTS:
-            raise PluginRegistrationError(
-                'unknown_mount_point',
-                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}",
-            )
+    @api(in_process=True)
+    def register(
+        self, spec: PluginSpec, mount_point: UIMountPoint, builder: Callable[[], object]
+    ) -> None:
+        """Add a widget at a mount point.
+
+        Args:
+            spec: The plugin.
+            mount_point: Where the widget is attached.
+            builder: Takes no arguments and answers the widget. The host
+                calls it at attach time, once the window's widget tree
+                exists, not at registration.
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+        """
         with self._lock:
             self._assert_unique(spec)
-            self._handlers[spec.name] = (mount_point, builder)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, (mount_point, builder))
 
-    def mounts(self) -> tuple[tuple[str, str, Callable[[], Any]], ...]:
+    def mounts(self) -> tuple[tuple[str, UIMountPoint, Callable[[], object]], ...]:
         """Return (plugin_name, mount_point, builder) tuples for the host
         to attach during widget-tree construction. Returned list is a
         snapshot; subsequent registrations don't appear here."""
         with self._lock:
-            return tuple((name, mp, builder) for name, (mp, builder) in self._handlers.items())
+            return tuple(
+                (name, mp, builder) for name, (_spec, (mp, builder)) in self._entries.items()
+            )
 
 
 class PostProcessingRegistry(_BaseNamespace):
@@ -323,26 +357,57 @@ class PostProcessingRegistry(_BaseNamespace):
 
     NAMESPACE = 'post_processing'
 
+    @api(in_process=True)
     def register(
         self,
         spec: PluginSpec,
         processor: Callable[[str, dict, str], ProcessorResult],
     ) -> None:
+        """Register a processor of saved files.
+
+        Args:
+            spec: The plugin.
+            processor: Called ``processor(input_dir, manifest, output_dir)``
+                with the folder to read, the run's manifest and the folder to
+                write into; answers a ``ProcessorResult``.
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+        """
         with self._lock:
             self._assert_unique(spec)
             # Store (spec, processor) so .handlers() can hand the spec
             # back to consumers that need its flags (e.g. auto-run gate).
-            self._handlers[spec.name] = (spec, processor)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, processor)
 
-    def get(self, name: str) -> Callable | None:
+    @api(in_process=True)
+    def get(self, name: str) -> Callable[[str, dict, str], ProcessorResult] | None:
+        """The processor a plugin registered, to call it directly.
+
+        Args:
+            name: The plugin's name.
+
+        Returns:
+            Callable | None: The processor, or None when no plugin of that
+                name is registered here.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
-            entry = self._handlers.get(name)
+            entry = self._entries.get(name)
             return entry[1] if entry is not None else None
 
+    @api(in_process=True)
     def names(self) -> tuple[str, ...]:
+        """The names of the plugins registered here.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
-            return tuple(self._handlers.keys())
+            return tuple(self._entries.keys())
 
     def handlers(self) -> tuple[tuple[PluginSpec, Callable], ...]:
         """Return (spec, processor) tuples for every registered plugin.
@@ -352,7 +417,7 @@ class PostProcessingRegistry(_BaseNamespace):
         gates (e.g. spec.auto_run_on_protocol_complete).
         """
         with self._lock:
-            return tuple(self._handlers.values())
+            return tuple(self._entries.values())
 
 
 class LiveProcessingRegistry(_BaseNamespace):
@@ -371,10 +436,9 @@ class LiveProcessingRegistry(_BaseNamespace):
         ctx.plugins.live_processing.register(spec, handler)
         ctx.plugins.live_processing.unregister(spec.name)
 
-    Handler signature is cb(image, timestamp, chunks). It runs on the
-    camera SDK thread; see imaging.add_frame_listener docstring +
-    docs/LIVE_PROCESSING_TUTORIAL.md for the budget + don't-mutate
-    contract.
+    Handler signature is cb(frame), the camera's ``Frame`` record. It runs
+    on the camera SDK thread; see the imaging.add_frame_listener docstring
+    for the budget and the read-only frame contract.
     """
 
     NAMESPACE = 'live_processing'
@@ -386,7 +450,22 @@ class LiveProcessingRegistry(_BaseNamespace):
         # channel for unregister-by-name.
         self._scope = scope
 
-    def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
+    @api(in_process=True)
+    def register(self, spec: PluginSpec, frame_handler: Callable[[Frame], None]) -> None:
+        """Add a listener on every frame the camera delivers.
+
+        Args:
+            spec: The plugin.
+            frame_handler: Called ``frame_handler(frame)`` with each
+                ``Frame``, on the camera's thread
+                (``ImagingAPI.add_frame_listener``).
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+            HardwareCommandRefusedError: ``'not_connected'``, no camera is
+                connected; nothing is registered.
+        """
         with self._lock:
             self._assert_unique(spec)
             # Forward to the canonical listener list on ImagingAPI before
@@ -396,43 +475,48 @@ class LiveProcessingRegistry(_BaseNamespace):
             # duplicate. The name= param surfaces in the log and the
             # auto-remove warning so L1 can identify which plugin misbehaved.
             self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
-            self._handlers[spec.name] = (spec, frame_handler)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, frame_handler)
 
+    @api(in_process=True)
     def unregister(self, name: str) -> None:
-        """Remove the listener registered by plugin `name`. No-op if not registered."""
+        """Remove the listener a plugin registered; nothing when it registered none.
+
+        Args:
+            name: The plugin's name.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
-            entry = self._handlers.pop(name, None)
+            entry = self._entries.pop(name, None)
         if entry is None:
             return
         _spec, handler = entry
         self._scope.imaging.remove_frame_listener(handler)
 
+    def _discard(self, plugin_name: str) -> None:
+        # The listener is the registration here: it leaves the camera too.
+        self.unregister(plugin_name)
+
     def names(self) -> tuple[str, ...]:
         """Return the names of all currently-registered live_processing plugins."""
         with self._lock:
-            return tuple(self._handlers.keys())
+            return tuple(self._entries.keys())
 
 
 class RESTRegistry(_BaseNamespace):
-    """REST endpoint plugins. Name locked; body deferred to REST design session.
+    """REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
 
-    Plugin authors will register a sub-router mounted under
-    /plugins/<name>/. The dangerous-command middleware applies to
-    plugin endpoints same as core endpoints. Until the REST design
-    session locks the URL convention, register() raises so plugins
-    don't bake in assumptions that will need to be unwound.
+    A plugin cannot add REST routes yet, so ``register()`` refuses, and a
+    shipped plugin registers none.
 
-    **Stub mode**: plugin authors who want to prototype against the
-    future REST shape can opt into stub mode via ``enable_stub_mode()``.
-    In stub mode,
-    register() accepts the spec and records it for ``health()``
-    reporting (so ``ctx.plugins.all_health()`` reflects the
-    registration) but does NOT mount a route. The plugin author can
-    iterate on their plugin's lifecycle hooks (load / unregister)
-    without needing the real REST surface. Stub mode is opt-in and
-    intentionally non-default so production runs continue to fail
-    loud on REST registration attempts.
+    **Stub mode**: while a plugin is being developed, its author can opt
+    into ``enable_stub_mode()``. In stub mode, register() accepts the
+    spec and records it for ``health()`` reporting (so
+    ``ctx.plugins.all_health()`` reflects the registration) but serves
+    nothing, so the rest of the plugin -- its load and unregister hooks
+    -- can be tried. Stub mode is opt-in and not the default, so a
+    shipped plugin's registration is refused, never quietly unserved.
     """
 
     NAMESPACE = 'rest'
@@ -440,23 +524,22 @@ class RESTRegistry(_BaseNamespace):
     def __init__(self) -> None:
         super().__init__()
         self._stub_mode: bool = False
-        # Stored router objects in stub mode -- not mounted; available
-        # for tests / health-introspection only.
-        self._stubbed_routers: dict[str, Any] = {}
 
+    @api(in_process=True)
     def enable_stub_mode(self) -> None:
         """Opt into accepting REST registrations as stubs.
 
         After enable_stub_mode(), register(spec, router) records the
-        registration (visible via health()) but does NOT actually
-        mount a route -- the URL convention isn't locked yet. Plugin
-        authors use this to prototype the rest of their plugin's
-        lifecycle without depending on the unbuilt REST mount machinery.
+        registration (visible via health()) and serves nothing, since a
+        plugin cannot add REST routes in this release. A plugin author
+        uses this while developing a plugin, to try the rest of its
+        lifecycle.
 
-        Production code MUST NOT call this. The default fail-loud
-        contract from non-stub register() exists for a reason: plugins
-        that register against the real surface before the URL convention
-        is locked will need to be unwound when Phase 1 ships.
+        A shipped plugin does not call this: its registration is refused,
+        so a route it expects to serve is never silently missing.
+
+        Raises:
+            Nothing.
         """
         with self._lock:
             self._stub_mode = True
@@ -473,19 +556,18 @@ class RESTRegistry(_BaseNamespace):
 
     def register(self, spec: PluginSpec, router: Any) -> None:
         if self._stub_mode:
-            self._assert_unique(spec)
-            self._record_loaded(spec)
+            # The router is held, not mounted: it serves nothing.
             with self._lock:
-                self._stubbed_routers[spec.name] = router
+                self._assert_unique(spec)
+                self._entries[spec.name] = (spec, router)
             return
         raise PluginRegistrationError(
             'rest_namespace_reserved',
-            'ctx.plugins.rest is reserved but not yet implemented. '
-            'REST URL convention is locked at the REST design session '
-            '(tracked at docs/TODO.md). Plan to register here when '
-            'REST_API_PLAN.md Phase 1 ships. '
-            'Prototype against the future shape via '
-            'ctx.plugins.rest.enable_stub_mode() (non-production).',
+            'ctx.plugins.rest is reserved, and a plugin cannot add REST routes '
+            'in this release, so a shipped plugin registers none. While a '
+            'plugin is being developed, ctx.plugins.rest.enable_stub_mode() '
+            'records a registration and serves nothing, so the rest of the '
+            'plugin can be tried.',
         )
 
 
@@ -494,8 +576,16 @@ class RESTRegistry(_BaseNamespace):
 # ---------------------------------------------------------------------------
 
 
+@api_fields('ui', 'post_processing', 'live_processing', 'rest')
+@host_wiring('attribute_exception', 'record_runtime_error')
 class PluginRegistry:
     """Single ctx.plugins entry point exposing the four namespaces.
+
+    Attributes:
+        ui: Widgets at the window's mount points.
+        post_processing: Processors of saved files.
+        live_processing: Listeners on every frame the camera delivers.
+        rest: Reserved: a plugin cannot add REST routes in this release.
 
     Lifecycle:
         - Built by the session when its host asks for plugins
@@ -503,6 +593,11 @@ class PluginRegistry:
         - Drained by unload(), in reverse order, when the host asks
           (``ScopeSession.unload_plugins``) or the session shuts down.
     """
+
+    ui: UIRegistry
+    post_processing: PostProcessingRegistry
+    live_processing: LiveProcessingRegistry
+    rest: RESTRegistry
 
     def __init__(self, scope: Any) -> None:
         self.ui = UIRegistry()
@@ -516,10 +611,9 @@ class PluginRegistry:
         # as skipped rather than dropped without a word.
         self._unloaded: set[str] = set()
         self._not_loaded: list[PluginNotLoaded] = []
-        # The settings as subscribers last heard them: taken at load, so a
-        # change made before the first save is told at that save. Written
-        # by load() and settings_saved(), on the host's thread.
-        self._settings_baseline: dict | None = None
+        # Recorded by this discovery and not yet reported, each with the
+        # plugin's own exception: load() reports them together when it ends.
+        self._unreported: list[tuple[PluginNotLoaded, BaseException | None]] = []
 
     def _track(self, name: str, module: Any) -> None:
         with self._loaded_lock:
@@ -575,11 +669,12 @@ class PluginRegistry:
     def record_load_failure(
         self, name: str, version: str, reason: str, cause: BaseException | None = None
     ) -> None:
-        """Record that a plugin did not load, and report it.
+        """Record that a plugin did not load, for the discovery's one report.
 
-        The one place a load failure becomes an outcome, so no path that
-        drops a plugin can keep it without telling anyone. The record is
-        kept in ``not_loaded()``.
+        The one place a load failure is recorded, so no path that drops a
+        plugin can keep it without telling anyone: ``load()`` reports every
+        failure recorded here as one outcome when discovery ends. The record
+        is kept in ``not_loaded()``.
 
         Args:
             name: The plugin's name, or its entry point's when it has no spec.
@@ -588,10 +683,27 @@ class PluginRegistry:
             cause: The plugin's own exception, when there is one; its
                 traceback is carried into the one log record.
         """
+        record = PluginNotLoaded(name, version, reason)
         with self._loaded_lock:
-            self._not_loaded.append(PluginNotLoaded(name, version, reason))
-        outcome = PluginNotLoadedError(name, reason)
-        outcome.__cause__ = cause
+            self._not_loaded.append(record)
+            self._unreported.append((record, cause))
+
+    def _report_not_loaded(self) -> None:
+        """Report every load failure recorded since the last report, as one outcome.
+
+        One, not one per plugin: the reporter merges notices that share a
+        title within its window, so plugins failing together would show as
+        the first of them alone. Every plugin's own exception is chained, so
+        the one log record carries each traceback.
+        """
+        with self._loaded_lock:
+            unreported, self._unreported = self._unreported, []
+        if not unreported:
+            return
+        outcome = PluginNotLoadedError([record for record, _ in unreported])
+        causes = [cause for _, cause in unreported if cause is not None]
+        if causes:
+            outcome.__cause__ = BaseExceptionGroup('the plugins that did not load', causes)
         notifications.report_outcome(outcome, solicited=False, category='Plugins')
 
     def record_runtime_error(
@@ -639,63 +751,7 @@ class PluginRegistry:
 
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""
-        return (
-            self.ui.health(),
-            self.post_processing.health(),
-            self.live_processing.health(),
-            self.rest.health(),
-        )
-
-    def notify_settings_changed(
-        self,
-        ctx: Any,
-        settings: dict,
-        changed_keys: Iterable[str],
-    ) -> None:
-        """Fire on_settings_changed on every loaded plugin whose
-        subscribes_to prefix-matches any of the changed keys.
-
-        Args:
-            ctx: The session, passed to each plugin's on_settings_changed.
-            settings: Full settings dict at the moment of notification
-                (post-save snapshot).
-            changed_keys: Iterable of dot-path keys that changed in this
-                cycle. Empty -> no-op.
-
-        Plugins implement on_settings_changed(ctx, settings) at module
-        level (per design doc Sec 4.3). The dispatcher iterates loaded
-        plugins regardless of namespace; the per-namespace registries
-        retain runtime-error attribution via record_runtime_error.
-
-        Match semantics are prefix: subscribes_to=('video',)
-        fires for any changed key under that subtree
-        (video.max_fps, video.max_duration_seconds, ...).
-        subscribes_to=('video.max_fps',) fires only when that
-        exact dot-path key changes.
-
-        Exceptions from a plugin handler are recorded and reported but
-        never propagate -- one plugin's failure does not block others.
-        Runs on the calling thread; plugin handlers must be quick
-        enough not to stall the settings-save path.
-        """
-        changed = set(changed_keys)
-        if not changed:
-            return
-        with self._loaded_lock:
-            plugins_snapshot = list(self._loaded_plugins)
-        for name, module in plugins_snapshot:
-            spec = _extract_spec(module)
-            if spec is None or not spec.subscribes_to:
-                continue
-            if not _any_prefix_match(spec.subscribes_to, changed):
-                continue
-            handler = getattr(module, 'on_settings_changed', None)
-            if not callable(handler):
-                continue
-            try:
-                handler(ctx, settings)
-            except Exception as exc:
-                self.record_runtime_error(name, 'on_settings_changed', exc)
+        return tuple(ns.health() for ns in self._namespaces())
 
     def load(self, host: Any, host_version: str) -> None:
         """Discover the installed plugins, then the built-ins, and register each.
@@ -704,8 +760,8 @@ class PluginRegistry:
         them, so an installed package claiming a built-in's name keeps it and
         the built-in is the one reported as not loaded. Each plugin's
         register(host) is wrapped; a plugin that does not load, for any
-        reason, is recorded and reported and the rest still load. The
-        settings subscribers will be told about are taken here. With the
+        reason, is recorded and the rest still load; every one recorded is
+        reported together, once, when discovery ends. With the
         host's ``no_engineering``, the engineering plugin is left out
         before it is imported: not checked, not registered, not reported.
 
@@ -717,25 +773,29 @@ class PluginRegistry:
         """
         from modules.plugins.builtin import BUILTIN_PLUGINS
 
-        self._settings_baseline = copy.deepcopy(host.get_settings_snapshot())
         discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
         count = 0
-        for ep in discovered:
-            ep_name = getattr(ep, 'name', '<unknown>')
-            if ep_name == ENGINEERING_PLUGIN and host.no_engineering:
-                logger.info(f'[Plugins ] {ep_name} left out: the host has no_engineering')
-                continue
-            try:
-                module = ep.load()
-            except Exception as e:
-                self.record_load_failure(
-                    ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
-                )
-                continue
-            count += self._load_one(module, ep_name, host, host_version)
-        for module in BUILTIN_PLUGINS:
-            count += self._load_one(module, module.__name__, host, host_version)
-        logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+        # Reported in a finally: a discovery that stops partway still tells
+        # the person what it had found would not load.
+        try:
+            for ep in discovered:
+                ep_name = getattr(ep, 'name', '<unknown>')
+                if ep_name == ENGINEERING_PLUGIN and host.no_engineering:
+                    logger.info(f'[Plugins ] {ep_name} left out: the host has no_engineering')
+                    continue
+                try:
+                    module = ep.load()
+                except Exception as e:
+                    self.record_load_failure(
+                        ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
+                    )
+                    continue
+                count += self._load_one(module, ep_name, host, host_version)
+            for module in BUILTIN_PLUGINS:
+                count += self._load_one(module, module.__name__, host, host_version)
+            logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+        finally:
+            self._report_not_loaded()
 
     def _load_one(self, module: Any, found_as: str, host: Any, host_version: str) -> int:
         """Register one plugin module with *host*; 1 if it loaded, 0 if not."""
@@ -779,12 +839,20 @@ class PluginRegistry:
             self.record_load_failure(spec.name, spec.version, 'it has no register(ctx) function')
             return 0
 
+        held_before = [ns for ns in self._namespaces() if spec.name in ns._entries]
         try:
             register_fn(host)
         except Exception as e:
             self.record_load_failure(
                 spec.name, spec.version, f'its register() raised {type(e).__name__}: {e}', e
             )
+            # A plugin that did not load has nothing registered: what it
+            # registered before the raise is taken back here, whatever its
+            # own unregister does. A namespace that held the name before the
+            # call holds another plugin's registration, which stays.
+            for ns in self._namespaces():
+                if ns not in held_before:
+                    ns._discard(spec.name)
             # Give the plugin a chance to clean up partial state.
             unregister_fn = getattr(module, 'unregister', None)
             if callable(unregister_fn):
@@ -818,44 +886,31 @@ class PluginRegistry:
             except Exception:
                 logger.warning(f'[Plugins ] {name}: unregister failed', exc_info=True)
 
-    def settings_saved(self, host: Any, settings: dict) -> None:
-        """Tell the subscribers what changed since they last heard; *settings* was just saved.
-
-        Diffs against the settings taken at load or at the last save, so a
-        change made before the first save is told at it. Each subscriber's
-        failure is recorded and reported by notify_settings_changed and
-        never reaches the save.
-        """
-        changed_keys = _diff_settings_keys(self._settings_baseline, settings)
-        self._settings_baseline = copy.deepcopy(settings)
-        if changed_keys:
-            self.notify_settings_changed(host, settings, changed_keys)
-
     def run_protocol_complete_processors(
         self,
         input_dir: str,
         manifest: dict,
         output_dir: str,
-        files: str,
+        files: FilesOutcome,
     ) -> None:
         """Invoke every post_processing plugin that opted in via
         PluginSpec.auto_run_on_protocol_complete=True.
 
         Called once per Full Protocol run, after all its output files are
         written and its hyperstack build has ended. ``files`` is the run's
-        write outcome; on ``'incomplete'`` -- some images are not on disk
+        write outcome; on ``INCOMPLETE`` -- some images are not on disk
         -- nothing runs, since a plugin reading the folder as whole would
         build from a partial one. Only a loaded plugin's processor runs: one
-        unloaded since, or whose register failed after it registered the
-        processor, is not handed the folder; one unloaded since -- the
-        session's close unloads plugins first -- is reported as skipped,
+        unloaded since is not handed the folder -- the session's close
+        unloads plugins first -- and is reported as skipped,
         naming the run (``PluginProcessorSkippedError``). Each plugin's processor runs in
         turn; a processor that raises, returns something other than a
         ProcessorResult, or returns one that reports failure is recorded
         and reported, and does not block the others. A success is logged at
-        INFO. Never raises.
+        INFO with what it made: the count of its outputs and their common
+        folder, since a plate's stitch makes thousands of files. Never raises.
         """
-        if files != 'written':
+        if files != FilesOutcome.WRITTEN:
             logger.warning(
                 f"[Plugins ] Post-processing auto-run skipped for {input_dir}: the run's "
                 f'images were not all written ({files})'
@@ -890,86 +945,36 @@ class PluginRegistry:
                 )
                 continue
             if result.success:
-                logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
+                logger.info(
+                    f'[Plugins ] {spec.name} auto-run succeeded: {result.message} '
+                    f'({_what_it_made(result.outputs)})'
+                )
             else:
                 self.record_runtime_error(
                     spec.name, 'auto_run_on_protocol_complete', detail=result.message
                 )
 
+    def _namespaces(self) -> tuple[_BaseNamespace, ...]:
+        return (self.ui, self.post_processing, self.live_processing, self.rest)
+
     def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
-        for ns in (
-            self.ui,
-            self.post_processing,
-            self.live_processing,
-            self.rest,
-        ):
-            if plugin_name in ns._loaded:
+        for ns in self._namespaces():
+            if plugin_name in ns._entries:
                 return ns
         return None
 
 
-def _any_prefix_match(
-    subscribes_to: tuple[str, ...],
-    changed_keys: set[str],
-) -> bool:
-    """True if any subscription key prefix-matches any changed key.
+def _what_it_made(outputs: tuple[FilePath, ...]) -> str:
+    """A processor's outputs in a few words: how many, and the folder they share.
 
-    Prefix means: subscribes_to='a' matches changed 'a' or 'a.b' or
-    'a.b.c' (any descendant under the subtree). 'ab' does NOT match
-    'abc' -- the prefix is a full dot-path component.
+    Read from the paths as text, so outputs on two drives, or a relative
+    path among them, cannot make the success log raise.
     """
-    for prefix in subscribes_to:
-        prefix_dot = prefix + '.'
-        for key in changed_keys:
-            if key == prefix or key.startswith(prefix_dot):
-                return True
-    return False
-
-
-def _diff_settings_keys(
-    old: dict | None,
-    new: dict,
-    prefix: str = '',
-) -> set[str]:
-    """Return dot-path keys that differ between old and new.
-
-    Treats None old as "no prior snapshot" -- caller should usually
-    skip dispatch in that case (initial-save). Recursively descends
-    into nested dicts so changes deep inside the settings tree surface
-    as their full dot-path (e.g. 'BF.gain' for settings['BF']['gain']).
-
-    Type changes (dict -> scalar or vice versa) count as a change
-    of the parent key, not the inner leaves -- a plugin subscribed
-    to the parent prefix gets notified.
-    """
-    if old is None:
-        return _flatten_dict_keys(new, prefix)
-    changed: set[str] = set()
-    all_keys = set(old.keys()) | set(new.keys())
-    for k in all_keys:
-        full = f'{prefix}.{k}' if prefix else k
-        if k not in old or k not in new:
-            changed.add(full)
-            continue
-        old_v = old[k]
-        new_v = new[k]
-        if isinstance(old_v, dict) and isinstance(new_v, dict):
-            changed.update(_diff_settings_keys(old_v, new_v, full))
-        elif old_v != new_v:
-            changed.add(full)
-    return changed
-
-
-def _flatten_dict_keys(d: dict, prefix: str = '') -> set[str]:
-    """Return every leaf-path key in a nested dict as dot-paths."""
-    out: set[str] = set()
-    for k, v in d.items():
-        full = f'{prefix}.{k}' if prefix else k
-        if isinstance(v, dict):
-            out.update(_flatten_dict_keys(v, full))
-        else:
-            out.add(full)
-    return out
+    if not outputs:
+        return 'no files'
+    folders = [os.path.dirname(str(output)) + os.sep for output in outputs]
+    shared = os.path.commonprefix(folders).rpartition(os.sep)[0]
+    return f'{len(outputs)} file(s) in {shared or "more than one folder"}'
 
 
 # ---------------------------------------------------------------------------

@@ -14,17 +14,20 @@ path: it populates every row from the settings store. There is no
 persistent startup-load for these rows.
 """
 
+import typing
+
 from kivy.clock import Clock
 from kivy.lang import Builder
-from kivy.properties import BooleanProperty
+from kivy.app import App
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.popup import Popup
 
 import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
-from modules.config_ui_getters import firmware_stim_supported
-from ui.ui_helpers import run_reported, submit_reported, typed_number
+from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
+from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 
 class AdvancedSettings(Popup):
@@ -53,15 +56,32 @@ class AdvancedSettings(Popup):
     xy_stage_supported = BooleanProperty(False)
 
     # Mirrors the LED firmware's stim capability so the row hides when the
-    # firmware cannot drive stimulation. Set on open from
-    # firmware_stim_supported(); default hidden so the row never flashes
+    # firmware cannot drive stimulation. Set on open from the scope's
+    # has_firmware_stim capability; default hidden so the row never flashes
     # before the capability is read.
     stim_supported = BooleanProperty(False)
 
+    # Where the REST server serves, as the application holds it; read on open.
+    rest_reach = StringProperty('')
+
+    # True while the modal is open: closed, it needs no redraw, since it
+    # fills from the store when it opens.
+    shown = False
+
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
+        self.shown = True
+        self.show_settings()
+
+    def on_dismiss(self):
+        self.shown = False
+
+    def show_settings(self):
+        """Show every row's stored setting: on open, and on a change to one while open."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
+
+        self.rest_reach = App.get_running_app().rest_reach()
 
         caps = ctx.lumaview.scope.capabilities
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
@@ -70,19 +90,14 @@ class AdvancedSettings(Popup):
         self._show_camera_modes()
 
         video_settings = settings['video']
-        self.ids['video_max_fps_input'].text = str(video_settings['max_fps'])
+        for slider_id in self._FPS_LIMITS:
+            self._show_fps_limit(slider_id)
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
         self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
 
         self.ids['separate_folder_per_channel_id'].state = (
             'down' if settings['separate_folder_per_channel'] else 'normal'
         )
-
-        # The runtime fps mirror (ctx.live_view_fps) and scope_display are
-        # initialized at app startup; the slider just reflects the stored value.
-        # fps=0 means uncapped, which maps to the slider's top position.
-        live_fps = settings['live_view_fps']
-        self.ids['live_view_fps_slider'].value = 65 if live_fps == 0 else live_fps
 
         self.ids['protocol_led_on_btn'].state = 'down' if settings['protocol_led_on'] else 'normal'
 
@@ -92,7 +107,9 @@ class AdvancedSettings(Popup):
 
         # Setting the slider value drives the text via the kv binding
         # (text: format(acceleration_pct_slider.value)).
-        self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
+        show_on_slider(
+            self.ids['acceleration_pct_slider'], settings['motion']['acceleration_max_pct']
+        )
 
         # Populate the dropdown values BEFORE setting the text. The spinner
         # keeps text_autoupdate at its default (False); were it True,
@@ -102,7 +119,7 @@ class AdvancedSettings(Popup):
         self.load_scopes()
         self.ids['scope_spinner'].text = settings['microscope']
 
-        self.stim_supported = firmware_stim_supported()
+        self.stim_supported = _app_ctx.ctx.scope.capabilities.has_firmware_stim
         self.ids['stimulation_settings_btn'].state = (
             'down' if settings['stimulation_enabled'] else 'normal'
         )
@@ -130,9 +147,9 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         state = self.ids['high_conversion_gain'].active
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.set_high_conversion_gain(state),
+            lambda: camera.set_high_conversion_gain(state),
             self._show_camera_modes,
             'HIGH_CONVERSION_GAIN',
             lane=ctx.camera_executor,
@@ -142,24 +159,56 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         state = self.ids['line_noise_reduction'].active
         gui_logger.select('LINE_NOISE_REDUCTION', state)
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.set_line_noise_reduction(state),
+            lambda: camera.set_line_noise_reduction(state),
             self._show_camera_modes,
             'LINE_NOISE_REDUCTION',
             lane=ctx.camera_executor,
         )
 
-    def update_video_max_fps(self):
-        # 0 = no limit: the recording rate is then bounded only by
-        # exposure and the delivery constant; non-zero is the user's
-        # explicit cap on the recording cadence.
-        widget = self.ids['video_max_fps_input']
-        gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
-        if self._commit_video_limit(
-            widget, 'video.max_fps', lambda settings: settings['video']['max_fps'], 'VIDEO_MAX_FPS'
-        ):
-            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', widget.text)
+    # The two rate caps, by slider: the setting each writes and the highest cap
+    # it offers. The slider's top position, one past that cap, is no cap,
+    # stored as 0.
+    _FPS_LIMITS: typing.ClassVar[dict[str, tuple[str, int]]] = {
+        'recording_max_fps_slider': ('video.max_fps', VIDEO_MAX_FPS_LIMIT),
+        'display_max_fps_slider': ('live_view_fps', LIVE_VIEW_FPS_LIMIT),
+    }
+
+    def recording_max_fps_slider(self):
+        # Caps the frames a recording keeps, manual or a protocol's video
+        # step; the camera itself runs free.
+        value = self._fps_limit_released('recording_max_fps_slider')
+        gui_logger.slider('RECORDING_MAX_FPS', value)
+        self._store_fps_limit('recording_max_fps_slider', value, 'RECORDING_MAX_FPS')
+
+    def display_max_fps_slider(self):
+        # Caps only how often the live view redraws; the running display
+        # follows the store (ui/listener_bridge.py).
+        value = self._fps_limit_released('display_max_fps_slider')
+        gui_logger.slider('DISPLAY_MAX_FPS', value)
+        self._store_fps_limit('display_max_fps_slider', value, 'DISPLAY_MAX_FPS')
+
+    def _fps_limit_released(self, slider_id: str) -> int:
+        """The cap a rate-cap slider was released at: 0 at the top position."""
+        _path, limit = self._FPS_LIMITS[slider_id]
+        value = int(self.ids[slider_id].value)
+        return 0 if value > limit else value
+
+    def _store_fps_limit(self, slider_id: str, value: int, label: str) -> None:
+        """Hand a rate cap to the settings writer; the slider then shows what is stored."""
+        ctx = _app_ctx.ctx
+        path, _limit = self._FPS_LIMITS[slider_id]
+        run_reported(
+            lambda: ctx.update_settings(path, value),
+            lambda: self._show_fps_limit(slider_id),
+            label,
+        )
+
+    def _show_fps_limit(self, slider_id: str) -> None:
+        path, limit = self._FPS_LIMITS[slider_id]
+        stored = _app_ctx.ctx.session.get_setting(path)
+        show_on_slider(self.ids[slider_id], limit + 1 if stored == 0 else stored)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -168,7 +217,7 @@ class AdvancedSettings(Popup):
         gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
         if self._commit_video_limit(
             widget,
-            'video.max_duration_seconds',
+            'video.max_duration_s',
             get_manual_video_max_duration,
             'VIDEO_MAX_DURATION_S',
         ):
@@ -206,24 +255,6 @@ class AdvancedSettings(Popup):
         gui_logger.toggle('SEPARATE_FOLDERS', state)
         _app_ctx.ctx.update_settings('separate_folder_per_channel', state)
 
-    def live_view_fps_slider(self):
-        ctx = _app_ctx.ctx
-        fps_val = int(self.ids['live_view_fps_slider'].value)
-        gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" -- store 0 as sentinel.
-        if fps_val > 60:
-            fps_val = 0
-        ctx.live_view_fps = fps_val
-        ctx.update_settings('live_view_fps', fps_val)
-        logger.info(
-            f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
-        )
-
-        scope_display = ctx.scope_display
-        if scope_display is not None:
-            scope_display.stop()
-            scope_display.start(fps=fps_val)
-
     def update_protocol_led_on(self):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
@@ -238,7 +269,7 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         enabled = self.ids['stimulation_settings_btn'].state == 'down'
         gui_logger.toggle('STIMULATION_ENABLED', enabled)
-        ctx.settings['stimulation_enabled'] = enabled
+        ctx.update_settings('stimulation_enabled', enabled)
         # The microscope panel owns the per-layer stim sync; the startup load
         # re-uses the same owner, so the toggle and load stay in lockstep.
         ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()
@@ -247,10 +278,9 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         overlap = float(self.ids['tiling_overlap_spinner'].text.strip().rstrip('%'))
         # on_open populates the spinner with the stored value; that programmatic
-        # write is not a user change, so skip the action log and redundant write.
+        # write is not a user change, so skip the redundant write.
         if overlap == ctx.settings['tiling_overlap_percent']:
             return
-        gui_logger.select('TILING_OVERLAP', overlap)
         run_reported(
             lambda: ctx.update_settings('tiling_overlap_percent', overlap),
             None,
@@ -276,7 +306,6 @@ class AdvancedSettings(Popup):
         # already in effect is not a scope change, so skip the reconfigure.
         if new_model == settings['microscope']:
             return
-        gui_logger.select('SCOPE', new_model)
         run_reported(
             lambda: ctx.session.select_model(new_model),
             self._show_saved_model,
@@ -292,7 +321,7 @@ class AdvancedSettings(Popup):
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
         gui_logger.slider('ACCELERATION', acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
+        self.set_acceleration_limit(limit_pct=acc_val)
 
     def acceleration_pct_text(self):
         typed = self.ids['acceleration_pct_text'].text
@@ -306,7 +335,7 @@ class AdvancedSettings(Popup):
             return
         # As typed: the motion API owns the range and refuses outside it; the
         # redraw then shows the limit that is stored.
-        self.set_acceleration_limit(val_pct=acc_val)
+        self.set_acceleration_limit(limit_pct=acc_val)
 
     def _show_acceleration_limit(self):
         """Show the box the limit its slider holds, as its kv binding does."""
@@ -328,7 +357,7 @@ class AdvancedSettings(Popup):
     _acceleration_dispatch_trigger = None
     _pending_acceleration_pct = None
 
-    def set_acceleration_limit(self, val_pct):
+    def set_acceleration_limit(self, limit_pct):
         """Hand the acceleration limit to the Session, which commands the motors and stores it.
 
         The motor serial write goes through ``io_executor`` instead of running
@@ -341,7 +370,7 @@ class AdvancedSettings(Popup):
         slider always lands on the last value the user picked.
         """
         # Stash the most recent value; the trigger reads it when it fires.
-        self._pending_acceleration_pct = int(val_pct)
+        self._pending_acceleration_pct = int(limit_pct)
         if self._acceleration_dispatch_trigger is None:
             self._acceleration_dispatch_trigger = Clock.create_trigger(
                 lambda dt: self._dispatch_acceleration_to_motor(),
@@ -361,10 +390,10 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         if ctx is None or self._pending_acceleration_pct is None:
             return
-        val_pct = self._pending_acceleration_pct
+        limit_pct = self._pending_acceleration_pct
         session = ctx.session
         submit_reported(
-            lambda: session.set_acceleration_limit(val_pct),
+            lambda: session.set_acceleration_limit(limit_pct),
             self._show_stored_acceleration_limit,
             'ACCELERATION_LIMIT',
             lane=ctx.io_executor,
@@ -377,6 +406,9 @@ class AdvancedSettings(Popup):
 
 kv = Builder.load_string(
     """
+#:import LIVE_VIEW_FPS_LIMIT modules.settings_paths.LIVE_VIEW_FPS_LIMIT
+#:import VIDEO_MAX_FPS_LIMIT modules.settings_paths.VIDEO_MAX_FPS_LIMIT
+
 <SectionHeader@Label>:
     font_size: '13sp'
     bold: True
@@ -433,14 +465,16 @@ kv = Builder.load_string(
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'
-                    Spinner:
+                    PickSpinner:
                         id: scope_spinner
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         sync_height: True
                         text: 'Select'
                         font_size: '12sp'
                         option_cls: 'SpinnerOption0'
                         on_release: root.load_scopes()
+                        log_name: 'SCOPE'
+                        text_follows_pick: True
                         on_text: root.select_scope()
 
                 BoxLayout:
@@ -459,20 +493,19 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     ModSlider:
                         id: acceleration_pct_slider
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         min: 1
                         max: 100
                         value: 100
                         step: 1
                         cursor_size: '20dp','20dp'
                         cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.acceleration_pct_slider()
-                    TextInput:
+                    CommitInput:
                         id: acceleration_pct_text
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '40dp'
                         multiline: False
@@ -481,7 +514,7 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
-                        on_focus: if not self.focus: root.acceleration_pct_text()
+                        on_commit: root.acceleration_pct_text()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
                 # collapses with the row, so the invisible button cannot overlap
@@ -503,7 +536,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: stimulation_settings_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: 'Enable stimulation features globally'
                         width: '45dp'
@@ -514,6 +547,20 @@ kv = Builder.load_string(
                         background_down: './data/icons/ToggleRW.png'
                         on_release: root.update_stimulation_settings()
                         state: 'normal'
+
+            # Full width, outside the two-column grid: an address and its
+            # guard need the room.
+            Label:
+                id: rest_reach_id
+                text: 'REST server: ' + root.rest_reach
+                tooltip_text: 'Set by rest_api in the settings file, with LumaViewPro closed'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+                size_hint_y: None
+                height: '24dp'
+                padding: dp(10), 0
 
             SectionHeader:
                 text: 'Camera'
@@ -539,7 +586,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: high_conversion_gain
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -560,7 +607,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: line_noise_reduction
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -571,24 +618,33 @@ kv = Builder.load_string(
                     size_hint_y: None
                     height: '30dp'
                     Label:
-                        text: 'Video max FPS'
-                        tooltip_text: 'Maximum frames per second for manual recording.\\n0 = no limit (camera free-run rate).\\nAt low FPS the camera is rate-limited so live preview slows too;\\nrestored to free-run when recording stops.'
+                        text: 'Recording max FPS'
+                        tooltip_text: 'Most frames per second a recording keeps: manual recordings\\nand protocol video steps. Max keeps every frame the camera\\ndelivers. The camera and the live view are not slowed.'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
+                    ModSlider:
+                        id: recording_max_fps_slider
+                        disabled: app.lock.run_lockout
+                        min: 1
+                        max: VIDEO_MAX_FPS_LIMIT + 1
+                        value: VIDEO_MAX_FPS_LIMIT + 1
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.recording_max_fps_slider()
                     TextInput:
-                        id: video_max_fps_input
-                        disabled: app.run_lockout
                         size_hint_x: None
-                        width: '45dp'
+                        width: '40dp'
                         multiline: False
                         font_size: '12sp'
                         padding: ['4dp', (self.height-self.line_height)/2]
                         halign: 'right'
-                        input_filter: 'int'
-                        text: '0'
-                        on_focus: if not self.focus: root.update_video_max_fps()
+                        text: 'Max' if recording_max_fps_slider.value > VIDEO_MAX_FPS_LIMIT else format(int(recording_max_fps_slider.value))
+                        readonly: True
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -601,9 +657,9 @@ kv = Builder.load_string(
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
-                    TextInput:
+                    CommitInput:
                         id: video_max_duration_input
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '45dp'
                         multiline: False
@@ -612,7 +668,40 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_focus: if not self.focus: root.update_video_max_duration()
+                        on_commit: root.update_video_max_duration()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Display max FPS'
+                        tooltip_text: 'Most frames per second the live view draws. Lower uses less CPU.\\nRecordings and captures are not affected.'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    ModSlider:
+                        id: display_max_fps_slider
+                        disabled: app.lock.run_lockout
+                        min: 1
+                        max: LIVE_VIEW_FPS_LIMIT + 1
+                        value: LIVE_VIEW_FPS_LIMIT + 1
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.display_max_fps_slider()
+                    TextInput:
+                        size_hint_x: None
+                        width: '40dp'
+                        multiline: False
+                        font_size: '12sp'
+                        padding: ['4dp', (self.height-self.line_height)/2]
+                        halign: 'right'
+                        text: 'Max' if display_max_fps_slider.value > LIVE_VIEW_FPS_LIMIT else format(int(display_max_fps_slider.value))
+                        readonly: True
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -627,45 +716,11 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     CheckBox:
                         id: video_timestamp_overlay_id
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: True
                         on_release: root.update_video_timestamp_overlay()
-
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Live View FPS'
-                        tooltip_text: 'Maximum frames per second for live camera display'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    ModSlider:
-                        id: live_view_fps_slider
-                        disabled: app.run_lockout
-                        min: 5
-                        max: 65
-                        value: 30
-                        step: 5
-                        cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
-                        value_track: True
-                        value_track_width: dp(5)
-                        on_release: root.live_view_fps_slider()
-                    TextInput:
-                        size_hint_x: None
-                        width: '40dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
-                        readonly: True
 
             SectionHeader:
                 text: 'Protocol'
@@ -689,7 +744,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: protocol_led_on_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
                         size: '45dp', '30dp'
@@ -712,7 +767,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: keep_led_between_steps_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "During a protocol scan, keep the LED on while the stage moves between steps instead of switching it off and back on. Speeds up brightfield scans; off by default."
                         size: '45dp', '30dp'
@@ -735,9 +790,9 @@ kv = Builder.load_string(
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
-                    Spinner:
+                    PickSpinner:
                         id: tiling_overlap_spinner
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         sync_height: True
                         text: '0%'
                         font_size: '12sp'
@@ -748,6 +803,8 @@ kv = Builder.load_string(
                         option_cls: 'SpinnerOption0'
                         text_autoupdate: True
                         values: ('0%', '10%', '15%', '20%')
+                        log_name: 'TILING_OVERLAP'
+                        text_follows_pick: True
                         on_text: root.update_tiling_overlap()
                     # Kivy sizes a Spinner's dropdown to the Spinner itself, so
                     # the 65dp this carried clipped the option list rather than
@@ -789,7 +846,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: separate_folder_per_channel_id
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "Save each channels' images in separate folders"
                         size: '45dp', '30dp'

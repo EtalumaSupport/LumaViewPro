@@ -42,7 +42,7 @@ class Scheduler(Protocol):
 
     Implementations let MetricsLogger (and any future Lumascope-side
     periodic work) fire on a cadence without coupling to a specific
-    event loop. The protocol is intentionally tiny -- three methods --
+    event loop. The protocol is intentionally tiny -- four methods --
     so the surface stays implementable from any host environment.
 
     All methods are safe to call from any thread. Cancellation must
@@ -57,6 +57,15 @@ class Scheduler(Protocol):
         """
         ...
 
+    def schedule_once(self, callback: TickCallback, delay_s: float) -> object:
+        """Fire ``callback`` once, ``delay_s`` seconds from now, on the scheduler's thread.
+
+        A raising ``callback`` is reported as a raising tick is. Returns
+        an opaque handle suitable for ``unschedule(handle)``, which
+        cancels it if it has not fired.
+        """
+        ...
+
     def unschedule(self, handle: object) -> None:
         """Cancel the schedule represented by ``handle``. Idempotent."""
         ...
@@ -65,7 +74,7 @@ class Scheduler(Protocol):
         """Cancel every schedule this scheduler owns + release resources.
 
         Idempotent. After ``shutdown()`` the scheduler refuses new
-        ``schedule_interval`` calls.
+        ``schedule_interval`` and ``schedule_once`` calls.
         """
         ...
 
@@ -174,9 +183,30 @@ class ThreadingTimerScheduler:
         self._lock = threading.Lock()
         self._next_id = 0
 
-    def schedule_interval(self, callback, interval_s):
+    def schedule_interval(self, callback: TickCallback, interval_s: float) -> _PeriodicTimer:
         if self._closed:
             raise RuntimeError('ThreadingTimerScheduler is shutdown; refusing new schedule')
+        timer = self._timer(callback, interval_s)
+        timer.start()
+        return timer
+
+    def schedule_once(self, callback: TickCallback, delay_s: float) -> _PeriodicTimer:
+        if self._closed:
+            raise RuntimeError('ThreadingTimerScheduler is shutdown; refusing new schedule')
+
+        # The timer cancels itself before the callback runs, so it does not
+        # re-arm whether the callback returns or raises, and a raise still
+        # reaches the timer's own error report.
+        def _once() -> None:
+            self.unschedule(timer)
+            callback()
+
+        timer = self._timer(_once, delay_s)
+        timer.start()
+        return timer
+
+    def _timer(self, callback: TickCallback, interval_s: float) -> _PeriodicTimer:
+        """A named, tracked timer for ``callback``, not yet started."""
         with self._lock:
             self._next_id += 1
             tid = self._next_id
@@ -188,7 +218,6 @@ class ThreadingTimerScheduler:
         )
         with self._lock:
             self._timers.append(timer)
-        timer.start()
         return timer
 
     def unschedule(self, handle):
@@ -211,68 +240,5 @@ class ThreadingTimerScheduler:
         for t in timers:
             try:
                 t.cancel()
-            except Exception:
-                pass
-
-
-# --------------- backwards-compat callable adapter ---------------
-#
-# Pre-LVP-A-13 callers passed two callables (``Clock.schedule_interval,
-# Clock.unschedule``) directly into ``MetricsLogger.start``. The new
-# Scheduler-based start() accepts a Scheduler instance, but we keep
-# the two-callable form working via this adapter so a callsite that
-# hasn't migrated yet keeps building. Delete after the last caller
-# migrates.
-
-
-class _CallablePairScheduler:
-    """Wraps a (schedule_interval_fn, unschedule_fn) pair as a Scheduler.
-
-    Used by the backwards-compat path inside MetricsLogger.start; not
-    expected to be constructed by user code (use
-    ThreadingTimerScheduler instead).
-    """
-
-    def __init__(self, schedule_interval_fn, unschedule_fn):
-        self._schedule = schedule_interval_fn
-        self._unschedule = unschedule_fn
-        self._handles: list[object] = []
-        self._closed = False
-        self._lock = threading.Lock()
-
-    def schedule_interval(self, callback: TickCallback, interval_s: float) -> object:
-        if self._closed:
-            raise RuntimeError('_CallablePairScheduler is shutdown; refusing new schedule')
-
-        # The host clock passes the elapsed time; the callback takes none.
-        def _wrapped(_dt: float = 0) -> None:
-            callback()
-
-        h = self._schedule(_wrapped, interval_s)
-        with self._lock:
-            self._handles.append(h)
-        return h
-
-    def unschedule(self, handle):
-        if handle is None:
-            return
-        try:
-            self._unschedule(handle)
-        except Exception:
-            pass
-        with self._lock:
-            try:
-                self._handles.remove(handle)
-            except ValueError:
-                pass
-
-    def shutdown(self):
-        with self._lock:
-            handles = list(self._handles)
-            self._handles.clear()
-            self._closed = True
-        for h in handles:
-            try:
-                self._unschedule(h)
             except Exception:
                 pass

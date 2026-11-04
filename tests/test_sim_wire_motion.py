@@ -8,19 +8,16 @@ ramp runs at the fitted chip clock, and a STOP mid-move stops the stage
 short, which the fast tier cannot show.
 """
 
-import sys
 import time
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture
@@ -75,6 +72,31 @@ class TestMovesInInstantMode:
         left, _right = board.limit_switch_status('X')
         assert left == 1
         assert board.current_pos('X') < 0
+
+    @pytest.mark.slow
+    def test_a_board_that_stops_answering_during_the_wait_raises_its_fault(self, board):
+        """A board gone silent is its no-reply fault, not an axis short of its target."""
+        assert board.home() is None
+        board.move('X', -400_000)  # never arrives, so the wait polls to its deadline
+        port = board._backend.motor_board
+        port.drop_next_reply(count=1000)
+        try:
+            with pytest.raises(BoardNoReplyError):
+                board.wait_for_position('X', timeout=0.3)
+        finally:
+            port.disarm_reply()
+
+
+def test_a_garbled_status_reply_is_unreadable_for_the_switch_and_arrival_reads(board):
+    """A reply that is not a number is the board's unreadable-reply fault, for
+    both reads, which share the one STATUS_R read."""
+    port = board._backend.motor_board
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        board.limit_switch_status('Z')
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        board.target_status('Z')
 
 
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic')], indirect=True)

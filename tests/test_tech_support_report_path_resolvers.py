@@ -45,7 +45,7 @@ def test_get_user_documents_uses_platformdirs(monkeypatch):
 
 def test_user_documents_no_hardcoded_documents_string():
     """Source-text guard: catch a re-introduction of Path.home() / 'Documents'."""
-    src = pathlib.Path(tech_support_report.__file__).read_text()
+    src = pathlib.Path(tech_support_report.__file__).read_text(encoding='utf-8')
     needle = "Path.home() / 'Documents'"
     assert needle not in src, (
         f'tech_support_report.py contains {needle!r}; resolution must go '
@@ -56,7 +56,7 @@ def test_user_documents_no_hardcoded_documents_string():
 
 def test_user_desktop_no_hardcoded_desktop_string():
     """Source-text guard: catch a re-introduction of Path.home() / 'Desktop'."""
-    src = pathlib.Path(tech_support_report.__file__).read_text()
+    src = pathlib.Path(tech_support_report.__file__).read_text(encoding='utf-8')
     needle = "Path.home() / 'Desktop'"
     assert needle not in src, (
         f'tech_support_report.py contains {needle!r}; resolution must go '

@@ -17,12 +17,14 @@ import pytest
 
 from modules.exceptions import ProtocolNotLoadedError, Refusal
 from modules.notification_center import NotificationCenter, Severity
-from modules.protocol import Protocol, ProtocolFormatError
-from tests.test_protocol_roundtrip import TILING_CONFIGS
+from modules.protocol import ProtocolFormatError
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _load(path):
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    return protocol_from_file(
+        file_path=path,
+    )
 
 
 def _report(error):

@@ -18,13 +18,16 @@ restart the grab N times must wait at least N geometry limits.
 from __future__ import annotations
 
 import ast
+import types
 from pathlib import Path
 
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import REPO_ROOT as _ROOT
+from tests.ast_seams import MemberNames
 
-_RESTART_PRIMITIVES = frozenset({'update_camera_config', 'stop_grabbing'})
+_RESTART_PRIMITIVES = MemberNames('drivers/camera.py', {'update_camera_config', 'stop_grabbing'})
 
 
 def _receiver(value: ast.expr) -> tuple[str, ...] | None:
@@ -106,7 +109,7 @@ def _restarting_driver_methods() -> frozenset[str]:
 
 def _dispatches(path: Path):
     """Each ``_dispatch_camera`` in ``path``: (class, enclosing method, impl, timeout expression)."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding='utf-8'))
     for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
         for fn in (m for m in cls.body if isinstance(m, ast.FunctionDef)):
             for call in ast.walk(fn):
@@ -116,7 +119,17 @@ def _dispatches(path: Path):
                     and call.func.attr == '_dispatch_camera'
                 ):
                     timeout = next(k.value for k in call.keywords if k.arg == 'timeout_s')
-                    yield cls.name, fn, call.args[0], timeout
+                    impl = call.args[0]
+                    # A raw door hands its body over through _no_layers_write,
+                    # and a stored setting through _saved_after; each runs
+                    # the same body.
+                    if (
+                        isinstance(impl, ast.Call)
+                        and isinstance(impl.func, ast.Attribute)
+                        and impl.func.attr in ('_no_layers_write', '_saved_after')
+                    ):
+                        impl = impl.args[0]
+                    yield cls.name, fn, impl, timeout
 
 
 def _impl_names(cls_methods, fn: ast.FunctionDef, impl: ast.expr) -> list[str]:
@@ -153,7 +166,9 @@ def _restarts(cls_methods, name: str, restarting: frozenset[str], seen=frozenset
 
 def _limit(owner: type, timeout: ast.expr) -> float | None:
     """The timeout's value from the owner's constants; None when it is the caller's declared work."""
-    namespace = {'self': owner, 'imaging': ImagingAPI, 'max': max}
+    # The capture dispatches on its camera, so ``self._camera`` is the camera's class.
+    own = types.SimpleNamespace(**vars(owner), _camera=CameraAPI)
+    namespace = {'self': own, 'camera': CameraAPI, 'imaging': ImagingAPI, 'max': max}
     try:
         return float(eval(compile(ast.Expression(timeout), '<timeout>', 'eval'), namespace))
     except NameError:
@@ -162,7 +177,7 @@ def _limit(owner: type, timeout: ast.expr) -> float | None:
 
 def _census():
     restarting = _restarting_driver_methods()
-    owners = {'ImagingAPI': ImagingAPI, 'DiagnosticsAPI': DiagnosticsAPI}
+    owners = {'CameraAPI': CameraAPI, 'ImagingAPI': ImagingAPI, 'DiagnosticsAPI': DiagnosticsAPI}
     rows = []
     for path in sorted((_ROOT / 'modules' / 'lumascope_api').glob('*.py')):
         classes = _methods(ast.parse(path.read_text()))
@@ -183,17 +198,18 @@ def test_the_census_finds_the_restarting_commands():
     """The instrument reports presence: the commands known to restart the grab
     are found, with the counts their bodies make."""
     counts = {name: restarts for name, restarts, _, _ in _census()}
-    assert counts['ImagingAPI._set_frame_size_impl'] == 1
-    assert counts['ImagingAPI._set_pixel_format_impl'] == 1
-    assert counts['ImagingAPI._set_conversion_gain_mode_impl'] == 1
-    assert counts['ImagingAPI._restore_camera_state_impl'] == 3
-    assert counts['ImagingAPI._set_gain_db_impl'] == 0
+    assert counts['CameraAPI._frame_and_save_impl'] == 1
+    assert counts['CameraAPI._bin_and_save_impl'] == 2
+    assert counts['CameraAPI._set_pixel_format_impl'] == 1
+    assert counts['CameraAPI._set_conversion_gain_mode_impl'] == 1
+    assert counts['CameraAPI._restore_camera_state_impl'] == 5
+    assert counts['CameraAPI._set_gain_db_impl'] == 0
 
 
 def test_a_command_that_may_restart_the_grab_waits_for_every_restart():
     short = [
         f'{name}: may restart the grab {restarts} time(s) but waits {expr} = {limit} s'
         for name, restarts, limit, expr in _census()
-        if limit is not None and limit < restarts * ImagingAPI._CAMERA_GEOMETRY_TIMEOUT_S
+        if limit is not None and limit < restarts * CameraAPI._CAMERA_GEOMETRY_TIMEOUT_S
     ]
     assert not short, '\n'.join(short)

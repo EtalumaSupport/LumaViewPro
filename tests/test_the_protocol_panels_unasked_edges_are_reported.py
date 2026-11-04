@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from tests.protocol_fixtures import protocol_of
 
 
 class _StubWidget:
@@ -51,7 +52,7 @@ for _name, _attr in (
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.notification_center import notifications
-from modules.protocol import Protocol
+from modules.coord_transformations import PlateLocation
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -70,19 +71,20 @@ LAYER_CONFIG = {
 
 
 def _protocol(num_steps):
-    protocol = Protocol(
-        tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
+    protocol = protocol_of(
         config={'steps': pd.DataFrame(), 'custom_step_count': 0},
     )
     for i in range(num_steps):
         protocol.insert_step(
+            channel_group_id=protocol.new_channel_group_id(),
+            turret_slot=-1,
             step_name=None,
             layer='BF',
             layer_config=LAYER_CONFIG,
-            plate_position={'x': float(i), 'y': 0.0, 'z': 0.0},
+            plate_position=PlateLocation(x_mm=float(i), y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',
             stim_configs={},
-            after_step=protocol.num_steps() - 1,
+            after_step_index=protocol.num_steps() - 1,
         )
     return protocol
 

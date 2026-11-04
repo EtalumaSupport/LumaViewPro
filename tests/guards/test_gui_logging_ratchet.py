@@ -35,8 +35,16 @@ before editing the roster.
 
 from __future__ import annotations
 
-from tests.gui_logging_census import LOAD_STRING_MODULES, census
-from tests.ast_seams import REPO_ROOT
+import pytest
+
+from tests.gui_logging_census import (
+    LOAD_STRING_MODULES,
+    census,
+    handlers_run_twice_by_a_write,
+    modules_holding_load_string,
+    person_handlers_called_from_python,
+    person_records_on_value_changes,
+)
 
 
 def _D(helper):
@@ -50,13 +58,6 @@ def _D(helper):
 # Controls that reach no gui_logger record at all. Each needs a reason; a new
 # entry is a decision, not a formality.
 _UNLOGGED = {
-    # Found by this commit's sweep, same class as D8 and invisible to every
-    # census before it. Cancelling a stalled support-report / zip-logs /
-    # stitching run leaves no record, although each of those runs logs its
-    # START (GENERATE_SUPPORT_REPORT, ZIP_LOGS, RUN_STITCHER). A bundle can
-    # therefore show an operation beginning and never finishing with nothing
-    # saying the user stopped it. Fix is commit 4.
-    'CustomPopup.Button(cancel)': 'gap -- fill in commit 4',
     # NOT a gap: dismissing a modal is not a control action. No close or
     # dismiss button anywhere in the app is censused, and the notification
     # popup's equivalent is carried by gui_logger.popup_response instead.
@@ -68,8 +69,9 @@ _ROSTER = {
     'AdvancedSettings.high_conversion_gain': ('HIGH_CONVERSION_GAIN',),
     'AdvancedSettings.keep_led_between_steps_btn': ('KEEP_LED_BETWEEN_STEPS',),
     'AdvancedSettings.line_noise_reduction': ('LINE_NOISE_REDUCTION',),
-    'AdvancedSettings.live_view_fps_slider': ('FPS',),
+    'AdvancedSettings.display_max_fps_slider': ('DISPLAY_MAX_FPS',),
     'AdvancedSettings.protocol_led_on_btn': ('PROTOCOL_LED_ON',),
+    'AdvancedSettings.recording_max_fps_slider': ('RECORDING_MAX_FPS',),
     'AdvancedSettings.scope_spinner': ('SCOPE',),
     'AdvancedSettings.separate_folder_per_channel_id': ('SEPARATE_FOLDERS',),
     'AdvancedSettings.show_step_locations_id': ('SHOW_STEP_LOCATIONS',),
@@ -79,7 +81,6 @@ _ROSTER = {
         'VIDEO_MAX_DURATION_S',
         'VIDEO_MAX_DURATION_S_APPLIED',
     ),
-    'AdvancedSettings.video_max_fps_input': ('VIDEO_MAX_FPS', 'VIDEO_MAX_FPS_APPLIED'),
     'AdvancedSettings.video_timestamp_overlay_id': ('VIDEO_TIMESTAMP_OVERLAY',),
     'CellCountControls.FileChooseBTN(choose:load_cell_count_input_image)': (
         'FILE_CHOOSE',
@@ -107,6 +108,8 @@ _ROSTER = {
     'CellCountControls.slider_cell_count_sphericity_id': ('CELL_COUNT_SPHERICITY_RANGE',),
     'CellCountControls.slider_cell_count_threshold_id': ('CELL_COUNT_THRESHOLD',),
     'CellCountControls.text_cell_count_pixels_per_um_id': ('CELL_COUNT_PIXELS_PER_UM',),
+    # The popup's title names whose Cancel it was.
+    'CustomPopup.Button(cancel)': (_D('cancel'),),
     'CompositeGenControls.FolderChooseBTN(choose:apply_composite_gen_to_folder)': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',
@@ -164,10 +167,7 @@ _ROSTER = {
     'MainDisplay.capture_btn': ('LIVE_CAPTURE',),
     'MainDisplay.composite_btn': ('COMPOSITE_CAPTURE',),
     'MainDisplay.fit_btn': ('FIT_IMAGE',),
-    'MainDisplay.live_btn': (
-        'CAM_PLAY',
-        'CAM_TOGGLE',
-    ),
+    'MainDisplay.live_btn': ('CAM_PLAY',),
     'MainDisplay.live_folder_btn': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',
@@ -175,6 +175,8 @@ _ROSTER = {
     'MainDisplay.one2one_btn': ('ONE_TO_ONE_IMAGE',),
     'MainDisplay.open_last_save_folder': ('OPEN_SAVE_FOLDER',),
     'MainDisplay.record_btn': ('RECORD',),
+    'MainDisplay.stop_button_id': ('STOP',),
+    'MainDisplay.take_back_control_btn': ('TAKE_BACK_CONTROL',),
     # The FRAME_SIZE record now comes from the redraw after the camera answers
     # (_framing_applied), passed as a callback the static census does not follow.
     'MicroscopeSettings.binning_spinner': ('BINNING',),
@@ -210,7 +212,6 @@ _ROSTER = {
     'ProtocolSettings.RoundedButton(save_protocol)': ('SAVE',),
     'ProtocolSettings.acquire_zstack_id': ('ACQUIRE_ZSTACK',),
     'ProtocolSettings.add_step_btn': ('INSERT_STEP',),
-    'ProtocolSettings.bf_af_for_fluorescence_btn': ('BF_AF_FOR_FLUORESCENCE',),
     'ProtocolSettings.capture_dur': ('PROTOCOL_DURATION',),
     'ProtocolSettings.capture_period': ('PROTOCOL_PERIOD',),
     'ProtocolSettings.capture_root': ('CAPTURE_ROOT',),
@@ -240,19 +241,37 @@ _ROSTER = {
     ),
     'ProtocolSettings.tiling_size_apply_id': ('APPLY_TILING',),
     'ProtocolSettings.tiling_size_spinner': ('TILING',),
-    'QuickEnhanceControls.FileOrFolderChooseBTN(choose:choose_quick_enhance_target)': (
-        'FILE_OR_FOLDER_CHOOSE',
-        'FILE_OR_FOLDER_CHOOSE_OPEN',
+    'QuickEnhanceControls.FileChooseBTN(choose:load_quick_enhance_input_image)': (
+        'FILE_CHOOSE',
+        'FILE_CHOOSE_OPEN',
+    ),
+    'QuickEnhanceControls.FolderChooseBTN(choose:apply_quick_enhance_to_folder)': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ),
+    # A touch on the live view: click-to-centre.
+    'ShaderViewer.scope_display_id': ('SCOPE_CLICK_TO_CENTER',),
+    # Each sets the stitching mode, then chooses the folder; RUN_STITCHER's
+    # mode= records which of the two ran.
+    'StitchControls.fast_preview_stitch_btn': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ),
+    'StitchControls.quality_stitch_btn': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
     ),
     'VerticalControl.RoundedButton(goto_bookmark)': ('GOTO_Z_BOOKMARK',),
     'VerticalControl.RoundedButton(set_all_bookmarks)': ('SET_ALL_BOOKMARKS',),
     'VerticalControl.RoundedButton(set_bookmark)': ('SET_Z_BOOKMARK',),
+    # Its own record: the question it opens is the objective prompt's, whose
+    # answer and Cancel are recorded as popup responses.
+    'VerticalControl.assign_objective_btn': ('ASSIGN_OBJECTIVE',),
     'VerticalControl.autofocus_id': ('AUTOFOCUS',),
     'VerticalControl.fast_down': (_D('coarse_down'),),
     'VerticalControl.fast_up': (_D('coarse_up'),),
     'VerticalControl.home_id': ('HOME_Z',),
     'VerticalControl.obj_position': ('Z_POSITION',),
-    'VerticalControl.objective_spinner2': ('OBJECTIVE',),
     # Narrowed to its own record: the reset no longer reaches the
     # objective prompt, so it can no longer write that prompt's OBJECTIVE.
     # Widening this again would mean the button had been given back a
@@ -276,10 +295,10 @@ _ROSTER = {
     ),
     'VideoCreationControls.enable_timestamp_overlay_btn': ('VIDEO_TIMESTAMP_OVERLAY_BTN',),
     'VideoCreationControls.video_gen_fps_id': ('VIDEO_GEN_FPS',),
-    'XYStageControl.Button:(coarse_fwd)': (_D('coarse_fwd'),),
-    'XYStageControl.Button:(coarse_left)': (_D('coarse_left'),),
-    'XYStageControl.Button:(fine_back)': (_D('fine_back'),),
-    'XYStageControl.Button:(fine_fwd)': (_D('fine_fwd'),),
+    'XYStageControl.IconButton:(coarse_fwd)': (_D('coarse_fwd'),),
+    'XYStageControl.IconButton:(coarse_left)': (_D('coarse_left'),),
+    'XYStageControl.IconButton:(fine_back)': (_D('fine_back'),),
+    'XYStageControl.IconButton:(fine_fwd)': (_D('fine_fwd'),),
     'XYStageControl.RoundedButton(goto_xbookmark)': ('GOTO_X_BOOKMARK',),
     'XYStageControl.RoundedButton(goto_ybookmark)': ('GOTO_Y_BOOKMARK',),
     'XYStageControl.RoundedButton(set_xbookmark)': ('SET_X_BOOKMARK',),
@@ -311,14 +330,8 @@ _ROSTER = {
     # Accordion items: each records SELECT <group> <item> from
     # LoggedAccordionItem's touch handler (tests/gui_logging_census.py
     # accordion_items).
-    'AccordionItemImageSettingsBlueControl.Blue_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsDfControl.DF_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsGreenControl.Green_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsLumiControl.Lumi_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsRedControl.Red_accordion': ('IMAGE_LAYER',),
     'AccordionItemXyStageControl.<rule>': ('SETTINGS_SECTION',),
-    'ImageSettings.BF_accordion': ('IMAGE_LAYER',),
-    'ImageSettings.PC_accordion': ('IMAGE_LAYER',),
+    'ChannelDrawer.<rule>': ('IMAGE_LAYER',),
     'MotionSettings.motionsettings_microscope_accordion_id': ('SETTINGS_SECTION',),
     'MotionSettings.motionsettings_postprocessing_accordion_id': ('SETTINGS_SECTION',),
     'MotionSettings.motionsettings_protocol_accordion_id': ('SETTINGS_SECTION',),
@@ -412,11 +425,7 @@ def test_no_new_kv_source_escapes_the_census():
     hole, and nothing else in the suite would notice.
     """
     declared = set(LOAD_STRING_MODULES)
-    actual = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in sorted(REPO_ROOT.glob('ui/*.py'))
-        if 'Builder.load_string' in path.read_text()
-    }
+    actual = set(modules_holding_load_string())
     unregistered = sorted(actual - declared)
     assert not unregistered, (
         f'{unregistered} define kv rules via Builder.load_string but are not '
@@ -425,6 +434,74 @@ def test_no_new_kv_source_escapes_the_census():
     )
     stale = sorted(declared - actual)
     assert not stale, f'{stale} no longer hold a load_string block.'
+
+
+def test_a_load_string_the_census_cannot_read_is_refused(monkeypatch, tmp_path):
+    # A load_string handed a name, not a literal: its kv is unreadable without
+    # running the module, so the census refuses it instead of reading nothing.
+    import tests.gui_logging_census as gui_census
+
+    module = tmp_path / 'scratch_kv_module.py'
+    module.write_text("KV = '<Scratch@BoxLayout>:'\nBuilder.load_string(KV)\n")
+    monkeypatch.setattr(gui_census, 'LOAD_STRING_MODULES', (str(module),))
+    with pytest.raises(ValueError, match=r'scratch_kv_module\.py:2 passes Builder\.load_string'):
+        gui_census.kv_sources()
+
+
+def test_a_handler_written_under_its_event_is_censused(monkeypatch):
+    # The Stitch buttons' shape: nothing after the colon, an assignment on the
+    # first body line and the call on the second, so a reader of the first
+    # line alone misses the record.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<StitchControls>:\n'
+        '    FolderChooseBTN:\n'
+        '        id: scratch_stitch_btn\n'
+        '        on_release:\n'
+        "            root.stitching_mode = 'Quality'\n"
+        "            self.choose('apply_stitching_to_folder')\n"
+        '        disabled: app.lock.run_lockout\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    surface = gui_census.census()
+    assert 'StitchControls.scratch_stitch_btn' in surface, sorted(surface)
+    assert surface['StitchControls.scratch_stitch_btn']['static'] == [
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ]
+
+
+def test_a_touch_binding_is_censused(monkeypatch):
+    # A touch is a person's: the live view's click-to-centre binds one.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<ShaderViewer>:\n'
+        '    ScopeDisplay:\n'
+        '        id: scratch_display\n'
+        '        on_touch_down: self.touch(args[0], args[1])\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    surface = gui_census.census()
+    assert 'ShaderViewer.scratch_display' in surface, sorted(surface)
+    assert surface['ShaderViewer.scratch_display']['static'] == ['SCOPE_CLICK_TO_CENTER']
+
+
+def test_an_event_the_census_does_not_know_is_refused(monkeypatch):
+    # An event in neither list is refused, naming where it is, so the next
+    # new shape is read or named instead of dropped.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<Scratch@BoxLayout>:\n'
+        '    Button:\n'
+        '        id: scratch_btn\n'
+        '        on_double_tap: root.scratch_handler()\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    with pytest.raises(ValueError, match=r'scratch\.kv:4 binds on_double_tap'):
+        gui_census.census()
 
 
 def test_an_accordion_item_that_records_nothing_is_reported(monkeypatch):
@@ -451,3 +528,85 @@ def test_an_accordion_item_that_records_nothing_is_reported(monkeypatch):
     assert items['Scratch.plain_item']['static'] == []
     assert items['Scratch.half_named_item']['static'] == []
     assert items['Scratch.named_item']['static'] == ['SETTINGS_SECTION']
+
+
+def test_no_person_record_is_written_on_a_value_change():
+    """A value change fires for the app's write as much as for a person's.
+
+    A ``SELECT`` / ``SLIDER`` / ``TOGGLE`` / ``BUTTON`` / ``TEXT_INPUT`` written
+    from ``on_text`` / ``on_value`` / ``on_active`` / ``on_state`` therefore
+    records a pick nobody made whenever the app writes the control -- the
+    startup restore, a redraw, a put-back. A person's record is written from
+    an event only a person raises (a spinner's pick, a slider's release, a
+    press). A handler that returns on ``self._initializing`` before its record
+    is the layer panel's, which writes its own controls with it set.
+    """
+    found = person_records_on_value_changes()
+    assert not found, (
+        f'{len(found)} value-change binding(s) write a person record: {found}. '
+        'Record the person from the pick or the release, not the value change.'
+    )
+
+
+# Callers that run only on a person's act though no kv binding names them.
+_PERSON_CALLERS = {
+    # A native file dialog's result: the person's pick, delivered by the OS
+    # dialog rather than a widget event; the pick's record, and the run it
+    # starts, are that person's.
+    'handle_selection': "the file dialog's result",
+    'on_selection_function': "the file dialog's result",
+}
+
+
+def test_the_app_never_calls_a_persons_handler():
+    """A function that writes a person record, called by the app, records a person who did nothing.
+
+    Matched by name over every Python call in ``ui/`` and ``lumaviewpro.py``
+    made from outside a person's path (a kv binding on a person-only event,
+    a widget's touch handler, or a caller in ``_PERSON_CALLERS``), so a new
+    caller fails here rather than in a bundle.
+    """
+    found = [
+        site
+        for site in person_handlers_called_from_python()
+        if site.split(' ')[1] not in _PERSON_CALLERS
+    ]
+    assert not found, (
+        f'{len(found)} call(s) of a person handler from app code: {found}. '
+        'Call the effect by its own name; the record belongs to the person.'
+    )
+
+
+def test_a_pick_spinner_that_names_no_record_is_reported(monkeypatch):
+    # The census's known positive for spinners: a PickSpinner with no
+    # log_name writes nothing from its pick.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<Scratch@BoxLayout>:\n'
+        '    PickSpinner:\n'
+        '        id: unnamed_spinner\n'
+        '        text_follows_pick: True\n'
+        '    PickSpinner:\n'
+        '        id: named_spinner\n'
+        "        log_name: 'TILING'\n"
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    spinners = gui_census.pick_spinners()
+    assert spinners['Scratch.unnamed_spinner']['static'] == []
+    assert spinners['Scratch.named_spinner']['static'] == ['TILING']
+
+
+def test_a_restore_runs_a_handler_once():
+    """Writing a widget's text runs its ``on_text`` handler; calling it as well runs it twice.
+
+    The settings restore wrote the binning spinner and then called its handler,
+    so every cold start applied the stored binning twice; the labware and
+    video-format restores had the same shape. A function that writes a
+    widget's text leaves its handler to that write.
+    """
+    found = handlers_run_twice_by_a_write()
+    assert not found, (
+        f'{len(found)} function(s) write a widget and call its on_text handler too: {found}. '
+        'The write already runs the handler.'
+    )

@@ -20,22 +20,29 @@ import pathlib
 import subprocess
 import sys
 
+from tests.bench_results import linked_checkout
+
 CAPABILITY = pathlib.Path(__file__).resolve().parent / 'capability'
 REPO = CAPABILITY.parents[1]
 
 
 def _run(args, scratch, code=None):
+    # From a folder of links into the checkout, so the run's console file
+    # lands in that folder's log folder, never the checkout's; `-P`, because
+    # Python would otherwise put the script's resolved folder first.
+    folder = linked_checkout(scratch)
+    capability = folder / 'tests' / 'capability'
     env = dict(os.environ)
-    env['PYTHONPATH'] = os.pathsep.join([str(CAPABILITY), str(REPO), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join([str(capability), str(folder), env.get('PYTHONPATH', '')])
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
-    command = [sys.executable, *(['-c', code] if code else []), *args]
+    command = [sys.executable, '-P', *(['-c', code] if code else []), *args]
     return subprocess.run(
-        command, capture_output=True, text=True, timeout=120, cwd=str(REPO), env=env
+        command, capture_output=True, text=True, timeout=120, cwd=str(folder), env=env
     )
 
 
 def test_a_simulated_probe_refuses_the_hardware_flag_by_name(tmp_path):
-    done = _run([str(CAPABILITY / 'motion_p00_smoke.py'), '--hardware'], tmp_path)
+    done = _run(['tests/capability/motion_p00_smoke.py', '--hardware'], tmp_path)
 
     assert done.returncode == 2, done.stdout + done.stderr
     assert 'REFUSED: motion_p00_smoke has no hardware target' in done.stdout
@@ -44,6 +51,8 @@ def test_a_simulated_probe_refuses_the_hardware_flag_by_name(tmp_path):
 def test_the_hardware_door_refuses_an_installation_with_no_current_json(tmp_path):
     root = tmp_path / 'install'
     (root / 'data').mkdir(parents=True)
+    # Installed as shipped, before the first run has written current.json.
+    (root / 'data' / 'settings.json').symlink_to(REPO / 'data' / 'settings.json')
     # The door reads the root the app reads; here it is pointed at an empty
     # installation, so the refusal is reached before any session is built.
     code = (

@@ -18,12 +18,13 @@ Defense-in-depth, two layers:
    folder) cannot lose data.
 """
 
+import logging
 import pathlib
 import textwrap
+from tests.protocol_fixtures import protocol_from_file
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,9 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
+from tests.log_capture import records_of
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
@@ -79,6 +83,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
+        end_run_fatally=lambda reason, message: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
         execution_record=None,
@@ -87,11 +92,13 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=True,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     recorded = []
     monkeypatch.setattr(
@@ -99,13 +106,14 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
     )
     writer.write_capture(
+        step_index=0,
+        scan_count=0,
         enable_image_saving=True,
         captured_image=CapturedFrame(
-            image=np.zeros((4, 4), dtype=np.uint8),
-            significant_bits=8,
+            still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
             objective_id='4x Oly',
-            record=frame_record(),
             position=unpositioned(),
+            fallback_focus=None,
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
@@ -185,7 +193,6 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     rejects: that would block the in-app rename which is the remedy; the
     data-loss gate is validate_for_run at run start.
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -193,9 +200,8 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     tsv = tmp_path / 'dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
     captured = [n.message for n in centre_posts]
@@ -209,7 +215,6 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     IDs still loads (nothing is rejected at load anymore; the collision
     warning fires and the run gate handles the rest).
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -218,9 +223,8 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 3
 
@@ -233,7 +237,6 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     telling the user the RUN will be refused until the steps are renamed
     -- the file still loads so the names can be edited.
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -243,9 +246,8 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     tsv = tmp_path / 'cross_tgid.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 4, (
         'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
@@ -271,7 +273,6 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
 def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     """Happy path: unique (Name, Well, Tile, Z-Slice) tuples produce
     no notification."""
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -279,9 +280,8 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     tsv = tmp_path / 'clean.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    Protocol.from_file(
+    protocol_from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert centre_posts == [], (
         f'No notification should fire for a well-formed protocol. Captured: {centre_posts}'
@@ -290,7 +290,6 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
 
 def test_load_accepts_unique_steps(tmp_path):
     """Sanity: unique steps load fine."""
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -298,9 +297,8 @@ def test_load_accepts_unique_steps(tmp_path):
     tsv = tmp_path / 'ok.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 2
 
@@ -318,27 +316,14 @@ class _MinimalScope:
     """
 
 
-def _patch_image_save_logger(monkeypatch):
-    """Replace ``image_save.logger`` (a MagicMock under LVP's conftest mock)
-    with a real captured-record list. Returns the list; tests assert
-    against record messages directly.
-    """
+def _image_save_lines(caplog) -> list:
+    """(level name, message) of each line ``image_save`` logged."""
     from modules import image_save
 
-    captured: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            captured.append(('WARNING', msg % args if args else msg))
-
-        def info(self, msg, *args, **kwargs):
-            captured.append(('INFO', msg % args if args else msg))
-
-    monkeypatch.setattr(image_save, 'logger', _RecordingLogger())
-    return captured
+    return [(r.levelname, r.getMessage()) for r in records_of(caplog, image_save)]
 
 
-def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
+def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
     """When a filename collides under if_collision mode, the user must
     be told via a WARNING log. The duplicate-key class (#636 customer
     case where TGIDs collide on filename) is silently data-preserving
@@ -350,16 +335,16 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
     base = tmp_path / '_PC_TA1.tiff'
     base.write_bytes(b'')
 
-    captured = _patch_image_save_logger(monkeypatch)
-
-    path = generate_image_save_path(
-        scope=_MinimalScope(),
-        save_folder=tmp_path,
-        file_root='_PC_TA1',
-        append='',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    with caplog.at_level(logging.INFO):
+        path = generate_image_save_path(
+            scope=_MinimalScope(),
+            save_folder=tmp_path,
+            file_root='_PC_TA1',
+            append='',
+            tail_id_mode='if_collision',
+            output_format='TIFF',
+        )
+    captured = _image_save_lines(caplog)
 
     assert path.name == '_PC_TA1_000001.tiff', (
         f'if_collision should append _000001 on first collision; got {path.name}'
@@ -376,20 +361,20 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
     )
 
 
-def test_if_collision_no_warning_when_no_collision(tmp_path, monkeypatch):
+def test_if_collision_no_warning_when_no_collision(tmp_path, caplog):
     """Happy path: no warning when the filename is fresh."""
     from modules.image_save import generate_image_save_path
 
-    captured = _patch_image_save_logger(monkeypatch)
-
-    path = generate_image_save_path(
-        scope=_MinimalScope(),
-        save_folder=tmp_path,
-        file_root='_PC_TA1',
-        append='',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    with caplog.at_level(logging.INFO):
+        path = generate_image_save_path(
+            scope=_MinimalScope(),
+            save_folder=tmp_path,
+            file_root='_PC_TA1',
+            append='',
+            tail_id_mode='if_collision',
+            output_format='TIFF',
+        )
+    captured = _image_save_lines(caplog)
 
     assert path.name == '_PC_TA1.tiff'
     assert not any('filename collision' in msg for _, msg in captured), (

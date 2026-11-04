@@ -4,37 +4,37 @@ against the real firmware.
 
 A cable pulled mid-move: the axis must not stay MOVING forever, which
 would wedge autofocus and a protocol run with no word to the user. The API
-faults it to UNKNOWN after its disconnect deadline and says so once.
+faults it to UNKNOWN after its disconnect deadline and says so once. A board
+lost while every axis is idle reads as lost from the exchange that finds it.
 
-When a command fails on the wire the driver closes its port, and its next
-command reconnects without the disconnect path. After a cable pull that is
-right: the board stayed powered, its firmware is still homed, and the API
-still knows every position. After a reboot it is not: the firmware has lost
-its reference, and the API must stop answering that it knows where the
-stage is, or a run is admitted at positions that are not true.
-
-The reboot case fails today: the reconnect keeps the API's axis states and
-the driver's homing latch (the triage track holds the fix). ``strict=True``
-turns it red once the fix lands, so the marker is removed with it.
+After a reboot the firmware has lost its reference, and the API must stop
+answering that it knows where the stage is, or a run is admitted at
+positions that are not true.
 """
 
 import functools
-import re
-import sys
 import time
 
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from fastapi.testclient import TestClient
+from lib.lumascope_error import RefusalCause
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    HomingFaultError,
+    MissingPart,
+    MoveFaultError,
+)
+from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from modules.lumascope_api.diagnostics import MotorBoardInfo
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture
@@ -50,34 +50,43 @@ def scope():
         session.shutdown()
 
 
-def _silent_reconnect(scope) -> dict[str, bool]:
-    """The driver meets the dropped link on its next command, closes, and
-    reconnects on the one after. Returns what the firmware says is homed."""
-    driver = scope._motion_driver
-    assert driver.exchange_command('INFO') is None
-    fullinfo = driver.exchange_command('FULLINFO')
-    return {axis: value == 'True' for axis, value in re.findall(r'(\w) homed: (\w+)', fullinfo)}
-
-
-def test_after_a_cable_pull_the_firmware_and_the_api_both_still_know_the_stage(scope):
-    board = scope._motion_driver._backend.motor_board
-    board.unplug()
-    board.replug()
-    assert _silent_reconnect(scope) == {'X': True, 'Y': True, 'Z': True, 'T': True}
-    assert scope.motion.axes_without_position() == {}
-    assert scope.motion.has_homed()
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason='the silent auto-reconnect keeps the axis states and the homing latch '
-    'across a board reboot; the triage track holds the fix',
-)
 def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
-    scope._motion_driver._backend.motor_board.reboot()
-    assert _silent_reconnect(scope) == {'X': False, 'Y': False, 'Z': False, 'T': False}
-    assert set(scope.motion.axes_without_position()) == {'X', 'Y', 'Z', 'T'}
-    assert not scope.motion.has_homed()
+    """Nothing reconnects a rebooted board during a session: the move that
+    meets the reboot is refused for a restart, every axis then reads unknown,
+    and the next move is refused the same way."""
+    scope.simulation.reboot('motor')
+    with pytest.raises(HardwareCommandRefusedError) as first:
+        scope.motion.move_z(100.0)
+    assert (first.value.reason, first.value.cause) == ('not_connected', RefusalCause.RESTART)
+
+    assert scope.motion.axes_without_position() == dict.fromkeys('XYZT', AxisState.UNKNOWN)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.motion.move_z(100.0)
+    assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
+
+
+# The first command on each motion path after a reboot, and how it ends: a
+# position read before anything drives is refused; a drive or a home that
+# meets the loss ends in its fault.
+_FIRST_AFTER_A_REBOOT = {
+    'move_z_by': (lambda m: m.move_z_by(10.0), HardwareCommandRefusedError, 'not_connected'),
+    'move_xy': (lambda m: m.move_xy(x_um=5000.0), MoveFaultError, 'board_lost'),
+    'move_turret': (lambda m: m.move_turret(2), HardwareCommandRefusedError, 'not_connected'),
+    'home': (lambda m: m.home(), HomingFaultError, 'board_lost'),
+}
+
+
+# parametrize-justified: a reboot is permanent for its scope
+@pytest.mark.parametrize('path', list(_FIRST_AFTER_A_REBOOT))
+def test_the_first_command_after_a_reboot_says_the_board_is_lost_and_to_restart(scope, path):
+    """The exchange that finds the board gone says so, whichever command
+    made it: never a retry, nor a home, that can only fail."""
+    command, raised, reason = _FIRST_AFTER_A_REBOOT[path]
+    scope.simulation.reboot('motor')
+    with pytest.raises(raised) as lost:
+        command(scope.motion)
+    assert lost.value.reason == reason
+    assert 'restart LumaViewPro' in str(lost.value)
 
 
 @pytest.mark.slow
@@ -98,22 +107,100 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
     try:
         motion = session.scope.motion
         motion.home()
-        motion.start_move_absolute('X', 5000.0)  # about 55 mm from home: over a second of travel
+        motion.start_move_xy(x_um=5000.0)  # about 55 mm from home: over a second of travel
         # MOVING from the start's return, so the pull lands with all of the
         # travel still ahead rather than what a sleep left of it.
-        assert motion.is_moving()
+        assert motion.is_any_axis_moving()
 
         # Read before the pull: the monitor's disconnect clock starts after
         # it, so the interval measured from here can only be the longer.
         pulled = time.monotonic()
-        session.scope._motion_driver._backend.motor_board.unplug()
-        while motion.is_moving():
+        session.scope.simulation.unplug('motor')
+        while motion.is_any_axis_moving():
             assert time.monotonic() - pulled < motion._DISCONNECT_FAULT_S + 2.0, 'X stayed MOVING'
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S
-        assert motion.axes_without_position() == {'X': 'unknown'}
+        # The board is lost, so no axis knows its position, not only the one moving.
+        assert motion.axes_without_position() == dict.fromkeys(('X', 'Y', 'Z', 'T'), 'unknown')
         errors = [(n.category, n.title) for n in centre_posts if n.severity == Severity.ERROR]
         assert errors == [('Motion', 'Motor Board Disconnected')]
+    finally:
+        session.shutdown()
+
+
+@pytest.mark.parametrize('model', ('LS850T', 'LS720'))
+def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
+    """Once an exchange finds the board gone, every read of the axes says so:
+    every axis unknown with no position, the turret unknown with no slot, the
+    interlocks refused as a command is, the board's identity unknown."""
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope=model), simulate=True
+    )
+    try:
+        scope = session.scope
+        motion = scope.motion
+        motion.home()
+        scope.simulation.unplug('motor')
+        with pytest.raises(HardwareCommandRefusedError):
+            motion.move_z(100.0)  # the exchange that finds the board gone
+        assert scope.motor_connected is False
+
+        unknown = AxisPosition(AxisState.UNKNOWN, None)
+        assert motion.axis_positions() == dict.fromkeys(('X', 'Y', 'Z'), unknown)
+        assert session.status.axes == dict.fromkeys(('X', 'Y', 'Z'), unknown)
+        turret = TurretStatus(AxisState.UNKNOWN, None) if 'T' in scope.capabilities.axes else None
+        assert (motion.turret_status(), session.status.turret) == (turret, turret)
+        assert motion.axes_without_position().keys() - {'T'}
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            motion.interlocks()
+        assert (refused.value.reason, refused.value.missing) == (
+            'not_connected',
+            MissingPart.MOTOR_CONTROLLER,
+        )
+        assert scope.diagnostics.get_motor_info() == MotorBoardInfo(None, None, None, None, None)
+    finally:
+        session.shutdown()
+
+
+# What finds each board's loss, and whether the scope says it is connected.
+_LOSS = {
+    'motor': (lambda scope: scope.motion.move_z(100.0), lambda scope: scope.motor_connected),
+    'led': (lambda scope: scope.illumination.led_on('BF', 10.0), lambda scope: scope.led_connected),
+}
+
+
+@pytest.mark.parametrize('board', ('led', 'motor'))
+def test_a_lost_board_stays_lost_through_a_replug_and_a_diagnostic(scope, board):
+    """Nothing reconnects a board during a session, a diagnostic included: a
+    diagnostic sent to it reached the serial layer's reopen, which brought the
+    board back under the API with every position held from before the loss."""
+    finds_it, connected = _LOSS[board]
+    scope.simulation.unplug(board)
+    with pytest.raises(HardwareCommandRefusedError):
+        finds_it(scope)
+    scope.simulation.replug(board)
+
+    assert scope.diagnostics.send_diagnostic_command(board, 'INFO') == 'Board not connected'
+    assert connected(scope) is False
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        finds_it(scope)
+    assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
+
+
+def test_over_the_wire_a_lost_board_is_a_restart_refusal():
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
+    )
+    try:
+        session.scope.motion.home()
+        session.scope.simulation.unplug('motor')
+        with pytest.raises(HardwareCommandRefusedError):
+            session.scope.motion.move_z(100.0)  # the exchange that finds the board gone
+        with TestClient(build_app(session)) as client:
+            # A move reaches the board itself, so it answers the loss whether
+            # or not an exchange found it first.
+            answer = client.post('/api/v1/scope/motion/move_z_by', json={'dz_um': 1.0})
+        assert (answer.status_code, answer.json()['reason']) == (503, 'not_connected')
     finally:
         session.shutdown()
 
@@ -130,9 +217,10 @@ _HOMES = {
 
 
 def _pulled(scope) -> None:
-    scope._motion_driver._backend.motor_board.unplug()
+    scope.simulation.unplug('motor')
 
 
+# parametrize-justified: a cable pull is permanent for its scope
 @pytest.mark.parametrize('home', list(_HOMES))
 def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     # #632: a disconnected motor must not hold the caller while the driver
@@ -144,13 +232,22 @@ def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     assert time.monotonic() - started < 0.5
 
 
-@pytest.mark.xfail(
+_HOMING_FAULT = pytest.mark.xfail(
     strict=True,
-    reason='the first home after a pull meets the dead port as a failed command and raises '
-    'HomingFailedError, a homing fault, where its cause is the Z safety move for a turret '
-    'home. Only the next call knows the motor is disconnected',
+    raises=HomingFaultError,
+    reason='the first home after a pull meets the dead port as a failed command: it says the '
+    "board is not connected, as the homing fault 'board_lost', not as a refusal. A command "
+    'the port never sent is refused only once the serial exchange tells a command not sent '
+    'from one not answered',
 )
-@pytest.mark.parametrize('home', list(_HOMES))
+
+
+# parametrize-justified: a cable pull is permanent for its scope. A turret
+# home meets the dead port in its Z park, whose outcome leaves as itself.
+@pytest.mark.parametrize(
+    'home',
+    [pytest.param('all', marks=_HOMING_FAULT), 'T', pytest.param('Z', marks=_HOMING_FAULT)],
+)
 def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, home):
     _pulled(scope)
     with pytest.raises(HardwareCommandRefusedError) as raised:

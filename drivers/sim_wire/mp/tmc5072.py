@@ -571,6 +571,6 @@ def build(
 ) -> Board:
     """The board's chips, as `machine` builds them at the first transfer: from
     the unit config the firmware itself reads at boot."""
-    with open('motorconfig.json') as f:
+    with open('motorconfig.json', encoding='utf-8') as f:
         motorconfig = json.load(f)
     return Board(motorconfig, sim, ticks_us, ticks_diff)

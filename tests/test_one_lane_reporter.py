@@ -11,37 +11,31 @@ left, and never logged by both.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import threading
 import time
-from concurrent.futures import CancelledError
 
 import pytest
 
 import modules.sequential_io_executor as sio
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import (
+    RunWaitExpiredError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
-    RunAlreadyEndedError,
 )
 from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 _WAIT_S = 2.0
 OUTCOMES = 'LVP.outcomes'
 
 
-@pytest.fixture(autouse=True)
-def _executor_log(monkeypatch):
-    # The suite mocks lvp_logger, so the executor's own lines go nowhere;
-    # a real logger lets these tests read what it writes.
-    monkeypatch.setattr(sio, 'logger', logging.getLogger('LVP.test_executor'))
-
-
 @pytest.fixture
 def lane():
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.start()
     yield ex
     ex.shutdown(wait=False)
@@ -121,7 +115,8 @@ class TestWhoReports:
 
     def test_a_quiet_outcome_is_logged_at_info_and_never_shown(self, lane, centre_posts, caplog):
         with caplog.at_level(logging.DEBUG):
-            lane.put(IOTask(action=_raise, args=(RunAlreadyEndedError('the run has ended'),)))
+            expired = RunWaitExpiredError('run_composite', 5.0, None)
+            lane.put(IOTask(action=_raise, args=(expired,)))
             _drain(lane)
 
         assert centre_posts == []
@@ -140,7 +135,7 @@ class TestATimedOutCall:
         _drain(lane)
 
         assert not isinstance(raised.value, TimeoutError)
-        assert (raised.value.reason, raised.value.member) == ('still_running', 'move')
+        assert (raised.value.reason, raised.value.member) == ('call_overran', 'move')
         assert 'may still finish' in str(raised.value)
         assert outcome_of(raised.value).kind == OutcomeKind.FAULT
 
@@ -162,6 +157,42 @@ class TestATimedOutCall:
         assert [(r.levelno, bool(r.exc_info)) for r in records] == [(logging.ERROR, True)]
         assert 'late fault' in records[0].getMessage()
 
+    def test_a_submitted_tasks_fault_after_its_bound_is_logged_not_shown(
+        self, lane, centre_posts, caplog
+    ):
+        """``bounded`` tells its caller the task is still running, as ``call``
+        does, and the fault that comes after is logged once, not shown."""
+        release = threading.Event()
+
+        def _slow_then_fail():
+            release.wait(_WAIT_S)
+            raise RuntimeError('late fault')
+
+        waiter = concurrent.futures.Future()
+        waiter.set_running_or_notify_cancel()
+        with caplog.at_level(logging.DEBUG):
+            lane.submit(IOTask(action=_slow_then_fail), 'still', waiter=waiter)
+            told = lane.bounded(waiter, 'still', 0.05)
+            with pytest.raises(LaneCallStillRunningError) as raised:
+                told.result(timeout=_WAIT_S)
+            release.set()
+            # The fault is logged in the waiter's callback, on the lane, before
+            # the lane takes its next task.
+            _drain(lane)
+
+        assert (raised.value.reason, raised.value.member) == ('call_overran', 'still')
+        assert centre_posts == []
+        records = _outcome_records(caplog)
+        assert [(r.levelno, bool(r.exc_info)) for r in records] == [(logging.ERROR, True)]
+        assert 'late fault' in records[0].getMessage()
+
+    def test_a_submitted_tasks_outcome_within_its_bound_is_the_callers(self, lane):
+        waiter = concurrent.futures.Future()
+        waiter.set_running_or_notify_cancel()
+        lane.submit(IOTask(action=lambda: 7), 'still', waiter=waiter)
+
+        assert lane.bounded(waiter, 'still', _WAIT_S).result(timeout=_WAIT_S) == 7
+
     def test_an_outcome_claimed_before_the_waiter_left_is_the_callers(
         self, lane, centre_posts, caplog, monkeypatch
     ):
@@ -172,10 +203,10 @@ class TestATimedOutCall:
         claimed = threading.Event()
         original = lane._report_task_failure
 
-        def _held(task, exception, owned):
+        def _held(task, exception, owned, **kwargs):
             claimed.set()
             time.sleep(0.5)
-            original(task, exception, owned)
+            original(task, exception, owned, **kwargs)
 
         monkeypatch.setattr(lane, '_report_task_failure', _held)
         boom = RuntimeError('landed first')
@@ -196,7 +227,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
 
     @pytest.fixture
     def lane_and_key(self, claim):
-        ex = SequentialIOExecutor(name='TEST_IO')
+        ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         key = ex.ask_claim(claim)
         ex.start()
         yield ex, key
@@ -233,7 +264,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
                 # The lane runs its queue in order: once a task queued after
                 # the silent one has run, that one was popped and decided
                 # under the claim. The override key admits it past the holder.
-                held_lane.call(IOTask(action=lambda: None), 'settle', _WAIT_S, override=key)
+                held_lane.call_overriding(IOTask(action=lambda: None), 'settle', _WAIT_S, key)
             finally:
                 held.release()
 
@@ -265,7 +296,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
 
 
 def test_shutdown_completes_a_waiter_whose_task_is_still_running(centre_posts):
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.start()
     release = threading.Event()
     started = threading.Event()
@@ -291,7 +322,9 @@ def test_shutdown_completes_a_waiter_whose_task_is_still_running(centre_posts):
     release.set()
 
     assert not waiter.is_alive(), 'the waiter was left waiting for an outcome no one will set'
-    assert isinstance(box.get('outcome'), CancelledError)
+    outcome = box.get('outcome')
+    assert isinstance(outcome, LaneCallStillRunningError), outcome
+    assert outcome.reason == 'lane_closed', 'the task was running: it may still finish'
 
 
 def test_a_listener_that_submits_from_inside_a_report_does_not_deadlock(lane):
@@ -319,7 +352,7 @@ def test_a_listener_that_submits_from_inside_a_report_does_not_deadlock(lane):
 
 
 def test_an_abandoned_worker_names_what_its_task_raised(caplog):
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.start()
     started = threading.Event()
     release = threading.Event()

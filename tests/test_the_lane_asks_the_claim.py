@@ -15,8 +15,15 @@ import threading
 import pytest
 
 from modules.activity_claim import ActivityClaim, acting, current_taking
-from modules.exceptions import HardwareCommandRefusedError, Refusal
+from modules.exceptions import (
+    BlockingCallRefusedError,
+    FileWriterStalledError,
+    HardwareCommandRefusedError,
+    Refusal,
+)
 from modules.run_events import RunEvents
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 
@@ -31,7 +38,7 @@ def claim():
 @pytest.fixture
 def lane(claim):
     """A started lane that asks ``claim``."""
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.ask_claim(claim)
     ex.start()
     yield ex
@@ -53,9 +60,7 @@ def _submit_from_another_thread(lane, task):
 
 class TestTheRefusal:
     def test_it_is_a_refusal_written_for_the_person_and_names_the_holder(self):
-        refused = HardwareCommandRefusedError(
-            'exclusive_activity_running', 'move_absolute', 'diagnostic'
-        )
+        refused = HardwareCommandRefusedError('exclusive_activity_running', 'move_z', 'diagnostic')
         assert isinstance(refused, Refusal)
         assert refused.title
         assert 'diagnostic' in str(refused)
@@ -134,9 +139,9 @@ class TestADiagnosticHold:
             held.release()
 
     def test_the_session_diagnostic_enters_its_taking(self):
-        from tests.test_diagnostic_claim import _make_session
+        from tests.scope_fakes import session_on_a_simulated_scope
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             assert current_taking() is held
         assert current_taking() is None
@@ -158,7 +163,7 @@ class TestOtherHolds:
     def test_the_run_door_is_closed_to_a_non_holder(self, claim, lane):
         """``protocol_put`` admitted anyone while a run held (route table row 27)."""
         ran = threading.Event()
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         lane.protocol_start(held)
         try:
             box = {}
@@ -186,7 +191,7 @@ class TestOtherHolds:
 class TestABorrowing:
     def test_a_run_inside_a_diagnostic_writes_until_it_ends(self, claim, lane):
         held = claim.try_claim('diagnostic')
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         try:
             with acting(run):
                 assert lane.put(IOTask(action=lambda: 1), return_future=True).result(_WAIT_S) == 1
@@ -201,7 +206,7 @@ class TestABorrowing:
 
     def test_ending_a_borrowing_ends_what_it_lent(self, claim):
         held = claim.try_claim('diagnostic')
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         recording = run.lend().try_claim('recording')
         run.release()
         assert not recording.holds, 'a recording outlived the run it borrowed from'
@@ -211,7 +216,7 @@ class TestABorrowing:
 
 class TestTheOverride:
     def test_the_named_override_passes_a_hold_and_nothing_else_can_claim_it(self, claim):
-        ex = SequentialIOExecutor(name='TEST_IO')
+        ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         key = ex.ask_claim(claim)
         ex.start()
         held = claim.try_claim('diagnostic')
@@ -242,33 +247,37 @@ def _submit_override(ex, key):
 
 class TestNoLaneWorkerWaitsOnALane:
     def test_a_blocking_dispatch_from_a_lane_worker_raises(self):
-        io = SequentialIOExecutor(name='TEST_IO')
-        camera = SequentialIOExecutor(name='TEST_CAMERA')
+        io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
+        camera = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_CAMERA')
         io.start()
         camera.start()
         try:
             fut = camera.put(
                 IOTask(
                     action=io.call,
-                    args=(IOTask(action=lambda: None), 'move_absolute', 5.0),
+                    args=(IOTask(action=lambda: None), 'move_z', 5.0),
                     silent_on_failure=True,
                 ),
                 return_future=True,
             )
-            with pytest.raises(RuntimeError, match='lane'):
+            with pytest.raises(BlockingCallRefusedError) as refused:
                 fut.result(timeout=_WAIT_S)
+            assert (refused.value.reason, refused.value.member) == (
+                'blocking_on_worker',
+                'move_z',
+            )
         finally:
             io.shutdown()
             camera.shutdown()
 
     def test_the_worker_pool_is_not_a_lane(self):
-        io = SequentialIOExecutor(name='TEST_IO')
-        pool = SequentialIOExecutor(name='TEST_POOL', lane=False)
+        io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
+        pool = SequentialIOExecutor(closed_answer=session_lane_closed, name='TEST_POOL', lane=False)
         io.start()
         pool.start()
         try:
             fut = pool.put(
-                IOTask(action=io.call, args=(IOTask(action=lambda: 'ran'), 'move_absolute', 5.0)),
+                IOTask(action=io.call, args=(IOTask(action=lambda: 'ran'), 'move_z', 5.0)),
                 return_future=True,
             )
             assert fut.result(timeout=_WAIT_S) == 'ran'
@@ -289,7 +298,7 @@ class TestNoLaneWorkerWaitsOnALane:
             fut = bundle.worker_pool.put(
                 IOTask(
                     action=bundle.io_executor.call,
-                    args=(IOTask(action=lambda: 'ran'), 'move_absolute', 5.0),
+                    args=(IOTask(action=lambda: 'ran'), 'move_z', 5.0),
                 ),
                 return_future=True,
             )
@@ -324,12 +333,12 @@ class TestTheSession:
     def test_a_diagnostic_moves_and_a_bystander_is_refused(self, sim_session):
         motion = sim_session.scope.motion
         with sim_session.diagnostic_claim():
-            motion.move_absolute('Z', 1000.0)
+            motion.move_z(1000.0)
             box = {}
 
             def _bystander():
                 try:
-                    motion.move_absolute('Z', 2000.0)
+                    motion.move_z(2000.0)
                 except HardwareCommandRefusedError as exc:
                     box['refused'] = exc
 
@@ -340,14 +349,53 @@ class TestTheSession:
 
     def test_a_still_taken_inside_a_diagnostic_is_its_own(self, sim_session):
         with sim_session.diagnostic_claim():
-            paths = sim_session.manual_capture.capture(layer=None, false_color_on=False).result(
-                timeout=30.0
-            )
+            paths = sim_session.manual_capture.capture(false_color_on=False).result(timeout=30.0)
         assert paths
 
     def test_the_file_writer_is_not_recovered_under_a_hold(self, sim_session):
-        with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError):
-            sim_session.recover_file_writer()
+        with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError) as refused:
+            sim_session.apply_remedy(FileWriterStalledError.recovery(1))
+        assert (refused.value.reason, refused.value.holder) == (
+            'exclusive_activity_running',
+            'diagnostic',
+        )
+
+    def test_a_grab_and_the_bandwidth_test_are_refused_a_bystander(self, sim_session):
+        """Both reach the camera only through its lane, so a diagnostic's hold
+        refuses them as it refuses ``capture_still``: the bandwidth test's
+        first frame raises the refusal, never counted as a failed frame."""
+        scope = sim_session.scope
+        calls = {
+            'get_image': lambda: scope.imaging.get_image(force_new_capture=True),
+            'run_camera_bandwidth_test': lambda: scope.diagnostics.run_camera_bandwidth_test(5),
+        }
+        box = {}
+
+        def _bystander():
+            for name, call in calls.items():
+                try:
+                    box[name] = call()
+                except HardwareCommandRefusedError as exc:
+                    box[name] = exc
+
+        with sim_session.diagnostic_claim():
+            t = threading.Thread(target=_bystander)
+            t.start()
+            t.join(30.0)
+        for name in calls:
+            refused = box[name]
+            assert isinstance(refused, HardwareCommandRefusedError), (name, refused)
+            assert (refused.reason, refused.holder) == ('exclusive_activity_running', 'diagnostic')
+
+    def test_a_wire_clients_move_is_refused_under_a_hold(self, sim_session):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
+            answer = client.post('/api/v1/scope/motion/move_z', json={'z_um': 2000.0})
+        assert answer.status_code == 409, answer.text
+        assert answer.json()['reason'] == 'exclusive_activity_running'
 
 
 class TestEveryHolderThreadActsUnderItsTaking:
@@ -363,10 +411,10 @@ class TestEveryHolderThreadActsUnderItsTaking:
 
         af = AutofocusThread(afe=_Sweep())
         af.start()
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
             with acting(held):
-                fut = af.run_autofocus(run=run_identity('test'))
+                fut = af.run_autofocus(run=run_identity())
             assert fut.result(timeout=_WAIT_S) == 1.0
             assert seen['taking'] is held, (
                 "the sweep's moves and LED writes are its run's; without its taking a lane "
@@ -397,9 +445,9 @@ class TestTheHardwareMembersUseTheLanesDispatch:
     @pytest.mark.parametrize(
         ('lane', 'member'),
         [
-            ('camera_executor', lambda scope: scope.motion.move_absolute('Z', 1000.0)),
+            ('camera_executor', lambda scope: scope.motion.move_z(1000.0)),
             ('camera_executor', lambda scope: scope.illumination.leds_off()),
-            ('io_executor', lambda scope: scope.imaging.set_gain_db(1.0)),
+            ('io_executor', lambda scope: scope.camera.set_gain_db(1.0)),
         ],
         ids=['motion', 'illumination', 'imaging'],
     )
@@ -408,8 +456,9 @@ class TestTheHardwareMembersUseTheLanesDispatch:
         fut = getattr(sim_session, lane).put(
             IOTask(action=member, args=(scope,), silent_on_failure=True), return_future=True
         )
-        with pytest.raises(RuntimeError, match='never waits on another lane'):
+        with pytest.raises(BlockingCallRefusedError) as refused:
             fut.result(timeout=10.0)
+        assert refused.value.reason == 'blocking_on_worker'
 
 
 class TestTheShutdownOverride:
@@ -446,9 +495,9 @@ class TestRunCleanupIsTheRunsOwnWork:
         """A stop pressed in the GUI or a script's reset ends the run on its own
         thread; the return moves and the LED end-state cleanup submits are the
         run's, and a lane refuses them under the run's hold without its taking."""
-        from tests.test_diagnostic_claim import _make_session
+        from tests.scope_fakes import session_on_a_simulated_scope
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
         seen = {}
         monkeypatch.setattr(
@@ -456,7 +505,7 @@ class TestRunCleanupIsTheRunsOwnWork:
             '_cleanup_inner',
             lambda ending, run, after_end: seen.setdefault('t', current_taking()),
         )
-        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         runner._held_claim = held
         try:
             t = threading.Thread(target=runner._cleanup, args=(object(), object()))
@@ -492,17 +541,17 @@ class TestTheHoldersWorkRunsOnTheLane:
             home_sim_scope(session.scope)
             motion = session.scope.motion
             seen = {}
-            real = motion._move_absolute_impl
+            real = motion._move_z_impl
 
             def _move(*args, **kwargs):
                 seen['thread'] = threading.current_thread().name
                 return real(*args, **kwargs)
 
-            motion._move_absolute_impl = _move
+            motion._move_z_impl = _move
             fut = session.io_executor.put(
                 IOTask(
-                    action=motion.move_absolute,
-                    args=('Z', 1500.0),
+                    action=motion.move_z,
+                    args=(1500.0,),
                 ),
                 return_future=True,
             )
@@ -547,7 +596,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
         session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
         try:
             home_sim_scope(session.scope)
-            base = _make_single_step_protocol().step(idx=0)
+            base = _make_single_step_protocol().step_row(step_index=0)
             af_step = {**base, 'Name': 'A1_af', 'Label': 'A1_af', 'Auto_Focus': True}
             video_step = {
                 **base,
@@ -557,16 +606,16 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
                 'Step Index': 1,
             }
             protocol = _build_real_protocol([af_step, video_step])
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             files_written = threading.Event()
-            run = runner.run_single_scan(
+            run = runner.start_single_scan(
                 protocol=protocol,
                 sequence_name='gating',
                 parent_dir=str(tmp_path),
                 events=RunEvents(files_written=lambda *_written: files_written.set()),
             )
             assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-            outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+            outcome = run.result(timeout=COMPLETION_TIMEOUT)
             assert outcome.status == 'completed', outcome
             assert greased == [session.io_executor.executor_name], greased
         finally:
@@ -584,7 +633,9 @@ class TestTheSupportReportUnderItsClaim:
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
-            TechSupportReport(session=session)._run_scope_steps(tmp_path, lambda pct, msg: None)
+            TechSupportReport(session=session)._run_scope_steps(
+                tmp_path, lambda pct, msg: None, include_bw=False
+            )
         finally:
             session.shutdown()
         homing = (tmp_path / 'motion_tests' / 'homing_test.txt').read_text()
@@ -606,7 +657,7 @@ class TestAnInlineCallAsksTheClaim:
         def _outer():
             started.set()
             go_on.wait(_WAIT_S)
-            return lane.call(IOTask(action=lambda: 'wrote'), 'move_absolute', 5.0)
+            return lane.call(IOTask(action=lambda: 'wrote'), 'move_z', 5.0)
 
         fut = lane.put(IOTask(action=_outer, silent_on_failure=True), return_future=True)
         assert started.wait(_WAIT_S)

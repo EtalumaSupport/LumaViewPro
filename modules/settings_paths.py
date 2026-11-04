@@ -13,54 +13,105 @@ it.
 from __future__ import annotations
 
 import copy
+import dataclasses
+import enum
 import logging
 import typing
 
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.exceptions import (
+    AccelerationLimitRefusedError,
     ArgumentRefusedError,
     SettingRefusedError,
     StoredSettingReplacedNotice,
 )
-from modules.image_mode import (
-    VALID_LIVE_OUTPUT_FORMATS,
-    VALID_SEQUENCED_OUTPUT_FORMATS,
-    available_modes,
-)
+from modules.acquire_mode import AcquireMode
+from modules.closed_sets import member_of
+from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from modules.finite_number import is_finite_number
-from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
-from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
-from modules.tiling_config import TilingConfig
+from modules.layer_record import parse_display_color
+from modules.lumascope_api._constants import (
+    SIMULATOR_TIERS,
+    refuse_acceleration_pct,
+    refuse_inverted_gain_range,
+)
+from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
+from modules.zstack_config import ZStackReference
+from modules.python_values import python_values
+from modules.tiling_config import OVERLAP_PERCENT_RANGE, TilingGrids
 
-# A setting changed by its own Session member, because the member does more
-# than store it: it checks the setting against the scope, applies it, or
-# changes another setting with it. A path at or under a key here is refused,
-# naming the member. ``*`` stands for any layer.
-SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
-    'microscope': 'select_model',
-    'live_folder': 'set_live_folder',
-    'protocol.filepath': 'set_protocol_filepath',
-    'objective_id': 'select_objective',
-    'objective_confirmed': 'confirm_objective',
-    'turret_objectives': 'assign_turret_objective',
-    'protocol.labware': 'select_labware',
-    'image_mode': 'set_image_mode',
-    'binning': 'set_binning_size',
-    'frame': 'set_frame_size',
-    'camera.high_conversion_gain': 'set_high_conversion_gain',
-    'camera.line_noise_reduction': 'set_line_noise_reduction',
-    'scale_bar.enabled': 'set_scale_bar',
-    'motion.acceleration_max_pct': 'set_acceleration_limit',
-    'bookmark': 'save_bookmark',
-    '*.acquire': 'set_layer_acquire',
-    '*.auto_gain': 'set_layer_auto_gain',
-    '*.focus': 'save_layer_focus',
+
+@dataclasses.dataclass(frozen=True)
+class SettingMember:
+    """The member that changes a setting: its owning class and its name.
+
+    ``owner`` is ``'ScopeSession'`` or ``'CameraAPI'``, the class the member
+    is looked up on; ``path`` is where a caller reaches it from the API
+    root, which is the session: the member's own name on the session, and
+    ``scope.camera.<name>`` on the camera, so a REST client is sent to the
+    route that exists.
+
+    ``read`` names the owner's member that reads the setting when the
+    writer is an action, not a setter: a setter names its read itself
+    (``@api(sets=...)``), and an action stores the setting as one effect
+    among others, so the table says where it is read.
+    """
+
+    owner: str
+    name: str
+    read: str | None = None
+
+    @property
+    def path(self) -> str:
+        return self.path_of(self.name)
+
+    def path_of(self, name: str) -> str:
+        """The path from the API root of the owner's member ``name``: the setter's read, say."""
+        return name if self.owner == 'ScopeSession' else f'scope.camera.{name}'
+
+    @property
+    def words(self) -> str:
+        """The member as a refusal names it."""
+        return f'ScopeSession.{self.name}' if self.owner == 'ScopeSession' else self.path
+
+
+def _session(name: str, *, read: str | None = None) -> SettingMember:
+    return SettingMember('ScopeSession', name, read)
+
+
+def _camera(name: str) -> SettingMember:
+    return SettingMember('CameraAPI', name)
+
+
+# A setting changed by its own member, because the member does more than
+# store it: it checks the setting against the scope, applies it, or changes
+# another setting with it. A path at or under a key here is refused, naming
+# the member. ``*`` stands for any layer.
+SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
+    'microscope': _session('select_model'),
+    'live_folder': _session('set_live_folder'),
+    'protocol.filepath': _session('set_protocol_filepath'),
+    'objective_id': _session('select_objective'),
+    'objective_confirmed': _session('confirm_objective', read='objective_question'),
+    'turret_objectives': _session('assign_turret_objective'),
+    'protocol.labware': _session('select_labware'),
+    'image_mode': _camera('set_image_mode'),
+    'binning': _camera('set_binning'),
+    'frame': _camera('set_frame_size'),
+    'camera.high_conversion_gain': _camera('set_high_conversion_gain'),
+    'camera.line_noise_reduction': _camera('set_line_noise_reduction'),
+    'scale_bar.enabled': _session('set_scale_bar'),
+    'motion.acceleration_max_pct': _session('set_acceleration_limit'),
+    'bookmark': _session('save_bookmark', read='bookmark'),
+    '*.acquire': _session('set_channel_acquire'),
+    '*.auto_gain': _session('set_channel_auto_gain'),
+    '*.focus': _session('save_channel_focus'),
 }
 
 # A setting only the installation's settings file sets: it decides how the
-# next start reaches the scope, the machine or its files -- the server and
-# its key, the start mode, the single-instance port, what is profiled and
+# next start reaches the scope, the machine or its files -- the server, the
+# start mode, the single-instance port, what is profiled and
 # where the profile is written. No write changes it, from any caller, so
 # no caller can reconfigure the scope it is driving. A path at or under a
 # key here is refused.
@@ -80,8 +131,80 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
     }
 )
 
+# A section whose one reader judges it where it is used and answers a value
+# it cannot use by not acting on it: the load neither judges nor replaces
+# it, since the shipped value is not always the narrower one (an empty
+# client list admits every client), and a save writes back what the user
+# wrote. ``rest_api``'s reader is the REST server's judge (``rest.served``).
+JUDGED_BY_ITS_READER: typing.Final[frozenset[str]] = frozenset({'rest_api'})
+
+# A preference of the person at the display: it changes no capture, no file
+# and no hardware -- each is read only by the GUI's own widgets, or the
+# plugin's -- so it is written by anyone while a control session is held,
+# where every other setting is the session holder's alone.
+PREFERENCES: typing.Final[frozenset[str]] = frozenset(
+    {
+        'show_tooltips',
+        'show_step_locations',
+        'live_view_fps',
+        'stimulation_enabled',
+        'focus_score_enabled',
+    }
+)
+
+# A setting derived from the release when the template is read, never a
+# person's: ``step_channel_order``, from the catalogue's ``LayerOrder``. No
+# write changes it, and a stored copy that differs is replaced at load by
+# the derived one.
+DERIVED: typing.Final[frozenset[str]] = frozenset({'step_channel_order'})
+
+# A switch: its kind, true or false, is its whole range. ``*`` stands for
+# any layer.
+KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
+    {
+        'separate_folder_per_channel',
+        '*.autofocus',
+        '*.false_color',
+        '*.stim_config.enabled',
+        'logging.autofocus',
+        'focus_score_enabled',
+        'preview_host_downscale',
+        'profiling.enabled',
+        'profiling.handle_trace_enabled',
+        'profiling.open_files_enabled',
+        'video_as_frames',
+        'video.timestamp_overlay',
+        'show_tooltips',
+        'show_step_locations',
+        'protocol_led_on',
+        'keep_led_between_steps',
+        'stimulation_enabled',
+    }
+)
+
+# Any finite number, whose bound another owner holds where it is used: the
+# stage offset, whose position past travel is ``MotionAPI.get_axis_limits``'
+# refusal at the move.
+BOUND_AT_USE: typing.Final[frozenset[str]] = frozenset({'stage_offset.x', 'stage_offset.y'})
+
+# The kinds a setting shipped as null holds when it is not null. ``*`` stands
+# for any layer as a first segment, and for any key as a last one.
+_NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
+    '*.acquire': ('string',),
+    '*.focus': ('number',),
+    '*.display_color': ('string',),
+    'turret_objectives.*': ('string',),
+    # True is a confirmation stored before the topology was recorded.
+    'objective_confirmed': ('bool', 'string'),
+    'profiling.metrics_interval_s': ('number',),
+    'profile_trace_output_dir': ('string',),
+}
+
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200
 """The highest recording-rate cap a person may set; 0 means no cap."""
+
+LIVE_VIEW_FPS_LIMIT: typing.Final = 60
+"""The highest live-view display-rate cap a person may set; 0 means no cap."""
 
 VIDEO_MAX_DURATION_S_RANGE: typing.Final = (1, 3600)
 """The manual recording's time limit, in seconds, inclusive."""
@@ -102,7 +225,10 @@ STIM_PULSE_COUNT_RANGE: typing.Final = (1, 300)
 def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
     if not low <= value <= high:
         raise SettingRefusedError(
-            'out_of_range', path, f'it must be between {low} and {high}, not {value!r}'
+            'out_of_range',
+            path,
+            f'it must be between {low} and {high}, not {value!r}',
+            limits=(low, high),
         )
 
 
@@ -128,11 +254,28 @@ def _refuse_unknown_format(path: str, value: object, formats: frozenset) -> None
         )
 
 
+def _refuse_unless_member(
+    path: str,
+    value: object,
+    closed_set: type[enum.StrEnum],
+    within: tuple[enum.StrEnum, ...] | None = None,
+) -> None:
+    # A setting that holds a closed set is judged by the set's one judge, in
+    # the setting's own refusal, which the load replaces and reports; a
+    # setting that takes part of the set offers that part.
+    offered = tuple(closed_set) if within is None else within
+    if member_of(closed_set, value) not in offered:
+        shown = str(value) if isinstance(value, enum.StrEnum) else value
+        raise SettingRefusedError(
+            'not_offered', path, f'it must be one of {", ".join(offered)}, not {shown!r}'
+        )
+
+
 def _overlap(path: str, value: float) -> None:
     try:
-        TilingConfig.validate_overlap_percent(value)
+        TilingGrids.validate_overlap_percent(value)
     except ValueError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
+        raise SettingRefusedError('out_of_range', path, str(e), limits=OVERLAP_PERCENT_RANGE) from e
 
 
 def _binning_label(path: str, value: str) -> None:
@@ -148,8 +291,8 @@ def _binning_label(path: str, value: str) -> None:
 def _acceleration(path: str, value: float) -> None:
     try:
         refuse_acceleration_pct(value)
-    except ValueError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
+    except AccelerationLimitRefusedError as e:
+        raise SettingRefusedError('out_of_range', path, str(e), limits=e.limits) from e
 
 
 def _schedule(path: str, value: object) -> None:
@@ -160,15 +303,15 @@ def _schedule(path: str, value: object) -> None:
 
 
 def _live_format(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, VALID_LIVE_OUTPUT_FORMATS)
+    _refuse_unless_member(path, value, OutputFormat, within=LIVE_OUTPUT_FORMATS)
 
 
 def _sequenced_format(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, VALID_SEQUENCED_OUTPUT_FORMATS)
+    _refuse_unless_member(path, value, OutputFormat)
 
 
 def _zstack_position(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, frozenset(common_utils.ZSTACK_POSITION_LABELS))
+    _refuse_unless_member(path, value, ZStackReference)
 
 
 def _simulator_tier(path: str, value: str) -> None:
@@ -176,18 +319,32 @@ def _simulator_tier(path: str, value: str) -> None:
 
 
 def _image_mode(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, frozenset(available_modes()))
+    _refuse_unless_member(path, value, ImageMode)
 
 
 def _acquire(path: str, value: str | None) -> None:
     # None is a layer that acquires nothing.
-    modes = Protocol.VALID_ACQUIRE_MODES
-    if value is not None and not (isinstance(value, str) and value in modes):
-        raise SettingRefusedError(
-            'out_of_range',
-            path,
-            f'it must be None or one of {", ".join(sorted(modes))}, not {value!r}',
-        )
+    if value is not None:
+        _refuse_unless_member(path, value, AcquireMode)
+
+
+# Which light path the objective was confirmed on: a turret's slots, or the
+# one objective a turretless scope selects. A confirmation is for its own
+# light path, so a scope brought up with the other owes the question again.
+OBJECTIVE_TOPOLOGIES: typing.Final[tuple[str, str]] = ('turret', 'turretless')
+
+
+def _objective_confirmed(path: str, value: object) -> None:
+    # None is never confirmed. True is a confirmation stored before the
+    # topology was recorded, which no load can date: whether the scope has a
+    # turret is known only at bring-up, which rewrites it to the one it has.
+    if value is None or value is True or value in OBJECTIVE_TOPOLOGIES:
+        return
+    raise SettingRefusedError(
+        'out_of_range',
+        path,
+        f'it must be None or one of {", ".join(OBJECTIVE_TOPOLOGIES)}, not {value!r}',
+    )
 
 
 def _log_level(path: str, value: str) -> None:
@@ -203,11 +360,19 @@ def _video_max_fps(path: str, value: float) -> None:
     _refuse_outside(path, value, 0, VIDEO_MAX_FPS_LIMIT)
 
 
+def _live_view_fps(path: str, value: float) -> None:
+    _refuse_outside(path, value, 0, LIVE_VIEW_FPS_LIMIT)
+
+
 def _video_max_duration(path: str, value: float) -> None:
     _refuse_outside(path, value, *VIDEO_MAX_DURATION_S_RANGE)
 
 
 def _jpg_quality(path: str, value: float) -> None:
+    # The encoder takes a whole quality; a fraction would be truncated.
+    # bool is excluded by name: True is an int.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
     _refuse_outside(path, value, *JPG_QUALITY_RANGE)
 
 
@@ -217,6 +382,19 @@ def _non_negative(path: str, value: float) -> None:
 
 def _positive(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=False)
+
+
+def _fraction(path: str, value: float) -> None:
+    if not 0 < value <= 1:
+        raise SettingRefusedError(
+            'out_of_range', path, f'it must be above 0 and at most 1, not {value!r}'
+        )
+
+
+def _metrics_interval(path: str, value: float | None) -> None:
+    # Shipped null, the default cadence; a value set is seconds between samples.
+    if value is not None:
+        _positive(path, value)
 
 
 def _video_step_duration(path: str, value: float) -> None:
@@ -245,11 +423,23 @@ def _stim_pulse_count(path: str, value: float) -> None:
     _refuse_outside(path, value, *STIM_PULSE_COUNT_RANGE)
 
 
+def _display_color(path: str, value: str | None) -> None:
+    # None is no override: the channel is shown in its catalogue colour.
+    if value is None:
+        return
+    try:
+        parse_display_color(value)
+    except ValueError:
+        raise SettingRefusedError(
+            'out_of_range', path, f"it must be None or a '#rrggbb' colour, not {value!r}"
+        ) from None
+
+
 # The range the writer owns for a setting: what any value of it must satisfy
 # whatever hardware is attached. A ceiling the attached hardware declares (a
 # camera's exposure or gain, an LED board's current) is not a range here: the
 # stored value is the person's intent, and the apply drives the hardware at
-# its limit with the intent kept (``ImagingAPI.applied_gain_db_for`` and kin).
+# its limit with the intent kept (``CameraAPI.applied_gain_db_for`` and kin).
 # A member's setting is here too: its range is held at load as well, though a
 # write to it is refused for its member before the range is read. ``*`` stands
 # for any layer, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
@@ -259,6 +449,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'simulator_tier': _simulator_tier,
     'zstack.position': _zstack_position,
     'image_mode': _image_mode,
+    'objective_confirmed': _objective_confirmed,
     'logging.default.level': _log_level,
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,
@@ -267,9 +458,15 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'image_output_format.live': _live_format,
     'image_output_format.sequenced': _sequenced_format,
     'video.max_fps': _video_max_fps,
-    'video.max_duration_seconds': _video_max_duration,
+    'video.max_duration_s': _video_max_duration,
     'jpg_quality': _jpg_quality,
-    'live_view_fps': _non_negative,
+    'live_view_fps': _live_view_fps,
+    'zstack.step_size': _non_negative,
+    'zstack.range': _non_negative,
+    'protocol.autogain.target_brightness': _fraction,
+    'protocol.autogain.min_gain_db': _non_negative,
+    'protocol.autogain.max_gain_db': _non_negative,
+    'profiling.metrics_interval_s': _metrics_interval,
     'ag_ae_max_exposure_ms.transmitted': _positive,
     'ag_ae_max_exposure_ms.fluorescence': _positive,
     'ag_ae_max_exposure_ms.luminescence': _positive,
@@ -278,23 +475,88 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.gain_db': _non_negative,
     '*.illumination_ma': _non_negative,
     '*.sum': _refuse_non_count,
-    '*.video_config.fps': _positive,
     '*.video_config.duration': _video_step_duration,
     '*.composite_brightness_threshold': _composite_threshold,
     '*.stim_config.frequency': _stim_frequency,
     '*.stim_config.pulse_width': _stim_pulse_width,
     '*.stim_config.pulse_count': _stim_pulse_count,
     '*.stim_config.illumination_ma': _non_negative,
+    '*.display_color': _display_color,
 }
 
 
+def _pattern_for(patterns: typing.Collection[str], path: str) -> str | None:
+    """The one of ``patterns`` naming ``path``: itself, else its layer's ``*.``, else its block's ``.*``."""
+    layer, _, rest = path.partition('.')
+    block, _, _key = path.rpartition('.')
+    for pattern in (
+        path,
+        f'*.{rest}' if rest and layer in common_utils.get_layers() else None,
+        f'{block}.*' if block else None,
+    ):
+        if pattern in patterns:
+            return pattern
+    return None
+
+
 def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
-    rule = _RANGES.get(path)
-    if rule is None:
-        layer, _, rest = path.partition('.')
-        if rest and layer in common_utils.get_layers():
-            rule = _RANGES.get(f'*.{rest}')
-    return rule
+    pattern = _pattern_for(_RANGES, path)
+    return _RANGES[pattern] if pattern else None
+
+
+def is_classified(path: str) -> bool:
+    """Whether the setting at ``path`` says what holds it beyond its kind.
+
+    A member, the installation, the release's derivation, a range, a switch's
+    kind, or an owner that bounds it where it is used.
+    """
+    return (
+        member_for(path) is not None
+        or is_installation_only(path)
+        or path in DERIVED
+        or _range_for(path) is not None
+        or _pattern_for(KIND_IS_THE_RANGE, path) is not None
+        or path in BOUND_AT_USE
+    )
+
+
+def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
+    """The kinds the setting at ``path``, shipped as null, holds when it is not null."""
+    pattern = _pattern_for(_NULLABLE_KINDS, path)
+    return _NULLABLE_KINDS[pattern] if pattern else None
+
+
+def refused_layer_values(
+    layer: str, values: typing.Mapping[str, object]
+) -> list[SettingRefusedError]:
+    """Every one of a layer's values the layer rules refuse, each as its refusal.
+
+    The one table of layer ranges, read for values that are not yet in the
+    settings: a protocol step's, or its Layer Settings row's. ``values``
+    maps a ranged number under the layer (``'exposure_ms'``,
+    ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
+    rule is the layer's whatever ``layer`` names, so a step whose colour is
+    no layer is still judged; ``layer`` names the refusal's path. A hardware
+    ceiling (the LED board's maximum) is not judged here.
+
+    Returns:
+        A ``SettingRefusedError`` for each refused value, in ``values``'
+        order: ``'wrong_kind'`` for one that is not a finite number,
+        ``'out_of_range'`` for one outside its range. Empty when every value
+        is in range.
+    """
+    refused = []
+    for key, value in values.items():
+        path = f'{layer}.{key}'
+        # As the writer takes it: a protocol's cells may be numpy scalars.
+        value = python_values(value)
+        try:
+            if _kind(value) != 'number':
+                raise SettingRefusedError('wrong_kind', path, f'it must be a number, not {value!r}')
+            _RANGES[f'*.{key}'](path, value)
+        except SettingRefusedError as e:
+            refused.append(e)
+    return refused
 
 
 def refuse_outside_range(path: str, value: object) -> None:
@@ -331,8 +593,8 @@ def _kind(value: object) -> str:
     return type(value).__name__
 
 
-def member_for(path: str) -> str | None:
-    """The Session member that owns the setting at ``path``, or None."""
+def member_for(path: str) -> SettingMember | None:
+    """The member that owns the setting at ``path``, or None."""
     segments = path.split('.')
     layers = common_utils.get_layers()
     for owned, member in SETTINGS_WITH_A_MEMBER.items():
@@ -359,7 +621,8 @@ def check_write(
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
-    shipped value; it takes any scalar. ``led_max_ma`` is the current the
+    shipped value; it takes null or the kinds declared for it
+    (``_NULLABLE_KINDS``). ``led_max_ma`` is the current the
     attached LED board declares it can drive, or None with no board: a
     layer's illumination above it is refused, since the board refuses to
     drive it and over-driving an LED is a damage mode; a camera's limits
@@ -367,9 +630,10 @@ def check_write(
     with the stored intent kept.
 
     Raises:
-        SettingRefusedError: ``path`` is owned by a Session member (named),
-            is set only by the installation's settings file, is not a
-            setting, or names a block rather than one setting; or ``value``
+        SettingRefusedError: ``path`` is owned by a member (named),
+            is set only by the installation's settings file, is derived
+            from the release (``'derived'``), is not a setting, or names a
+            block rather than one setting; or ``value``
             is not the setting's kind, or is outside its range (a protocol
             period or duration no protocol can run, and an illumination
             above the attached board's maximum, among them).
@@ -377,12 +641,14 @@ def check_write(
     member = member_for(path)
     if member is not None:
         raise SettingRefusedError(
-            'has_member', path, f'it is changed by ScopeSession.{member}', member=member
+            'has_member', path, f'it is changed by {member.words}', member=member.path
         )
     if is_installation_only(path):
         raise SettingRefusedError(
             'installation_only', path, "it is read from the installation's settings file"
         )
+    if path in DERIVED:
+        raise SettingRefusedError('derived', path, "it is derived from the release's catalogue")
     shipped: object = template
     for segment in path.split('.'):
         if not isinstance(shipped, dict) or segment not in shipped:
@@ -412,11 +678,21 @@ def is_led_current(path: str) -> bool:
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
     want, got = _kind(shipped), _kind(value)
-    scalar = ('bool', 'number', 'string', 'null')
-    if want == 'null' and got not in scalar:
-        raise SettingRefusedError('wrong_kind', path, f'it holds a single value, not a {got}')
-    if want != 'null' and got != want:
+    if want == 'null':
+        # A leaf shipped null with no kind declared holds null alone; the
+        # guard over the template's leaves keeps every one declared.
+        kinds = nullable_kinds_for(path) or ()
+        if got != 'null' and got not in kinds:
+            held = ' or '.join(f'a {kind}' for kind in kinds)
+            raise SettingRefusedError(
+                'wrong_kind', path, f'it holds {held + " or " if held else ""}null, not {value!r}'
+            )
+    elif got != want:
         raise SettingRefusedError('wrong_kind', path, f'it holds a {want}, not {value!r}')
+    if path in DERIVED and value != shipped:
+        raise SettingRefusedError(
+            'derived', path, f"it is derived from the release's catalogue as {shipped!r}"
+        )
     rule = _range_for(path)
     if rule is not None:
         rule(path, value)
@@ -438,12 +714,15 @@ def _values_the_writer_refuses(
     """Every value in ``settings`` the writer's own rule refuses, with the refusal.
 
     Every setting the template holds is checked by the writer's rule, so
-    the load and a handed dict hold one rule with the write. Yields the
+    the load and a handed dict hold one rule with the write, but for a
+    section judged by its reader (``JUDGED_BY_ITS_READER``). Yields the
     dotted path, the dict holding the value and its key, the shipped value,
     and the refusal the writer would raise.
     """
     for path, shipped in _leaf_paths(template):
         *parents, leaf = path.split('.')
+        if parents and parents[0] in JUDGED_BY_ITS_READER:
+            continue
         stored = settings
         for segment in parents:
             stored = stored.get(segment)
@@ -467,7 +746,10 @@ def replace_refused_stored_values(
     kind, NaN, or outside a range -- and nobody can fix a file at load, so
     that key alone takes the template's value, in the settings the app runs
     on and so in the file at its next save; every other setting stays the
-    person's.
+    person's. The auto-gain range is judged after its bounds, by the arm's
+    own rule: each bound may be in range while the pair is inverted, and an
+    inverted pair stopped bring-up at the arm, so both bounds take the
+    template's.
 
     Returns:
         One notice naming every replaced value, for the Session to report
@@ -477,6 +759,13 @@ def replace_refused_stored_values(
     for path, holder, leaf, shipped, _refused in _values_the_writer_refuses(settings, template):
         replaced.append((path, holder[leaf], shipped))
         holder[leaf] = copy.deepcopy(shipped)
+    stored, shipped = settings['protocol']['autogain'], template['protocol']['autogain']
+    try:
+        refuse_inverted_gain_range(stored, 'protocol.autogain')
+    except ArgumentRefusedError:
+        for leaf in ('min_gain_db', 'max_gain_db'):
+            replaced.append((f'protocol.autogain.{leaf}', stored[leaf], shipped[leaf]))
+            stored[leaf] = shipped[leaf]
     return StoredSettingReplacedNotice(replaced) if replaced else None
 
 

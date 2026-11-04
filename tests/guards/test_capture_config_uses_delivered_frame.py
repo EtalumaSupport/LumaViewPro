@@ -64,9 +64,9 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
 
 
 def _settings():
-    import json
+    from tests.settings_fixtures import shipped_template
 
-    settings = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
+    settings = shipped_template()
     settings['frame'] = {'width': 1900, 'height': 1900}
     return settings
 

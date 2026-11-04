@@ -18,7 +18,7 @@ import pytest
 
 import modules.image_save as image_save
 from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import FrameRecord
+from tests.frame_records import frame_record
 
 
 class _Unreachable:
@@ -34,44 +34,29 @@ class _Unreachable:
         )
 
 
-class _ObjectiveCatalogueOnly:
-    """The runtime state, with only the objective catalogue reachable."""
-
-    def __init__(self, runtime_state):
-        self._runtime_state = runtime_state
-
-    def get_objective_info(self, objective_id):
-        return self._runtime_state.get_objective_info(objective_id)
-
-    def __getattr__(self, attr):
-        raise AssertionError(
-            f'the metadata builder read scope.runtime_state.{attr} at write time; '
-            'the plate, well and stage position travel with the frame'
-        )
-
-
-def _record():
-    return FrameRecord(
-        captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456),
+def _record(illumination_ma=None):
+    """A frame's record; ``illumination_ma`` maps LED address to mA."""
+    return frame_record(
+        captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456).astimezone(),
         exposure_ms=12.5,
         gain_db=3.0,
         black_level=4.0,
-        illumination_ma={'BF': 40.0},
+        illumination_ma={3: 40.0} if illumination_ma is None else illumination_ma,
         frames_summed=2,
         frame_significant_bits=12,
         camera_timestamp_ticks=1000,
         camera_tick_hz=1_000_000_000,
         frame_id=7,
-        binning_size=1,
         camera_model='simulated',
     )
 
 
 def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope, monkeypatch):
     objective_id = '10x Oly'
-    runtime_state = sim_scope.runtime_state
-    monkeypatch.setattr(sim_scope, 'runtime_state', _ObjectiveCatalogueOnly(runtime_state))
-    for part in ('imaging', 'illumination', 'motion', '_camera_driver'):
+    # The frame's current is keyed by the address that lit it; the builder
+    # names it through the unit's layer identity, which is not live state.
+    bf_address = sim_scope.channel_identity.find('BF').led_addresses[0]
+    for part in ('runtime_state', 'imaging', 'illumination', 'motion', '_camera_driver'):
         monkeypatch.setattr(sim_scope, part, _Unreachable(part))
 
     metadata = image_save.generate_image_metadata(
@@ -81,9 +66,10 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
         plate_y_mm=8.0,
         stage_z_um=4321.0,
         objective_id=objective_id,
-        frame_record=_record(),
+        frame_record=_record({bf_address: 40.0}),
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label='A1',
+        fallback_focus=None,
     )
 
     assert metadata['exposure_time_ms'] == 12.5
@@ -91,8 +77,10 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
     assert metadata['black_level'] == 4.0
     assert metadata['illumination_ma'] == 40.0
     assert metadata['frames_summed'] == 2
-    assert metadata['well_label'] == 'A1'
-    assert metadata['timestamp_iso'] == '2026-09-29T12:00:00.123456'
+    assert metadata['plate']['well_label'] == 'A1'
+    assert metadata['timestamp_iso'] == (
+        datetime.datetime(2026, 9, 29, 12, 0, 0, 123456).astimezone().isoformat()
+    )
     assert metadata['frame_id'] == 7
     assert metadata['instrument']['camera_model'] == 'simulated'
 
@@ -107,7 +95,7 @@ def test_the_builder_does_not_consult_the_clock():
 
 
 def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
-    record = FrameRecord(**{**_record().__dict__, 'illumination_ma': {}})
+    record = _record({})
 
     metadata = image_save.generate_image_metadata(
         sim_scope,
@@ -119,13 +107,14 @@ def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
         frame_record=record,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label=None,
+        fallback_focus=None,
     )
 
     assert 'illumination_ma' not in metadata
-    assert 'well_label' not in metadata
+    assert 'well_label' not in metadata['plate']
 
 
 def test_a_record_cannot_be_changed_after_the_capture():
     record = _record()
     with pytest.raises(TypeError):
-        record.illumination_ma['BF'] = 0.0
+        record.illumination_ma[3] = 0.0

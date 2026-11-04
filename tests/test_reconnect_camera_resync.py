@@ -12,20 +12,21 @@ a drifting subset. Two confirmed gaps this pins:
     the prior camera's auto-gain was on) were never refreshed.
 
 The fix:
-  - config_helpers.camera_max_exposure_for_ui / camera_max_gain_for_ui are the
-    single UI-facing cap resolvers: the live camera's cap, or the documented
-    no-camera default (camera_max_* are None by design then; #616).
-    load_settings resolves through them so the fallback can't be applied
-    two different ways.
+  - config_helpers.camera_max_gain_for_ui is the single UI-facing gain cap
+    resolver: the live camera's cap, or the documented no-camera default
+    (the camera limits are None by design then). The exposure slider's
+    maximum is the session's answer (ScopeSession.channel_slider_maxima),
+    which load_settings and the resync both read through
+    set_layer_exposure_ranges, so the two paths cannot size it two ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
     (exposure + gain ranges + autogain gate) AND reconcile_layers_to_camera_caps,
     which re-renders and re-applies each layer the attached camera cannot
     fully reach. The blackout fix lives on the APPLY -- the API caps what it
     writes to hardware -- so the stored value is never narrowed; _init_ui
     (connect) calls that grouping. A scope swap (the auto-reconnect item)
-    re-runs it and re-applies the VISIBLE layer
-    (ImageSettings.open_or_default_layer), never a hardcoded channel -- its
-    acceptance list lives with that item.
+    re-runs it and re-applies the shown layer (the Session's shown
+    channel), never a hardcoded channel -- its acceptance list lives with
+    that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -38,15 +39,12 @@ import pathlib
 from types import SimpleNamespace
 
 from modules.config_helpers import (
-    BF_MAX_MANUAL_EXPOSURE_MS,
-    DEFAULT_MAX_EXPOSURE_MS,
     DEFAULT_MAX_GAIN_DB,
-    FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS,
-    TRANSMITTED_MAX_MANUAL_EXPOSURE_MS,
-    camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
-    layer_max_exposure_ms_for_ui,
+    layer_slider_maxima,
 )
+from modules.layer_record import release_catalogue
+from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -79,22 +77,14 @@ def _attr_calls(method: ast.FunctionDef, attr: str):
 
 
 class TestCapResolvers:
-    """The single UI-facing cap resolvers apply the documented #616 fallback."""
-
-    def test_exposure_returns_live_cap_when_present(self):
-        imaging = SimpleNamespace(max_exposure_ms_cached=500.0)
-        assert camera_max_exposure_for_ui(imaging) == 500.0
-
-    def test_exposure_falls_back_when_no_camera(self):
-        imaging = SimpleNamespace(max_exposure_ms_cached=None)
-        assert camera_max_exposure_for_ui(imaging) == DEFAULT_MAX_EXPOSURE_MS
+    """The single UI-facing gain cap resolver applies the documented fallback."""
 
     def test_gain_returns_live_cap_when_present(self):
-        imaging = SimpleNamespace(max_gain_db_cached=24.0)
+        imaging = SimpleNamespace(gain_max_db=24.0)
         assert camera_max_gain_for_ui(imaging) == 24.0
 
     def test_gain_falls_back_when_no_camera(self):
-        imaging = SimpleNamespace(max_gain_db_cached=None)
+        imaging = None
         assert camera_max_gain_for_ui(imaging) == DEFAULT_MAX_GAIN_DB
 
 
@@ -140,24 +130,6 @@ class TestSyncGrouping:
             'ImageSettings._init_ui must resync via sync_camera_capability_ranges.'
         )
 
-    def test_open_or_default_layer_reuses_helper_and_defaults_to_bf(self):
-        method = _method_node(IMAGE_SETTINGS_PATH, 'open_or_default_layer')
-        # Delegates the open-layer scan to the shared guarded helper, and
-        # defaults to BF when none is open.
-        assert _attr_calls(method, 'get_opened_layer') or any(
-            isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == 'get_opened_layer'
-            for n in ast.walk(method)
-        ), 'open_or_default_layer must reuse common_utils.get_opened_layer.'
-        returns_bf = any(
-            isinstance(n, ast.Return)
-            and isinstance(n.value, ast.Constant)
-            and n.value.value == 'BF'
-            for n in ast.walk(method)
-        )
-        assert returns_bf, 'open_or_default_layer must default to BF when no layer is open.'
-
 
 class TestLoadSettingsResync:
     """load_settings resolves the caps and the reconcile through the shared owners."""
@@ -166,8 +138,8 @@ class TestLoadSettingsResync:
         # The de-fragmentation: load_settings resolves caps through the same
         # helpers, not its own inline `or DEFAULT`.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _name_calls(method, 'camera_max_exposure_for_ui'), (
-            'load_settings must resolve the exposure cap via camera_max_exposure_for_ui.'
+        assert _attr_calls(method, 'set_layer_exposure_ranges'), (
+            'load_settings must size the exposure sliders via set_layer_exposure_ranges.'
         )
         assert _name_calls(method, 'camera_max_gain_for_ui'), (
             'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
@@ -284,6 +256,14 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
         )
 
 
+def layer_max_exposure_ms(camera_max_ms: float, layer: str) -> float:
+    """The exposure slider maximum the session publishes for ``layer`` under a
+    camera capped at ``camera_max_ms``."""
+    return layer_slider_maxima(
+        layer, exposure_cap_ms=camera_max_ms, illumination_cap_ma=None
+    ).slider_max_exposure_ms
+
+
 class TestManualExposurePolicy:
     """The transmitted layers' manual exposure ceilings, which nothing asserted.
 
@@ -295,24 +275,20 @@ class TestManualExposurePolicy:
     """
 
     def test_bf_stops_at_its_own_ceiling(self):
-        assert layer_max_exposure_ms_for_ui(10_000.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
+        assert layer_max_exposure_ms(10_000.0, 'BF') == 50.0
 
     def test_the_other_transmitted_layers_stop_higher(self):
         for layer in ('PC', 'DF'):
-            assert (
-                layer_max_exposure_ms_for_ui(10_000.0, layer) == TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
-            ), layer
+            assert layer_max_exposure_ms(10_000.0, layer) == 200.0, layer
 
     def test_a_lower_camera_cap_wins(self):
         # The policy narrows the camera; it never widens past what the body can do.
-        assert layer_max_exposure_ms_for_ui(30.0, 'BF') == 30.0
-        assert layer_max_exposure_ms_for_ui(120.0, 'DF') == 120.0
+        assert layer_max_exposure_ms(30.0, 'BF') == 30.0
+        assert layer_max_exposure_ms(120.0, 'DF') == 120.0
 
     def test_fluorescence_stops_at_its_own_ceiling(self):
-        for layer in ('Blue', 'Green', 'Red'):
-            assert (
-                layer_max_exposure_ms_for_ui(10_000.0, layer) == FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
-            ), layer
+        for layer in (LED0, LED1, LED2):
+            assert layer_max_exposure_ms(10_000.0, layer) == 1000.0, layer
 
     def test_luminescence_alone_gets_the_camera_cap(self):
         """The exemption, asserted on its own so it cannot be folded away.
@@ -320,7 +296,7 @@ class TestManualExposurePolicy:
         Integrating as long as the sensor allows is what the channel is for, so
         Lumi is the one layer with no manual ceiling. Every other class narrows.
         """
-        assert layer_max_exposure_ms_for_ui(10_000.0, 'Lumi') == 10_000.0
+        assert layer_max_exposure_ms(10_000.0, 'Lumi') == 10_000.0
 
     def test_a_body_that_caps_low_narrows_every_class(self):
         """A camera whose own cap sits under the policy ceilings.
@@ -329,20 +305,20 @@ class TestManualExposurePolicy:
         boards once capped at 178 ms). Nothing may hand any layer a bound
         above what the attached body will honor.
         """
-        for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
-            assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
-        assert layer_max_exposure_ms_for_ui(178.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
-        assert layer_max_exposure_ms_for_ui(178.0, 'PC') == 178.0
-        assert layer_max_exposure_ms_for_ui(178.0, 'Red') == 178.0
-        assert layer_max_exposure_ms_for_ui(178.0, 'Lumi') == 178.0
+        for layer in release_catalogue():
+            assert layer_max_exposure_ms(178.0, layer) <= 178.0, layer
+        assert layer_max_exposure_ms(178.0, 'BF') == 50.0
+        assert layer_max_exposure_ms(178.0, 'PC') == 178.0
+        assert layer_max_exposure_ms(178.0, LED2) == 178.0
+        assert layer_max_exposure_ms(178.0, 'Lumi') == 178.0
 
     def test_the_manual_ceiling_is_not_the_auto_ceiling(self):
         # DEFAULT_AG_AE_MAX_EXPOSURE_MS bounds what the AUTO loop may drive to
         # and is overridable per install; reusing it here would let auto-exposure
         # tuning silently resize the manual slider. The resolver takes no settings
         # argument, so no install override can reach it.
-        assert 'settings' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
-        assert 'overrides' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
+        assert 'settings' not in inspect.signature(layer_slider_maxima).parameters
+        assert 'overrides' not in inspect.signature(layer_slider_maxima).parameters
 
 
 class TestTheTypedExposureHasNoWidgetCeiling:
@@ -372,14 +348,13 @@ class TestTheTypedExposureHasNoWidgetCeiling:
         assert 'value_max' not in keywords, 'exp_text must not hand the handler a ceiling.'
         from tests.ast_seams import parse_module
 
-        for rel in ('ui/layer_control.py', 'modules/config_ui_getters.py'):
-            named = {
-                getattr(n, 'id', None) or getattr(n, 'attr', None) or getattr(n, 'name', None)
-                for n in ast.walk(parse_module(rel))
-            }
-            assert 'get_exposure_text_max' not in named, (
-                f'{rel}: the typed-exposure ceiling resolver is retired; the apply caps.'
-            )
+        named = {
+            getattr(n, 'id', None) or getattr(n, 'attr', None) or getattr(n, 'name', None)
+            for n in ast.walk(parse_module('ui/layer_control.py'))
+        }
+        assert 'get_exposure_text_max' not in named, (
+            'ui/layer_control.py: the typed-exposure ceiling resolver is retired; the apply caps.'
+        )
 
     def test_no_layer_is_special_cased(self):
         """One rule for every layer: the slider carries all the narrowing.

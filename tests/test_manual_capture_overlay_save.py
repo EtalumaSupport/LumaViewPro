@@ -27,10 +27,13 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from modules.lumascope_api._constants import AxisPosition, AxisState
+from modules.coord_transformations import PlatePosition
+from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import parse_module
+from modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
+from modules.layer_record import release_colors
 
 LAYER = 'Lumi'
 
@@ -53,15 +56,18 @@ def capture_ctx(tmp_path):
     a1 = plate('96 well microplate')
     scope.runtime_state.get_labware.return_value = a1
     a1_x_mm, a1_y_mm = a1.get_well_position(0, 0)
-    scope.runtime_state.plate_transform.return_value = lambda sx, sy: (a1_x_mm, a1_y_mm)
+    scope.runtime_state.plate_transform.return_value = lambda x_um, y_um: PlatePosition(
+        x_mm=a1_x_mm, y_mm=a1_y_mm
+    )
     scope.motion.axis_positions.return_value = {
         'X': AxisPosition(AxisState.IDLE, 1000.0),
         'Y': AxisPosition(AxisState.IDLE, 2000.0),
     }
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
-    scope.imaging.last_capture_info = {'frame_record': frame_record()}
-    scope.imaging._submit_camera.side_effect = _run_on_the_calling_thread
+    record = frame_record()
+    scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=record
+    )
+    scope.camera._submit_camera.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
         scope=scope,
         tmp_path=tmp_path,
@@ -71,11 +77,14 @@ def capture_ctx(tmp_path):
     )
 
 
-def _run_on_the_calling_thread(impl, name, args=(), *, waiter):
+def _run_on_the_calling_thread(impl, name, args=(), *, waiter, bound_s):
+    # Settled before it returns, so the bound never runs out: the caller's
+    # outcome is the waiter's.
     try:
         waiter.set_result(impl(*args))
     except Exception as exc:
         waiter.set_exception(exc)
+    return waiter
 
 
 def _run_capture(ctx, sum_count=1):
@@ -90,7 +99,11 @@ def _run_capture(ctx, sum_count=1):
     capture = ManualCaptureController(
         scope=ctx.scope,
         settings_snapshot=lambda: settings,
+        shown_layer=lambda: LAYER,
+        # No layer is put on this camera, so the still's hold writes nothing.
+        layer_camera_request=lambda layer: None,
         engineering_mode=lambda: ctx.engineering_mode,
+        channel_colors=release_colors,
     )
 
     def _saved(scope, array, *, file_root, append, **kwargs):
@@ -98,7 +111,6 @@ def _run_capture(ctx, sum_count=1):
 
     with patch('modules.manual_capture.save_image', side_effect=_saved) as save_one:
         capture.capture(
-            layer=LAYER,
             false_color_on=False,
             bullseye=ctx.use_bullseye,
             crosshairs=ctx.use_crosshairs,
@@ -127,7 +139,7 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
         save_one = _run_capture(capture_ctx, sum_count=3)
 
         assert save_one.call_count == 1
-        kwargs = capture_ctx.scope.imaging._capture_and_wait_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging._capture_holding_layer_impl.call_args.kwargs
         assert kwargs['sum_count'] == 3
 
     def test_engineering_mode_no_longer_decides_what_is_written(self):
@@ -193,7 +205,7 @@ class TestSummingSurvivesAnOverlay:
 
         _run_capture(capture_ctx, sum_count=3)
 
-        kwargs = capture_ctx.scope.imaging._capture_and_wait_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging._capture_holding_layer_impl.call_args.kwargs
         assert kwargs['sum_count'] == 3, (
             'the overlay path grabbed its frame without the configured frame '
             'count, so an overlay silently reduced a summed capture to one frame'
@@ -216,7 +228,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_engineering_mode_writes_the_canonical_turret_token(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 
@@ -225,7 +237,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_the_legacy_spelling_is_gone(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
         capture_ctx.use_crosshairs = True
 
         save_one = _run_capture(capture_ctx)
@@ -240,7 +252,7 @@ class TestEngineeringModeNamesTheTurretPosition:
         """A scope that has not reported a turret position yet names the file
         exactly as production mode does; nothing is invented."""
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = None
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.UNKNOWN, None)
 
         save_one = _run_capture(capture_ctx)
 
@@ -249,7 +261,7 @@ class TestEngineeringModeNamesTheTurretPosition:
     def test_production_mode_names_no_turret_position(self, capture_ctx):
         """Behaviour preserved on both sides of the change."""
         capture_ctx.engineering_mode = False
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 
@@ -261,16 +273,17 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         """Three 8-bit frames summed to 255 are one frame's white; the overlay
         is drawn on that rendering, so the pixel is white, not 255 of 1023."""
         capture_ctx.use_crosshairs = True
-        capture_ctx.scope.imaging._capture_and_wait_impl.return_value = np.full(
-            (4, 4), 255, dtype=np.uint16
+        record = frame_record(frames_summed=3, frame_significant_bits=8)
+        capture_ctx.scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
+            image=np.full((4, 4), 255, dtype=np.uint16), record=record
         )
-        capture_ctx.scope.imaging.capture_frame_depth.return_value = 10
-        capture_ctx.scope.imaging.last_capture_info = {
-            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
-        }
 
         save_one = _run_capture(capture_ctx, sum_count=3)
 
         overlay = save_one.call_args_list[1].args[1]
         assert overlay.dtype == np.uint8
         assert int(overlay[0, 0].min()) == 255
+        # The sum is saved stating one frame's white; the overlay, already the
+        # 8-bit rendering, states none.
+        assert save_one.call_args_list[0].kwargs['white_bits'] == 8
+        assert save_one.call_args_list[1].kwargs['white_bits'] is None

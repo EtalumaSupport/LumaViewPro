@@ -71,20 +71,17 @@ def test_probe_names_the_import_failure_reason(monkeypatch):
 def test_environment_banner_consumes_the_import_probe():
     """Source-text pin (lvp_logger is conftest-mocked, so its code cannot be
     driven in tests): the banner takes the probe's lines from its caller --
-    it must not carry its own metadata-based camera-SDK lines, and the entry
-    point must actually pass the probe output (the banner keeps zero
-    dependency on modules/, so the glue lives at the call site)."""
-    logger_src = pathlib.Path('lvp_logger.py').read_text()
+    it must not carry its own metadata-based camera-SDK lines. That the
+    session's bring-up hands it the probe's output, and every probe line
+    reaches the log, is driven in a real process by
+    ``tests/test_every_session_host_logs_its_environment_once.py``."""
+    logger_src = pathlib.Path('lvp_logger.py').read_text(encoding='utf-8')
     assert 'camera_sdk_lines' in logger_src, (
         'the banner must take the camera-SDK lines as a required parameter'
     )
     assert "'[LVP Main  ] ids_peak: not installed'" not in logger_src, (
         'the metadata-based ids_peak banner line cannot tell the truth in '
         'frozen builds and must be gone'
-    )
-    entry_src = pathlib.Path('lumaviewpro.py').read_text()
-    assert re.search(r'log_environment_banner\([^)]*camera_sdk_probe\(\)', entry_src), (
-        'the entry point must pass camera_sdk_probe() output into the banner'
     )
 
 
@@ -105,7 +102,7 @@ def test_driver_import_guards_log_their_reason():
     pinned by behaviour in test_ids_absence_on_macos_is_not_a_warning.py."""
     import modules.lumascope_api._lumascope as lumascope_mod
 
-    src = pathlib.Path(lumascope_mod.__file__).read_text()
+    src = pathlib.Path(lumascope_mod.__file__).read_text(encoding='utf-8')
 
     fx2_guard = re.search(
         r'try:\s*\n\s*import drivers\.fx2driver[^\n]*\n'

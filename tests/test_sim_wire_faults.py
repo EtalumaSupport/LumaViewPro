@@ -11,7 +11,6 @@ reports every register write in order without a byte of it reaching the
 driver.
 """
 
-import sys
 import time
 
 import pytest
@@ -24,11 +23,7 @@ from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import channel, tmc5072
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
-
-firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
+from tests.case_walk import failing_cases
 
 
 def _motor(**kwargs) -> tmc5072.Motor:
@@ -84,15 +79,18 @@ class TestTheChipModelsFaults:
         assert motor.read(tmc5072.RAMP_STAT) & tmc5072.POSITION_REACHED
         assert motor.stop_status() == (0, 0)
 
-    @pytest.mark.parametrize('fault', tmc5072.FAULTS)
-    def test_a_faulted_motor_has_no_flag_edge_ahead(self, fault):
-        # A stage that is not following, or a switch that never changes, can
-        # meet no edge; offering one would walk a move to its goal an edge's
-        # distance at a time, since the stalled stage never reaches it.
-        motor = _motor(start_usteps=1.0)
-        assert motor.next_edge(-1) == 0.0
-        motor.set_fault(fault, True)
-        assert motor.next_edge(-1) is None
+    def test_a_faulted_motor_has_no_flag_edge_ahead(self):
+        def check(fault):
+            # A stage that is not following, or a switch that never changes, can
+            # meet no edge; offering one would walk a move to its goal an edge's
+            # distance at a time, since the stalled stage never reaches it.
+            motor = _motor(start_usteps=1.0)
+            assert motor.next_edge(-1) == 0.0
+            motor.set_fault(fault, True)
+            assert motor.next_edge(-1) is None
+
+        failed = failing_cases(tmc5072.FAULTS, check)
+        assert not failed, failed
 
     def test_once_a_stall_clears_the_stage_moves_from_where_it_stalled(self):
         motor = _motor()
@@ -191,8 +189,9 @@ def scope(request):
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheFirmwareMeetsTheFault:
+    # parametrize-justified: each dialect boots its own firmware emulator
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_z_switch_that_never_trips_is_the_firmwares_home_timeout(self, scope):
         # Homed through the driver's own home calls, with the deadlines they
@@ -207,6 +206,7 @@ class TestTheFirmwareMeetsTheFault:
         sim.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
         assert board.zhome() is None
 
+    # parametrize-justified: each dialect boots its own firmware emulator
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_stalled_x_is_the_firmwares_xy_home_timeout(self, scope):
         board, sim = scope
@@ -240,7 +240,7 @@ class TestTheFirmwareMeetsTheFault:
         assert 'OPEN_A OPEN_B' in board.exchange_command('DRVSTAT_Z')
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheOracle:
     @pytest.mark.parametrize('scope', [('3.0', True)], indirect=True)
     def test_every_z_home_makes_the_same_writes_before_its_reply(self, scope):

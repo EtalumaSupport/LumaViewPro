@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import ast
 
+from tests import ratchets as _ratchets
 from tests.ast_seams import REPO_ROOT, iter_package_modules
 
 _JUSTIFICATION = 'pin-justified'
@@ -118,9 +119,11 @@ def _fragile_pin_counts():
 # Pinned at 132d09a9 (beta35). Lower a value in the same commit that moves
 # the assertion to a seam or justifies the read; never raise one.
 _FRAGILE_PIN = {
-    'tests/test_audit_fixes.py': 64,
-    'tests/test_camera_log_routing.py': 1,
-    'tests/test_camera_sdk_probe_observability.py': 2,
+    'tests/test_audit_fixes.py': 55,
+    # 2 -> 1: the read of lumaviewpro.py's banner call went with the call;
+    # the session's bring-up writing the banner is driven in a real process
+    # by tests/test_every_session_host_logs_its_environment_once.py.
+    'tests/test_camera_sdk_probe_observability.py': 1,
     # 4 -> 3: test_reconnect_regates_the_ui was deleted with the dead
     # MicroscopeSettings.reconnect handler it pinned, and its assertion
     # read ui/microscope_settings.py as source text. Nothing replaced it;
@@ -129,8 +132,8 @@ _FRAGILE_PIN = {
     'tests/test_composite_channel_extract_672.py': 2,
     'tests/guards/test_controls_lockout.py': 5,
     'tests/test_dark_floor_capture_guard.py': 1,
-    'tests/test_enhance_file_or_folder.py': 7,
-    'tests/test_fatal_abort_led_safety.py': 2,
+    'tests/test_enhance_file_or_folder.py': 2,
+    'tests/test_fatal_abort_led_safety.py': 1,
     'tests/test_histogram_display_gating.py': 1,
     'tests/test_image_mode.py': 2,
     'tests/test_installer_log_capture.py': 1,
@@ -143,7 +146,6 @@ _FRAGILE_PIN = {
     'tests/test_led_ack_and_tsr_filename.py': 1,
     'tests/test_logger_bundle_single_owner.py': 1,
     'tests/test_manual_recording_controller.py': 1,
-    'tests/test_periodic_current_json_flush.py': 1,
     'tests/test_popup_close_button.py': 2,
     'tests/test_protocol_modules.py': 1,
     'tests/test_quick_enhance.py': 2,
@@ -181,10 +183,27 @@ def _ratchet_report(pin, actual):
     return lines
 
 
+# Every bucket but the pinned `body-pin`, announced for its history.
+_ANNOUNCED_BUCKETS = (
+    'body-pin-justified',
+    'single-computed',
+    'hygiene-scan',
+    'data-doc-read',
+    'kv-pin',
+)
+
+
 def test_fragile_source_pins_match_the_pin():
     """New tests assert seams or behaviour, not source text; every drop is
     recorded where it happened."""
-    report = _ratchet_report(_FRAGILE_PIN, _fragile_pin_counts())
+    counts = _fragile_pin_counts()
+    _ratchets.observe(
+        'tests: fragile source pins (unjustified literal-.py reads)',
+        sum(counts.values()),
+        sum(_FRAGILE_PIN.values()),
+        'equal',
+    )
+    report = _ratchet_report(_FRAGILE_PIN, counts)
     assert report == [], '\n'.join(report)
 
 
@@ -196,6 +215,8 @@ def test_classification_covers_every_site():
     than no classification, because the migration is scoped from it.
     """
     sites = classify_read_text_sites()
+    for bucket in _ANNOUNCED_BUCKETS:
+        _ratchets.observe(f'tests: read_text sites, {bucket}', len(sites[bucket]), rule='announce')
     total = sum(len(v) for v in sites.values())
     assert total > 0, 'the scan found nothing, so it is no longer scanning'
     for category, entries in sites.items():
@@ -219,21 +240,3 @@ def test_justification_is_read_from_the_site():
     lines = src.splitlines()
     assert _is_justified(lines, 3)
     assert not _is_justified(lines, 9)
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-_ratchets.register(
-    'tests: fragile source pins (unjustified literal-.py reads)',
-    lambda: sum(_fragile_pin_counts().values()),
-    sum(_FRAGILE_PIN.values()),
-    'equal',
-)
-for _bucket in ('body-pin-justified', 'single-computed', 'hygiene-scan', 'data-doc-read', 'kv-pin'):
-    _ratchets.register(
-        f'tests: read_text sites, {_bucket}',
-        (lambda b=_bucket: len(classify_read_text_sites()[b])),
-        0,
-        'announce',
-    )

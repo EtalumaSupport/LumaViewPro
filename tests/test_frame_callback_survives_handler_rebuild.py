@@ -17,8 +17,8 @@ from drivers.camera import ImageHandlerBase
 from drivers.simulated_camera import SimulatedCamera
 
 
-def _cb(image, ts, chunks):
-    """A no-op per-frame callback with the (image, timestamp, chunks) signature."""
+def _cb(frame):
+    """A no-op per-frame callback, called with the stored Frame."""
 
 
 def test_registered_callback_stored_in_durable_registry():

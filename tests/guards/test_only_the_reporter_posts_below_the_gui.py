@@ -18,28 +18,18 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, production_modules
+from tests.ast_seams import MemberNames, iter_package_modules, production_modules
 
-_POSTS = frozenset({'notify', 'debug', 'info', 'notice', 'warning', 'error', 'critical'})
+_POSTS = MemberNames(
+    'modules/notification_center.py',
+    {'notify', 'debug', 'info', 'notice', 'warning', 'error', 'critical'},
+)
 _EXEMPT_FILES = frozenset({'modules/notification_center.py'})
 
 # (file, enclosing function) -> (direct posts in it, the open work that moves
 # them). The count, so a new post in a listed function is not waved through
 # with the one already there.
-_NOT_YET_TYPED = {
-    ('modules/lumascope_api/imaging.py', 'ImagingAPI._notify_camera_absent'): (
-        1,
-        "primary's row 'A camera removed mid-session (C)', the camera-absent setters",
-    ),
-    ('modules/lumascope_api/imaging.py', 'ImagingAPI._get_image_impl'): (
-        1,
-        "primary's row 'A camera removed mid-session (C)', a capture with the camera gone",
-    ),
-    ('modules/lumascope_api/illumination.py', 'IlluminationAPI._notify_if_led_command_failed'): (
-        1,
-        'the LED confirmation-before-cache work',
-    ),
-}
+_NOT_YET_TYPED: dict[tuple[str, str], tuple[int, str]] = {}
 
 
 def _below_the_gui():

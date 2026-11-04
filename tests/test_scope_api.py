@@ -3,13 +3,12 @@
 Tests for the GUI-independent scope API modules:
 - modules/config_helpers.py
 - modules/lumascope_api.py executor-backed command API
-  (scope.illumination.led_on, scope.motion.move_absolute, etc.)
+  (scope.illumination.led_on, scope.motion.move_xy, etc.)
 - modules/scope_session.py
 
 Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
-import datetime
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -19,15 +18,17 @@ from tests.settings_fixtures import complete_settings
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
     build_scope,
+    led_reading,
     real_executor_bundle,
-    scope_delivering_nothing,
     swap_lanes,
 )
-from tests.protocol_drives import run_identity
+from tests.stock_channels import LED2
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +74,9 @@ def _make_settings(layers=None, with_stim=False):
 
     settings['protocol'] = {
         'autogain': {
-            'enabled': True,
-            'max_duration_seconds': 30,
-            'target_mean': 128,
+            'target_brightness': 0.3,
+            'min_gain_db': 0.0,
+            'max_gain_db': 20.0,
         },
         'labware': '96 well microplate',
     }
@@ -83,24 +84,6 @@ def _make_settings(layers=None, with_stim=False):
     settings['stage_offset'] = {'x': 0, 'y': 0}
     settings['live_folder'] = '/tmp'
     return settings
-
-
-def _make_mock_scope(led_available=True):
-    """Build a mock scope object."""
-    scope = MagicMock()
-    scope._led_driver = led_available
-    type(scope).led_connected = PropertyMock(return_value=bool(led_available))
-    type(scope).motor_connected = PropertyMock(return_value=True)
-    scope._motion_driver = MagicMock()
-    scope._motion_driver.driver = True
-    scope.illumination.leds_off = MagicMock()
-    scope.illumination.led_on = MagicMock()
-    scope.illumination.led_off = MagicMock()
-    scope.motion.move_absolute = MagicMock()
-    scope.motion.move_relative = MagicMock()
-    scope.motion.home = MagicMock()
-    scope.motion.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
-    return scope
 
 
 class _RecordingExecutor(SequentialIOExecutor):
@@ -116,7 +99,8 @@ class _RecordingExecutor(SequentialIOExecutor):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        # It stands for a scope lane, whose closer states scope_disconnected.
+        super().__init__(closed_answer=scope_lane_closed, **kwargs)
         self.submitted = []
 
     def put(self, task, return_future=False, *, override=None, waiter=None):
@@ -133,9 +117,8 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     The caller owns shutdown: `scope.disconnect()` plus `shutdown()` on
     each executor, or the worker threads outlive the test.
     """
-    from tests.scope_fakes import record_turret_answer
 
-    scope = record_turret_answer(build_scope(simulate=True))
+    scope = build_scope(simulate=True)
     if not led:
         from drivers.null_ledboard import NullLEDBoard
 
@@ -183,8 +166,8 @@ class TestGetLayerConfigs:
 
     def test_specific_layers_filter(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF', 'Red'])
-        assert set(configs.keys()) == {'BF', 'Red'}
+        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF', LED2])
+        assert set(configs.keys()) == {'BF', LED2}
 
     def test_illumination_rounded(self):
         settings = _make_settings()
@@ -276,7 +259,7 @@ class TestGetStimConfigs:
         del settings['BF']['stim_config']
         stim = config_helpers.get_stim_configs(settings)
         assert 'BF' not in stim
-        assert 'Red' in stim
+        assert LED2 in stim
 
     def test_no_stim_returns_empty(self):
         settings = _make_settings(with_stim=False)
@@ -284,44 +267,15 @@ class TestGetStimConfigs:
         assert stim == {}
 
 
-class TestGetEnabledStimConfigs:
-    def test_filters_disabled(self):
-        settings = _make_settings(with_stim=True)
-        settings['Red']['stim_config']['enabled'] = False
-        enabled = config_helpers.get_enabled_stim_configs(settings)
-        assert 'Red' not in enabled
-        assert 'BF' in enabled
-
-
 class TestGetAutoGainSettings:
-    def test_converts_seconds_to_timedelta(self):
+    def test_answers_a_copy_of_the_stored_settings(self):
         settings = _make_settings()
         result = config_helpers.get_auto_gain_settings(settings)
-        assert result['max_duration'] == datetime.timedelta(seconds=30)
-        assert 'max_duration_seconds' not in result
-
-    def test_preserves_other_keys(self):
-        settings = _make_settings()
-        result = config_helpers.get_auto_gain_settings(settings)
-        assert result['enabled'] is True
-        assert result['target_mean'] == 128
-
-    def test_does_not_mutate_settings(self):
-        settings = _make_settings()
-        config_helpers.get_auto_gain_settings(settings)
-        # Original should still have max_duration_seconds
-        assert 'max_duration_seconds' in settings['protocol']['autogain']
-
-
-class TestGetCurrentObjectiveInfo:
-    def test_returns_id_and_info(self):
-        settings = _make_settings()
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'magnification': 4, 'focal_length': 10}
-        obj_id, obj = config_helpers.get_current_objective_info(settings, helper)
-        assert obj_id == '4x Oly'
-        assert obj['magnification'] == 4
-        helper.get_objective_info.assert_called_once_with(objective_id='4x Oly')
+        assert result == settings['protocol']['autogain']
+        result['min_gain_db'] = 5.0
+        assert settings['protocol']['autogain']['min_gain_db'] == 0.0, (
+            'a change to the answer reached the store'
+        )
 
 
 class TestFindNearestStep:
@@ -349,16 +303,6 @@ class TestFindNearestStep:
         assert config_helpers.find_nearest_step(100, 100, proto) == 2
 
 
-class TestFocusLog:
-    def test_increments_round(self):
-        result = config_helpers.focus_log([1, 2], [0.5, 0.7], focus_round=3, source_path='.')
-        assert result == 4
-
-    def test_increments_from_zero(self):
-        result = config_helpers.focus_log([], [], focus_round=0, source_path='.')
-        assert result == 1
-
-
 class TestGetCurrentPlatePosition:
     def test_an_expected_motor_board_that_is_absent_is_refused(self):
         # The model has a motor controller and none answers: there is no
@@ -376,70 +320,37 @@ class TestGetCurrentPlatePosition:
         # Not disconnected: the lanes are open.
         scope._io_executor.pending_shutdown = False
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            config_helpers.get_current_plate_position(
-                scope,
-                _make_settings(),
-                MagicMock(),
-                MagicMock(),
-                '96 well microplate',
-            )
+            config_helpers.get_current_plate_position(scope, '96 well microplate')
         assert refused.value.reason == 'not_connected'
 
-    def test_a_manual_scope_still_answers_the_origin(self):
-        # A scope with no motor controller by design: what its steps record
-        # in place of a position is decided elsewhere, and until then this
-        # answer is unchanged.
-        scope = MagicMock()
-        type(scope).motor_connected = PropertyMock(return_value=False)
-        type(scope).motion_expected = PropertyMock(return_value=False)
-        result = config_helpers.get_current_plate_position(
-            scope,
-            _make_settings(),
-            MagicMock(),
-            MagicMock(),
-            '96 well microplate',
-        )
-        assert result == {'x': 0, 'y': 0, 'z': 0}
-
-    def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self):
+    def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
         from modules.exceptions import CatalogueNameRefusedError
-        from modules.labware_loader import WellPlateLoader
+        from tests.test_manual_capture_member import _open_session, _settings
 
-        transformer = MagicMock()
-        with pytest.raises(
-            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        with (
+            _open_session(_settings(tmp_path)) as session,
+            pytest.raises(CatalogueNameRefusedError) as refused,
         ):
-            config_helpers.get_current_plate_position(
-                _make_mock_scope(),
-                _make_settings(),
-                transformer,
-                WellPlateLoader(),
-                'nonexistent',
-            )
-        transformer.stage_to_plate.assert_not_called()
+            session.plate_position_on('nonexistent')
+        assert refused.value.reason == 'labware_unknown'
 
-    def test_zonly_scope_missing_xy_does_not_raise(self):
+    def test_zonly_scope_missing_xy_does_not_raise(self, tmp_path):
         # A scope with no XY stage reports position without X/Y keys; the
-        # plate-coordinate (labware-loaded) branch must tolerate that instead
-        # of raising KeyError when authoring/modifying a step or a z-stack.
-        scope = _make_mock_scope()
-        scope.motion.get_current_position = MagicMock(return_value={'Z': 500})
-        transformer = MagicMock()
-        transformer.stage_to_plate.return_value = (0, 0)
-        loader = MagicMock()  # valid labware -> success branch, not fallback
-        result = config_helpers.get_current_plate_position(
-            scope,
-            _make_settings(),
-            transformer,
-            loader,
-            '96 well microplate',
-        )
-        assert set(result) == {'x', 'y', 'z'}
-        assert result['z'] != 0  # Z=500 preserved on a Z-only scope
+        # plate position must tolerate that instead of raising KeyError when
+        # authoring/modifying a step or a z-stack.
+        from tests.test_manual_capture_member import _open_session, _settings
+
+        settings = _settings(tmp_path)
+        settings['microscope'] = 'LS820'
+        with _open_session(settings) as session:
+            session.scope.motion.move_z(500.0)
+            result = session.get_current_plate_position()
+            z = session.scope.motion.get_current_position('Z')
+        assert result.z_um == pytest.approx(z, abs=0.01)
 
 
 class TestLogSystemMetrics:
-    def test_calls_system_metrics(self):
+    def test_calls_system_metrics(self, sim_scope):
         settings = complete_settings(live_folder='/tmp')
         with (
             patch('modules.common_utils.system_metrics') as mock_metrics,
@@ -458,7 +369,9 @@ class TestLogSystemMetrics:
             }
             mock_disk.return_value = 100000  # plenty of space
             mock_extra.return_value = None
-            config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
+            config_helpers.log_system_metrics(
+                settings, scope=sim_scope, executors=real_executor_bundle()
+            )
             import pathlib
 
             expected_path = str(pathlib.Path('/tmp').resolve())
@@ -478,10 +391,9 @@ class TestLumascopeLedAPI:
         # assertion -- a dispatcher that submitted without waiting would
         # find the channel still dark.
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, illumination_ma=75)
+        scope.illumination.led_on_by_address(1, 75)
         assert len(io_ex.submitted) == 1
-        color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_state(color)['illumination_ma'] == 75.0
+        assert led_reading(scope, 1).illumination_ma == 75.0
 
     def test_led_on_without_a_board_is_refused(self):
         # Refused on the lane, AND nothing is recorded as lit: a Null board
@@ -492,7 +404,7 @@ class TestLumascopeLedAPI:
 
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            scope.illumination.led_on(0, 50)
+            scope.illumination.led_on_by_address(0, 50)
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
             MissingPart.LED_CONTROLLER,
@@ -502,15 +414,14 @@ class TestLumascopeLedAPI:
 
     def test_led_off_blocks_until_the_write_lands(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, illumination_ma=75)
-        scope.illumination.led_off(1)
+        scope.illumination.led_on_by_address(1, 75)
+        scope.illumination.led_off_by_address(1)
         assert len(io_ex.submitted) == 2
-        color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_state(color)['enabled'] is False
+        assert led_reading(scope, 1).state is LedState.DARK
 
     @pytest.mark.parametrize(
         'turn_off',
-        [lambda ill: ill.led_off(0), lambda ill: ill.leds_off()],
+        [lambda ill: ill.led_off('BF'), lambda ill: ill.leds_off()],
         ids=['led_off', 'leds_off'],
     )
     def test_led_off_and_leds_off_are_satisfied_when_no_led(self, turn_off):
@@ -531,11 +442,10 @@ class TestLumascopeLedAPI:
         still drive hardware."""
         scope = build_scope(simulate=True)
         try:
-            scope.illumination.led_on(channel=0, illumination_ma=30)
-            color = scope.illumination.ch2color(0)
-            assert scope.illumination.get_led_state(color)['illumination_ma'] == 30.0
+            scope.illumination.led_on_by_address(0, 30)
+            assert led_reading(scope, 0).illumination_ma == 30.0
             scope.illumination.leds_off()
-            assert scope.illumination.get_led_state(color)['illumination_ma'] in (None, 0.0)
+            assert led_reading(scope, 0).state is LedState.DARK
         finally:
             scope.disconnect()
 
@@ -586,7 +496,6 @@ class TestScopeSession:
         assert session.io_executor is io
         assert session.camera_executor is cam
         assert session.source_path == scope.source_path
-        assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
@@ -597,14 +506,8 @@ class TestScopeSession:
 
     def test_get_layer_configs_with_filter(self):
         session = self._make_session()
-        configs = session.get_layer_configs(specific_layers=['Red'])
-        assert set(configs.keys()) == {'Red'}
-
-    def test_get_auto_gain_settings_delegates(self):
-        session = self._make_session()
-        result = session.get_auto_gain_settings()
-        assert 'max_duration' in result
-        assert isinstance(result['max_duration'], datetime.timedelta)
+        configs = session.get_layer_configs(specific_layers=[LED2])
+        assert set(configs.keys()) == {LED2}
 
     def test_the_current_objective_is_the_runtime_states(self):
         # The answer is the runtime state's, not the settings dict's: on
@@ -619,7 +522,7 @@ class TestScopeSession:
         session.scope.motion.move_turret(1)
         obj_id, obj = session.scope.runtime_state.resolve_current_objective()
         assert obj_id == '10x Oly'
-        assert obj == session.scope.runtime_state.get_objective_info('10x Oly')
+        assert obj is session.scope.objectives['10x Oly']
 
     def test_the_current_objective_raises_when_nothing_is_known(self):
         from modules.exceptions import ObjectiveUnknownError
@@ -627,12 +530,3 @@ class TestScopeSession:
         session = self._make_session()
         with pytest.raises(ObjectiveUnknownError):
             session.scope.runtime_state.resolve_current_objective()
-
-    def test_protocol_running_derives_from_the_claim(self):
-        session = self._make_session()
-        assert session.is_protocol_running is False
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
-        assert held
-        assert session.is_protocol_running is True
-        held.release()
-        assert session.is_protocol_running is False

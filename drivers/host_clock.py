@@ -1,0 +1,44 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""The scope's steady clock: the one clock every host stamp set against a
+frame, and every duration the drivers log, is read from.
+
+A frame's arrival, a change's write and its in-force instant, and the camera
+clock latch's bracket are compared with one another and with the camera's
+own clock, so they are read from this one function and never from a clock
+chosen at the call. The scope publishes it as ``Lumascope.host_steady_ns()``
+for a caller that sets its own "now" against those stamps.
+
+The serial boards' durations -- an exchange, a write, a reset step, the gap
+between commands -- are a few milliseconds, so they are read here too: on a
+coarser clock serial.log would state every one of them as 0 or one step.
+
+The host's wall clock, which a saved file states its times on, is read here
+too (``wall_ns``), so a wall read set against the steady clock -- the
+camera clock mapping's anchor -- is one named read, never a clock chosen at
+the call.
+"""
+
+import time
+
+
+def steady_ns() -> int:
+    """The host's steady time, in nanoseconds.
+
+    ``time.perf_counter_ns()``: the highest-resolution steady clock Python
+    offers, system-wide, counting through sleep. ``time.monotonic_ns()`` is
+    not it: on Windows under Python 3.12 that is ``GetTickCount64()``, a
+    15.6 ms step, on which two events a frame apart read as one instant and a
+    latch bracket reads 0 wide. From 3.13, and on macOS and Linux at any
+    supported version, the two are one clock.
+    """
+    return time.perf_counter_ns()
+
+
+def wall_ns() -> int:
+    """The host's wall clock, in nanoseconds since the epoch.
+
+    ``time.time_ns()``. It is the time a saved file states, so it steps when
+    the system clock is set, and on Windows under Python 3.12 it advances in
+    15.6 ms steps; a duration is never read from it.
+    """
+    return time.time_ns()

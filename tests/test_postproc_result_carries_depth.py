@@ -23,6 +23,8 @@ from modules.composite_generation import CompositeGeneration
 from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 
 @pytest.fixture
@@ -83,6 +85,7 @@ class TestGroupAlgorithmsCarryDepth:
             df=df,
             method='Average',
             output_file_loc=pd.Series(['out.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True
@@ -94,13 +97,23 @@ class TestGroupAlgorithmsCarryDepth:
             for iy, y in enumerate((0.0, 1.0)):
                 p = tmp_path / f'tile_{ix}_{iy}.tiff'
                 _write_mono_tiff(p, value=200, shape=(4, 4))
-                rows.append({'Filepath': p.name, 'Color': 'BF', 'X': x, 'Y': y, 'Objective': '20x'})
+                rows.append(
+                    {
+                        'Filepath': p.name,
+                        'Color': 'BF',
+                        'X': x,
+                        'Y': y,
+                        'Objective': '20x',
+                        'Channel Group ID': 0,
+                    }
+                )
         df = pd.DataFrame(rows)
         stitcher = Stitcher.__new__(Stitcher)
         result = stitcher._group_algorithm(
             path=tmp_path,
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True
@@ -108,7 +121,7 @@ class TestGroupAlgorithmsCarryDepth:
 
     def test_composite_result_carries_depth(self, tmp_path, neutral_ctx):
         rows = []
-        for color, val in (('Red', 120), ('Green', 180)):
+        for color, val in ((LED2, 120), (LED1, 180)):
             p = tmp_path / f'{color}.tiff'
             _write_mono_tiff(p, value=val)
             rows.append({'Filepath': p.name, 'Color': color})
@@ -119,6 +132,7 @@ class TestGroupAlgorithmsCarryDepth:
             df=df,
             brightness_thresholds_percent={},
             output_file_loc=pd.Series(['composite.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True

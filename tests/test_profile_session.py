@@ -12,6 +12,7 @@ banner in the log it holds open, never the profiler's checkout.
 import contextlib
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -78,8 +79,11 @@ sys.stdin.readline()
 def _linked_folder(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'lib', 'version.txt'):
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt'):
         (folder / item).symlink_to(REPO / item)
+    # The shipped settings an installation carries; the logger reads debug_mode from it.
+    (folder / 'data').mkdir()
+    shutil.copy(REPO / 'data' / 'settings.json', folder / 'data' / 'settings.json')
     return folder
 
 
@@ -125,12 +129,33 @@ def _evidence(pid, folder):
 
 
 def _foreign_banner(pid, when):
-    stamp = time.strftime('%m/%d/%Y %H:%M:%S.000', time.localtime(when))
+    """Another process's banner, in the layout LVP writes."""
+    stamp = time.strftime('%Y-%m-%d %H:%M:%S.000', time.localtime(when))
     lines = [('Version', 'other'), ('PID', str(pid)), ('Git', 'other')]
+    return ''.join(
+        f'{stamp} [INFO] [MainThread] - lvp_logger.py - [LVP Main  ] {label}: {value}\n'
+        for label, value in lines
+    )
+
+
+def _banner_before_the_stamp_moved(pid, when):
+    """A banner in the layout LVP wrote before every line began with its stamp."""
+    stamp = time.strftime('%m/%d/%Y %H:%M:%S.000', time.localtime(when))
+    lines = [('Version', 'older'), ('PID', str(pid)), ('Git', 'older')]
     return ''.join(
         f'[INFO] [MainThread] {stamp} - lvp_logger.py - [LVP Main  ] {label}: {value}\n'
         for label, value in lines
     )
+
+
+def test_a_log_holding_launches_in_both_layouts_reads_whole(tmp_path):
+    older, newer = 1_700_000_000, 1_700_003_600
+    log = tmp_path / 'lumaviewpro.log'
+    log.write_text(_banner_before_the_stamp_moved(11, older) + _foreign_banner(22, newer))
+
+    found = profile_session._banners(log)
+
+    assert [(when, banner['pid']) for when, banner in found] == [(older, '11'), (newer, '22')]
 
 
 def test_a_profile_names_the_build_its_process_launched_with(tmp_path, monkeypatch):

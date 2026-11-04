@@ -21,8 +21,9 @@ Folds in the still-valid cases from the retired test_macos_dialog_async.py
 beachball intent is preserved and broadened to all platforms.
 
 file_dialogs.py imports kivy at module top (mocked in the suite), so the
-runner is carved out of source via AST and exec'd with fake threading +
-Clock -- exercising the real function body, not a copy. Seam tests are
+runner is carved out of source via AST and exec'd with fake threading and
+the real UI post, which with no UI dispatcher set runs at once --
+exercising the real function body, not a copy. Seam tests are
 AST-based (a raw text scan for `Tk(` trips on prose comments).
 """
 
@@ -31,6 +32,8 @@ import logging
 import pathlib
 import time
 import typing
+
+from modules.kivy_utils import schedule_ui
 
 _SRC_PATH = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'file_dialogs.py'
 _SRC = _SRC_PATH.read_text()
@@ -41,7 +44,6 @@ _TREE = ast.parse(_SRC)
 _PRIMITIVE_NAMES = {
     '_foregrounded_tk_root',
     '_platform_native_choose_folder',
-    '_platform_native_choose_file_or_folder',
     '_platform_native_open_file',
     '_platform_native_save_file',
 }
@@ -112,7 +114,7 @@ def test_tkinter_confined_to_platform_primitives():
 def test_choose_methods_route_through_the_one_runner():
     """Each choose() body calls _run_native_dialog_async and carries no
     sys.platform branch -- platform dispatch lives in the primitives only."""
-    assert len(_CHOOSE_CLASSES) == 4, f'the picker buttons read from the module: {_CHOOSE_CLASSES}'
+    assert len(_CHOOSE_CLASSES) == 3, f'the picker buttons read from the module: {_CHOOSE_CLASSES}'
     for class_name in _CHOOSE_CLASSES:
         method = _choose_method(class_name)
         body_src = ast.get_source_segment(_SRC, method)
@@ -163,7 +165,7 @@ def test_macos_primitives_use_the_zombie_backstop_timeout():
         for n in _function_defs()
         if n.name.startswith('_macos_') and n.name.endswith(('_file', '_folder'))
     ]
-    assert len(pickers) == 4
+    assert len(pickers) == 3
     for node in pickers:
         src = ast.get_source_segment(_SRC, node)
         assert '_osascript_choice(' in src and 'subprocess.run' not in src, (
@@ -201,14 +203,6 @@ class _DeferredThread:
         _DeferredThread.pending.append(self._target)
 
 
-class _SyncClock:
-    """Clock stand-in: schedule_once runs the callback immediately."""
-
-    @staticmethod
-    def schedule_once(cb, _timeout):
-        cb(0)
-
-
 class _Button:
     def __init__(self, context='test_context'):
         self.context = context
@@ -222,7 +216,7 @@ def _load_runner(thread_cls=_SyncThread):
     test_logger = logging.getLogger('test_750_runner')
     namespace = {
         'threading': type('T', (), {'Thread': thread_cls}),
-        'Clock': _SyncClock,
+        'schedule_ui': schedule_ui,
         'time': time,
         'logger': test_logger,
         '_dialog_in_flight': guard,
@@ -327,7 +321,7 @@ def test_raising_dialog_clears_guard_and_notifies(monkeypatch):
     error, kwargs = reported[0]
     assert error is boom
     assert kwargs['solicited'] is True
-    assert kwargs['fault_title'] == 'File Dialog Failed'
+    assert kwargs['untyped_title'] == 'File Dialog Failed'
     assert 'load_protocol' in kwargs['category']
 
 

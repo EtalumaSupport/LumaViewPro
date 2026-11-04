@@ -9,7 +9,7 @@ says it went where it was told. The turret has no travel: its bound is
 its four slots, and a refusal names them, never a distance.
 
 Every case drives the simulated LS850T through the public movers,
-``move_absolute`` and ``move_turret``, so the travel the check reads is
+``move_xy``, ``move_z`` and ``move_turret``, so the travel the check reads is
 what the scope's own driver publishes.
 """
 
@@ -23,6 +23,7 @@ from modules.exceptions import (
 from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import axis_move
 
 # The LS850T's travel, in um, from the shipped motor defaults. Written out
 # rather than read back so a defaults change fails this file loudly instead
@@ -37,7 +38,7 @@ def motion(sim_turreted_session):
 
 def test_the_simulated_scope_publishes_the_travel_these_cases_assume(motion):
     published = {
-        axis: (limits['min'], limits['max'])
+        axis: (limits.min_um, limits.max_um)
         for axis, limits in ((axis, motion.get_axis_limits(axis)) for axis in TRAVEL)
     }
     assert published == TRAVEL
@@ -76,13 +77,13 @@ def test_the_message_names_the_axis_the_request_and_the_range():
 )
 def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
     """A refused move writes no target, so the previous one stands."""
-    target_before = motion.get_target_position(axis)
+    target_before = motion.get_target_positions()[axis]
 
     with pytest.raises(PositionOutOfRangeError) as caught:
-        motion.move_absolute(axis, position)
+        axis_move(motion, axis, position)
 
     assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
-    assert motion.get_target_position(axis) == target_before
+    assert motion.get_target_positions()[axis] == target_before
 
 
 @pytest.mark.parametrize(
@@ -92,12 +93,12 @@ def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
 def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """The limits are inclusive; refusing an endpoint would strand the stage at it.
 
-    ``move_absolute`` returns once the axis has arrived, so returning is
+    A waited move returns once the axis has arrived, so returning is
     how "allowed" is observed; the target it wrote is the number asked for.
     """
-    motion.move_absolute(axis, position)
+    axis_move(motion, axis, position)
 
-    assert motion.get_target_position(axis) == position
+    assert motion.get_target_positions()[axis] == position
     assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
 
 
@@ -107,7 +108,7 @@ def test_an_absent_axis_is_refused_before_its_travel_is_judged(tmp_path):
     session = ScopeSession.create(settings, simulate=True)
     try:
         with pytest.raises(HardwareCommandRefusedError) as caught:
-            session.scope.motion.move_absolute('X', 999999.0)
+            session.scope.motion.move_xy(x_um=999999.0)
 
         assert caught.value.reason == 'axis_absent'
     finally:
@@ -133,8 +134,8 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     park that precedes a real turret move, so Z stays where it was and
     the slot on record is unchanged.
     """
-    motion.move_absolute('Z', 1000.0)
-    slot_before = motion.get_turret_slot()
+    motion.move_z(1000.0)
+    slot_before = motion.turret_status().slot
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         motion.move_turret(slot)
@@ -148,7 +149,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     assert 'travel range' not in str(caught.value)
     assert 'safety limit' not in str(caught.value)
     assert motion.get_current_position('Z') == pytest.approx(1000.0, abs=1.0)
-    assert motion.get_turret_slot() == slot_before
+    assert motion.turret_status().slot == slot_before
 
 
 @pytest.mark.parametrize('slot', [1, 2, 3, 4])
@@ -156,4 +157,4 @@ def test_every_real_slot_is_taken(motion, slot):
     """All four inclusive; refusing an endpoint would strand slot 1 or 4."""
     motion.move_turret(slot)
 
-    assert motion.get_turret_slot() == slot
+    assert motion.turret_status().slot == slot

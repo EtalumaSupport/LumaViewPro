@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import atexit
-import datetime
 import math
 import re
 import threading
 import time
-from typing import Any, NoReturn
+from collections.abc import Callable
+from typing import Any, ClassVar, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
 # core binding and the ipl-extension bridge resolve against. The stack is
@@ -16,25 +16,43 @@ import ids_peak_ipl
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
 
-from lvp_logger import logger
+from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import logger
 
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    # Fall back to the main logger so every _cam_log call site stays
-    # safe -- the dedicated camera log is an enhancement, not a
-    # dependency, and dozens of call sites use _cam_log unguarded.
-    _cam_log = logger
 from drivers.camera import (
     Camera,
+    Frame,
     FrameGrid,
+    HandOver,
     ImageHandlerBase,
-    declared_unit,
+    declared_speed,
     link_info,
     no_hardware_auto_mode,
 )
-from drivers.exceptions import HardwareError
+from drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraUsbOpenFailedError,
+    CameraWriteFailedError,
+    PartAbsentError,
+)
 from drivers.registry import camera_registry
+from lib.lumascope_error import Fault, RefusalCause
+
+
+class _IDSAbsentError(Fault, RuntimeError):
+    """No IDS camera is reachable.
+
+    Told apart from every other connection failure because it is not one: the
+    registry tries the IDS driver on every scope, most of which have no IDS
+    camera, and a driver that raises is ranked above one that reports
+    found=False. So ``connect`` turns this, and only this, into False; an IDS
+    camera that is found and fails raises ``CameraUsbOpenFailedError``.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'ids_absent': None}
+    title = 'Camera Not Found'
+
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
 # Defer to atexit so it only runs once at process exit.
@@ -108,6 +126,14 @@ _TEARDOWN_ASSUME_DEAD_STALL_S = 15.0
 # live view indefinitely (~2-4 s of only-bad frames at typical frame rates). A
 # complete frame resets the count.
 _MAX_BAD_FRAMES_BEFORE_WEDGE = 120
+
+# Frame time added to the free-run rate's period when the camera bins. The
+# U3-34L has no image memory, and binned at the exact AcquisitionFrameRate
+# maximum it skips whole sensor slots (measured on two bodies, Mono10 and
+# Mono12: 45-160 of 300 frames skipped at the maximum, at most 1 in 300 from
+# 0.95 of it). 1 ms under is about 0.94 of the binned maximum. Unbinned, the
+# camera holds its maximum, and a margin there would only cost frames.
+_BINNED_FRAME_TIME_MARGIN_S = 0.001
 
 
 def _ids_library_cleanup():
@@ -238,6 +264,8 @@ _DIAG_STREAM_COUNTERS = (
     'StreamDeliveredFrameCount',
     'StreamLostFrameCount',
     'StreamUnderrunCount',
+    'StreamIncompleteFrameCount',
+    'StreamDroppedFrameCount',
     'StreamStartedFrameCount',
     'StreamAnnouncedBufferCount',
 )
@@ -383,16 +411,10 @@ class IDSCamera(Camera):
         # IDS fallback is in use -- gates deriving binning sizes from the nodemap
         # (a curated body keeps its intentional list).
         self._profile_is_generic = False
-        # Sticky latch: once a user disconnect() begins it owns the teardown --
-        # a removal signal racing it must not schedule a second, competing
-        # teardown, and a connect() during the window runs the full bring-up
-        # rather than reading the dying handle as connected.
-        self._disconnect_requested = False
 
         super().__init__()
 
     def connect(self) -> bool:
-        global _ids_library_initialized
         # Idempotent: a second connect on a live camera would collide with our
         # own exclusive Control handle (BAD_ACCESS "open already"), and the
         # failure path would then tear down a perfectly healthy connection.
@@ -405,34 +427,21 @@ class IDSCamera(Camera):
         # `active` property takes _state_lock itself.
         with self._state_lock:
             already_connected = bool(self._active) and not (
-                self._device_removed or self._async_teardown_started or self._disconnect_requested
+                self._device_removed or self._async_teardown_started or self._disconnecting
             )
         if already_connected:
             _cam_log.info('[CAM Class ] connect skipped: already connected')
             return True
         try:
-            # Initialize device manager
-            ids_peak.Library.Initialize()
-            _ids_library_initialized = True
-            self.device_manager = ids_peak.DeviceManager.Instance()
-            self.device_manager.Update()
-
-            # Search for devices. The emptiness check and the index are not
-            # atomic -- the producer can report a phantom entry that fails to
-            # index (seen as `IndexError` on [0] with no camera attached) -- so
-            # a failed index IS the no-camera outcome, reported as such rather
-            # than as a raw IndexError.
-            devices = self.device_manager.Devices()
-            if devices.empty():
-                raise ConnectionError('Could not find IDS camera')
-            try:
-                descriptor = devices[0]
-            except IndexError as e:
-                raise ConnectionError('Could not find IDS camera') from e
-            # Recorded before the open attempt so a device that is found
-            # but cannot be opened still leaves its identity in the log.
-            for _i, _d in enumerate(devices):
-                logger.info(f'[CAM Class ]   device[{_i}]: {describe_device_descriptor(_d)}')
+            descriptor = self._find_device()
+        except _IDSAbsentError as er:
+            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
+            self._cleanup_partial_connect()
+            return False
+        # A camera is on the bus from here on: a failure is that camera's,
+        # raised to the registry, never told as no camera.
+        step = 'the open'
+        try:
             self.active, descriptor = self._open_device_with_retry(
                 descriptor,
                 refresh=lambda: self._refresh_descriptor_matching(descriptor),
@@ -442,19 +451,20 @@ class IDSCamera(Camera):
             # is delivered for EVERY device in the system, so the callback
             # filters on this key to act only on our camera's removal.
             self._device_key = descriptor.Key()
+            step = 'its data stream'
             self.data_stream = self.active.DataStreams()[0].OpenDataStream()
+            step = 'its node map'
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
+            step = 'its set-up'
             self._device_removed = False
             self._async_teardown_started = False
-            # Fresh lifecycle: clear the sticky disconnect latch left from a
-            # prior teardown so a new bring-up never inherits it.
-            self._disconnect_requested = False
 
             # Register the terminal removal signal now that our device is open --
             # events only transmit from registration time, and we cannot lose a
             # device we have not opened yet.
             self._register_device_callbacks()
 
+            self._device_firmware = None
             try:
                 self.model_name = self.active.ModelName()
                 # Read the serial from the DESCRIPTOR (the same surface the
@@ -464,9 +474,10 @@ class IDSCamera(Camera):
                 self._device_serial = descriptor.SerialNumber()
                 logger.info(f'[CAM Class ] Camera Model: {self.model_name}')
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
-                logger.info(
-                    f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode("DeviceFirmwareVersion").Value()}'
-                )
+                self._device_firmware = self.remote_nodemap.FindNode(
+                    'DeviceFirmwareVersion'
+                ).Value()
+                logger.info(f'[CAM Class ] Camera Firmware Version: {self._device_firmware}')
             except Exception:
                 _cam_log.warning('[CAM Class ] Could not read all IDS camera information')
 
@@ -487,16 +498,42 @@ class IDSCamera(Camera):
             logger.info('[CAM Class ] Connected to IDS camera')
             return True
 
-        except ConnectionError as er:
-            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
-            self._cleanup_partial_connect()
         except Exception as ex:
-            # No-device / no-GenTL-path is the common case here and is an
-            # expected probe outcome; log the type + message, not the stack.
-            _cam_log.error(f'[CAM Class ] IDS camera connect failed: {type(ex).__name__}: {ex}')
+            failure = f'IDS camera found, {step} failed: {type(ex).__name__}: {ex}'
+            _cam_log.error(f'[CAM Class ] {failure}')
             self._cleanup_partial_connect()
+            raise CameraUsbOpenFailedError(failure) from ex
 
-        return False
+    def _find_device(self):
+        """The first enumerated device's descriptor; ``_IDSAbsentError`` when none is reachable.
+
+        No camera is reachable when the library or the device update fails
+        (no GenTL path on this host, the common case), the list is empty, or
+        the producer lists a phantom entry that then fails to index (seen as
+        ``IndexError`` on [0] with no camera attached): the emptiness check
+        and the index are not atomic, so a failed index is the no-camera
+        outcome too.
+        """
+        global _ids_library_initialized
+        try:
+            ids_peak.Library.Initialize()
+            _ids_library_initialized = True
+            self.device_manager = ids_peak.DeviceManager.Instance()
+            self.device_manager.Update()
+            devices = self.device_manager.Devices()
+        except Exception as e:
+            raise _IDSAbsentError(f'no IDS device reachable: {type(e).__name__}: {e}') from e
+        if devices.empty():
+            raise _IDSAbsentError('Could not find IDS camera')
+        try:
+            descriptor = devices[0]
+        except IndexError as e:
+            raise _IDSAbsentError('Could not find IDS camera') from e
+        # Recorded before the open attempt so a device that is found
+        # but cannot be opened still leaves its identity in the log.
+        for _i, _d in enumerate(devices):
+            logger.info(f'[CAM Class ]   device[{_i}]: {describe_device_descriptor(_d)}')
+        return descriptor
 
     def _cleanup_partial_connect(self) -> None:
         """Undo a failed/partial connect(): both failure branches route here so a
@@ -509,7 +546,7 @@ class IDSCamera(Camera):
         handles -- including cam_image_handler, which pins the just-opened data
         stream (leaving it set keeps the USB3 endpoint bound so a retry rebinds
         the same stream). Idempotent: safe when nothing was opened or registered
-        (the no-device ConnectionError path runs it before any handle exists).
+        (the no-device path runs it before any handle exists).
         """
         self._unregister_device_callbacks()
         self.active = None
@@ -583,15 +620,11 @@ class IDSCamera(Camera):
             logger.debug(f'[CAM Class ] descriptor refresh for open retry failed: {e}')
             return None
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         try:
             # Unregister the DeviceLost callback first, while device_manager is
             # still set -- a stale registration would outlive the camera.
             self._unregister_device_callbacks()
-            # Latch ownership of the teardown: a removal signal racing this
-            # disconnect must not schedule a second, competing teardown.
-            with self._state_lock:
-                self._disconnect_requested = True
             if self.active:
                 if self._device_removed:
                     # The handle is dead: the remote-nodemap AcquisitionStop /
@@ -742,15 +775,10 @@ class IDSCamera(Camera):
         classifiers (wait + buffer paths), the only-bad-frames ceiling, and
         the hard stall ceiling. A wedge deliberately exits here as a clean
         disconnect the user recovers by reconnecting. All idempotent via the
-        _device_removed and _async_teardown_started guards.
+        _device_removed and _async_teardown_started guards; a removal during a
+        disconnect already under way is marked, and its teardown waits for that
+        one and finds nothing left.
         """
-        with self._state_lock:
-            if self._disconnect_requested:
-                # A user disconnect() is already in flight and owns the teardown;
-                # a removal signal racing it (the presence probe finishing its
-                # enumeration after disconnect() began, or a late DeviceLost) must
-                # not schedule a second, competing teardown.
-                return
         self._mark_disconnected()
         self._schedule_async_teardown()
 
@@ -776,7 +804,7 @@ class IDSCamera(Camera):
         removal.
         """
         with self._state_lock:
-            if self._device_removed or self._async_teardown_started or self._disconnect_requested:
+            if self._device_removed or self._async_teardown_started or self._disconnecting:
                 return None
         dm = self.device_manager
         serial = self._device_serial
@@ -844,17 +872,20 @@ class IDSCamera(Camera):
 
     def is_connected(self) -> bool:
         if self.active in (False, None):
-            self._device_removed = True
+            # A released handle; the flag is set only through the helper,
+            # which takes the state lock and logs the edge once.
+            self._mark_disconnected()
             return False
         return not self._device_removed
 
-    def _diag_node_value(self, name: str, enum: bool = False):
+    def _diag_node_value(self, name: str, enum: bool = False, maximum: bool = False):
         """Read one remote-nodemap value for the snapshot, sentinel on failure.
 
         Mirrors the Pylon snapshot's ``_safe_node``: a missing/unreadable node
         records a ``<missing>`` string instead of raising, so one absent node
         never aborts the whole snapshot. ``enum=True`` reads the current
-        symbolic entry (PixelFormat, throughput component).
+        symbolic entry (PixelFormat, throughput component); ``maximum=True``
+        reads the node's maximum instead of its value.
         """
         try:
             node = self.remote_nodemap.FindNode(name)
@@ -862,6 +893,8 @@ class IDSCamera(Camera):
                 return '<missing>'
             if enum:
                 return node.CurrentEntry().SymbolicValue()
+            if maximum:
+                return node.Maximum()
             return node.Value()
         except Exception as e:
             return f'<missing: {type(e).__name__}>'
@@ -986,7 +1019,13 @@ class IDSCamera(Camera):
         configuration, temperatures, and buffer-pool state, then samples the
         GenTL DataStream statistics counters across a ``duration_s`` window and
         computes per-counter deltas + derived rates (observed_fps,
-        loss_rate_pct, losses_per_second). Does NOT change grab state; when the
+        loss_rate_pct, losses_per_second). ``observed_fps`` counts the frames
+        the camera delivered to the host's buffers, before the unpack keeps
+        only the newest, so it is the camera's rate, not the display's;
+        ``observed_fps_is_camera_rate`` is True only when no frame was lost or
+        dropped in the window. The config carries the ceilings that rate
+        runs against: ``acquisition_frame_rate_max``, ``dltl_max_bps`` and
+        ``sensor_operation_mode``. Does NOT change grab state; when the
         camera is not grabbing the deltas are near-zero (counters do not
         advance without an active grab loop), a sentinel rather than an error.
 
@@ -1038,8 +1077,18 @@ class IDSCamera(Camera):
             ('PayloadSize', 'payload_size_bytes', False),
             ('BinningVertical', 'binning_vertical', False),
             ('BinningHorizontal', 'binning_horizontal', False),
+            ('SensorOperationMode', 'sensor_operation_mode', True),
         ):
             result['config'][key] = self._diag_node_value(name, enum=is_enum)
+        # The ceilings a measured rate runs against, so a reading names what
+        # bounded it.
+        result['config']['dltl_max_bps'] = self._diag_node_value(
+            'DeviceLinkThroughputLimit', maximum=True
+        )
+        try:
+            result['config']['acquisition_frame_rate_max'] = self.get_resulting_frame_rate()
+        except Exception as e:
+            result['config']['acquisition_frame_rate_max'] = f'<missing: {type(e).__name__}>'
 
         result['temperatures'] = self.get_all_temperatures()
 
@@ -1090,9 +1139,21 @@ class IDSCamera(Camera):
         # measured-and-clean stream that was never actually observed.
         delivered_d = result['deltas'].get('StreamDeliveredFrameCount')
         lost_d = result['deltas'].get('StreamLostFrameCount')
+        dropped_d = result['deltas'].get('StreamDroppedFrameCount')
         if duration_s > 0 and dt > 0:
             if isinstance(delivered_d, (int, float)):
                 result['derived']['observed_fps'] = delivered_d / dt
+                # A frame the host lost for want of a free buffer, or dropped,
+                # never reaches the delivered count: only a window with
+                # neither is the camera's own rate. None when either count was
+                # unread. (StreamUnderrunCount is not among them: the U3-34L
+                # has no such node.)
+                if isinstance(lost_d, (int, float)) and isinstance(dropped_d, (int, float)):
+                    result['derived']['observed_fps_is_camera_rate'] = (
+                        lost_d == 0 and dropped_d == 0
+                    )
+                else:
+                    result['derived']['observed_fps_is_camera_rate'] = None
                 total = delivered_d + lost_d if isinstance(lost_d, (int, float)) else None
                 if isinstance(total, (int, float)) and total > 0:
                     result['derived']['loss_rate_pct'] = 100.0 * lost_d / total
@@ -1145,7 +1206,13 @@ class IDSCamera(Camera):
 
     def _resolve_gain_selector(self):
         """Resolve the analog GainSelector entry from the live nodemap enum, or
-        None if the body has no GainSelector / the read fails."""
+        None if the body has no GainSelector / the read fails.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read
+            (``_exc_is`` timeout): a gain write that needs the selector
+            answers it as no answer, not as a body without one.
+        """
         try:
             entries = tuple(
                 e.SymbolicValue()
@@ -1157,6 +1224,8 @@ class IDSCamera(Camera):
                 preferred = gain.gain_selector
             return self._select_gain_selector_name(entries, preferred)
         except Exception as e:
+            if _exc_is(e, 'TimeoutException', 'timeout'):
+                raise
             _cam_log.debug(f'[CAM Class ] Could not resolve GainSelector: {e}')
             return None
 
@@ -1168,8 +1237,15 @@ class IDSCamera(Camera):
         try:
             # Resolve the analog GainSelector entry this body exposes (cached
             # for gain()), and select it BEFORE reading the Gain range so the
-            # range reflects the selector the setter will use.
-            self._gain_selector = self._resolve_gain_selector()
+            # range reflects the selector the setter will use. Unanswered here,
+            # it is left for gain() to resolve, whose write needs it.
+            try:
+                self._gain_selector = self._resolve_gain_selector()
+            except Exception as e:
+                _cam_log.warning(
+                    f'[CAM Class ] The camera did not answer the GainSelector read: {e}'
+                )
+                self._gain_selector = None
             if self._gain_selector:
                 try:
                     self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(
@@ -1275,86 +1351,105 @@ class IDSCamera(Camera):
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
+        """Apply Etaluma's canonical camera configuration once on connect.
+
+        Each step runs whatever an earlier one did: a step the camera did
+        not take is logged and named in ``config_not_applied``, which
+        bring-up reports, and the camera stays connected with the rest
+        applied.
+        """
         if not self.active:
             return
+        self.config_not_applied = ()
 
+        def load_default_user_set():
+            self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
+            self.remote_nodemap.FindNode('UserSetLoad').Execute()
+            self.remote_nodemap.FindNode('UserSetLoad').WaitUntilDone()
+            # UserSetLoad reset the hardware PixelFormat to the user-set
+            # default; drop the cache so the set_pixel_format() below
+            # actually applies -- its same-value short-circuit must not
+            # match a stale cached value against freshly-reset hardware.
+            self._pixel_format_cache = None
+
+        def pixel_format():
+            # Log the camera's actual PixelFormat options once at init --
+            # the supported list is camera-specific (IDS uses names like
+            # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
+            # Mono8). Operators need this in the log to diagnose any future
+            # logical-to-camera mismatch.
+            supported = self.get_supported_pixel_formats()
+            logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+            # Couple to the live nodemap, not a model-keyed static profile:
+            # any IDS body is driven by what its PixelFormat node actually
+            # advertises, the same way gain / exposure / AOI are read live.
+            # Record the real formats on the profile so a body whose model
+            # string matched no static profile entry still reports hardware
+            # truth downstream and selects a valid format here.
+            if supported:
+                self.profile.pixel_formats = list(supported)
+                preferred = self._select_default_pixel_format(supported)
+            else:
+                # The live AvailableEntries read returned nothing (transient
+                # SDK error). Fall back to the curated profile's formats
+                # rather than leaving the format unset -- an unset format
+                # streams at the UserSet default depth and would feed the
+                # unpack pipeline the wrong bit depth.
+                _cam_log.warning(
+                    '[CAM Class ] Live PixelFormat read empty; falling back to the profile formats'
+                )
+                preferred = self._select_default_pixel_format(self.profile.pixel_formats)
+            if not preferred:
+                _cam_log.error(
+                    '[CAM Class ] No usable mono PixelFormat available; leaving the format unset'
+                )
+                return False
+            return self.set_pixel_format(preferred)
+
+        def orientation():
+            # Apply the horizontal flip only when this body advertises
+            # ReverseX as writable -- a capability check via the node's
+            # access status, not an assumption every body has it. Orientation
+            # nodes vary by body/mount.
+            _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
+            if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
+                self.remote_nodemap.FindNode('ReverseX').SetValue(True)
+            else:
+                logger.info(
+                    f'[CAM Class ] ReverseX not writable on this body '
+                    f'({_reverse_x.get("access", "absent")}); leaving default orientation'
+                )
+
+        def trigger_off():
+            # Ensure freerun mode (no external trigger)
+            try:
+                self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
+            except Exception:
+                pass
+
+        steps = [
+            ('the Default user set', load_default_user_set),
+            ('the pixel format', pixel_format),
+            ('the image orientation (ReverseX)', orientation),
+            ('free-run trigger off', trigger_off),
+            # Set geometry and exposure BEFORE configuring the rate -- the
+            # throughput ceiling and the AcquisitionFrameRate max both
+            # depend on the active resolution, so the rate config has to
+            # follow the ROI set. 1900x1900 is the standard LVP camera
+            # resolution (the Pylon driver sets the same), matching the
+            # scope's centered square field; the prior 1920x1528 was an
+            # arbitrary driver-local divergence.
+            ('exposure 10 ms', lambda: self.exposure_t(10)),
+            ('the 1900x1900 frame', lambda: self.set_frame_size(1900, 1900)),
+            ('free-run acquisition', self._configure_free_run),
+            # One-shot diagnostic so a bundle shows why the free-run rate is
+            # what it is, beginning with the limiter the camera reports.
+            ('the free-run state log', self._log_free_run_state),
+        ]
         try:
             with self.update_camera_config():
-                self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
-                self.remote_nodemap.FindNode('UserSetLoad').Execute()
-                self.remote_nodemap.FindNode('UserSetLoad').WaitUntilDone()
-                # UserSetLoad reset the hardware PixelFormat to the user-set
-                # default; drop the cache so the set_pixel_format() below
-                # actually applies -- its same-value short-circuit must not
-                # match a stale cached value against freshly-reset hardware.
-                self._pixel_format_cache = None
-                # Log the camera's actual PixelFormat options once at init --
-                # the supported list is camera-specific (IDS uses names like
-                # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
-                # Mono8). Operators need this in the log to diagnose any future
-                # logical-to-camera mismatch.
-                supported = self.get_supported_pixel_formats()
-                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
-                # Couple to the live nodemap, not a model-keyed static profile:
-                # any IDS body is driven by what its PixelFormat node actually
-                # advertises, the same way gain / exposure / AOI are read live.
-                # Record the real formats on the profile so a body whose model
-                # string matched no static profile entry still reports hardware
-                # truth downstream and selects a valid format here.
-                if supported:
-                    self.profile.pixel_formats = list(supported)
-                    preferred = self._select_default_pixel_format(supported)
-                else:
-                    # The live AvailableEntries read returned nothing (transient
-                    # SDK error). Fall back to the curated profile's formats
-                    # rather than leaving the format unset -- an unset format
-                    # streams at the UserSet default depth and would feed the
-                    # unpack pipeline the wrong bit depth.
-                    _cam_log.warning(
-                        '[CAM Class ] Live PixelFormat read empty; falling back '
-                        'to the profile formats'
-                    )
-                    preferred = self._select_default_pixel_format(self.profile.pixel_formats)
-                if preferred:
-                    self.set_pixel_format(preferred)
-                else:
-                    _cam_log.error(
-                        '[CAM Class ] No usable mono PixelFormat available; '
-                        'leaving the format unset'
-                    )
-                # Apply the horizontal flip only when this body advertises
-                # ReverseX as writable -- a capability check via the node's
-                # access status, not an assumption every body has it. Orientation
-                # nodes vary by body/mount; gating here keeps a body without a
-                # writable ReverseX from skipping the rest of init (TriggerMode,
-                # exposure, set_frame_size, free-run config all follow).
-                _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
-                if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
-                    self.remote_nodemap.FindNode('ReverseX').SetValue(True)
-                else:
-                    logger.info(
-                        f'[CAM Class ] ReverseX not writable on this body '
-                        f'({_reverse_x.get("access", "absent")}); leaving default orientation'
-                    )
-                # Ensure freerun mode (no external trigger)
-                try:
-                    self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
-                except Exception:
-                    pass
-                # Set geometry and exposure BEFORE configuring the rate -- the
-                # throughput ceiling and the AcquisitionFrameRate max both
-                # depend on the active resolution, so the rate config has to
-                # follow the ROI set. 1900x1900 is the standard LVP camera
-                # resolution (the Pylon driver sets the same), matching the
-                # scope's centered square field; the prior 1920x1528 was an
-                # arbitrary driver-local divergence.
-                self.exposure_t(10)
-                self.set_frame_size(1900, 1900)
-                self._configure_free_run()
-                # One-shot diagnostic so a bundle shows why the free-run rate is
-                # what it is (esp. whether the Component=Link keystone applied).
-                self._log_free_run_state()
+                self.config_not_applied = self._apply_config_steps(steps)
         except Exception as e:
             _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 
@@ -1377,7 +1472,7 @@ class IDSCamera(Camera):
         timeout_s = (handler.timeout_ms / 1000.0) if handler is not None else 0.0
         return max(_TEARDOWN_ASSUME_DEAD_STALL_S, 3.0 * timeout_s)
 
-    def stop_grabbing(self):
+    def _stop_grabbing(self):
         # Same owner-side connected-device precondition as start_grabbing:
         # multiple independent callers may stop a camera whose connect failed,
         # and the None handles below would otherwise surface as a spurious
@@ -1407,7 +1502,7 @@ class IDSCamera(Camera):
                 f'[CAM Class ] stop_grabbing: stream stalled {stall_age:.0f}s -- device '
                 'presumed dead; skipping remote-device writes, host-side stop only'
             )
-        elif _cam_log is not None:
+        else:
             _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             # When no handler exists yet, treat as quiesced (nothing to race).
@@ -1518,7 +1613,7 @@ class IDSCamera(Camera):
             )
         return True
 
-    def start_grabbing(self):
+    def _start_grabbing(self):
         # Connected-device precondition, owned HERE because this is a public
         # restartable primitive with several independent call sites (the
         # bring-up start gate, the API-layer streaming restart, diagnostics)
@@ -1531,8 +1626,7 @@ class IDSCamera(Camera):
             _cam_log.warning('[CAM Class ] start_grabbing skipped: camera not connected')
             return
         if self.is_grabbing():
-            if _cam_log is not None:
-                _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
+            _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
             return
         # A prior stop() whose grab threads never quiesced leaves the stream
         # wedged: its buffer pool is un-revoked AND its threads still hold the data
@@ -1548,8 +1642,7 @@ class IDSCamera(Camera):
                 'quiesced (stream wedged); not stacking a fresh buffer pool'
             )
             return
-        if _cam_log is not None:
-            _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
+        _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
             # Reclaim any pool a prior unclean-but-now-quiesced stop left announced
             # BEFORE allocating fresh, so the announced count cannot grow cycle over
@@ -1651,28 +1744,21 @@ class IDSCamera(Camera):
         as fast as they arrive and the converter sees only the newest frame, so
         no software cap is needed to keep the buffer pool from exhausting.
 
-        Three throttles, set in order (each is an independent ceiling; the
-        lowest wins, so all must be lifted):
-          - DeviceLinkThroughputLimitComponent = 'Link': the default 'Sensor'
-            mode computes the limit against the full raw sensor readout even for
-            a smaller ROI, capping fps; 'Link' applies it to the actual USB
-            transfer instead. This is the keystone -- without it the limit
-            throttles the rate no matter how high the limit value is.
+        Two throttles, set in order (each is an independent ceiling; the
+        lowest wins, so both must be lifted):
           - DeviceLinkThroughputLimit = Maximum(): no bandwidth throttle.
           - AcquisitionFrameRateTarget disabled, then AcquisitionFrameRate
             maximized: the UserSetDefault enables a low rate-target limiter;
             disabling it and pushing the rate to its max lets the camera
             free-run at whatever the throughput ceiling allows.
+
+        ``DeviceLinkThroughputLimitComponent`` is not a throttle: it is a
+        read-only report of which component limits the rate, the USB link or
+        the sensor readout (IDS manual, IDS peak 26.06), so nothing is written
+        to it; ``_log_free_run_state`` logs what it reports.
         """
         if not self.active or self.remote_nodemap is None:
             return
-
-        try:
-            comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
-            comp.SetCurrentEntry('Link')
-            logger.info('[CAM Class ] DeviceLinkThroughputLimitComponent set to Link')
-        except Exception as e:
-            logger.debug(f'[CAM Class ] DeviceLinkThroughputLimitComponent not available: {e}')
 
         try:
             node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
@@ -1683,13 +1769,19 @@ class IDSCamera(Camera):
 
         # Drop the rate-target limiter, then push the acquisition rate to max.
         self.set_max_acquisition_frame_rate(False)
-        new_max = self._maximize_acquisition_frame_rate()
-        if new_max is not None:
-            logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {new_max} fps')
+        rate = self._set_free_run_frame_rate()
+        if rate is not None:
+            logger.info(f'[CAM Class ] AcquisitionFrameRate set to {rate:.2f} fps (free run)')
 
-    def _maximize_acquisition_frame_rate(self):
-        """Set AcquisitionFrameRate to its current maximum (free-run = no software
-        cap) and return that maximum, or None when the node is unavailable.
+    def _set_free_run_frame_rate(self):
+        """Set AcquisitionFrameRate to the free-run rate and return it, or None
+        when the node is unavailable or the camera refused the rate.
+
+        Unbinned, the free-run rate is the current maximum (no software cap).
+        Binned, it is the maximum's period plus ``_BINNED_FRAME_TIME_MARGIN_S``:
+        at the exact binned maximum the camera skips sensor slots. A failed
+        binning read (-1, logged by ``get_binning_size``) takes the maximum on
+        purpose: 1x1 is nearly every image, and the margin would cost it frames.
 
         The maximum is EXPOSURE-COUPLED: a long exposure lowers it and the camera
         clamps the current rate down to it, while a later shorter exposure raises
@@ -1703,53 +1795,39 @@ class IDSCamera(Camera):
             return None
         try:
             fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
-            new_max = fr.Maximum()
-            fr.SetValue(new_max)
-            return new_max
         except Exception as e:
             logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
             return None
+        try:
+            rate = fr.Maximum()
+            if self.get_binning_size() > 1:
+                rate = 1.0 / (1.0 / rate + _BINNED_FRAME_TIME_MARGIN_S)
+            fr.SetValue(rate)
+        except Exception as e:
+            # The rate stays where it was, which an earlier long exposure may
+            # have clamped low.
+            _cam_log.warning(f'[CAM Class ] AcquisitionFrameRate not set: {e}')
+            return None
+        return rate
 
     def _log_free_run_state(self):
         """One-shot diagnostic of the throttles that govern the free-run rate, so
-        a log bundle is self-sufficient about why the rate is what it is. The
-        keystone is DeviceLinkThroughputLimitComponent='Link': if it did not
-        apply (node absent, or no 'Link' entry on this body), the limit is
-        computed against the full raw readout and the rate stays Sensor-throttled
-        well below the wire ceiling -- so its failure is logged at WARNING with
-        the node's available entries, not swallowed."""
+        a log bundle is self-sufficient about why the rate is what it is,
+        beginning with the component the camera reports as its limit: the USB
+        link or the sensor readout (DeviceLinkThroughputLimitComponent, a
+        read-only report). Either answer is the camera working as built, so it
+        is logged at INFO."""
         if not self.active or self.remote_nodemap is None:
             return
 
         try:
             comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
-            entries = [e.SymbolicValue() for e in comp.AvailableEntries()]
-            current = comp.CurrentEntry().SymbolicValue()
-            # The node's access status tells WHY a non-Link current persisted: a
-            # read-only node is a firmware/body limitation we cannot lift, while a
-            # writable one means the 'Link' set failed for another reason -- so the
-            # bundle distinguishes the two without a probe. The U3-34L reports this
-            # ReadOnly (bench 2026-06-28), locking the rate to Sensor mode.
-            access = (
-                _access_status_name(comp.AccessStatus())
-                if hasattr(comp, 'AccessStatus')
-                else '<no AccessStatus>'
-            )
-            if current == 'Link':
-                logger.info(
-                    f'[CAM Class ] Free-run: ThroughputLimitComponent=Link applied '
-                    f'(available={entries}, access={access})'
-                )
-            else:
-                _cam_log.warning(
-                    f'[CAM Class ] Free-run: ThroughputLimitComponent={current}, NOT Link '
-                    f'(available={entries}, access={access}) -- rate stays Sensor-throttled '
-                    f'below the wire ceiling'
-                )
+            limiter = comp.CurrentEntry().SymbolicValue()
+            logger.info(f'[CAM Class ] Free-run: the camera reports its rate limited by {limiter}')
         except Exception as e:
-            _cam_log.warning(
-                f'[CAM Class ] Free-run: DeviceLinkThroughputLimitComponent node '
-                f'unavailable on this body ({type(e).__name__}: {e}) -- cannot switch to Link'
+            logger.info(
+                f'[CAM Class ] Free-run: the camera does not report its rate limiter '
+                f'({type(e).__name__}: {e})'
             )
 
         def _value_and_max(name):
@@ -2156,7 +2234,9 @@ class IDSCamera(Camera):
         results['numpy'] = _stat(numpy_ms)
         return results
 
-    def crosscheck_8bit_unpack(self, n_frames: int = 100) -> dict:
+    def crosscheck_8bit_unpack(
+        self, reference_8bit: Callable[[Any, int], Any], n_frames: int = 100
+    ) -> dict:
         """Bench gate for the direct 10->8 delivery: prove the SDK's
         packed->Mono8 ConvertTo matches the prior native-then-rescale path.
 
@@ -2167,7 +2247,11 @@ class IDSCamera(Camera):
         This loop verifies that on REAL frames before the direct path is trusted:
 
           A (new): img.ConvertTo(Mono8)
-          B (old): convert_to_8bit(img.ConvertTo(native), native_significant_bits)
+          B (old): reference_8bit(img.ConvertTo(native), native_significant_bits)
+
+        ``reference_8bit`` is the host's rescale (``modules.image_utils.
+        convert_to_8bit``), handed in by the caller: a driver imports nothing
+        from the layer above it.
 
         Returns the per-pixel max abs diff and the count of pixels exceeding
         1 LSB. The hardware test asserts max_abs_diff <= 1 and over_1lsb == 0.
@@ -2175,8 +2259,6 @@ class IDSCamera(Camera):
         a no-op match).
         """
         import numpy as np
-
-        from modules.image_utils import convert_to_8bit
 
         results = {
             'n_requested': n_frames,
@@ -2217,7 +2299,7 @@ class IDSCamera(Camera):
             direct = direct_img.get_numpy().copy()
             native_img = img.ConvertTo(native_target)
             native = native_img.get_numpy().copy()
-            oracle = convert_to_8bit(native, native_bits)
+            oracle = reference_8bit(native, native_bits)
 
             diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
             results['n_compared'] += 1
@@ -2262,6 +2344,7 @@ class IDSCamera(Camera):
             offset_step = (offset_x_node.Increment(), offset_y_node.Increment())
             bias = self._optical_center_bias()
         except Exception as e:
+            _raise_if_unanswered(e, 'read', 'Frame size (the Width/Height/Offset grid)')
             _cam_log.error(f'[CAM Class ] set_frame_size could not read the AOI nodes: {e}')
             return None
         # The live Width/Height node bounds: min is the grid phase, inc the
@@ -2286,6 +2369,9 @@ class IDSCamera(Camera):
         """Set the planned AOI and its centring offsets.
 
         Returns False when the camera is inactive or the apply fails.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer one of the writes.
         """
         if not self.active:
             return False
@@ -2306,6 +2392,12 @@ class IDSCamera(Camera):
             )
             return True
         except Exception as e:
+            _raise_if_unanswered(
+                e,
+                'write',
+                f'Frame size (Width x Height {plan.acq_width}x{plan.acq_height}, '
+                f'offset {plan.offset_x},{plan.offset_y})',
+            )
             _cam_log.error(f'[CAM Class ] set_frame_size failed: {e}')
             return False
 
@@ -2455,8 +2547,12 @@ class IDSCamera(Camera):
         "Mono12g24IDS". Pylon accepts "Mono8" / "Mono12" as wire names
         directly. To keep callers (UI, characterization tool) driver-agnostic
         we accept the same logical names on both and map per-driver here.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read of the
+            supported formats (``_read_supported_pixel_formats``).
         """
-        return self._resolve_logical_format_name(logical, self.get_supported_pixel_formats())
+        return self._resolve_logical_format_name(logical, self._read_supported_pixel_formats())
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -2471,13 +2567,20 @@ class IDSCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed. Marks the camera disconnected
-                before raising.
+            HardwareError: SDK call failed (CameraWriteFailedError). The
+                camera is not marked disconnected: removal is the DeviceLost
+                callback's.
+            CameraNoAnswerError: the camera did not answer the write, or the
+                read of the supported formats it needs.
         """
         if not self.active:
             return False
 
-        resolved = self._resolve_logical_format(pixel_format)
+        try:
+            resolved = self._resolve_logical_format(pixel_format)
+        except Exception as e:
+            _raise_if_unanswered(e, 'read', f'PixelFormat {pixel_format}')
+            raise
         if resolved is None:
             supported = self.get_supported_pixel_formats()
             # Caller-correctable (returns False; callers fall back to a
@@ -2516,10 +2619,20 @@ class IDSCamera(Camera):
             # that drops the camera mid-resize over a recoverable fault.
             # set_binning_size (same update_camera_config machinery) handles it
             # this way; matching keeps the geometry setters consistent.
+            _raise_if_unanswered(e, 'write', f'PixelFormat {resolved}')
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
             ) from e
+
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """The depth this driver delivers for ``pixel_format``, by its unpack.
+
+        Not the name's bit count: the 8-bit image mode's Mono10 wire is
+        delivered as 8 bits, so a depth read from the format name would
+        say 10 for frames whose own stamp says 8.
+        """
+        return _ids_delivery_significant_bits(pixel_format or '')
 
     def get_pixel_format(self):
         # Served from the cache populated on first read and on every
@@ -2536,7 +2649,24 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
             return None
 
-    def get_supported_pixel_formats(self):
+    def get_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () on inactive / read failure."""
+        try:
+            return self._read_supported_pixel_formats()
+        except Exception as e:
+            _cam_log.error(
+                f'[CAM Class ] get_supported_pixel_formats: the camera did not answer ({e})'
+            )
+            return ()
+
+    def _read_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () on a failed read.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read
+            (``_exc_is`` timeout). A write that needs the list answers it as no
+            answer; a reader that only lists the formats answers ().
+        """
         # Guard on _device_removed, not just active: _mark_disconnected() sets the
         # removed flag but deliberately leaves active set (the handle release is
         # deferred to disconnect()), so a live AvailableEntries() read on a removed
@@ -2550,6 +2680,8 @@ class IDSCamera(Camera):
                 for pf in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
             )
         except Exception as e:
+            if _exc_is(e, 'TimeoutException', 'timeout'):
+                raise
             # An empty tuple is indistinguishable from "no formats" at the call
             # site -- a caller doing formats[0] then raises IndexError far from the
             # real cause. Name a removal or a wedged nodemap distinctly so the log
@@ -2575,7 +2707,13 @@ class IDSCamera(Camera):
         The applied value is returned rather than a bare success flag because
         the request is clamped up to the live node minimum below: a caller that
         recorded the REQUEST as its chunk-match target would reject every frame
-        the camera then stamped with the clamped value."""
+        the camera then stamped with the clamped value.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the ExposureTime
+                write, so whether it was applied is not known; or did not
+                answer the read of the node's minimum the write is clamped
+                to, so nothing was written."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
@@ -2588,6 +2726,7 @@ class IDSCamera(Camera):
 
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
+        access = 'read'
         try:
             # Clamp UP to the live node minimum, mirroring the Pylon driver.
             # The live-view slider initializes to its 0.01ms default and is
@@ -2599,6 +2738,7 @@ class IDSCamera(Camera):
             # instead of erroring. The max bound stays a reject above.
             exp_node = self.remote_nodemap.FindNode('ExposureTime')
             us_value = max(float(exposure_ms) * 1000, exp_node.Minimum())
+            access = 'write'
             exp_node.SetValue(us_value)
             self._last_exposure_ms = us_value / 1000.0
             rate_note = ''
@@ -2610,18 +2750,17 @@ class IDSCamera(Camera):
                 # later shorter exposure does NOT restore it on its own. Without this
                 # the live fps stays stuck at the slow rate set during the long
                 # exposure (the "fps does not recover" symptom).
-                new_max = self._maximize_acquisition_frame_rate()
-                if new_max is not None:
-                    rate_note = f' AcquisitionFrameRate->{new_max:.1f}fps'
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
-                )
+                rate = self._set_free_run_frame_rate()
+                if rate is not None:
+                    rate_note = f' AcquisitionFrameRate->{rate:.1f}fps'
+            _cam_log.info(
+                f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
+            )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
+            _raise_if_unanswered(e, access, f'Exposure {exposure_ms} ms')
+            _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
             return False
 
@@ -2631,15 +2770,21 @@ class IDSCamera(Camera):
         The ExposureTime node minimum drifts above the connect-time value once
         other settings change (pixel clock, frame rate, AOI), so read it live
         each call rather than trusting the value cached in the profile at
-        connect. Falls back to the cached profile floor if the node read fails.
+        connect. A read that fails raises: the cached floor in its place
+        would be answered as the live one, and could be the stale value the
+        live read exists to replace.
+
+        Raises:
+            CameraReadFailedError: The node read failed.
         """
         if not self.active:
             return super().get_min_exposure()
         try:
             return self.remote_nodemap.FindNode('ExposureTime').Minimum() / 1000.0
         except Exception as e:
-            _cam_log.warning(f'[CAM Class ] get_min_exposure live read failed: {e}')
-            return super().get_min_exposure()
+            raise CameraReadFailedError(
+                f'Minimum exposure read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_exposure_t(self):
         if not self.active:
@@ -2688,7 +2833,7 @@ class IDSCamera(Camera):
         node. See ``Camera.get_all_temperatures``.
         """
         if not self.active or self.remote_nodemap is None:
-            raise HardwareError('Camera temperature read: no camera is active')
+            raise PartAbsentError('Camera temperature read: no camera is active')
         try:
             if not self.remote_nodemap.HasNode('DeviceTemperature'):
                 return {}
@@ -2715,7 +2860,9 @@ class IDSCamera(Camera):
             if not temps:
                 temps['Device'] = float(temp.Value())
         except Exception as e:
-            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'Camera temperature read failed: {type(e).__name__}: {e}'
+            ) from e
         return temps
 
     def supports_temperature(self) -> bool:
@@ -2725,7 +2872,7 @@ class IDSCamera(Camera):
         try:
             return bool(self.remote_nodemap.HasNode('DeviceTemperature'))
         except Exception as e:
-            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
     def set_device_link_throughput_limit(
         self,
@@ -2862,7 +3009,7 @@ class IDSCamera(Camera):
             'U3vStreamChannelTransferRequestCount', int(value), 'set_num_max_queued_urbs'
         )
 
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
         if not self.active:
             _cam_log.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
             return
@@ -2871,17 +3018,15 @@ class IDSCamera(Camera):
         # AcquisitionFrameRateTarget while acquisition is running (same
         # runtime-parameter class as ExposureTime, see exposure_t above).
         try:
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids AcquisitionFrameRateTargetEnable.SetValue({enabled})'
-                    + (f' AcquisitionFrameRateTarget.SetValue({fps})' if enabled else '')
-                )
+            _cam_log.info(
+                f'ids AcquisitionFrameRateTargetEnable.SetValue({enabled})'
+                + (f' AcquisitionFrameRateTarget.SetValue({fps})' if enabled else '')
+            )
             self.remote_nodemap.FindNode('AcquisitionFrameRateTargetEnable').SetValue(enabled)
             if enabled:
                 self.remote_nodemap.FindNode('AcquisitionFrameRateTarget').SetValue(fps)
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
+            _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
     def _set_hardware_binning(self, size: int) -> bool:
@@ -2899,6 +3044,7 @@ class IDSCamera(Camera):
 
         Raises:
             HardwareError: SDK call failed.
+            CameraNoAnswerError: the camera did not answer one of the writes.
         """
         if not self.active:
             return False
@@ -2908,9 +3054,7 @@ class IDSCamera(Camera):
             return False
 
         try:
-            logger.debug(
-                f'[CAM Class ] Binning {self.get_binning_size()} -> {size}, frame {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning -> {size}')
             with self.update_camera_config():
                 self.remote_nodemap.FindNode('BinningVertical').SetValue(size)
                 self.remote_nodemap.FindNode('BinningHorizontal').SetValue(size)
@@ -2924,13 +3068,14 @@ class IDSCamera(Camera):
                 # reads it again.
                 self._sensor_max = None
 
-            logger.debug(
-                f'[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning set to {size}')
             return True
         except Exception as e:
+            _raise_if_unanswered(e, 'write', f'Binning {size}')
             _cam_log.error(f'[CAM Class ] set_binning_size failed: {e}')
-            raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_binning_size(self) -> int:
         # READ-FAILURE sentinel is -1, not 1: 1 is a legal binning factor (1x =
@@ -2959,7 +3104,7 @@ class IDSCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Return a frame captured AFTER this call, via the shared latest-frame
         path -- never by driving the data stream directly.
 
@@ -2970,16 +3115,16 @@ class IDSCamera(Camera):
         re-queueing outside _requeue_lock, which the SDK does not promise is
         concurrency-safe. Instead, snapshot the worker's frame-generation, wait for
         it to advance (a genuinely new frame, unpacked + cropped + depth-stamped by
-        the worker), then read that frame through grab() -- which stores it under
-        _array_lock with its paired significant_bits. This mirrors the Pylon
-        driver, which also consumes the handler's frame rather than the stream.
+        the worker), then read that frame's record through grab(). This mirrors
+        the Pylon driver, which also consumes the handler's frame rather than
+        the stream.
         """
         handler = self.cam_image_handler
         if not handler:
-            return False, None, None
+            return None
         since = handler.frame_generation()
         if not handler.wait_for_new_frame(since, timeout_s):
-            return False, None, None
+            return None
         return self.grab()
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
@@ -3024,13 +3169,19 @@ class IDSCamera(Camera):
         confirmed hardware rejection: per-frame chunk metadata is not yet
         wired, so a swallowed write failure here would stream frames at the
         stale gain with no downstream backstop; the caller needs the failure
-        signal."""
+        signal.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the GainSelector or
+                Gain write, so whether the gain was applied is not known; or
+                did not answer the read of the Gain range the factor is
+                reconciled to, so Gain was not written."""
         if not self.active:
-            if _cam_log is not None:
-                _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
+            _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return False
 
+        access = 'write'
         try:
             factor = 10.0 ** (float(value) / 20.0)
             # Select the analog gain entry this body actually exposes (resolved
@@ -3039,7 +3190,9 @@ class IDSCamera(Camera):
             # can be resolved, fail loud rather than write the factor against
             # whatever selector is currently active (that would land analog gain
             # on the wrong amplifier and still report success).
+            access = 'read'
             selector = self._gain_selector or self._resolve_gain_selector()
+            access = 'write'
             if not selector:
                 _cam_log.error(
                     '[CAM Class ] Cannot set gain: no GainSelector entry resolved on this body'
@@ -3047,20 +3200,19 @@ class IDSCamera(Camera):
                 return False
             self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(selector)
             gain_node = self.remote_nodemap.FindNode('Gain')
+            access = 'read'
             # Reconcile to the node's reported range: the dB->factor conversion
             # overshoots Gain.Maximum() by a float epsilon at the cap, so the
             # camera rejects its own reported maximum gain without this clamp.
             factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
-                )
+            _cam_log.info(f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)')
+            access = 'write'
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return 20.0 * math.log10(factor)
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
+            _raise_if_unanswered(e, access, f'Gain {value} dB')
+            _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 
@@ -3074,7 +3226,7 @@ class IDSCamera(Camera):
         try:
             return bool(self.remote_nodemap.HasNode('BlackLevel'))
         except Exception as e:
-            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
     def get_black_level(self) -> float | None:
         """Read BlackLevel live. See ``Camera.get_black_level``."""
@@ -3085,7 +3237,7 @@ class IDSCamera(Camera):
                 return None
             return float(self.remote_nodemap.FindNode('BlackLevel').Value())
         except Exception as e:
-            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
     def get_black_level_range(self) -> tuple[float, float] | None:
         """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
@@ -3097,11 +3249,14 @@ class IDSCamera(Camera):
             node = self.remote_nodemap.FindNode('BlackLevel')
             return float(node.Minimum()), float(node.Maximum())
         except Exception as e:
-            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'BlackLevel range read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_resulting_frame_rate(self) -> float | None:
         """AcquisitionFrameRate's maximum, live: the rate the current exposure
-        and readout allow, which the free-run configuration runs at. See
+        and readout allow. The free run runs at it unbinned and 1 ms of frame
+        time under it binned (``_set_free_run_frame_rate``). See
         ``Camera.get_resulting_frame_rate``."""
         if not self.active or self.remote_nodemap is None:
             return None
@@ -3110,7 +3265,7 @@ class IDSCamera(Camera):
                 return None
             return float(self.remote_nodemap.FindNode('AcquisitionFrameRate').Maximum())
         except Exception as e:
-            raise HardwareError(
+            raise CameraReadFailedError(
                 f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -3128,29 +3283,36 @@ class IDSCamera(Camera):
             transport = None
             if nodemap.HasNode('DeviceTLType'):
                 transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
-            speed = speed_unit = None
+            speed = None
             if nodemap.HasNode('DeviceLinkSpeed'):
                 node = nodemap.FindNode('DeviceLinkSpeed')
-                speed, speed_unit = node.Value(), declared_unit(node.Unit())
+                speed = declared_speed(node.Value(), node.Unit())
             return link_info(
                 transport=transport,
                 link_speed=speed,
-                link_speed_unit=speed_unit,
                 packet_size_bytes=_read('GevSCPSPacketSize'),
                 inter_packet_delay=_read('GevSCPD'),
             )
         except Exception as e:
-            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Link info read failed: {type(e).__name__}: {e}') from e
 
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel. Returns as ``gain`` does.
 
         Refused while BlackLevelAuto is not Off: a camera holding its black
         level automatically would overwrite the value, so it is not written.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the BlackLevel
+                write, so whether it was applied is not known; or did not
+                answer the BlackLevelAuto read the write waits on, so nothing
+                was written.
+            CameraWriteFailedError: any other SDK failure.
         """
         if not self.active or self.remote_nodemap is None:
             _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
             return None
+        access = 'read'
         try:
             if self.remote_nodemap.HasNode('BlackLevelAuto'):
                 auto = self.remote_nodemap.FindNode('BlackLevelAuto').CurrentEntry().SymbolicValue()
@@ -3160,12 +3322,23 @@ class IDSCamera(Camera):
                     )
                     return False
             node = self.remote_nodemap.FindNode('BlackLevel')
-            if _cam_log is not None:
-                _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            access = 'write'
             node.SetValue(float(value))
+            access = 'read_back'
             return float(node.Value())
         except Exception as e:
-            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+            if access == 'read_back' and _exc_is(e, 'TimeoutException', 'timeout'):
+                # The write was answered, so it was applied; only the camera's
+                # own rounding of it is unknown, and the value written stands.
+                _cam_log.warning(
+                    f'[CAM Class ] BlackLevel {value} written; its read-back was not answered: {e}'
+                )
+                return float(value)
+            _raise_if_unanswered(e, access, f'BlackLevel {value}')
+            raise CameraWriteFailedError(
+                f'BlackLevel {value} write failed: {type(e).__name__}: {e}'
+            ) from e
 
     def auto_gain(
         self,
@@ -3227,6 +3400,28 @@ def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:
     return any(s in message for s in substrings)
 
 
+def _raise_if_unanswered(exc: Exception, access: str, setting: str) -> None:
+    """Raise what a setting write's access the camera did not answer means.
+
+    ``access`` is the access ``exc`` came from, and only changes the words.
+    A timeout on a ``'write'`` leaves it unknown whether the value was
+    applied; a timeout on a ``'read'`` the write cannot be computed without
+    means nothing was written. Either way the camera is still on the bus, so
+    it is not a removal, and the caller may send the write again. Any other
+    exception returns, for the writer's own handling of a refusal.
+    """
+    if not _exc_is(exc, 'TimeoutException', 'timeout'):
+        return
+    if access == 'read':
+        raise CameraNoAnswerError(
+            f'{setting} not written: the camera did not answer the read the write needs: '
+            f'{type(exc).__name__}: {exc}'
+        ) from exc
+    raise CameraNoAnswerError(
+        f'{setting}: the camera did not answer the write: {type(exc).__name__}: {exc}'
+    ) from exc
+
+
 class _LatestBufferSlot:
     """Newest-wins handoff of finished SDK buffers from the poll thread to the
     unpack worker. A put() that lands on an unconsumed buffer displaces the
@@ -3236,6 +3431,10 @@ class _LatestBufferSlot:
     live display path is itself newest-wins (it polls the latest stored frame),
     so dropping intermediate live frames changes nothing a consumer can observe;
     protocol capture runs on the separate grab_new_capture() path.
+
+    Each buffer travels with its ``HandOver``, taken by the poll thread as it
+    put the buffer here, so the frame is numbered where the driver first had
+    it and not when the worker got to it.
 
     get() blocks until a buffer arrives or the slot is stopped, draining any
     pending buffer before it reports the stop sentinel. stop() re-queues a
@@ -3249,39 +3448,40 @@ class _LatestBufferSlot:
         # buffer newest-wins displaces, so a dropped buffer never leaks.
         self._requeue = requeue
         self._cond = threading.Condition()
-        self._buffer = None
+        # The waiting buffer and its hand-over, or None.
+        self._held: tuple[object, HandOver] | None = None
         self._stopped = False
         self.dropped = 0
 
-    def put(self, buffer):
+    def put(self, buffer: object, handed_over: HandOver) -> None:
         with self._cond:
-            stale = self._buffer
-            self._buffer = buffer
+            stale = self._held
+            self._held = (buffer, handed_over)
             if stale is not None:
                 self.dropped += 1
             self._cond.notify()
         # Re-queue the displaced buffer OUTSIDE the lock (QueueBuffer may block).
         if stale is not None:
-            self._requeue(stale)
+            self._requeue(stale[0])
 
-    def get(self, timeout):
-        """Return the latest buffer, None on timeout, or _STOP when stopped+empty."""
+    def get(self, timeout: float) -> tuple[object, HandOver] | object | None:
+        """Return the latest ``(buffer, hand-over)``, None on timeout, or _STOP when stopped+empty."""
         with self._cond:
-            if self._buffer is None and not self._stopped:
+            if self._held is None and not self._stopped:
                 self._cond.wait(timeout)
-            if self._buffer is not None:
-                buffer, self._buffer = self._buffer, None
-                return buffer
+            if self._held is not None:
+                held, self._held = self._held, None
+                return held
             return self._STOP if self._stopped else None
 
-    def stop(self):
+    def stop(self) -> None:
         with self._cond:
             self._stopped = True
-            stale = self._buffer
-            self._buffer = None
+            stale = self._held
+            self._held = None
             self._cond.notify_all()
         if stale is not None:
-            self._requeue(stale)
+            self._requeue(stale[0])
 
 
 class ImageHandler(ImageHandlerBase):
@@ -3511,9 +3711,10 @@ class ImageHandler(ImageHandlerBase):
             # a good frame.
             self._bad_frames_since_complete = 0
 
-            # Hand the buffer to the worker. A buffer this displaces is re-queued
-            # by the slot; the worker re-queues this one once it has unpacked it.
-            self._slot.put(buffer)
+            # Hand the buffer to the worker, numbered here, where the driver
+            # first has it. A buffer this displaces is re-queued by the slot;
+            # the worker re-queues this one once it has unpacked it.
+            self._slot.put(buffer, self.hand_over())
 
     def _note_bad_frame(self) -> bool:
         """Count a frame that arrived but yielded no usable image (incomplete, or
@@ -3742,14 +3943,23 @@ class ImageHandler(ImageHandlerBase):
         # Log every incomplete buffer with fill info. Partial-fill extent is the
         # only signal we get for USB packet loss / bandwidth saturation;
         # throttling loses the cause distribution.
-        try:
-            bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
-            bcap = buffer.Size() if hasattr(buffer, 'Size') else None
-        except Exception as _bintrospect:
-            bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
-        _cam_log.warning(
-            f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
+        # The SDK's own names (ids_peak Buffer): DeliveredDataSize short of
+        # ExpectedDataSize is the loss. Each is read on its own: IDS peak 26.06
+        # answers one of an incomplete buffer's sizes (BUFFER_INFO_DATA_SIZE)
+        # with GC_ERR_NOT_AVAILABLE, and the sizes it can give still describe
+        # it.
+        def _size(read):
+            try:
+                return read()
+            except Exception as e:
+                return f'<not available: {type(e).__name__}>'
+
+        fill = (
+            f'delivered={_size(buffer.DeliveredDataSize)} '
+            f'expected={_size(buffer.ExpectedDataSize)} '
+            f'capacity={_size(buffer.Size)}'
         )
+        _cam_log.warning(f'[CAM Class ] IDS buffer.IsIncomplete()=True {fill}')
 
     def frame_generation(self) -> int:
         """Current frame-store counter. Snapshot it before a still capture, then
@@ -3777,20 +3987,21 @@ class ImageHandler(ImageHandlerBase):
     def _worker_loop(self):
         """Stage B: unpack the freshest buffer, store it, and re-queue it."""
         while True:
-            buffer = self._slot.get(self._WORKER_POLL_S)
-            if buffer is _LatestBufferSlot._STOP:
+            held = self._slot.get(self._WORKER_POLL_S)
+            if held is _LatestBufferSlot._STOP:
                 return
-            if buffer is None:  # idle poll, no buffer waiting
+            if held is None:  # idle poll, no buffer waiting
                 if self._stop_event.is_set():
                     return
                 continue
+            buffer, handed_over = held
             try:
                 array, significant_bits = self._unpack(buffer)
                 # Stamp the frame with the depth it was captured under so depth
                 # and pixels stay paired across a later format switch.
                 self._store_frame(
                     array,
-                    datetime.datetime.now(),
+                    handed_over=handed_over,
                     significant_bits=significant_bits,
                     wire_bytes=buffer.DeliveredDataSize(),
                 )

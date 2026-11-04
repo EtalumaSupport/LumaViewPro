@@ -13,32 +13,35 @@ from __future__ import annotations
 
 import pathlib
 
-from modules.protocol import Protocol
+from modules.coord_transformations import AxisLimits
 from tests.test_issue_524_extra_z_step_on_objective_change import (
     _add_layer_config,
     _empty_protocol_for_add,
 )
 from tests.test_protocol_roundtrip import _build_protocol, _make_step, _save_and_reload
+from modules.coord_transformations import PlateLocation
+from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
+_WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
 
 def _insert_step(proto, *, step_name):
     proto.insert_step(
+        channel_group_id=proto.new_channel_group_id(),
+        turret_slot=-1,
         step_name=step_name,
         layer='BF',
         layer_config=_add_layer_config(),
-        plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+        plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=0,
-        after_step=None,
+        before_step_index=0,
+        after_step_index=None,
     )
-    return proto.step(idx=0)
+    return proto.step_row(step_index=0)
 
 
 def test_auto_generated_step_is_flagged_auto():
@@ -53,8 +56,8 @@ def test_named_insert_is_not_auto():
 
 def test_modify_name_clears_auto_flag():
     proto = _build_protocol([_make_step(auto_named=True)])
-    proto.modify_name(step_idx=0, step_name='renamed')
-    assert not proto.step(idx=0)['Auto_Named']
+    proto.modify_name(step_index=0, step_name='renamed')
+    assert not proto.step_row(step_index=0)['Auto_Named']
 
 
 def test_zstack_inherits_auto_flag():
@@ -101,14 +104,16 @@ def test_legacy_protocol_flag_recovered_by_compose_and_compare(tmp_path):
         'MyPickedSpot\t0\t0\t0\tFalse\tBF\tFalse\t50.0\t0.0\tFalse\t10.0\t1\t'
         "4x Oly\tB2\t\t-1\tFalse\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t{}\n"
     )
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto is not None
     # Machine-shaped name for its columns -> auto; regeneration may track a
     # future channel change.
-    assert proto.step(idx=0)['Auto_Named']
-    assert proto.step(idx=0)['Label'] == ''
-    assert proto.step(idx=0)['Name'] == 'A1_BF'
+    assert proto.step_row(step_index=0)['Auto_Named']
+    assert proto.step_row(step_index=0)['Label'] == ''
+    assert proto.step_row(step_index=0)['Name'] == 'A1_BF'
     # User text -> kept verbatim in Label, never regenerated over.
-    assert not proto.step(idx=1)['Auto_Named']
-    assert proto.step(idx=1)['Label'] == 'MyPickedSpot'
-    assert proto.step(idx=1)['Name'] == 'MyPickedSpot_BF'
+    assert not proto.step_row(step_index=1)['Auto_Named']
+    assert proto.step_row(step_index=1)['Label'] == 'MyPickedSpot'
+    assert proto.step_row(step_index=1)['Name'] == 'MyPickedSpot_BF'

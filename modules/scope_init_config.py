@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.layer_record as layer_record
-from modules.lumascope_api._constants import is_turret_slot
-from lvp_logger import logger
 
 
 @dataclass
@@ -28,14 +26,6 @@ class ScopeInitConfig:
     their one store, whenever it acts on them.
     """
 
-    # The session's one has-a-turret answer. Required, never defaulted: a
-    # turreted scope treated as turretless would answer with its stored
-    # objective instead of the one in the light path.
-    turreted: bool
-    # The saved turret position: the slot a person last turned to, which
-    # the slot lookup prefers when two slots carry one objective. None when
-    # nothing usable was saved.
-    preferred_turret_slot: int | None
     binning_size: int
     frame_width: int
     frame_height: int
@@ -53,28 +43,22 @@ class ScopeInitConfig:
         cls,
         settings: dict,
         scope_config: dict | None = None,
-        layer_identity: object | None = None,
-        *,
-        turreted: bool,
+        channel_identity: object | None = None,
     ) -> 'ScopeInitConfig':
         """Build config from the LVP settings dict.
 
-        turreted: the session's one has-a-turret answer
-        (``ScopeSession.scope_has_turret``). On a turreted scope the stored
-        ``objective_id`` is not required: the objective is the slot's
-        assignment, derived when asked. It is never carried: the scope
-        reads the selected objective from the settings.
+        scope_config: the active scope's model record (``ScopeModel``),
+        None for a model the catalogue does not list. Drives
+        expects_motion, which says whether a missing motor board is reported.
 
-        scope_config: the entry for the active scope from scopes.json
-        (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).
-        When provided, drives expects_motion for the partial-hardware
-        notification filter.
-
-        layer_identity: the scope's resolved layer identity snapshot.
-        When provided, drives expects_led: identity carrying at least one
+        channel_identity: the scope's resolved layer identity snapshot.
+        When resolved, drives expects_led: identity carrying at least one
         LED-driving layer means an LED board is expected, so its absence
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
+        An unresolved identity has no layers to read, and only a resolved
+        one can say a scope has no LED board, as only the catalogue can
+        say it has no motor board: it expects one.
 
         ``settings`` is a prepared dict (``settings_init.prepare_loaded``,
         which every session's settings went through): every key is
@@ -84,23 +68,14 @@ class ScopeInitConfig:
         acceleration_pct = settings['motion']['acceleration_max_pct']
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
-        preferred_turret_slot = settings.get('turret_position')
-        if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
-            # A preference, not a position: a value that names no slot
-            # leaves no preference, which the lookup already handles, and
-            # is said here so a hand-edited file is visible in the record.
-            logger.warning(
-                f'[Session  ] saved turret_position {preferred_turret_slot!r} is not a slot '
-                '1-4; no preferred slot'
-            )
-            preferred_turret_slot = None
-        if layer_identity is None:
+        if (
+            channel_identity is None
+            or channel_identity.source == layer_record.IdentitySource.UNRESOLVED
+        ):
             expects_led = True
         else:
-            expects_led = any(layer.led_channel for layer in layer_identity.layers)
+            expects_led = any(layer.led_addresses for layer in channel_identity.channels)
         return cls(
-            turreted=turreted,
-            preferred_turret_slot=preferred_turret_slot,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],

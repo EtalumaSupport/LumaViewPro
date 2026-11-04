@@ -13,7 +13,6 @@ import ast
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,7 +38,6 @@ class _ScriptedSession:
         self.provisional = provisional
         self.confirmed = []
         self.cleared = []
-        self.is_protocol_running = False
 
     def objective_question(self):
         if isinstance(self.question, Exception):
@@ -52,10 +50,10 @@ class _ScriptedSession:
         # re-asks later, so nothing may be hung on this pass.
         return self.provisional
 
-    def confirm_objective(self, objective_id, turret_position=None):
+    def confirm_objective(self, objective_id, slot=None):
         if isinstance(self.changed, Exception):
             raise self.changed
-        self.confirmed.append((objective_id, turret_position))
+        self.confirmed.append((objective_id, slot))
         return self.changed
 
     def get_objective_info(self, objective_id):
@@ -101,7 +99,6 @@ class _Harness:
         self.popups = []
         self.error_popups = []
         self.gui_log = []
-        self.logger = MagicMock()
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
         monkeypatch.setattr(
             notification_popup,
@@ -116,7 +113,6 @@ class _Harness:
             'select',
             lambda kind, value: self.gui_log.append(('SELECT', kind, value)),
         )
-        monkeypatch.setattr(vc, 'logger', self.logger)
         monkeypatch.setattr(
             vc.gui_logger,
             'button',
@@ -134,9 +130,6 @@ class _Harness:
         assert len(self.popups) == 1
         self.popups[0]['on_confirm'](chosen)
 
-    def info_lines(self):
-        return [str(call.args[0]) for call in self.logger.info.call_args_list]
-
 
 class TestTheQuestionIsRendered:
     def test_no_question_renders_nothing(self, monkeypatch):
@@ -145,7 +138,7 @@ class TestTheQuestionIsRendered:
         assert h.popups == [] and h.error_popups == []
 
     def test_a_question_renders_once_with_its_choices_and_proposal(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         h.prompt()
         assert len(h.popups) == 1
@@ -155,7 +148,7 @@ class TestTheQuestionIsRendered:
         assert 'turret position 2' in popup['message']
 
     def test_a_question_without_a_position_says_so(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=None, proposed='4x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=None, proposed='4x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         h.prompt()
         assert 'turret position' not in h.popups[0]['message']
@@ -166,7 +159,7 @@ class TestTheQuestionIsRendered:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
+                ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
             ),
         )
         h.prompt()
@@ -176,7 +169,7 @@ class TestTheQuestionIsRendered:
         assert [(n.severity, n.title) for n in centre_posts] == [
             (Severity.ERROR, 'Configuration Fault')
         ]
-        assert 'initialized' not in centre_posts[0].message
+        assert 'bound' not in centre_posts[0].message
         assert h.error_popups == []
 
 
@@ -198,7 +191,7 @@ class TestTheContinuationFollowsTheQuestion:
         h = _Harness(monkeypatch, _ScriptedSession(ObjectiveUnknownError('slot_unknown')))
         runs = self._prompt(h)
         assert [n.title for n in centre_posts] == ['Objective Unknown']
-        assert 'home the turret' in centre_posts[0].message
+        assert 'home the scope' in centre_posts[0].message
         assert h.popups == [] and h.error_popups == []
         assert runs == [1]
 
@@ -207,7 +200,7 @@ class TestTheContinuationFollowsTheQuestion:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
+                ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
             ),
         )
         runs = self._prompt(h)
@@ -215,7 +208,7 @@ class TestTheContinuationFollowsTheQuestion:
         assert runs == [1]
 
     def test_a_rendered_question_runs_nothing_until_it_is_answered(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         runs = self._prompt(h)
         assert runs == []
@@ -223,7 +216,7 @@ class TestTheContinuationFollowsTheQuestion:
         assert runs == [1]
 
     def test_a_rendered_question_runs_it_once_when_folded(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         runs = self._prompt(h)
         assert runs == []
@@ -259,7 +252,7 @@ class TestTheContinuationFollowsTheQuestion:
 
 class TestTheAnswerReachesTheSession:
     def _question(self, position=2):
-        return ObjectiveQuestion(turret_position=position, proposed='10x Oly', choices=CHOICES)
+        return ObjectiveQuestion(turret_slot=position, proposed='10x Oly', choices=CHOICES)
 
     def test_the_answer_goes_through_confirm_objective(self, monkeypatch):
         session = _ScriptedSession(self._question())
@@ -281,11 +274,10 @@ class TestTheAnswerReachesTheSession:
         h.answer('20x Oly')
         assert h.gui_log == []
 
-    def test_an_unchanged_objective_logs_no_change(self, monkeypatch):
+    def test_an_unchanged_answer_still_shows_the_stand(self, monkeypatch):
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=False))
         h.prompt()
         h.answer('10x Oly')
-        assert not any('select_objective()' in line for line in h.info_lines())
         assert h.stand.shown == [True]
 
     def test_no_position_hands_the_answer_over_without_one(self, monkeypatch):
@@ -391,7 +383,7 @@ class TestResetLeavesTheSlotCleared:
     def test_a_reset_clears_the_current_slot_and_opens_no_popup(self, monkeypatch):
         # The session has a question to ask -- hardware present, settings
         # resolved -- which is exactly when the old trigger fired.
-        question = ObjectiveQuestion(turret_position=3, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=3, proposed='10x Oly', choices=CHOICES)
         h = self._reset_at(monkeypatch, 3, question)
         # The slot is the API's; the widget names none.
         assert h.session.cleared == ['current']
@@ -400,7 +392,7 @@ class TestResetLeavesTheSlotCleared:
         assert h.stand.shown == [False]
 
     def test_the_cleared_slot_is_not_re_assigned(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='4x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='4x Oly', choices=CHOICES)
         h = self._reset_at(monkeypatch, 2, question)
         # The re-assignment the dead button performed went through
         # confirm_objective; nothing may reach it from a reset.
@@ -420,19 +412,19 @@ class TestResetLeavesTheSlotCleared:
         h = _Harness(monkeypatch, session)
         h.stand.reset_turret_objective()
         assert [n.title for n in centre_posts] == ['Objective Unknown']
-        assert 'home the turret' in centre_posts[0].message
+        assert 'home the scope' in centre_posts[0].message
         assert h.error_popups == []
         assert h.stand.shown == [False]
 
 
 def test_template_ships_the_unconfirmed_flag():
-    # The template default MUST be false: the flag existing with true
-    # (or missing, treated as confirmed) would silently skip the one
-    # prompt that makes a person confirm the shipped 20x default.
+    # The template default MUST be unconfirmed: a shipped confirmation (or
+    # a missing flag read as one) would silently skip the one prompt that
+    # makes a person confirm the shipped 20x default.
     # pin-justified: reads the shipped settings TEMPLATE (a JSON data
     # contract); no AST seam exists for a data file.
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
-    assert template.get('objective_confirmed') is False
+    assert template['objective_confirmed'] is None
 
 
 def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
@@ -479,10 +471,10 @@ class TestAnUnknownSlotSaysWhatHappensNext:
             assert h.popups == [] and h.error_popups == []
             assert [n.title for n in centre_posts] == ['Objective Unknown']
             message = centre_posts[0].message
-            assert 'home the turret' in message
+            assert 'home the scope' in message
             assert 'may be wrong' not in message
 
             with pytest.raises(ObjectiveUnknownError):
-                session.manual_capture.capture(layer=None, false_color_on=False).result(timeout=30)
+                session.manual_capture.capture(false_color_on=False).result(timeout=30)
         finally:
             session.shutdown()

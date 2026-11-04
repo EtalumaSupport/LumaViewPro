@@ -32,9 +32,9 @@ from tests.ast_seams import REPO_ROOT, parse_module
 
 ENGINE_ROOT_MODULE = 'modules.sequenced_capture_runner'
 
-# The reach of the application context the engine set may keep: telemetry,
-# guarded, correct headless.
-ALLOWED_CONTEXT_READERS = frozenset({'modules.config_helpers'})
+# The engine set reaches the application context nowhere: the metrics
+# telemetry, its last reader, is handed what it logs.
+ALLOWED_CONTEXT_READERS: frozenset[str] = frozenset()
 # The one import-time binding of the settings module the engine set may keep:
 # the simulated motor board's default model, read once at scope construction.
 ALLOWED_SETTINGS_BINDERS = frozenset({'modules.lumascope_api._lumascope'})
@@ -122,7 +122,6 @@ def test_the_walk_reaches_the_engine():
         'modules.common_utils',
         'modules.image_utils',
         'modules.path_utils',
-        'modules.composite_generation',
     ):
         assert name in modules, f'{name} is not in the engine set the guard walks'
 
@@ -141,9 +140,3 @@ def test_only_the_allowed_module_binds_the_settings_global():
         f'engine-set modules binding settings_init.settings: {sorted(binders)}; '
         f'allowed: {sorted(ALLOWED_SETTINGS_BINDERS)}'
     )
-
-
-def test_the_gui_encoding_resolver_stays_outside_the_engine():
-    """The one context-reading module this work created must never be
-    imported by the engine: it exists so the engine does not have to."""
-    assert 'modules.derived_output_encoding' not in engine_set()

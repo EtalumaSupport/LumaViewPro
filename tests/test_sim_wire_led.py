@@ -14,12 +14,16 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
 import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import serial
 
-from drivers.exceptions import HardwareError
+from drivers import ledboard as ledboard_module
+from drivers.exceptions import BoardNoReplyError, HardwareError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
@@ -43,10 +47,6 @@ sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
 import dac80508
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
 
 MOTOR = MotorBoardSpec('LS850T', frozenset('XYZT'))
 LED = LedBoardSpec('LS850T')
@@ -90,7 +90,7 @@ class TestOpen:
         with pytest.raises(serial.SerialException, match='no simulated board'):
             _open(backend, LED_DEVICE)
 
-    @firmware_only
+    @pytest.mark.firmware_tier
     def test_each_device_opens_its_own_board(self):
         backend = SimWireBackend(MOTOR, led=LED)
         led_port = _open(backend, LED_DEVICE)
@@ -196,7 +196,7 @@ class TestTheDac:
             dac80508.Board(LED_ENABLE_PINS).datagram('DAC', bytes(5))
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheFirmwareBoots:
     def test_the_production_led_board_connects_to_the_shipped_firmware(self):
         board = LEDBoard(backend=SimWireBackend(None, led=LED))
@@ -238,7 +238,7 @@ def lit():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 def test_the_first_command_after_connect_gets_its_own_reply():
     # Connect turns the LEDs off. A reply to that left unread is taken by
     # the next command as its own: INFO would read 'LED 0 has been turned off'.
@@ -250,7 +250,7 @@ def test_the_first_command_after_connect_gets_its_own_reply():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 def test_a_multiline_exchange_ends_when_the_reply_ends():
     # The support report reads INFO up to its CALIBRATION line, and FACTORY
     # up to its Y/N prompt. Once the reply is over, waiting the call's
@@ -273,7 +273,61 @@ def test_a_multiline_exchange_ends_when_the_reply_ends():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
+class TestEngineeringModeEntry:
+    """``enter_engineering_mode`` raises a reply it cannot confirm, never False.
+
+    The wire is a stand-in by design: the emulated firmware answers FACTORY
+    with several lines, so one dropped line never leaves it unanswered, and
+    it never answers without the Y/N prompt an old board omits.
+    """
+
+    @staticmethod
+    def _make_ledboard(multiline_reply):
+        """LEDBoard stub with exchange_multiline answering a fixed reply
+        (an exception is raised, as the wire raises a dropped reply)."""
+        # a stand-in by design: replies the emulated firmware never gives
+        board = LEDBoard.__new__(LEDBoard)
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.driver = None
+        board.exchange_multiline = MagicMock(
+            side_effect=[multiline_reply] if isinstance(multiline_reply, Exception) else None,
+            return_value=multiline_reply,
+        )
+        return board
+
+    def test_no_reply_raises_the_wire_s_fault(self):
+        board = self._make_ledboard(BoardNoReplyError('FACTORY: no reply from the board'))
+        with pytest.raises(BoardNoReplyError, match=r'^FACTORY: no reply from the board'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_a_reply_without_the_y_n_prompt_raises(self):
+        """A reply with no Y/N confirmation prompt (firmware too old for
+        engineering mode) must raise, not silently return False."""
+        board = self._make_ledboard('Version: EL-0925 Gen3 LED Controller')
+        with pytest.raises(HardwareError, match='Y/N'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_a_prompt_is_confirmed_and_returns_true(self, monkeypatch):
+        """With a Y/N prompt presented, the method confirms with Y ended by
+        a carriage return (the firmware's input() ends a line on CR only),
+        sees the engineering-mode banner, and returns True."""
+        board = self._make_ledboard(None)
+        board.exchange_multiline.side_effect = [
+            'FACTORY mode? Y/N',
+            'Engineering Mode: Press q or Q to exit',
+        ]
+        monkeypatch.setattr(
+            ledboard_module, 'time', SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic)
+        )
+        assert board.enter_engineering_mode(timeout=0.1) is True
+        calls = board.exchange_multiline.call_args_list
+        sent = [c.args[0] for c in calls]
+        assert sent == ['FACTORY', 'Y'], f'must send FACTORY then confirm with Y; sent {sent}'
+        assert calls[1].kwargs['line_end'] == b'\r'
+
+
 class TestWhatTheDacDrives:
     OFF = (True, True, 0)
 
@@ -363,7 +417,7 @@ def _booted_led_port():
     return backend, port
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheConsole:
     """The field LED firmware's factory() asks with input(), which on the
     board's MicroPython 1.19 is readline.c: a line ends on a carriage return
@@ -466,7 +520,7 @@ class TestTheConsole:
 
         monkeypatch.setattr(board, 'exchange_multiline', _newline_framed)
         try:
-            with pytest.raises(HardwareError, match='did not enter engineering mode'):
+            with pytest.raises(BoardNoReplyError, match=r'^Y: no reply from the board'):
                 board.enter_engineering_mode(timeout=1.0)
             assert 'Version' in board.exchange_command('INFO', timeout=2)
         finally:
@@ -492,7 +546,7 @@ def _console(dialect, typed):
     return result.stdout
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheConsoleByteByByte:
     """readline.c 1.19's answer to each byte the model takes, run on the
     board's runtime with nothing between the bytes and input()."""

@@ -15,9 +15,9 @@ nothing for that axis, and an LS820 (Z only) records Z and no plate place.
 
 import pytest
 
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.lumascope_api.motion import AxisState
-from tests.test_manual_capture_member import _capture, _open_session, _settings
+from tests.test_manual_capture_member import _files, _open_session, _settings
 
 STAGE_X_UM = 40_000.0
 STAGE_Y_UM = 30_000.0
@@ -33,8 +33,9 @@ def _session(tmp_path, microscope):
 def _where_the_stage_is(scope):
     positions = scope.motion.axis_positions()
     to_plate = scope.runtime_state.plate_transform()
-    x, y, z = (positions[ax].position for ax in ('X', 'Y', 'Z'))
-    return to_plate(x, y), z
+    x, y, z = (positions[ax].position_um for ax in ('X', 'Y', 'Z'))
+    plate = to_plate(x, y)
+    return (plate.x_mm, plate.y_mm), z
 
 
 class TestAnXYZScope:
@@ -42,33 +43,33 @@ class TestAnXYZScope:
     def session(self, tmp_path):
         with _session(tmp_path, 'LS850') as session:
             motion = session.scope.motion
-            motion.move_absolute('X', STAGE_X_UM)
-            motion.move_absolute('Y', STAGE_Y_UM)
-            motion.move_absolute('Z', STAGE_Z_UM)
+            motion.move_xy(x_um=STAGE_X_UM)
+            motion.move_xy(y_um=STAGE_Y_UM)
+            motion.move_z(STAGE_Z_UM)
             yield session
 
     def test_the_file_records_the_stage_position(self, session):
         (plate_x, plate_y), z = _where_the_stage_is(session.scope)
-        (path,) = _capture(session)
+        (path,) = _files(session)
 
-        metadata = read_postproc_input_metadata(path)
+        metadata = read_file_record(path)
         assert metadata['plate_pos_mm'] == pytest.approx({'x': plate_x, 'y': plate_y}, abs=1e-3)
         assert metadata['z_pos_um'] == pytest.approx(z, abs=1e-3)
 
     def test_the_overlay_copy_records_the_same_position(self, session):
-        raw, overlay = _capture(session, crosshairs=True)
+        raw, overlay = _files(session, crosshairs=True)
 
-        raw_metadata = read_postproc_input_metadata(raw)
-        overlay_metadata = read_postproc_input_metadata(overlay)
+        raw_metadata = read_file_record(raw)
+        overlay_metadata = read_file_record(overlay)
         assert 'z_pos_um' in raw_metadata
         assert overlay_metadata['plate_pos_mm'] == raw_metadata['plate_pos_mm']
         assert overlay_metadata['z_pos_um'] == raw_metadata['z_pos_um']
 
     def test_an_axis_without_its_reference_records_nothing_for_it(self, session):
         session.scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
-        (path,) = _capture(session)
+        (path,) = _files(session)
 
-        metadata = read_postproc_input_metadata(path)
+        metadata = read_file_record(path)
         assert 'plate_pos_mm' in metadata
         assert 'z_pos_um' not in metadata
 
@@ -76,10 +77,10 @@ class TestAnXYZScope:
 class TestAZOnlyScope:
     def test_the_file_records_z_and_no_plate_place(self, tmp_path):
         with _session(tmp_path, 'LS820') as session:
-            session.scope.motion.move_absolute('Z', STAGE_Z_UM)
-            z = session.scope.motion.axis_positions()['Z'].position
-            (path,) = _capture(session)
+            session.scope.motion.move_z(STAGE_Z_UM)
+            z = session.scope.motion.axis_positions()['Z'].position_um
+            (path,) = _files(session)
 
-        metadata = read_postproc_input_metadata(path)
+        metadata = read_file_record(path)
         assert 'plate_pos_mm' not in metadata
         assert metadata['z_pos_um'] == pytest.approx(z, abs=1e-3)

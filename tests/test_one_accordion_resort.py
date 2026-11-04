@@ -13,6 +13,7 @@ from __future__ import annotations
 import itertools
 
 from ui.ui_helpers import resort_accordion
+from tests.stock_channels import LED1
 
 _uids = itertools.count()
 
@@ -74,13 +75,13 @@ def test_a_hidden_item_is_taken_out_and_a_missing_one_is_skipped():
 
 
 def test_a_shown_item_attached_elsewhere_is_moved_in():
-    bf, green = _Item('BF'), _Item('Green')
+    bf, green = _Item('BF'), _Item(LED1)
     elsewhere = _Accordion(green)
     accordion = _Accordion(bf)
 
     resort_accordion(accordion, [(bf, True), (green, True)])
 
-    assert accordion.top_to_bottom() == ['BF', 'Green']
+    assert accordion.top_to_bottom() == ['BF', LED1]
     assert elsewhere.children == []
 
 
@@ -93,7 +94,6 @@ def test_both_panels_resort_through_the_helper(monkeypatch):
     calls = []
     for module in (image_settings, motion_settings):
         monkeypatch.setattr(module, 'resort_accordion', lambda acc, items: calls.append(acc))
-    monkeypatch.setattr(image_settings.common_utils, 'get_layers', lambda: ['BF'])
 
     left_accordion, right_accordion = object(), object()
     left = SimpleNamespace(
@@ -104,16 +104,8 @@ def test_both_panels_resort_through_the_helper(monkeypatch):
     )
     right = SimpleNamespace(
         ids={'accordion_id': right_accordion},
-        _resolve_pc_accordion=lambda: None,
-        _accordion_item_df_control=None,
-        _accordion_item_blue_control=None,
-        _accordion_item_green_control=None,
-        _accordion_item_red_control=None,
-        _accordion_item_lumi_control=None,
-        _accordion_item_pc_control_visible=False,
-        _accordion_item_df_control_visible=False,
-        _accordion_item_lumi_control_visible=False,
-        _fluorescence_control_visible={},
+        _drawers={},
+        _shown_layers=frozenset(),
     )
 
     motion_settings.MotionSettings._resort_accordion(left)

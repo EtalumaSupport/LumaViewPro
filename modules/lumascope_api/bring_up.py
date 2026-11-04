@@ -10,21 +10,39 @@ from these facts once, through the reporter, and this is what stays behind.
 
 from __future__ import annotations
 
+import enum
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from modules.api_surface import api, api_fields
-from modules.exceptions import ArgumentRefusedError
+from modules.exceptions import MissingPart
 
 if TYPE_CHECKING:
     from modules.settings_init import SettingValue
 
-# The parts a scope is made of, in the order the record lists them.
-MOTOR = 'motor'
-LED = 'led'
-CAMERA = 'camera'
 
-PART_LABELS = {MOTOR: 'Motor Controller', LED: 'LED Board', CAMERA: 'Camera'}
+class Part(enum.StrEnum):
+    """The parts a scope is made of, in the order the record lists them."""
+
+    MOTOR = 'motor'
+    LED = 'led'
+    CAMERA = 'camera'
+
+    @property
+    def noun(self) -> str:
+        """The part as a sentence names it: the LED controller is not connected."""
+        return _PART_NOUNS[self]
+
+
+# A part's noun is the one its refusal names (``MissingPart``), so a run's
+# ending and a command's refusal word one part alike.
+_PART_NOUNS = {
+    Part.MOTOR: MissingPart.MOTOR_CONTROLLER.name,
+    Part.LED: MissingPart.LED_CONTROLLER.name,
+    Part.CAMERA: MissingPart.CAMERA.name,
+}
+
+PART_LABELS = {Part.MOTOR: 'Motor Controller', Part.LED: 'LED Board', Part.CAMERA: 'Camera'}
 
 # A cause's words inside a list of parts: "Motor Controller (port in use)".
 CAUSE_PHRASES = {
@@ -33,11 +51,16 @@ CAUSE_PHRASES = {
     'not_responding': 'not responding',
     'connect_failed': 'connect failed',
     'no_driver': 'no driver',
-    'camera_in_use': 'in use by another application',
-    'camera_port_in_use': 'port in use',
-    'camera_not_detected': 'not detected',
+    'camera_driver_unavailable': 'not detected; a driver did not load',
+    'camera_firmware_missing': 'firmware file missing',
+    'camera_driver_unusable': 'on no driver, or one LumaViewPro cannot use',
     'camera_not_initialized': 'not initialized',
+    'camera_bring_up_failed': 'LumaViewPro failed bringing it up',
     'safety_off_failed': 'safety LEDs-off not confirmed',
+    'stream_not_started': 'stream did not start',
+    'settings_not_applied': 'settings not applied',
+    'camera_left': 'left during bring-up',
+    'acceleration_not_set': 'acceleration limit not set',
 }
 
 
@@ -47,19 +70,25 @@ class PartStatus:
     """One part of the scope at bring-up.
 
     Attributes:
-        part: ``MOTOR``, ``LED`` or ``CAMERA``.
+        part: Which part.
         up: Whether a real driver came up for it.
         expected: Whether this scope's model has one. A manual scope has no
             motor board, so its absence is not a failure; until the model is
             known every part is expected.
         cause: Why it is not up, as a code from ``CAUSE_PHRASES``; or, on a
-            part that is up, a problem it reported while connecting (the LED
-            board's safety LEDs-off not confirmed). None when nothing is wrong.
+            part that is up, a problem it met coming up (the LED board's
+            safety LEDs-off not confirmed; the camera's stream that did not
+            start, which a later start that succeeds does not clear, a
+            setting it did not take, or its leaving, the camera keeping the
+            one of these a person acts on first; the motor controller's
+            stored acceleration limit not taken). None when nothing is
+            wrong.
         detail: The driver's or the error's own words, for the log and the
-            record; empty when there are none.
+            record, each problem's joined with "; "; empty when there are
+            none.
     """
 
-    part: str
+    part: Part
     up: bool
     expected: bool = True
     cause: str | None = None
@@ -68,12 +97,20 @@ class PartStatus:
     @api
     @property
     def missing(self) -> bool:
-        """Expected and not up: the part this scope should have and lacks."""
+        """Expected and not up: the part this scope should have and lacks.
+
+        Raises:
+            Nothing.
+        """
         return self.expected and not self.up
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def describe(self) -> str:
-        """The part's label with its cause: ``Motor Controller (port in use)``."""
+        """The part's label with its cause: ``Motor Controller (port in use)``.
+
+        Raises:
+            Nothing.
+        """
         label = PART_LABELS[self.part]
         if self.cause is None:
             return label
@@ -119,34 +156,12 @@ class BringUpRecord:
     substitutions: tuple[Substitution, ...] = ()
     settings_set_aside: SettingsSetAside | None = None
 
-    @api(in_process=True)
-    def part(self, name: str) -> PartStatus:
-        """The status of ``name``.
-
-        Raises:
-            ArgumentRefusedError: ``'part_unknown'``, this record has no part
-                ``name``.
-        """
-        for status in self.parts:
-            if status.part == name:
-                return status
-        raise ArgumentRefusedError(
-            'part_unknown',
-            argument='name',
-            value=name,
-            offered=tuple(status.part for status in self.parts),
-        )
-
     @api
     @property
     def missing(self) -> tuple[PartStatus, ...]:
-        """The parts this scope should have and lacks."""
-        return tuple(status for status in self.parts if status.missing)
+        """The parts this scope should have and lacks.
 
-    @api(in_process=True)
-    def substitution(self, setting: str) -> Substitution | None:
-        """What bring-up used for ``setting`` instead of the saved value, if anything."""
-        for sub in self.substitutions:
-            if sub.setting == setting:
-                return sub
-        return None
+        Raises:
+            Nothing.
+        """
+        return tuple(status for status in self.parts if status.missing)

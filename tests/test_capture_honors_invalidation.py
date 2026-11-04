@@ -3,7 +3,7 @@
 
 Two defect shapes, both demonstrated red before the fix:
 
-Stale window: `capture_and_wait` drained validity and then grabbed, but a
+Stale window: the capture drained validity and then grabbed, but a
 state change landing after the drain -- during the expectation derivation
 or the grab itself -- was invisible: the capture returned a frame (or a
 rejection) that predated what the caller had just commanded. Recorded
@@ -24,11 +24,14 @@ end over the simulated LED board; stubbing either would let an inert
 derivation pass (the defect shape that killed two plan drafts).
 """
 
+import dataclasses
 import threading
 
 import numpy as np
 import pytest
 
+from drivers import host_clock
+from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signal
@@ -38,7 +41,7 @@ _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signa
 def live_scope():
     """A full simulated scope: real IlluminationAPI over SimulatedLEDBoard
     and a streaming camera, on the lanes the scope builds. Every capture
-    here goes through the public ``capture_and_wait``, so its body runs on
+    here goes through the public door (``capture_still``), so its body runs on
     the camera lane and an LED write injected from the camera driver
     dispatches to the IO lane, as a write from another caller would."""
     scope = build_scope(simulate=True)
@@ -46,40 +49,44 @@ def live_scope():
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
-    scope._camera_driver.load_specimen()
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     yield scope
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
     scope.disconnect()
 
 
 def _during_the_first_grab(scope, monkeypatch, action, frame=None):
     """Land ``action`` inside the first grab window, from another caller.
 
-    The camera driver's ``get_array`` is read only by the grab that becomes
-    the capture, after the drain has settled and the LED state has been
-    read, so its first call is the seam the pre-fix capture could not see.
-    The action runs on a thread of its own, as a write from another caller
-    does (a lane worker never dispatches onto another lane), and the grab
-    waits for it to land. Returns an Event set once it has; the driver's
-    frame is returned, or ``frame`` when one is given.
+    The grab that becomes the capture is the first ``grab_new_capture`` made
+    with nothing left to drain, after the LED state has been read, so it is
+    the seam the pre-fix capture could not see. The action runs on a thread
+    of its own, as a write from another caller does (a lane worker never
+    dispatches onto another lane), and the grab waits for it to land.
+    Returns an Event set once it has; the driver's frame is returned, with
+    ``frame``'s pixels when one is given.
     """
     driver = scope._camera_driver
-    real_get_array = driver.get_array
+    real_grab_new_capture = driver.grab_new_capture
     landed = threading.Event()
 
     def write():
         action()
         landed.set()
 
-    def get_array():
-        if not landed.is_set():
+    def grab_new_capture(timeout_s):
+        if not landed.is_set() and scope.imaging.changes_in_force():
             writer = threading.Thread(target=write, name='mid-window-write')
             writer.start()
             writer.join(5.0)
-        return real_get_array() if frame is None else frame
+        grabbed = real_grab_new_capture(timeout_s)
+        if grabbed is None or frame is None:
+            return grabbed
+        image = frame.view()
+        image.flags.writeable = False
+        return dataclasses.replace(grabbed, image=image)
 
-    monkeypatch.setattr(driver, 'get_array', get_array)
+    monkeypatch.setattr(driver, 'grab_new_capture', grab_new_capture)
     return landed
 
 
@@ -94,15 +101,14 @@ class TestMidWindowInvalidationHonored:
             live_scope, monkeypatch, lambda: live_scope.illumination.led_on('BF', 100)
         )
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0)
+        record = live_scope.imaging.capture_still(timeout_s=1.0).record
 
         assert landed.is_set(), 'the mid-window write never landed'
-        assert out is not None
         info = live_scope.imaging.last_capture_info
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run, not returned'
-        assert info['frame_record'].illumination_ma == {'BF': 100.0}, (
-            'the re-run must read the NEW commanded state; '
-            f'recorded {info["frame_record"].illumination_ma}'
+        bf_address = live_scope.channel_identity.find('BF').led_addresses[0]
+        assert record.illumination_ma == {bf_address: 100.0}, (
+            f'the re-run must read the NEW commanded state; recorded {record.illumination_ma}'
         )
 
     def test_dirtied_window_rejection_recovers(self, live_scope, monkeypatch):
@@ -116,16 +122,15 @@ class TestMidWindowInvalidationHonored:
             live_scope, monkeypatch, lambda: live_scope.illumination.led_off('BF'), frame=_DARK
         )
 
-        live_scope.imaging.capture_and_wait(timeout_s=0.05)
+        record = live_scope.imaging.capture_still(timeout_s=0.05).record
 
         assert landed.is_set(), 'the mid-window write never landed'
-        info = live_scope.imaging.last_capture_info
-        assert info['rechecks'] >= 1
-        assert 'dark_saved' not in info, (
+        assert live_scope.imaging.last_capture_info['rechecks'] >= 1
+        assert record.dark is None, (
             'the expectation must re-derive lit -> dark; the capture was '
             'judged against the LED it no longer commands'
         )
-        assert info['frame_record'].illumination_ma == {}
+        assert record.illumination_ma == {}
 
     def test_excluded_source_never_retriggers(self, live_scope, monkeypatch):
         """The live view's settled state excludes stage motion
@@ -135,10 +140,10 @@ class TestMidWindowInvalidationHonored:
         landed = _during_the_first_grab(
             live_scope,
             monkeypatch,
-            lambda: live_scope.imaging.frame_validity.invalidate('z_move'),
+            lambda: live_scope.imaging.frame_validity.invalidate('z_move', began_ns=None),
         )
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0, exclude_sources=('z_move',))
+        out = live_scope.imaging.capture_still(timeout_s=1.0, exclude_sources=('z_move',)).image
 
         assert landed.is_set(), 'the mid-window write never landed'
         assert out is not None
@@ -147,42 +152,80 @@ class TestMidWindowInvalidationHonored:
 
 class TestDrainDeadline:
     @pytest.mark.slow
-    def test_sustained_invalidation_returns_loud_none_in_bounded_time(
+    def test_sustained_invalidation_raises_deadline_expired_in_bounded_time(
         self, live_scope, monkeypatch
     ):
         """The live-lock pin: invalidation arriving at least as fast as
         frames drain kept the pre-fix capture spinning for the stream's
         whole duration (25+ s recorded, bounded only by the harness
         watchdog). Post-fix the frozen budget expires and the capture
-        returns None, recorded as a deadline expiry -- never as a grab
-        failure. Slow: the budget's floor is 3 s of wall time, and the
-        timing is the subject."""
+        raises ``deadline_expired`` -- never a grab failure's ``no_frame``.
+        Slow: the budget's floor is 3 s of wall time, and the timing is the
+        subject."""
         fv = live_scope.imaging.frame_validity
-        real_get_array = live_scope._camera_driver.get_array
+        real_grab_new_capture = live_scope._camera_driver.grab_new_capture
 
-        def streaming_interference():
-            fv.invalidate('led')  # each drained frame is answered by another change
-            return real_get_array()
+        def streaming_interference(timeout_s):
+            fv.invalidate('led', began_ns=None)  # each drained frame is answered by another change
+            return real_grab_new_capture(timeout_s)
 
-        monkeypatch.setattr(live_scope._camera_driver, 'get_array', streaming_interference)
-        fv.invalidate('led')
+        monkeypatch.setattr(live_scope._camera_driver, 'grab_new_capture', streaming_interference)
+        fv.invalidate('led', began_ns=None)
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=0.5)
+        with pytest.raises(CaptureFailedError) as failed:
+            live_scope.imaging.capture_still(timeout_s=0.5)
 
-        assert out is None
+        assert failed.value.reason == 'deadline_expired', 'expiry is not a grab failure'
         info = live_scope.imaging.last_capture_info
-        assert info.get('deadline_expired') is True
-        assert 'drain_failed' not in info, 'expiry must not be recorded as a grab failure'
         assert info['active_s'] <= info['deadline_s'] + 2.0, (
             'expiry must land near the budget, not an open-ended hold'
         )
 
-    def test_healthy_capture_records_telemetry(self, live_scope):
-        """The per-capture evidence a support bundle reads: present on
-        every completed capture."""
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0)
-        assert out is not None
+    def test_a_change_during_the_dark_wait_still_saves_the_dark_frame(
+        self, live_scope, monkeypatch
+    ):
+        """A capture under a lit LED whose frames stay dark waits its retry
+        window for a lit one, then saves the dark frame flagged. A turret
+        move landing during that wait re-runs the grab; the budget holds
+        the grab's own wait, so the re-run ends as the motionless capture
+        does -- saved, flagged dark -- not refused as invalidation churn
+        (#852). The floor is shortened on this instance so the window it
+        must hold is under a second."""
+        monkeypatch.setattr(live_scope.imaging, '_CAPTURE_DEADLINE_FLOOR_S', 0.2)
+        live_scope.illumination.led_on('BF', 67)
+        # Settled before the capture under test, as a lit scope is: frames
+        # still owed to the LED would size its budget past the dark wait.
+        assert live_scope.imaging.capture_still(timeout_s=1.0).image is not None
+        validity = live_scope.imaging.frame_validity
+
+        def a_turret_move_lands():
+            # As the motion API records one: the change, then its in-force
+            # time when the axis settles. A move never in force has no frame
+            # after it, and the capture rightly keeps none.
+            validity.invalidate('turret', began_ns=None)
+            validity.motion_settled('turret', host_clock.steady_ns(), moving_seen_ns=None)
+
+        landed = _during_the_first_grab(live_scope, monkeypatch, a_turret_move_lands, frame=_DARK)
+
+        record = live_scope.imaging.capture_still(timeout_s=0.5).record
+
+        assert landed.is_set(), 'the mid-window write never landed'
         info = live_scope.imaging.last_capture_info
-        for key in ('hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'):
-            assert key in info, f'missing capture-evidence key {key!r}'
-        assert 'deadline_expired' not in info
+        assert info['n_entry'] == 0, 'precondition: nothing owed at entry'
+        assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
+        assert record.dark is True
+
+    def test_healthy_capture_records_how_it_waited_and_nothing_of_its_frame(self, live_scope):
+        """The per-capture evidence a support bundle reads, on every
+        completed capture, and only that: the frame's own facts are the
+        record handed back with it, so the slot holds no second copy a
+        later capture would replace under its reader."""
+        assert live_scope.imaging.capture_still(timeout_s=1.0).image is not None
+        assert set(live_scope.imaging.last_capture_info) == {
+            'hold_ms',
+            'drained',
+            'rechecks',
+            'deadline_s',
+            'n_entry',
+            'active_s',
+        }

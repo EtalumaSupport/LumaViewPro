@@ -2,41 +2,45 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import contextlib
-import copy
+import dataclasses
 import csv
+import datetime
 import json
 import os
 import re
-import time
 import uuid
 from collections.abc import Mapping
-from typing import NoReturn
 
 import numpy as np
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 
 from lvp_logger import logger
 from modules.cell_count import CellCount
-from modules.common_utils import CustomJSONizer, read_table
-from modules.finite_number import is_finite_number
+from modules.cell_count_method import CellCountMethod, from_saved_form, saved_form
+from modules.common_utils import read_table
+from modules.python_values import python_values
 from modules.exceptions import (
     CellCountScaleDroppedNotice,
+    LiveFolderPathRefusedError,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.notification_center import notifications
 from modules.api_surface import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
-CELL_COUNT_OPERATION = 'Cell Count'
+CELL_COUNT_OPERATION = PostProcessingOperation.CELL_COUNT
 
 # The operation's name for reading a results file back to graph it.
-GRAPHING_OPERATION = 'Graphing'
+GRAPHING_OPERATION = PostProcessingOperation.GRAPHING
 
-# The layout time.ctime writes each image's time in, which a results file is
-# read back by. '%d' also reads ctime's space-padded day.
+# The layout results files written before each image's time was its own wrote
+# it in (time.ctime's), which the reader still reads. '%d' also reads ctime's
+# space-padded day.
 RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 
 # How a number is written in a results file: a column whose every cell is
@@ -50,123 +54,15 @@ _NUMBER = re.compile(r'[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
 # carries the old fixed default of 1.0, which the load drops.
 _CELL_COUNT_METHOD_METADATA = {'type': 'cell_count_method', 'version': '2'}
 
-# Each filter's bounds, by their path under 'filters'. A bound of None is open.
-_CELL_COUNT_FILTERS = (
-    ('area',),
-    ('perimeter',),
-    ('sphericity',),
-    ('intensity', 'min'),
-    ('intensity', 'mean'),
-    ('intensity', 'max'),
-)
 
-
-def default_cell_count_method() -> dict:
-    """The cell-count method a person starts from, before any is loaded or adjusted.
-
-    A new dict on every call: the caller owns and edits its copy. Areas are in
-    square microns, perimeters in microns, intensities and the threshold in
-    percent of full scale. It sets no scale, so each image is counted at the
-    scale it states (``cell_count_scale``), and no size filter, so an image
-    that states none is counted in pixels.
-    """
-    return {
-        'context': {
-            'pixels_per_um': None,
-            'fluorescent_mode': True,
-        },
-        'segmentation': {
-            'algorithm': 'initial',
-            'parameters': {
-                'threshold': 20,
-            },
-        },
-        'filters': {
-            'area': {'min': None, 'max': None},
-            'perimeter': {'min': None, 'max': None},
-            'sphericity': {'min': 0.0, 'max': 1.0},
-            'intensity': {
-                'min': {'min': 0, 'max': 100},
-                'mean': {'min': 0, 'max': 100},
-                'max': {'min': 0, 'max': 100},
-            },
-        },
-    }
-
-
-def _refuse_method(source: str, problem: str) -> NoReturn:
-    raise PostProcessingRefusedError(
-        operation=CELL_COUNT_OPERATION,
-        reason='method_invalid',
-        message=f'{source} cannot be used: {problem}.',
-    )
-
-
-def _method_field(method: Mapping, path: tuple[str, ...], source: str):
-    value = method
-    for key in path:
-        if not isinstance(value, Mapping) or key not in value:
-            _refuse_method(source, f'it has no {".".join(path)}')
-        value = value[key]
-    return value
-
-
-def check_cell_count_method(method: object, *, source: str = 'The cell-count method') -> None:
-    """Refuse a cell-count method the count cannot use, naming the field.
-
-    The count reads every field checked here. A pixels-per-micron that is
-    not a positive number does not fail the count: it scales every region
-    out of the area and perimeter filters and counts nothing, or writes NaN
-    areas, so it is refused before any image is read. None is no override:
-    each image is counted at its own scale. The file's ``metadata`` is not
-    part of the method and is not required.
-
-    Args:
-        source: What the refusal calls the method, e.g. naming its file.
-
-    Raises:
-        PostProcessingRefusedError: reason ``method_invalid``.
-    """
-    scale = _method_field(method, ('context', 'pixels_per_um'), source)
-    if scale is not None and (not is_finite_number(scale) or scale <= 0):
-        _refuse_method(
-            source,
-            f'context.pixels_per_um must be a positive number of camera pixels '
-            f"per micron, or null to use each image's own scale, not {scale!r}",
-        )
-
-    fluorescent = _method_field(method, ('context', 'fluorescent_mode'), source)
-    if not isinstance(fluorescent, bool):
-        _refuse_method(
-            source, f'context.fluorescent_mode must be true or false, not {fluorescent!r}'
-        )
-
-    _method_field(method, ('segmentation', 'algorithm'), source)
-    threshold = _method_field(method, ('segmentation', 'parameters', 'threshold'), source)
-    if not is_finite_number(threshold):
-        _refuse_method(
-            source, f'segmentation.parameters.threshold must be a number, not {threshold!r}'
-        )
-
-    for path in _CELL_COUNT_FILTERS:
-        name = '.'.join(('filters', *path))
-        low = _method_field(method, ('filters', *path, 'min'), source)
-        high = _method_field(method, ('filters', *path, 'max'), source)
-        for bound, value in (('min', low), ('max', high)):
-            if value is not None and not is_finite_number(value):
-                _refuse_method(source, f'{name}.{bound} must be a number or null, not {value!r}')
-        if low is not None and high is not None and low > high:
-            _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')
-
-
-def cell_count_scale(method: Mapping, image_pixel_size_um: float | None) -> float | None:
+def cell_count_scale(method: CellCountMethod, image_pixel_size_um: float | None) -> float | None:
     """The pixels per micron a count measures an image at, or None for pixels.
 
-    The method's ``context.pixels_per_um`` when a person set one; else the
-    image's own scale (``image_utils.read_pixel_size_um``, microns per pixel);
-    else None, and the image is counted in pixels.
+    The method's ``pixels_per_um`` when a person set one; else the image's
+    own scale (``image_utils.read_pixel_size_um``, microns per pixel); else
+    None, and the image is counted in pixels.
     """
-    override = method['context']['pixels_per_um']
+    override = method.pixels_per_um
     if override is not None:
         return override
     if image_pixel_size_um is not None:
@@ -174,15 +70,57 @@ def cell_count_scale(method: Mapping, image_pixel_size_um: float | None) -> floa
     return None
 
 
-def _refuse_size_filters_without_a_scale(method: Mapping, name: str) -> None:
+def area_filter_max(shape: tuple[int, ...], pixels_per_um: float | None) -> float:
+    """The largest area an image of ``shape`` can hold, in square microns at ``pixels_per_um``.
+
+    With no scale it is the pixel count: a slider's reach only, since a
+    bound on an image with no scale is refused.
+    """
+    max_area_pixels = shape[0] * shape[1]
+    if pixels_per_um is None:
+        return float(max_area_pixels)
+    return max_area_pixels / (pixels_per_um**2)
+
+
+def perimeter_filter_max(shape: tuple[int, ...], pixels_per_um: float | None) -> float:
+    """The largest perimeter an image of ``shape`` can hold, in microns at ``pixels_per_um``.
+
+    With no scale it is in pixels: a slider's reach only.
+    """
+    # Assume max perimeter will never need to be larger than 2x frame size border
+    # The 2x is to provide margin for handling various curvatures
+    max_perimeter_pixels = 2 * ((2 * shape[0]) + (2 * shape[1]))
+    if pixels_per_um is None:
+        return float(max_perimeter_pixels)
+    return max_perimeter_pixels / pixels_per_um
+
+
+def size_slider_stops(
+    size: str, shape: tuple[int, ...], pixels_per_um: float | None
+) -> tuple[tuple[float, ...], tuple[float, ...], float]:
+    """The slider positions, the sizes they stand for, and the reach, for the ``size`` filter.
+
+    The scale is stretched at its low end, so the small sizes most methods
+    bound get most of the slider's travel; the top stop is the image's
+    largest size, kept above the stop below it. The reach is that largest
+    size, which the top stop may be raised past.
+    """
+    if size == 'area':
+        reach = area_filter_max(shape, pixels_per_um)
+        return (0.0, 30.0, 60.0, 100.0), (0.0, 1000.0, 10000.0, max(reach, 10001.0)), reach
+    reach = perimeter_filter_max(shape, pixels_per_um)
+    return (0.0, 50.0, 100.0), (0.0, 100.0, max(reach, 101.0)), reach
+
+
+def _refuse_size_filters_without_a_scale(method: CellCountMethod, name: str) -> None:
     """Refuse a count in pixels whose method bounds an area or a perimeter.
 
     The bounds are in microns; applying them to pixels would count a
     different set of objects and report it as the filtered one.
     """
-    for size in ('area', 'perimeter'):
-        bounds = method['filters'][size]
-        if bounds['min'] is not None or bounds['max'] is not None:
+    filters = method.filters
+    for size, bounds in (('area', filters.area_um2), ('perimeter', filters.perimeter_um)):
+        if bounds.min is not None or bounds.max is not None:
             raise PostProcessingRefusedError(
                 operation=CELL_COUNT_OPERATION,
                 reason='no_scale',
@@ -201,12 +139,20 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     right-aligned 12-bit TIFF scales to 8-bit by its true depth and the two
     can never be read out of sync.
 
+    The file's white is not returned: a count is measured against the depth,
+    so a summed file is counted on the scale its values reach, not clipped
+    at one frame's white.
+
     Raises:
-        PostProcessingRefusedError: reason ``unreadable``; the file is missing
-            or is not an image, and the message names it.
+        LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
+            ``'not_a_file'``, a folder is.
+        PostProcessingRefusedError: reason ``unreadable``; the file is not
+            an image, and the message names it.
     """
+    path = path_utils.existing_file(path)
     try:
-        return image_utils.load_pixels(path)
+        image, significant_bits, _ = image_utils.load_pixels(path)
+        return image, significant_bits
     except (FileNotFoundError, ValueError) as e:
         raise PostProcessingRefusedError(
             operation=CELL_COUNT_OPERATION,
@@ -223,27 +169,23 @@ def _number_typed(text: str) -> int | float | str:
     return text
 
 
-def with_pixels_per_um(method: Mapping, pixels_per_um: float | str) -> dict:
-    """A copy of *method* that counts at *pixels_per_um*, refused if the count cannot use it.
+def with_pixels_per_um(method: CellCountMethod, pixels_per_um: float | str) -> CellCountMethod:
+    """*method*, counting at *pixels_per_um*, refused if the count cannot use it.
 
     A string is read as the number it spells, as a person types it into a
     box -- a whole number as an integer, so the box can show back exactly what
     was typed; one that spells no number is refused naming it.
 
     Raises:
-        PostProcessingRefusedError: reason ``method_invalid``; *method* is
-            unchanged.
+        PostProcessingRefusedError: reason ``method_invalid``.
     """
     if isinstance(pixels_per_um, str):
         # An emptied box is no override: count at each image's own scale.
         pixels_per_um = _number_typed(pixels_per_um) if pixels_per_um.strip() else None
-    changed = copy.deepcopy(dict(method))
-    changed['context'] = {**changed.get('context', {}), 'pixels_per_um': pixels_per_um}
-    check_cell_count_method(changed)
-    return changed
+    return dataclasses.replace(method, pixels_per_um=pixels_per_um)
 
 
-def load_cell_count_method(path: str | os.PathLike) -> dict:
+def load_cell_count_method(path: str | os.PathLike) -> CellCountMethod:
     """Read a saved cell-count method file and return the method it holds.
 
     The file is the one ``save_cell_count_method`` writes: the method, plus a
@@ -265,7 +207,7 @@ def load_cell_count_method(path: str | os.PathLike) -> dict:
         )
 
     try:
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             saved = json.load(f)
     except OSError as e:
         raise refuse('method_unreadable', f'it could not be read ({e.strerror})') from e
@@ -285,21 +227,25 @@ def load_cell_count_method(path: str | os.PathLike) -> dict:
         notifications.report_outcome(
             CellCountScaleDroppedNotice(path), solicited=True, category=CELL_COUNT_OPERATION
         )
-    check_cell_count_method(saved, source=f'The cell-count method in {path}')
-    return saved
+    return from_saved_form(saved, source=f'The cell-count method in {path}')
 
 
-def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
+def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> None:
     """Write *method* to *path* as a cell-count method file.
 
+    A missing folder is made where *path* sends it.
+
     Raises:
-        PostProcessingRefusedError: the method cannot be used, and nothing
-            is written.
+        LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+            *path*; ``'wrong_extension'``, its name does not end in
+            ``.json`` (in any case), which is not added; ``'not_a_folder'``,
+            a file is where its folder would be. Nothing is written.
     """
-    check_cell_count_method(method)
-    saved = {**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}
-    with open(path, 'w') as f:
-        json.dump(saved, f, indent=4, cls=CustomJSONizer)
+    path = path_utils.file_to_write(path, extension='.json')
+    saved = python_values({**saved_form(method), 'metadata': dict(_CELL_COUNT_METHOD_METADATA)})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(saved, f, indent=4)
 
 
 def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
@@ -308,9 +254,10 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     Every cell is read as the text written. A column whose every cell is a
     number is a column of numbers (whole numbers when every cell is one);
     any other column is text, so a cell such as ``NA`` is never read as a
-    missing number. A ``time`` column of text is parsed by the format the
-    count writes it in, so it reads back as a datetime column. Which columns
-    can be plotted is ``results_axes``'s answer.
+    missing number. A ``time`` column of text is read cell by cell in the
+    forms the count writes (``_results_times``), so it reads back as a
+    datetime column when its times can be compared, and stays text when
+    they cannot. Which columns can be plotted is ``results_axes``'s answer.
 
     Raises:
         PostProcessingRefusedError: reason ``results_unreadable``; the file
@@ -342,12 +289,52 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     )
     if 'time' in table and not pd.api.types.is_numeric_dtype(table['time']):
         try:
-            table['time'] = pd.to_datetime(table['time'], format=RESULTS_TIME_FORMAT)
-        except (TypeError, ValueError) as e:
+            times = _results_times(table['time'])
+        except ValueError as e:
             raise refuse(f'its time column is not in the form the count writes ({e})') from e
+        if times is not None:
+            table['time'] = times
     if not results_axes(table)[1]:
         raise refuse('it has no column of numbers to plot')
     return table
+
+
+def _results_time(cell: str) -> datetime.datetime | None:
+    """One time cell: as the count writes it (ISO 8601, with its UTC offset
+    when the image stated one), or as files written before wrote it
+    (``RESULTS_TIME_FORMAT``); a blank cell states no time.
+
+    Raises:
+        ValueError: the cell is a time in neither form.
+    """
+    if not cell:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(cell)
+    except ValueError:
+        return datetime.datetime.strptime(cell, RESULTS_TIME_FORMAT)
+
+
+def _results_times(cells: pd.Series) -> pd.Series | None:
+    """A results file's time column as datetimes, or None when its times
+    cannot be compared.
+
+    Times compare only when every one states its UTC offset or none does
+    (``image_utils.comparable_times``), so a column mixing the two, or
+    stating no time at all, is no time axis. Times on one offset keep it, so
+    a graph shows them as they were taken; times on more than one, a run
+    across a daylight-saving change, are read in UTC, which keeps every
+    instant and the spacing between them.
+
+    Raises:
+        ValueError: a cell is a time in neither form the count writes.
+    """
+    times = [_results_time(cell) for cell in cells]
+    stated = [t for t in times if t is not None]
+    if not stated or image_utils.comparable_times(stated) is None:
+        return None
+    offsets = {t.utcoffset() for t in stated}
+    return pd.to_datetime(pd.Series(times, dtype=object), utc=len(offsets) > 1)
 
 
 def _results_column(cells: list[str]) -> pd.Series:
@@ -375,37 +362,29 @@ class PostProcessing:
     def __init__(self):
         self._cell_count = CellCount()
 
-    def convert_to_avi(self, filepath):
-        pass
-
-    def stitch(self, filepath):
-        pass
-
     def preview_cell_count(
         self,
         image: np.ndarray,
-        settings: Mapping,
+        method: CellCountMethod,
         significant_bits: int,
         *,
         pixels_per_um: float | None,
         name: str = 'The image',
     ) -> tuple[np.ndarray, dict]:
-        """Count the cells in one image by the cell-count method *settings*.
+        """Count the cells in one image by *method*.
 
         *pixels_per_um* is the scale to measure at (``cell_count_scale``);
         None counts in pixels. *name* is what a refusal calls the image.
 
         Raises:
-            PostProcessingRefusedError: the method cannot be used
-                (``check_cell_count_method``), or, with no scale, it bounds an
-                area or a perimeter (reason ``no_scale``).
+            PostProcessingRefusedError: reason ``no_scale``, with no scale
+                the method bounds an area or a perimeter.
         """
-        check_cell_count_method(settings)
         if pixels_per_um is None:
-            _refuse_size_filters_without_a_scale(settings, name)
+            _refuse_size_filters_without_a_scale(method, name)
         preview_images, cell_stats = self._cell_count.process_image(
             image=image,
-            settings=settings,
+            settings=saved_form(method),
             significant_bits=significant_bits,
             pixels_per_um=pixels_per_um,
         )
@@ -415,7 +394,7 @@ class PostProcessing:
     def apply_cell_count_to_folder(
         self,
         path: str | os.PathLike,
-        settings: dict,
+        method: CellCountMethod,
         on_progress: ProgressCallback | None = None,
     ) -> dict:
         """Count the cells in every image in *path* and write ``results.csv`` there.
@@ -427,7 +406,9 @@ class PostProcessing:
         Each image is measured at ``cell_count_scale``'s answer for it: the
         method's override, else the scale the image states, else pixels. The
         results say each row's area unit (``um2`` or ``px2``), so a folder of
-        mixed images is one file.
+        mixed images is one file. Each row's time is the one its image states
+        it was taken, with its UTC offset when the image states one, and is
+        blank for an image that states none.
 
         Returns:
             ``results_path``; ``counted``, how many images were analysed; and
@@ -445,8 +426,8 @@ class PostProcessing:
             'file',
             'time',
             'num_cells',
-            'total_object_area',
-            'area_unit',
+            'total_object_area_px2',
+            'total_object_area_um2',
             'total_object_intensity',
         ]
         filenames = [f for f in os.listdir(path) if image_utils.is_image(f)]
@@ -459,28 +440,30 @@ class PostProcessing:
                 image, significant_bits = read_cell_count_image(file_path)
                 _, region_info = self.preview_cell_count(
                     image=image,
-                    settings=settings,
+                    method=method,
                     significant_bits=significant_bits,
                     pixels_per_um=cell_count_scale(
-                        settings, image_utils.read_pixel_size_um(file_path)
+                        method, image_utils.read_pixel_size_um(file_path)
                     ),
                     name=filename,
                 )
-            except PostProcessingRefusedError as e:
+                # The time the image states it was taken, never the file
+                # system's: a copied folder's files were all made at the copy.
+                taken = image_utils.stated_frame_time(image_utils.read_file_record(file_path))
+            except (PostProcessingRefusedError, LiveFolderPathRefusedError) as e:
+                # Not an image after all, a folder named like one, or gone
+                # since the folder was listed.
                 logger.warning(f'[LVP Main  ] Not counting {filename}: {e}')
                 not_counted.append(str(e))
                 continue
 
-            time_created_raw = os.path.getctime(file_path)
-            time_created = time.ctime(time_created_raw)
-
             results.append(
                 {
                     'filename': os.path.basename(filename),
-                    'time': time_created,
+                    'time': taken.isoformat() if taken is not None else '',
                     'num_cells': region_info['summary']['num_regions'],
-                    'total_object_area': region_info['summary']['total_object_area'],
-                    'area_unit': region_info['summary']['area_unit'],
+                    'total_object_area_px2': region_info['summary']['total_object_area_px2'],
+                    'total_object_area_um2': region_info['summary']['total_object_area_um2'],
                     'total_object_intensity': region_info['summary']['total_object_intensity'],
                 }
             )
@@ -511,7 +494,7 @@ class PostProcessing:
                 os.remove(temp_path)
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({e}).',
+                missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
             ) from e
 
         if not_counted:

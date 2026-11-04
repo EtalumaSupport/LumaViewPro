@@ -57,7 +57,7 @@ def test_after_a_home_the_plate_position_is_read(make_session):
 
     position = session.get_current_plate_position()
 
-    assert set(position) == {'x', 'y', 'z'}
+    assert position.z_um == pytest.approx(session.scope.motion.get_current_position('Z'), abs=0.01)
 
 
 def test_a_pulled_cable_is_the_cable_not_an_unknown_position(make_session, monkeypatch):
@@ -101,8 +101,8 @@ def test_new_with_every_layer_focused_builds_before_a_home(make_session):
 def test_after_a_home_new_takes_the_z_the_scope_read(make_session):
     session = make_session('LS850', acquiring=('BF',))
     _focus(session, 'BF', None)
-    session.scope.motion.move_absolute('Z', 3000.0)
-    z = session.scope.motion.axis_positions()['Z'].position
+    session.scope.motion.move_z(3000.0)
+    z = session.scope.motion.axis_positions()['Z'].position_um
 
     protocol = session.new_protocol()
 

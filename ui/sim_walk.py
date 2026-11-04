@@ -27,12 +27,30 @@ there to answer. A walk that ends in ``quit`` or presses ``close`` is one
 nobody watches, so a stop at a failed step also stops the app, with a picture
 of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
 
+``wait`` ends when nothing a gesture started is still in flight: no progress
+popup is open and the app's ``in_flight`` names nothing (what holds the
+scope, a lane with a task running or queued, an axis moving, an autofocus
+sweep). Each owner answers for its own work; the walk asks and decides
+nothing. A ``wait`` that times out names what it was still waiting on, so a
+stuck walk says which. Any other popup is a question only a person answers,
+so a ``wait`` that finds one stops the walk at once, as a press under it
+does; a touch that closes a popup waits until it is gone, so the next step
+never meets one the walk has answered. A turret pick, a jog, a go-to, a build: the step after the
+``wait`` reads the state after the work, however long it took.
+
+Two steps do what the world does rather than a person. ``hold`` sleeps the
+UI thread for its ``seconds`` in one call, so the app meets a held thread
+exactly as a stall makes one. ``inject`` calls one of the simulator's faults
+(``scope.simulation``) by name with its ``args``, as a cable pulled at the
+bench; a refusal from the fault stops the walk at that step.
+
 Walk files are read and checked by ``ui.sim_walk_file``.
 """
 
 import logging
 import pathlib
 import time
+import weakref
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -47,7 +65,9 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
 from modules import gui_logger
+from modules.exceptions import Refusal
 from ui import file_dialogs
+from ui.progress_popup import CustomPopup
 from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
 
 logger = logging.getLogger('LVP.sim_walk')
@@ -74,15 +94,29 @@ class SimWalk:
     ``bring_up_owes`` names what bring-up has not finished (the app passes
     its ``_bring_up_owes``): the walk starts once it names nothing, and stops
     before step 1, saying what was still owed, when it never does.
-    ``shot_dir`` receives the window pictures. ``finished``, ``outcome``
-    (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and ``shots`` are
-    the result.
+    ``in_flight`` names what a gesture started that is still running (the
+    app passes the session's ``in_flight_named``): a ``wait`` ends once it names nothing and
+    no popup is open. ``simulation`` is the scope's ``SimulationAPI``, which
+    ``inject`` calls. ``shot_dir`` receives the window pictures. ``finished``,
+    ``outcome`` (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and
+    ``shots`` are the result.
     """
 
-    def __init__(self, steps: list[dict], *, source: str, bring_up_owes, shot_dir: pathlib.Path):
+    def __init__(
+        self,
+        steps: list[dict],
+        *,
+        source: str,
+        bring_up_owes,
+        in_flight,
+        simulation,
+        shot_dir: pathlib.Path,
+    ):
         self._steps = steps
         self._source = source
         self._bring_up_owes = bring_up_owes
+        self._in_flight = in_flight
+        self._simulation = simulation
         self._bring_up_deadline = 0.0
         self._shot_dir = shot_dir
         self._number = 0
@@ -97,6 +131,8 @@ class SimWalk:
         self.shots: list[str] = []
 
     def start(self) -> None:
+        Window.bind(children=_watch_popups)
+        _watch_popups()
         self._bring_up_deadline = time.monotonic() + _BRING_UP_TIMEOUT_S
         Clock.schedule_once(self._await_bring_up, 0)
 
@@ -129,7 +165,9 @@ class SimWalk:
         step = self._steps[self._number - 1]
         try:
             delay = next(self._action, _STEP_DONE)
-        except WalkStepError as e:
+        # A step it cannot perform, or a refusal from what the step called
+        # (an injected fault): the walk stops there, with its line.
+        except (WalkStepError, Refusal) as e:
             self._finish(f'stopped at step {self._number} ({_describe(step)}): {e}')
             return
         if delay is _STEP_DONE:
@@ -177,6 +215,8 @@ class SimWalk:
         # text in one call would be refused where a person's keystrokes are not.
         for character in step['text']:
             field.insert_text(character)
+        # Left as a click away leaves it: a box commits only an edit, so text
+        # equal to what the box held commits nothing, as for a person.
         if step.get('commit', True):
             field.focus = False
 
@@ -213,15 +253,7 @@ class SimWalk:
             ]
             if buttons:
                 button = _one(buttons, repr(step['button']), 'the open popups')
-                view = next(v for v in open_popups() if _contains(v, button))
-                dismissed = []
-                uid = view.fbind('on_pre_dismiss', lambda *_, d=dismissed: d.append(True))
-                try:
-                    yield from self._touch(button, f'popup button {step["button"]!r}')
-                finally:
-                    view.unbind_uid('on_pre_dismiss', uid)
-                if dismissed:
-                    yield from self._until_closed(view)
+                yield from self._touch(button, f'popup button {step["button"]!r}')
                 return
             if time.monotonic() > deadline:
                 if optional:
@@ -229,18 +261,6 @@ class SimWalk:
                     return
                 raise WalkStepError(
                     f'no open popup has a {step["button"]!r} button after {timeout:g} s'
-                )
-            yield _POLL_S
-
-    def _until_closed(self, view):
-        # A dismissed popup stays on the window, still open, until its fade
-        # has run; the next step would find it there and stop, on a host
-        # slow enough that the fade outlasts the step between.
-        deadline = time.monotonic() + _WAIT_TIMEOUT_S
-        while view in open_popups():
-            if time.monotonic() > deadline:
-                raise WalkStepError(
-                    f'the popup {getattr(view, "title", "")!r} was answered but never closed'
                 )
             yield _POLL_S
 
@@ -273,6 +293,8 @@ class SimWalk:
         yield from ()
 
     def _shot(self, step):
+        # A popup fading out is a picture of neither its open nor its closed state.
+        yield from _until_no_popup_fades()
         yield 0
         if not self._picture(step['name']):
             raise WalkStepError(f'the window picture {step["name"]!r} was not written')
@@ -289,10 +311,34 @@ class SimWalk:
     def _wait(self, step):
         timeout = step.get('timeout_s', _WAIT_TIMEOUT_S)
         deadline = time.monotonic() + timeout
-        while open_popups() or getattr(App.get_running_app(), 'run_lockout', False):
+        while True:
+            # A progress popup closes itself when its work ends; any other is
+            # a question only a person answers, so the walk stops at it now.
+            questions = [view for view in open_popups() if not isinstance(view, CustomPopup)]
+            if questions:
+                raise WalkStepError(_answer_it_first(questions[0]))
+            still = [f'a popup ({getattr(view, "title", "")!r})' for view in open_popups()]
+            still.extend(
+                f'a popup closing ({getattr(view, "title", "")!r})' for view in _fading_popups()
+            )
+            still.extend(self._in_flight())
+            if not still:
+                return
             if time.monotonic() > deadline:
-                raise WalkStepError(f'a popup or a run was still up after {timeout:g} s')
+                raise WalkStepError(f'still in flight after {timeout:g} s: {"; ".join(still)}')
             yield _POLL_S
+
+    def _hold(self, step):
+        started = time.monotonic()
+        time.sleep(step['seconds'])
+        self._step_outcome = f'held the UI thread {time.monotonic() - started:.1f} s'
+        yield from ()
+
+    def _inject(self, step):
+        # The walk file has checked the fault and its arguments' names; a
+        # refusal stops the walk in _resume.
+        getattr(self._simulation, step['fault'])(**step.get('args', {}))
+        yield from ()
 
     def _close(self, step):
         # The window's X, as a person presses it: the app's close gate logs
@@ -335,9 +381,7 @@ class SimWalk:
                 )
         popups = open_popups()
         if popups and not _contains(popups[0], _placed_by(target)):
-            raise WalkStepError(
-                f'a popup is open ({getattr(popups[0], "title", "")!r}); answer it first'
-            )
+            raise WalkStepError(_answer_it_first(popups[0]))
 
     def _touch(self, target, path: str):
         self._check_reachable(target, path)
@@ -354,9 +398,15 @@ class SimWalk:
             yield _POLL_S
         # The accordion lays out on the frame after its last animation tick.
         yield _POLL_S
+        # A popup fading out after its dismiss still takes every touch until
+        # the fade removes it, so a press sent before then lands on it.
+        yield from _until_no_popup_fades()
+        # A person scrolls only to reach what they cannot see, so the walk
+        # does too: Kivy's scroll_to moves content shorter than its view to
+        # the view's bottom even when the target is already in it.
         scrolled = False
         for parent in _ancestors(target):
-            if isinstance(parent, ScrollView):
+            if isinstance(parent, ScrollView) and not _wholly_in_view(parent, target):
                 parent.scroll_to(target, padding=10, animate=False)
                 scrolled = True
         if scrolled:
@@ -388,7 +438,7 @@ def _stop_the_app() -> None:
 
 
 def _describe(step: dict) -> str:
-    target = step.get('path') or step.get('button') or step.get('name') or ''
+    target = step.get('path') or step.get('button') or step.get('name') or step.get('fault') or ''
     return f'{step["do"]} {target}'.strip()
 
 
@@ -411,9 +461,47 @@ def _class_matches(widget, segment: str) -> bool:
     return str(getattr(widget, attr, None)) == value
 
 
+def _answer_it_first(view) -> str:
+    """Why a step stops at an open popup: the press's words and the wait's."""
+    return f'a popup is open ({getattr(view, "title", "")!r}); answer it first'
+
+
+# A popup told to close stays on the window while it fades out, until the
+# fade removes it; a person sees it going, not open. Each is recorded as it
+# is dismissed, and every popup is watched from the moment it reaches the
+# window, so none closes unrecorded.
+_closing: weakref.WeakSet = weakref.WeakSet()
+_watched: weakref.WeakSet = weakref.WeakSet()
+
+
+def _fading_popups() -> list:
+    return [w for w in Window.children if w in _closing]
+
+
+def _until_no_popup_fades():
+    deadline = time.monotonic() + _WAIT_TIMEOUT_S
+    while fading := _fading_popups():
+        if time.monotonic() > deadline:
+            raise WalkStepError(
+                f'the popup {getattr(fading[0], "title", "")!r} was dismissed but never closed'
+            )
+        yield _POLL_S
+
+
+def _watch_popups(*_args) -> None:
+    for view in Window.children:
+        if isinstance(view, ModalView) and view not in _watched:
+            _watched.add(view)
+            view.fbind('on_pre_dismiss', _closing.add)
+            view.fbind('on_pre_open', _closing.discard)
+
+
 def open_popups() -> list:
-    """The open popups, the one on top first: Kivy puts the newest window child at index 0."""
-    return [w for w in Window.children if isinstance(w, ModalView)]
+    """The open popups, the one on top first: Kivy puts the newest window child at index 0.
+
+    A popup fading out after its dismiss is not one: it asks nothing.
+    """
+    return [w for w in Window.children if isinstance(w, ModalView) and w not in _closing]
 
 
 def _placed_by(widget):
@@ -445,6 +533,17 @@ def _moving_drawers(widget) -> list:
                 if isinstance(item, AccordionItem) and item.collapse_alpha != float(item.collapse)
             )
     return moving
+
+
+def _wholly_in_view(view: ScrollView, widget) -> bool:
+    """Whether ``widget`` lies wholly inside the scroll view's visible area.
+
+    Measured in the view's parent's coordinates, as Kivy's ``scroll_to``
+    measures the same question.
+    """
+    left, bottom = view.parent.to_widget(*widget.to_window(*widget.pos))
+    right, top = view.parent.to_widget(*widget.to_window(widget.right, widget.top))
+    return view.x <= left and right <= view.right and view.y <= bottom and top <= view.top
 
 
 def _ancestors(widget):

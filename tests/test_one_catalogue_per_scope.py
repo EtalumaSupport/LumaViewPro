@@ -23,8 +23,7 @@ import time
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, InstallationFileError
-from modules.lumascope_api import Lumascope
+from modules.exceptions import InstallationFileError
 from modules.notification_center import Severity, notifications
 from modules.path_utils import get_source_root
 from modules.scope_session import ScopeSession
@@ -66,17 +65,14 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
     )
     try:
         scope = session.scope
-        assert EXTRA_OBJECTIVE in session.objective_helper.get_objectives_list()
-        assert EXTRA_OBJECTIVE in scope.runtime_state.get_available_objectives()
-        assert EXTRA_PLATE in session.wellplate_loader.get_plate_list()
+        assert EXTRA_OBJECTIVE in scope.objective_helper.get_objectives_list()
+        assert EXTRA_OBJECTIVE in scope.objectives
+        assert EXTRA_PLATE in scope.wellplate_loader.get_plate_list()
         # One object each, the scope's, wherever the session reaches one.
-        assert session.objective_helper is scope.objective_helper
-        assert session.wellplate_loader is scope.wellplate_loader
         assert session.autofocus_runner._scope is scope
         assert session.sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
         assert session.source_path == root
-        assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
     finally:
         _shut(session)
 
@@ -94,9 +90,9 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         home_sim_scope(session.scope)
         config = config_helpers.get_sequenced_capture_config_from_settings(
             session.settings,
-            objective_helper=session.objective_helper,
-            wellplate_loader=session.wellplate_loader,
-            current_z=session.get_current_plate_position()['z'],
+            objective_helper=session.scope.objective_helper,
+            wellplate_loader=session.scope.wellplate_loader,
+            current_z=session.get_current_plate_position().z_um,
             tiling='1x1',
             use_zstacking=False,
         )
@@ -110,7 +106,7 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         assert set(protocol.steps()['Objective']) == {EXTRA_OBJECTIVE}
         assert (
             protocol.validate_steps(
-                session.objective_helper, led_max_ma=session.scope.capabilities.led_max_ma
+                session.scope.objectives, led_max_ma=session.scope.capabilities.led_max_ma
             )
             == []
         )
@@ -178,29 +174,6 @@ def test_an_unusable_catalogue_stops_the_bring_up_before_anything_starts(
 
 
 class TestTheSessionsFolderIsTheScopes:
-    def test_a_folder_beside_a_callers_scope_is_refused(self, tmp_path):
-        scope = Lumascope(simulate=True, warn_pre_release=False, source_path=REPO_ROOT)
-        try:
-            with pytest.raises(ArgumentRefusedError) as refused:
-                ScopeSession.create(complete_settings(), source_path=tmp_path, scope=scope)
-            assert (refused.value.reason, refused.value.argument) == (
-                'refused_beside_scope',
-                'source_path',
-            )
-        finally:
-            scope.disconnect()
-
-    def test_a_callers_scope_brings_its_folder(self, tmp_path):
-        root = _data_folder(tmp_path)
-        scope = Lumascope(simulate=True, warn_pre_release=False, source_path=root)
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
-        try:
-            assert session.source_path == root
-            assert session.objective_helper is scope.objective_helper
-        finally:
-            session.shutdown()
-            scope.disconnect()
-
     def test_no_folder_is_the_installations_own(self, tmp_path):
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False

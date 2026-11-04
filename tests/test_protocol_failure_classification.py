@@ -17,7 +17,7 @@ scan scheduler kept restarting on a fault that wasn't transient.
 After this fix:
 - ``scan_loop`` no longer catches exceptions; they propagate to
   ``_run_loop_inner``'s outer except.
-- The outer except classifies via ``scope.are_all_connected()``:
+- The outer except classifies via ``scope.unconnected_parts()``:
     * disconnected -> fatal, fire "Protocol Aborted" + cleanup + break
     * connected   -> transient, log warning only, do not increment
       ``_scan_count``, do not break; outer loop's next iteration
@@ -33,6 +33,9 @@ fires the regression.
 
 from __future__ import annotations
 
+from drivers.exceptions import BoardPortFailedError
+from modules.lumascope_api.bring_up import Part
+
 
 class TestRunLoopInnerClassifiesByConnection:
     """The outer ``_run_loop_inner`` exception handler must classify
@@ -42,7 +45,7 @@ class TestRunLoopInnerClassifiesByConnection:
 
     def _drive_failing_run_loop(self, centre_posts, *, connected):
         """run_loop on a runner whose every scan raises; classification
-        is steered by the mocked are_all_connected."""
+        is steered by the mocked unconnected_parts."""
         from unittest.mock import MagicMock
 
         from modules.notification_center import Severity
@@ -55,8 +58,10 @@ class TestRunLoopInnerClassifiesByConnection:
         # itself at error. Capturing one channel would let a second popup on
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
-        runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
-        runner._scope.are_all_connected = MagicMock(return_value=connected)
+        runner._protocol.step_row.side_effect = BoardPortFailedError('serial dropped mid-step')
+        runner._scope.unconnected_parts = MagicMock(
+            return_value=() if connected else (Part.CAMERA,)
+        )
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
             (n.category, n.title, n.message)
@@ -77,12 +82,12 @@ class TestRunLoopInnerClassifiesByConnection:
         assert len(aborts) == 1, (
             f'a disconnect must abort the run exactly once; got {len(aborts)} calls'
         )
-        reason, _domain, title, message = aborts[0].args
-        assert (reason, title) == ('hardware_disconnected', 'Protocol Aborted'), (
+        reason, _domain, message = aborts[0].args
+        assert reason == 'hardware_disconnected', (
             f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
-        assert 'Hardware disconnected' in message, (
-            f'the message the user reads must name the disconnect; got {message!r}'
+        assert 'camera disconnected' in message, (
+            f'the message the user reads must name what disconnected; got {message!r}'
         )
         assert captured == [], (
             f'the funnel posts the disconnect popup; a site posting its own too '
@@ -91,28 +96,82 @@ class TestRunLoopInnerClassifiesByConnection:
         assert runner._state == ProtocolState.ERROR, (
             'a disconnect mid-scan must land the run in ERROR'
         )
-        assert runner._protocol.step.call_count == 1, (
+        assert runner._protocol.step_row.call_count == 1, (
             'a fatal failure must abort, not retry the scan'
         )
         assert runner._cleanup.called
 
     def test_transient_failure_retries_then_escalates(self, centre_posts):
         runner, captured = self._drive_failing_run_loop(centre_posts, connected=True)
-        assert runner._protocol.step.call_count == 3, (
+        assert runner._protocol.step_row.call_count == 3, (
             'transient (still-connected) failures must retry on the next '
-            f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'
+            f'period up to the ceiling; got {runner._protocol.step_row.call_count} attempts'
         )
         assert runner._scan_count == 0, 'failed scans must not count as completed'
-        assert len(captured) == 1, (
-            f'transients are silent until the consecutive-failure ceiling; got {captured}'
-        )
+        # Told by the run's latch, as a fault is, through the writer this
+        # harness holds as a mock: the observable is the one call, carrying
+        # the cause. The post it makes is pinned where the writer is real
+        # (tests/test_a_run_tells_each_fatal_fact_once.py).
+        assert captured == [], f'transients are silent; the ceiling tells once: {captured}'
+        ((reason, domain, message),) = [
+            c.args for c in runner._image_writer._end_run_failed.call_args_list
+        ]
+        assert (reason, domain) == ('consecutive_scan_failures', 'Protocol')
+        assert '3 times' in message and 'in a row' in message, message
         assert runner._image_writer._abort_run_fatal.call_args_list == [], (
             'the strike ceiling stops a run the instrument could not complete; '
             'it must not force-darken the sample the way a fault does'
         )
-        assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
-            f'the ceiling popup must name the repeated failure; got {captured[0]}'
-        )
+
+
+class TestOurOwnDefectEndsTheRunAtOnce:
+    """An exception that is not a ``LumascopeError`` is LumaViewPro's own
+    defect: no retry cures it, so the run ends at once as ``run_loop_crashed``,
+    asked before the lost-part and lost-position checks, which would read
+    what the defect left behind (a motion door sets the axis UNKNOWN on its
+    way out). Every outcome the API reports keeps the classification."""
+
+    @staticmethod
+    def _run(raised, *, lost_axes=None):
+        from unittest.mock import MagicMock
+
+        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+
+        runner = run_loop_ready_runner(protocol_step())
+        runner._protocol.step_row.side_effect = raised
+        runner._scope.unconnected_parts = MagicMock(return_value=())
+        runner._scope.motion.axes_without_position = MagicMock(return_value=lost_axes or {})
+        runner._run_loop_executor.run_loop(runner._last_run())
+        return runner
+
+    def test_a_defect_that_left_an_axis_unknown_ends_as_a_crash_not_a_lost_position(self):
+        from modules.lumascope_api import AxisState
+
+        # a stand-in by design: the defect's own trace, an axis a motion
+        # door set UNKNOWN on its way out, which this mock scope cannot leave
+        runner = self._run(TypeError('scripted defect'), lost_axes={'Z': AxisState.UNKNOWN})
+
+        ((reason, _domain, message),) = [
+            c.args for c in runner._image_writer._abort_run_fatal.call_args_list
+        ]
+        assert reason == 'run_loop_crashed'
+        assert 'LumaViewPro failed' in message
+        assert runner._protocol.step_row.call_count == 1, 'a defect is not retried'
+
+    def test_the_apis_routine_failures_are_still_retried(self):
+        from modules.exceptions import HardwareCommandRefusedError, MoveWaitExpiredError
+
+        for raised in (
+            HardwareCommandRefusedError('position_unread', 'move_z'),
+            MoveWaitExpiredError('Z', 'still_moving'),
+        ):
+            runner = self._run(raised)
+
+            assert runner._protocol.step_row.call_count == 3, raised
+            ((reason, _domain, _message),) = [
+                c.args for c in runner._image_writer._end_run_failed.call_args_list
+            ]
+            assert reason == 'consecutive_scan_failures', raised
 
 
 class TestScanLoopBehaviorPreserved:
@@ -124,7 +183,7 @@ class TestScanLoopBehaviorPreserved:
 
         runner = scan_ready_runner(protocol_step())
         runner._step_executor.scan_loop()
-        assert runner._protocol.step.called, (
+        assert runner._protocol.step_row.called, (
             'scan_loop must drive scan_iterate (which fetches the step row)'
         )
         assert not runner._scan_in_progress.is_set(), 'the single-step scan must run to completion'

@@ -63,16 +63,39 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 from collections.abc import Callable
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 
 logger = logging.getLogger('LVP.drivers.registry')
 
 
 class DriverNotLiveError(Fault, RuntimeError):
     """A driver selected by name constructed, but its hardware is not live."""
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'driver_not_live': None}
+    title = 'Hardware Not Live'
+
+
+class NoLiveDriverError(Fault, RuntimeError):
+    """'auto' found no live driver, and the kind has no null driver to hand back.
+
+    The camera's kind has none: bring-up records the cause this carries, as
+    a board's ``DriverFallback`` is recorded beside its null driver.
+
+    Attributes:
+        fallback: The cause, the drivers tried, and the drivers declined.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'no_live_driver': None}
+    title = 'Hardware Not Found'
+
+    def __init__(self, kind: str, fallback: DriverFallback):
+        declined = f'; not loaded: {"; ".join(fallback.declined)}' if fallback.declined else ''
+        tried = ', '.join(fallback.tried) or 'none registered'
+        super().__init__(f'no live {kind} driver ({fallback.cause}); tried: {tried}{declined}')
+        self.fallback = fallback
 
 
 def _disconnect_quietly(instance: Any) -> None:
@@ -114,11 +137,14 @@ class DriverFallback:
         tried: The driver classes that were tried, by name.
         detail: The last error's type and message when a driver raised;
             empty otherwise.
+        declined: Each driver that did not load on this installation and
+            so was never tried, as ``'<name>: <reason>'``.
     """
 
     cause: str
     tried: tuple[str, ...]
     detail: str = ''
+    declined: tuple[str, ...] = ()
 
 
 class DriverRegistry:
@@ -134,6 +160,7 @@ class DriverRegistry:
     def __init__(self, kind: str):
         self._kind = kind  # 'motor' | 'led' | 'camera' -- for error messages
         self._entries: dict[str, _RegistryEntry] = {}
+        self._declined: dict[str, str] = {}
 
     def register(self, name: str, *, priority: int = 50, is_simulator: bool = False) -> Callable:
         """Decorator. Registers a driver class under `name`.
@@ -171,6 +198,17 @@ class DriverRegistry:
 
         return decorator
 
+    def decline(self, name: str, reason: str) -> Callable:
+        """Decorator. Leaves a driver this installation cannot load unregistered, with why.
+
+        The registry never tries it; a fallback or ``NoLiveDriverError``
+        names it and the reason, so an absent part on a scope that needs
+        that driver is not read as an unplugged cable alone.
+        """
+        self._declined[name] = reason
+        logger.debug(f'[registry] {self._kind}: declined {name!r} ({reason})')
+        return lambda cls: cls
+
     @staticmethod
     def _liveness_failure(instance: Any) -> tuple[str, str] | None:
         """Why a constructed driver is not a live one, or None when it is.
@@ -184,40 +222,28 @@ class DriverRegistry:
           (another program holds it), and the driver swallowed that and
           left itself half-built; handed on, it crashes later on its
           first command rather than here.
-        - ``responsive``: the port opened and stayed open, but the board
-          answered zero bytes to the whole connect-time reset sequence and
-          will reject every command until a power cycle; selected anyway,
-          the operator gets one failure per command for the session.
+        - ``responsive``: the port opened, but the board answered zero
+          bytes to the whole connect-time reset sequence, or did not answer
+          the connect's own commands, and will reject every command until a
+          power cycle; selected anyway, the operator gets one failure per
+          command for the session. Asked before ``connected``: a connect
+          the board did not answer closes the port, and that board is not
+          a port another program holds.
 
-        A check the driver does not implement passes.
+        A check the driver does not implement passes. Each check reads the
+        driver's own flags, so one that raises is a defect in the driver,
+        not a verdict on the hardware: it propagates, and the caller files
+        the candidate as one that raised.
         """
         if getattr(instance, 'found', True) is False:
             return 'found', 'found=False'
-        if hasattr(instance, 'is_connected'):
-            try:
-                connected = instance.is_connected()
-            except Exception as e:
-                connected = False
-                logger.debug(
-                    f'[registry] {type(instance).__name__} is_connected() raised '
-                    f'({type(e).__name__}: {e}); treating as not-connected'
-                )
-            if not connected:
-                return 'connected', 'constructed but is_connected()=False (port held / open failed)'
-        if hasattr(instance, 'is_responsive'):
-            try:
-                responsive = instance.is_responsive()
-            except Exception as e:
-                responsive = False
-                logger.debug(
-                    f'[registry] {type(instance).__name__} is_responsive() raised '
-                    f'({type(e).__name__}: {e}); treating as not-responsive'
-                )
-            if not responsive:
-                return (
-                    'responsive',
-                    'connected but not responding (zero bytes to the connect sequence)',
-                )
+        if hasattr(instance, 'is_responsive') and not instance.is_responsive():
+            return (
+                'responsive',
+                'not responding (no answer to the connect sequence)',
+            )
+        if hasattr(instance, 'is_connected') and not instance.is_connected():
+            return 'connected', 'constructed but is_connected()=False (port held / open failed)'
         return None
 
     def get(self, name: str) -> type[Any]:
@@ -275,7 +301,7 @@ class DriverRegistry:
                 Not forwarded to the driver.
             **kwargs: Forwarded to the driver constructor. Callers can
                 pass driver-specific args like `model='LS850T'` for
-                SimulatedMotorBoard or `z_position_func=...` for
+                SimulatedMotorBoard or `pixel_size_func=...` for
                 SimulatedCamera.
 
         Returns:
@@ -284,7 +310,10 @@ class DriverRegistry:
 
         Raises:
             ValueError: If `name` is not 'auto' and isn't registered,
-                or if 'auto' finds no candidates at all.
+                or if 'auto' finds no candidates and declined none.
+            NoLiveDriverError: 'auto' found no live driver and the kind has
+                no null driver, and no driver raised (a driver that raised
+                is raised itself).
         """
         if name != 'auto':
             # Selecting by NAME has no fallback: the caller asked for this
@@ -295,7 +324,13 @@ class DriverRegistry:
             # API layer indistinguishable from a live one.
             cls = self.get(name)
             instance = cls(**kwargs)
-            failure = self._liveness_failure(instance)
+            try:
+                failure = self._liveness_failure(instance)
+            except Exception:
+                # A check that raised is the driver's own fault and goes up
+                # as itself; the board it opened is released first.
+                _disconnect_quietly(instance)
+                raise
             if failure is not None:
                 _, why = failure
                 _disconnect_quietly(instance)
@@ -308,7 +343,9 @@ class DriverRegistry:
             key=lambda e: -e.priority,
         )
 
-        if not candidates:
+        # A real driver declined on this installation is a cause to name,
+        # not an empty registry.
+        if not candidates and (simulate or not self._declined):
             raise ValueError(
                 f'{self._kind} registry has no '
                 f'{"simulator" if simulate else "real"} drivers. '
@@ -326,6 +363,9 @@ class DriverRegistry:
         not_connected_names: list[str] = []
         not_responsive_names: list[str] = []
         for entry in real_candidates:
+            # Per candidate: an instance left from an earlier one would be
+            # released twice below, or released when found=False said not to.
+            instance = None
             try:
                 instance = entry.cls(**kwargs)
                 failure = self._liveness_failure(instance)
@@ -358,6 +398,10 @@ class DriverRegistry:
                 logger.info(f'[registry] {self._kind}: using {entry.cls.__name__}')
                 return instance, None
             except Exception as e:
+                # Set when the constructor returned and a liveness check
+                # raised: the candidate holds a port and threads to release.
+                if instance is not None:
+                    _disconnect_quietly(instance)
                 last_error = e
                 logger.debug(
                     f'[registry] {self._kind}: {entry.cls.__name__} failed '
@@ -378,11 +422,24 @@ class DriverRegistry:
         # registry is told apart from "every driver said found=False", which
         # once read as "no real drivers registered" and cost a day chasing
         # why the FX2 was not in the picture.
+        tried = tuple(e.cls.__name__ for e in real_candidates)
+        detail = '' if last_error is None else f'{type(last_error).__name__}: {last_error}'
+        declined = tuple(f'{name}: {reason}' for name, reason in self._declined.items())
+        if not_responsive_names:
+            cause = 'not_responding'
+        elif not_connected_names:
+            cause = 'port_in_use'
+        elif last_error is not None:
+            cause = 'connect_failed'
+        elif found_false_names:
+            cause = 'not_detected'
+        else:
+            cause = 'no_driver'
+        fallback = DriverFallback(cause, tried, detail, declined)
         for entry in null_candidates:
-            tried = tuple(e.cls.__name__ for e in real_candidates)
-            detail = '' if last_error is None else f'{type(last_error).__name__}: {last_error}'
             last_error_note = f' Last error: {detail}' if detail else ''
-            if not_responsive_names:
+            declined_note = f' Not loaded: {"; ".join(declined)}.' if declined else ''
+            if cause == 'not_responding':
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers connected but '
                     f'returned zero bytes to the connect sequence -- the board '
@@ -391,8 +448,7 @@ class DriverRegistry:
                     f'{", ".join(not_responsive_names)}. '
                     f'Falling back to {entry.cls.__name__}.{last_error_note}'
                 )
-                fallback = DriverFallback('not_responding', tried, detail)
-            elif not_connected_names:
+            elif cause == 'port_in_use':
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers constructed '
                     f'but reported is_connected()=False (port held by another '
@@ -400,37 +456,35 @@ class DriverRegistry:
                     f'{", ".join(not_connected_names)}. '
                     f'Falling back to {entry.cls.__name__}.{last_error_note}'
                 )
-                fallback = DriverFallback('port_in_use', tried, detail)
-            elif last_error is not None:
+            elif cause == 'connect_failed':
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers failed, '
                     f'falling back to {entry.cls.__name__}.{last_error_note}'
                 )
-                fallback = DriverFallback('connect_failed', tried, detail)
-            elif found_false_names:
+            elif cause == 'not_detected':
                 logger.log(
                     logging.INFO if absence_expected else logging.WARNING,
                     f'[registry] {self._kind}: all real drivers reported '
                     f'found=False (no hardware detected'
                     f'{"; none expected on this scope" if absence_expected else ""}). '
                     f'Tried: {", ".join(found_false_names)}. '
-                    f'Falling back to {entry.cls.__name__}',
+                    f'Falling back to {entry.cls.__name__}.{declined_note}',
                 )
-                fallback = DriverFallback('not_detected', tried)
             else:
                 logger.info(
                     f'[registry] {self._kind}: registry is empty for this '
                     f'kind (no real drivers registered -- check that the '
                     f'driver module is imported somewhere). Falling back '
-                    f'to {entry.cls.__name__}'
+                    f'to {entry.cls.__name__}.{declined_note}'
                 )
-                fallback = DriverFallback('no_driver', tried)
             return entry.cls(), fallback
 
-        # No null driver registered -- raise with the last real-driver error.
-        if last_error is not None:
+        # No null driver to hand back (the camera): a driver that raised is
+        # raised itself, carrying the backend's own type and traceback;
+        # otherwise the cause the null path would have recorded, typed.
+        if cause == 'connect_failed':
             raise last_error
-        raise ValueError(f'{self._kind} registry has no real drivers and no null fallback.')
+        raise NoLiveDriverError(self._kind, fallback) from last_error
 
     def registered_names(self) -> list[str]:
         """For tests and diagnostics."""

@@ -36,11 +36,11 @@ def test_dead_disable_protocol_accordions_removed():
     assert 'disable_protocol_accordions' not in SETTINGS
 
 
-def test_every_layer_video_config_seeds_fps():
+def test_no_layer_video_config_holds_a_rate():
+    # A recording's one rate limit is video.max_fps; a layer's own rate was
+    # copied into every video step it made and capped it there unseen.
     layers = [k for k, v in SETTINGS.items() if isinstance(v, dict) and 'video_config' in v]
     assert layers, 'expected per-layer video_config blocks'
     for layer in layers:
         vc = SETTINGS[layer]['video_config']
-        # 30 == DEFAULT_VIDEO_FPS (microscope_settings); seeding matches the
-        # code's self-heal so behavior is unchanged.
-        assert vc.get('fps') == 30, f'{layer} video_config missing fps=30: {vc}'
+        assert 'fps' not in vc, f'{layer} video_config holds a rate: {vc}'

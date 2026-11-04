@@ -65,7 +65,7 @@ def _step_name_panel(monkeypatch, caplog, typed):
     shown = []
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     panel = SimpleNamespace(
-        _protocol=SimpleNamespace(step=lambda idx: {'Label': labels[idx]}),
+        _protocol=SimpleNamespace(step_row=lambda idx: {'Label': labels[idx]}),
         curr_step=0,
         ids={'step_name_input': SimpleNamespace(text=typed)},
         generate_step_name_input=lambda: shown.append(labels[0]),
@@ -77,8 +77,8 @@ def _step_name_panel(monkeypatch, caplog, typed):
     return panel, applies, shown
 
 
-def _z_panel(monkeypatch, caplog, typed='', show_target=None):
-    """The real commit and queue; the move's trigger, the Z target and the box stood in.
+def _z_panel(monkeypatch, caplog, typed='', show_z=None):
+    """The real commit and queue; the move's trigger, the Z redraw and the box stood in.
 
     Returns the panel, the positions queued, and the records in the log at each queue.
     """
@@ -99,7 +99,7 @@ def _z_panel(monkeypatch, caplog, typed='', show_target=None):
         queue_slider_position_trigger=_queued,
     )
     panel._queue_z_move = lambda pos: VerticalControl._queue_z_move(panel, pos)
-    panel._show_z_target = lambda: show_target(panel.ids['z_position_id'])
+    panel.redraw_z = lambda: show_z(panel.ids['z_position_id'])
     return panel, moves, seen
 
 
@@ -120,8 +120,8 @@ def _acceleration_panel(typed, caplog):
         }
         _show_acceleration_limit = AdvancedSettings._show_acceleration_limit
 
-        def set_acceleration_limit(self, val_pct):
-            applied.append(val_pct)
+        def set_acceleration_limit(self, limit_pct):
+            applied.append(limit_pct)
             seen.append(_records(caplog))
 
     return _Panel(), applied, seen
@@ -150,7 +150,7 @@ def _frame_panel(monkeypatch, caplog, width_text):
         'ctx',
         SimpleNamespace(
             settings=settings,
-            session=SimpleNamespace(set_frame_size=set_frame_size),
+            scope=SimpleNamespace(camera=SimpleNamespace(set_frame_size=set_frame_size)),
             # a stand-in by design: the lane's threading is not the subject; the handler's record is
             camera_executor=_InlineLane(),
         ),
@@ -245,11 +245,11 @@ class TestATypedZCommitIsNotADrag:
     dragging the slider to it.
     """
 
-    def test_a_typed_non_number_moves_nothing_and_the_box_shows_the_target(
+    def test_a_typed_non_number_moves_nothing_and_the_box_shows_where_z_is(
         self, monkeypatch, gui_log
     ):
-        """'-' passes the kv float filter. Nothing moves; the box shows the Z
-        target again, and the record has what was typed, then what the box
+        """'-' passes the kv float filter. Nothing moves; the box shows
+        where Z is again, and the record has what was typed, then what the box
         went back to."""
         panel, moves, _seen = _z_panel(
             monkeypatch, gui_log, '-', lambda box: setattr(box, 'text', '4950.00')

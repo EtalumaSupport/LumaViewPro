@@ -10,6 +10,7 @@ worked on the first capture of a session and failed on the second.
 import pathlib
 
 import pytest
+from tests.stock_channels import LED0
 
 
 class _MinimalScope:
@@ -24,7 +25,7 @@ def test_increment_collision_returns_a_path(tmp_path, output_format):
         'scope': _MinimalScope(),
         'save_folder': tmp_path,
         'file_root': 'live_',
-        'append': 'A1_Blue',
+        'append': f'A1_{LED0}',
         'tail_id_mode': 'increment',
         'output_format': output_format,
     }
@@ -34,12 +35,12 @@ def test_increment_collision_returns_a_path(tmp_path, output_format):
 
     assert isinstance(second, pathlib.Path), type(second)
     assert second.parent == tmp_path
-    assert second.name.startswith('live_A1_Blue_000002')
+    assert second.name.startswith(f'live_A1_{LED0}_000002')
 
 
 def test_next_save_path_returns_a_path(tmp_path):
     from modules.image_save import get_next_save_path
 
-    nxt = get_next_save_path(_MinimalScope(), tmp_path / 'live_A1_Blue_000001.ome.tiff')
+    nxt = get_next_save_path(_MinimalScope(), tmp_path / f'live_A1_{LED0}_000001.ome.tiff')
 
-    assert nxt == tmp_path / 'live_A1_Blue_000002.ome.tiff'
+    assert nxt == tmp_path / f'live_A1_{LED0}_000002.ome.tiff'

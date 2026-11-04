@@ -103,11 +103,8 @@ class TestTheRateIsTheLastSecondsDraws:
         clock.now += 2.0
         assert display.display_fps() == 0
 
-    def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock, monkeypatch):
-        # The hold runs its blit through Kivy's Clock; run it at once.
-        monkeypatch.setattr(
-            sys.modules['kivy.clock'].Clock, 'schedule_once', lambda fn, _t=0: fn(0)
-        )
+    def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock):
+        # With no UI dispatcher set, the hold's blit runs at once.
         image = np.zeros((4, 4), dtype=np.uint8)
         display.hold_protocol_saved_image(image, 8)
         assert display.frames_shown == 1, 'the hold did not put the image on the screen'

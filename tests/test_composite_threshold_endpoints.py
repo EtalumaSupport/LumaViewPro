@@ -21,9 +21,25 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from modules.composite_builder import brightness_cutoff_from_percent, build_composite
+import modules.layer_record as layer_record
+from modules.composite_builder import (
+    CompositeChannel,
+    TransmittedBase,
+    brightness_cutoff_from_percent,
+    build_composite,
+)
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import ConfigError
+from modules.layer_record import release_colors
+from tests.stock_channels import LED2
+
+
+def _in_release_colours(images):
+    """Each image as an 8-bit composite channel in its layer's release colour."""
+    return {
+        key: CompositeChannel(image, layer_record.release_color(key), 8, None)
+        for key, image in images.items()
+    }
 
 
 class TestTheCutoffCoversTheWholeSlider:
@@ -62,10 +78,9 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         transmitted, red = self._one_saturated_pixel()
 
         img = build_composite(
-            channel_images={'Red': red},
-            significant_bits=8,
-            transmitted_image=transmitted,
-            brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
+            channels=_in_release_colours({LED2: red}),
+            transmitted=TransmittedBase(transmitted, 8, None),
+            brightness_thresholds={LED2: brightness_cutoff_from_percent(100)},
         )
 
         assert img[0, 0].tolist() == [255, 0, 0], 'the saturated pixel was dropped'
@@ -76,10 +91,9 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         red = np.full((2, 2), 254, dtype=np.uint8)
 
         img = build_composite(
-            channel_images={'Red': red},
-            significant_bits=8,
-            transmitted_image=transmitted,
-            brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
+            channels=_in_release_colours({LED2: red}),
+            transmitted=TransmittedBase(transmitted, 8, None),
+            brightness_thresholds={LED2: brightness_cutoff_from_percent(100)},
         )
 
         assert img[0, 0].tolist() == [40, 40, 40]
@@ -100,10 +114,10 @@ class TestAPercentageOutsideTheRangeIsRefused:
         df = pd.DataFrame(
             [
                 {'Color': 'BF', 'Filepath': bf_path},
-                {'Color': 'Red', 'Filepath': red_path},
+                {'Color': LED2, 'Filepath': red_path},
             ]
         )
-        return df, {'Red': threshold}
+        return df, {LED2: threshold}
 
     @pytest.mark.parametrize('bad', [-1, -25, 101, 500])
     def test_a_percentage_outside_the_range_is_refused_by_name(self, tmp_path, bad):
@@ -115,10 +129,11 @@ class TestAPercentageOutsideTheRangeIsRefused:
                 df=df,
                 brightness_thresholds_percent=thresholds,
                 output_file_loc=None,
+                channel_colors=release_colors(),
             )
 
         message = str(excinfo.value)
-        assert 'Red' in message, 'the refusal must name the layer'
+        assert LED2 in message, 'the refusal must name the layer'
         assert str(bad) in message, 'the refusal must name the value'
 
     def test_a_non_numeric_percentage_is_refused_rather_than_raising_mid_merge(self, tmp_path):
@@ -131,6 +146,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
                 df=df,
                 brightness_thresholds_percent=thresholds,
                 output_file_loc=None,
+                channel_colors=release_colors(),
             )
 
     @pytest.mark.parametrize('good', [0, 50, 100])
@@ -142,6 +158,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
             df=df,
             brightness_thresholds_percent=thresholds,
             output_file_loc=None,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True, result['error']

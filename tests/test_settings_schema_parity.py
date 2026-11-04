@@ -23,9 +23,10 @@ import pathlib
 
 import pytest
 
+from modules.layer_record import release_old_names
+from tests.settings_fixtures import shipped_template
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SETTINGS_PATH = REPO_ROOT / 'data' / 'settings.json'
 CURRENT_PATH = REPO_ROOT / 'data' / 'current.json'
 
 # Top-level keys that exist ONLY in current.json, on purpose:
@@ -41,27 +42,58 @@ RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
 # schema:
 # - manual_video: renamed to video (the rate/duration authority applies
 #   to every recording path); folded by migrate_video_settings_dict.
-MIGRATED_TOP_LEVEL = {'manual_video'}
+# - the old channel names (the release's OldChannelNames): each block is
+#   renamed to its LED's key at preparation and placed by the unit at
+#   bring-up.
+MIGRATED_TOP_LEVEL = {'manual_video', *(old.name for old in release_old_names())}
 
 # Per-layer (nested dict) keys that exist ONLY in current.json, on purpose,
-# keyed by the top-level entry they live under:
-# - frame.native_width / frame.native_height: the connected camera's native
-#   sensor dimensions, discovered from hardware at runtime; settings.json
-#   cannot know them ahead of the camera.
-RUNTIME_ONLY_PER_LAYER = {
-    'frame': {'native_width', 'native_height'},
-}
+# keyed by the top-level entry they live under. None now: the frame's
+# unbinned region (frame.native_width / frame.native_height), the last one,
+# is shipped in settings.json, since the saved frame always carries it and
+# settings preparation adds it to an older current.json.
+RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 
-# Per-layer keys a load-time migration renames, exempt on EVERY layer rather
+# Per-layer keys a load renames or drops, exempt on EVERY layer rather
 # than under one named entry the way RUNTIME_ONLY_PER_LAYER works -- all seven
 # layers carry them. A current.json of any age may still hold the old
 # spellings until its next clean shutdown; migrate_layer_key_names_dict moves
-# them at load. Like MIGRATED_TOP_LEVEL they must never come back in
-# settings.json, where they would resurrect the retired schema:
+# them at load, and normalize_loaded_settings drops the retired ones. Like
+# MIGRATED_TOP_LEVEL they must never come back in settings.json, where they
+# would resurrect the retired schema:
 # - ill_ma / exp_ms: renamed to illumination_ma / exposure_ms when the
 #   storage dict became the L2 API surface and its keys became the names
 #   callers write.
-MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms'}
+# - file_root: a filename prefix every layer shipped, which nothing read.
+MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
+
+# Nested keys the loader drops or renames away, keyed by the dotted path of
+# the entry they lived under. A current.json of any age may still hold them until its next
+# clean shutdown (normalize_loaded_settings pops them at load); they must
+# never come back in settings.json:
+# - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
+#   the fluorescence steps, removed.
+# - protocol.autogain.max_duration_seconds: the longest an auto-gain step
+#   waited, unread once its settle became a frame count.
+# - video.max_duration_seconds: renamed max_duration_s, for its unit.
+# - profiling.stim_profiling: shipped with no reader, removed.
+# - profiling.handle_trace_obj_sample_every: the interval of the handle
+#   trace's object-type sampler, removed with it.
+# - rest_api.host, api_key, cors_origins: nothing read them; where the
+#   server serves is rest_api.address.
+RETIRED_PER_LAYER = {
+    'protocol': {'bf_af_for_fluorescence'},
+    'protocol.autogain': {'max_duration_seconds'},
+    'video': {'max_duration_seconds'},
+    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every'},
+    'rest_api': {'host', 'api_key', 'cors_origins'},
+}
+
+# Top-level keys the loader drops whole, under the same terms:
+# - autofocus, stage: six shipped keys with no reader; the autofocus
+#   optimisation work adds each back with its reader.
+# - camera_type: no reader; bring-up asks the camera registry.
+RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type'}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
@@ -71,11 +103,20 @@ requires_current_json = pytest.mark.skipif(
 
 
 def _load_settings():
-    return json.loads(SETTINGS_PATH.read_text())
+    # The template as every host reads it: a block for every catalogue key.
+    return shipped_template()
 
 
 def _load_current():
     return json.loads(CURRENT_PATH.read_text())
+
+
+def _entry_at(settings: dict, dotted: str) -> dict:
+    """The nested entry at ``dotted``, or an empty dict where there is none."""
+    entry = settings
+    for part in dotted.split('.'):
+        entry = entry.get(part) if isinstance(entry, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def test_settings_defaults_carry_no_runtime_only_keys():
@@ -122,12 +163,32 @@ def test_settings_defaults_carry_no_runtime_only_keys():
         'remove them from the defaults file or retire their '
         'RUNTIME_ONLY_PER_LAYER exemption'
     )
+    retired_back = [
+        f'{key}.{sub}'
+        for key, subkeys in RETIRED_PER_LAYER.items()
+        for sub in subkeys & set(_entry_at(settings, key))
+    ]
+    assert not retired_back, (
+        f'retired per-layer keys reappeared in settings.json: {retired_back} -- '
+        'the loader drops these; shipping a default would resurrect them'
+    )
+    retired_top = RETIRED_TOP_LEVEL & set(settings)
+    assert not retired_top, (
+        f'retired blocks reappeared in settings.json: {sorted(retired_top)} -- '
+        'the loader drops these; shipping a default would resurrect them'
+    )
 
 
 @requires_current_json
 def test_top_level_key_parity():
     settings, current = _load_settings(), _load_current()
-    current_only = set(current) - set(settings) - RUNTIME_ONLY_TOP_LEVEL - MIGRATED_TOP_LEVEL
+    current_only = (
+        set(current)
+        - set(settings)
+        - RUNTIME_ONLY_TOP_LEVEL
+        - MIGRATED_TOP_LEVEL
+        - RETIRED_TOP_LEVEL
+    )
     assert not current_only, (
         f'current.json has top-level keys with no settings.json default and '
         f'no runtime-only exemption: {sorted(current_only)} -- add a default '
@@ -146,7 +207,11 @@ def test_per_layer_key_parity():
             if isinstance(s_val, dict) != isinstance(c_val, dict):
                 drift.append(f'{key}: dict in one file, {type(c_val).__name__} in the other')
             continue
-        allowed = RUNTIME_ONLY_PER_LAYER.get(key, set()) | MIGRATED_PER_LAYER
+        allowed = (
+            RUNTIME_ONLY_PER_LAYER.get(key, set())
+            | RETIRED_PER_LAYER.get(key, set())
+            | MIGRATED_PER_LAYER
+        )
         current_only = set(c_val) - set(s_val) - allowed
         if current_only:
             drift.append(f'{key}: current-only sub-keys {sorted(current_only)}')

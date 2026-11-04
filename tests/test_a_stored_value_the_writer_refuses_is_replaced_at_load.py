@@ -49,6 +49,11 @@ def _prepare(tmp_path, edit):
         # Valid JSON no float can hold: replaced, not a crash before the fallback.
         ('zstack', 'range', 10**400),
         ('scale_bar', 'enabled', 'yes'),
+        # A leaf shipped null is held to the kind it holds when set.
+        ('BF', 'acquire', 5),
+        ('BF', 'focus', 'abc'),
+        ('BF', 'focus', True),
+        ('BF', 'display_color', 7),
     ],
 )
 def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, key, saved):
@@ -56,15 +61,26 @@ def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, k
 
     def edit(current):
         current[section][key] = saved
-        current['video']['max_duration_seconds'] = 120
+        current['video']['max_duration_s'] = 120
 
     settings, told = _prepare(tmp_path, edit)
 
     assert settings[section][key] == shipped[section][key]
-    assert settings['video']['max_duration_seconds'] == 120, 'a value in range was replaced'
+    assert settings['video']['max_duration_s'] == 120, 'a value in range was replaced'
     (notice,) = told
     assert notice.replacements == [(f'{section}.{key}', saved, shipped[section][key])]
     assert notice.reason == 'stored_setting_replaced'
+
+
+def test_a_stored_value_outside_a_closed_set_is_replaced_and_told(tmp_path):
+    def edit(current):
+        current['image_mode'] = '16bit'
+
+    settings, told = _prepare(tmp_path, edit)
+
+    assert settings['image_mode'] == '8bit'
+    (notice,) = told
+    assert notice.replacements == [('image_mode', '16bit', '8bit')]
 
 
 def test_a_stored_nan_is_replaced_and_told(tmp_path):
@@ -133,6 +149,34 @@ def test_every_value_one_load_replaced_is_in_one_notice(tmp_path):
     assert 'motion.acceleration_max_pct 500' in str(notice)
 
 
+def test_a_stored_auto_gain_range_whose_minimum_is_above_its_maximum_is_replaced_and_told(
+    tmp_path,
+):
+    """Each bound is in range alone, so the leaf rules keep both; the pair is
+    the arm's rule, and an inverted stored pair stopped bring-up there, at the
+    BF hold, with auto-gain on. The pair takes the shipped bounds, both."""
+    shipped = json.loads(TEMPLATE.read_text())['protocol']['autogain']
+
+    def edit(current):
+        current['protocol']['autogain']['min_gain_db'] = 10.0
+        current['protocol']['autogain']['max_gain_db'] = 2.0
+        current['BF']['auto_gain'] = True
+
+    settings, told = _prepare(tmp_path, edit)
+
+    stored = settings['protocol']['autogain']
+    assert (stored['min_gain_db'], stored['max_gain_db']) == (
+        shipped['min_gain_db'],
+        shipped['max_gain_db'],
+    )
+    assert settings['BF']['auto_gain'] is True, 'a value in range was replaced'
+    (notice,) = told
+    assert notice.replacements == [
+        ('protocol.autogain.min_gain_db', 10.0, shipped['min_gain_db']),
+        ('protocol.autogain.max_gain_db', 2.0, shipped['max_gain_db']),
+    ]
+
+
 def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     def edit(current):
         current['video']['max_fps'] = 25
@@ -144,4 +188,19 @@ def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     assert settings['video']['max_fps'] == 25
     assert settings['motion']['acceleration_max_pct'] == 37
     assert settings['image_output_format']['live'] == 'JPG'
+    assert told == []
+
+
+def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_untold(tmp_path):
+    """The step order is derived from the catalogue when the template is read,
+    so a stored one that differs is no person's choice -- no write reaches it
+    -- but an earlier release's derivation, which the load re-derives without
+    telling anyone of a value they never set."""
+    template = settings_init.load_template(logging.getLogger(__name__), str(TEMPLATE))
+    derived = template['step_channel_order']
+    stored = list(reversed(derived))
+
+    settings, told = _prepare(tmp_path, lambda current: current.update(step_channel_order=stored))
+
+    assert settings['step_channel_order'] == derived
     assert told == []

@@ -27,25 +27,21 @@ import re
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.image_mode import (
-    IMAGE_MODE_8BIT,
-    IMAGE_MODE_12BIT_SCIENTIFIC,
-    OUTPUT_FORMAT_HYPERSTACK,
-    OUTPUT_FORMAT_OME_TIFF,
-    ImageCaptureConfig,
-)
+from modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 from tests.settings_fixtures import complete_settings
 
-_OWNED_PARAMS = (
-    'image_capture_config',
-    'keep_led_between_steps',
-    'video_as_frames',
-    'separate_folder_per_channel',
-    'bf_af_for_fluorescence',
-    'timestamp_overlay',
-    'video_max_fps',
+_OWNED_PARAMS = MemberNames(
+    'modules/sequenced_capture_runner.py',
+    {
+        'image_capture_config',
+        'keep_led_between_steps',
+        'video_as_frames',
+        'separate_folder_per_channel',
+        'timestamp_overlay',
+        'video_max_fps',
+    },
 )
 
 _RUN_CALL = re.compile(r'\.prepare\(')
@@ -86,17 +82,15 @@ def test_helper_passes_settings_values_through():
             keep_led_between_steps=True,
             video_as_frames=True,
             separate_folder_per_channel=True,
-            protocol={'bf_af_for_fluorescence': True},
             video={'timestamp_overlay': False, 'max_fps': 5},
         ),
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     )
     assert out == {
-        'image_capture_config': ImageCaptureConfig.from_image_mode(IMAGE_MODE_8BIT),
+        'image_capture_config': ImageCaptureConfig.from_image_mode(ImageMode.EIGHT_BIT),
         'keep_led_between_steps': True,
         'video_as_frames': True,
         'separate_folder_per_channel': True,
-        'bf_af_for_fluorescence': True,
         'timestamp_overlay': False,
         'video_max_fps': 5,
     }
@@ -168,8 +162,8 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     overrides: its merge reads its inputs back as 8-bit, from a TIFF or an
     OME-TIFF, whatever the user's image mode and sequenced format."""
     settings = complete_settings(
-        image_mode=IMAGE_MODE_12BIT_SCIENTIFIC,
-        image_output_format={'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
+        image_mode=ImageMode.SCIENTIFIC,
+        image_output_format={'live': 'TIFF', 'sequenced': OutputFormat.HYPERSTACK},
     )
     composite = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE
@@ -177,10 +171,10 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     scan = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_SCAN
     )['image_capture_config']
-    assert composite.image_mode == IMAGE_MODE_8BIT
-    assert composite.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
-    assert scan.image_mode == IMAGE_MODE_12BIT_SCIENTIFIC
-    assert scan.output_format_sequenced == OUTPUT_FORMAT_HYPERSTACK
+    assert composite.image_mode == ImageMode.EIGHT_BIT
+    assert composite.output_format_sequenced == OutputFormat.OME_TIFF
+    assert scan.image_mode == ImageMode.SCIENTIFIC
+    assert scan.output_format_sequenced == OutputFormat.HYPERSTACK
 
 
 def test_every_acquisition_run_call_is_classified():

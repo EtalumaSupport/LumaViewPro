@@ -18,15 +18,21 @@ status endpoint can also call the ``snapshot_*`` building blocks
 directly to dump current state on demand without waiting for the
 next tick.
 
-Stays GUI-agnostic -- takes Clock-style scheduler / unscheduler
-callables instead of importing Kivy.
+Stays GUI-agnostic -- takes a ``Scheduler`` instead of importing Kivy.
 """
 
 from __future__ import annotations
 
+import sys
+import threading
+import time
+import traceback
+from collections.abc import Callable
+
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
-from modules.scheduler import Scheduler, _CallablePairScheduler
+from modules.kivy_utils import schedule_ui, ui_thread
+from modules.scheduler import Scheduler
 
 
 # Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
@@ -69,7 +75,7 @@ _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 class MetricsLogger:
     """Owns the periodic runtime-health logging surface for LVP."""
 
-    def __init__(self, scope, executor_bundle, settings):
+    def __init__(self, scope, executor_bundle, settings_snapshot: Callable[[], dict]):
         """Hold references; call ``start()`` to begin the schedules.
 
         Args:
@@ -77,22 +83,36 @@ class MetricsLogger:
                 tick (delegates to ``scope.imaging._log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
-                -- the executor watchdog reads ``.snapshot()`` and prunes
-                the SCOPEDISPLAY queue when it exceeds the threshold.
-            settings: LVP settings dict, passed verbatim to
-                ``config_helpers.log_system_metrics``.
+                -- the executor watchdog reads its ``snapshot()`` and
+                ``thread_states()``.
+            settings_snapshot: Returns a private copy of the session's
+                settings; each system tick takes one and hands it to
+                ``config_helpers.log_system_metrics``, since the tick runs on
+                the session's timer, not the thread that writes the settings.
         """
         self._scope = scope
         self._bundle = executor_bundle
-        self._settings = settings
+        self._settings_snapshot = settings_snapshot
+        # The host's live display, handed in at start(); None on a host
+        # with none.
+        self._display: config_helpers.DisplayRates | None = None
 
         # Scheduler bound at start() -- None means not started.
         self._scheduler: Scheduler | None = None
         # Active schedule handles per tick (so each can be cancelled
-        # independently). Keys: 'system_metrics', 'executor_watchdog'.
+        # independently). Keys: 'system_metrics', 'executor_watchdog',
+        # 'ui_watch'.
         # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
+
+        # The UI thread's watch: the probe posted to it and not yet run (its
+        # token and when it was posted), and whether its hold was reported.
+        # Written by the watchdog tick and by the probe on the UI thread.
+        self._ui_watch_lock = threading.Lock()
+        self._ui_probe: object | None = None
+        self._ui_probe_posted_at = 0.0
+        self._ui_hold_reported = False
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -106,83 +126,118 @@ class MetricsLogger:
         Delegates to ``config_helpers.log_system_metrics`` so the format
         + content match the existing log surface; engineering tools
         that grep ``[PDH METRICS]`` / ``[BUFFER METRICS]`` keep working.
-        Safe to call on demand from a status endpoint.
+        Its callers are this logger's own: its start and its scheduled
+        cadence.
         """
         try:
-            config_helpers.log_system_metrics(self._settings, scope=self._scope)
+            config_helpers.log_system_metrics(
+                self._settings_snapshot(),
+                scope=self._scope,
+                executors=self._bundle,
+                display=self._display,
+            )
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
 
     def tick_executor_watchdog(self) -> None:
-        """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.
+        """Log the lanes' queue depths and the queueless threads' states.
 
         Internal metrics scheduling -- driven by the host's periodic
         scheduler and not part of the L2 API surface.
 
         WARNING-level log when total backlog exceeds 10; DEBUG otherwise.
-        SCOPEDISPLAY queue >20 is pruned (UI-responsiveness guard). The
-        thresholds are carried unchanged from the inline watchdog this
+        The threshold is carried unchanged from the inline watchdog this
         replaced, so log lines stay comparable across that change.
+
+        A snapshot that fails raises to the scheduler, whose error hook
+        reports it; the timer re-arms either way.
         """
-        try:
-            snap = self._bundle.snapshot()
-            total_q = sum(q for q in snap.values() if q > 0)
-            fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
-            if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
-                logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
+        depths = self._bundle.snapshot()
+        total_q = sum(depths.values())
+        fmt = ' '.join(
+            f'{name}:{value}' for name, value in {**depths, **self._bundle.thread_states()}.items()
+        )
+        if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
+            logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
+        else:
+            logger.debug(f'[Watchdog  ] Queues -- {fmt}')
+
+        # SCOPEDISPLAY has no queue to prune. Watchdog has no actionable
+        # response if the thread itself is wedged -- that's a
+        # daemon=True process-exit-reap scenario, not a queue prune.
+
+    def tick_ui_watch(self) -> None:
+        """Post a probe to the UI thread; report once when the last one has not run.
+
+        Internal metrics scheduling -- driven by the host's periodic
+        scheduler and not part of the L2 API surface.
+
+        A field GUI froze for four days and no log said so: the executor
+        watchdog ran on its own timer thread throughout but read only the
+        lanes. A probe posted at one tick and still waiting at the next
+        means the UI thread has run nothing for at least a tick, so a hold
+        is reported one to two ticks after it starts, with the stack the
+        thread is in. One probe is outstanding at a time. A host with no UI
+        thread posts none. A freeze that holds the GIL stops this timer
+        too, so it cannot be seen from here.
+        """
+        thread = ui_thread()
+        if thread is None:
+            return
+        now = time.monotonic()
+        with self._ui_watch_lock:
+            if self._ui_probe is None:
+                probe = self._ui_probe = object()
+                self._ui_probe_posted_at = now
+                self._ui_hold_reported = False
+            elif self._ui_hold_reported:
+                return
             else:
-                logger.debug(f'[Watchdog  ] Queues -- {fmt}')
+                self._ui_hold_reported = True
+                probe = None
+                waited_s = now - self._ui_probe_posted_at
+        if probe is not None:
+            schedule_ui(lambda dt: self._ui_probe_ran(probe))
+            return
+        frame = sys._current_frames().get(thread.ident)
+        stack = ''.join(traceback.format_stack(frame)) if frame is not None else '(no frame)\n'
+        logger.warning(
+            f'[Watchdog  ] UI thread has run nothing for at least {waited_s:.0f} s; '
+            f'it is in:\n{stack.rstrip()}'
+        )
 
-            # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
-            # the prune-on-backlog branch retires. The snapshot reports
-            # 0 (running) / -1 (stopped). Watchdog has no actionable
-            # response if the thread itself is wedged -- that's a
-            # daemon=True process-exit-reap scenario, not a queue
-            # prune.
-        except Exception:
-            # Best-effort -- a watchdog that crashes silently mid-tick
-            # is preferable to one that takes the app down with it.
-            pass
+    def _ui_probe_ran(self, probe: object) -> None:
+        """The probe, on the UI thread: the thread ran; say so if its hold was reported.
 
-    def snapshot_executors(self) -> dict[str, int]:
-        """On-demand executor depth snapshot for status endpoints.
-
-        Internal queue introspection -- not part of the L2 API surface;
-        the depths are host telemetry, not a contract a client reads.
-
-        Returns ``{logical_name: queue_depth}`` from the bundle without
-        emitting any log lines.
+        The probe was posted at a tick inside the hold, not at its start, so
+        its wait is the hold's lower bound, and the line says so.
         """
-        try:
-            return self._bundle.snapshot()
-        except Exception:
-            return {}
+        now = time.monotonic()
+        with self._ui_watch_lock:
+            if probe is not self._ui_probe:
+                return
+            self._ui_probe = None
+            reported = self._ui_hold_reported
+            waited_s = now - self._ui_probe_posted_at
+        if reported:
+            logger.info(f'[Watchdog  ] UI thread ran again; it was held at least {waited_s:.0f} s')
 
     # ---- Lifecycle ----
 
     def start(
         self,
-        scheduler=None,
-        unschedule_fn=None,
+        scheduler: Scheduler,
         *,
         system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
         executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
         camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
         start_camera_temp: bool | None = None,
+        display: config_helpers.DisplayRates | None = None,
     ) -> None:
         """Schedule all periodic ticks.
 
-        LVP-A-13: ``scheduler`` is now a :class:`modules.scheduler.Scheduler`
-        instance. The legacy two-callable form (``schedule_interval_fn,
-        unschedule_fn``) is auto-wrapped via ``_CallablePairScheduler``
-        for backwards compatibility, so any caller that hasn't migrated
-        yet keeps working unchanged.
-
         Args:
-            scheduler: A ``Scheduler`` instance OR (legacy) a callable
-                matching ``Clock.schedule_interval(func, interval_s)``.
-            unschedule_fn: Legacy. Required when ``scheduler`` is a
-                callable; ignored when ``scheduler`` is a ``Scheduler``.
+            scheduler: The session's scheduler, which fires every tick.
             system_metrics_interval_s: How often to emit the
                 CPU/memory/handles snapshot.
             executor_watchdog_interval_s: How often to emit the executor
@@ -193,29 +248,11 @@ class MetricsLogger:
             start_camera_temp: If None (default), starts the camera-temp
                 logger only when ``scope.camera_connected``. Pass False to
                 skip even when connected (rare; mostly tests).
+            display: The host's live display, whose rates the system tick
+                logs beside the camera's; None on a host with none.
         """
-        # Normalize scheduler argument: Scheduler instance, callable
-        # pair (legacy), or None (rejected).
-        if scheduler is None:
-            raise ValueError(
-                'MetricsLogger.start: scheduler is required (a Scheduler '
-                'instance or, legacy, a schedule_interval callable plus '
-                'unschedule_fn)'
-            )
-        if isinstance(scheduler, Scheduler):
-            self._scheduler = scheduler
-        elif callable(scheduler):
-            if unschedule_fn is None or not callable(unschedule_fn):
-                raise ValueError(
-                    'MetricsLogger.start: legacy callable form requires '
-                    'unschedule_fn (a callable matching Clock.unschedule)'
-                )
-            self._scheduler = _CallablePairScheduler(scheduler, unschedule_fn)
-        else:
-            raise TypeError(
-                f'MetricsLogger.start: scheduler must be a Scheduler or '
-                f'callable; got {type(scheduler).__name__}'
-            )
+        self._display = display
+        self._scheduler = scheduler
 
         # Initial snapshot -- match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
@@ -227,6 +264,11 @@ class MetricsLogger:
         )
         self._handles['executor_watchdog'] = self._scheduler.schedule_interval(
             self.tick_executor_watchdog, executor_watchdog_interval_s
+        )
+        # Its own handle at the watchdog's cadence, so a snapshot that
+        # raises every tick cannot also stop the UI thread's watch.
+        self._handles['ui_watch'] = self._scheduler.schedule_interval(
+            self.tick_ui_watch, executor_watchdog_interval_s
         )
 
         if start_camera_temp is False:
@@ -244,6 +286,7 @@ class MetricsLogger:
         self._scope.imaging.start_camera_temp_logging(
             self._scheduler.schedule_interval,
             self._scheduler.unschedule,
+            schedule_once_fn=self._scheduler.schedule_once,
             interval_s=camera_temp_interval_s,
         )
 
@@ -255,6 +298,10 @@ class MetricsLogger:
 
     def stop(self) -> None:
         """Cancel every scheduled tick. Idempotent."""
+        # A probe still queued on the UI thread runs after this; it finds
+        # none outstanding and logs nothing.
+        with self._ui_watch_lock:
+            self._ui_probe = None
         if self._scheduler is None:
             return
         for name, handle in list(self._handles.items()):

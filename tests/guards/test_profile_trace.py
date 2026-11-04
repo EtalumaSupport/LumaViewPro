@@ -3,6 +3,7 @@
 
 import ast
 import csv
+import logging
 import threading
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from lib import profile_trace
-from tests.ast_seams import REPO_ROOT, iter_package_modules
+from tests.ast_seams import iter_package_modules
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +52,7 @@ def _run_dir(base):
 
 class TestEnableDisable:
     def test_enable_creates_output_dir(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path / 'profile_out')
+        profile_trace.enable(output_dir=tmp_path / 'profile_out', commit=None)
         assert _run_dir(tmp_path / 'profile_out').is_dir()
         assert profile_trace.ENABLE_PROFILE_TRACE is True
 
@@ -63,15 +64,15 @@ class TestEnableDisable:
         both to the same CSVs with nothing in the rows saying which
         configuration produced which.
         """
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         first = profile_trace._output_dir
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         second = profile_trace._output_dir
         assert first != second
         assert first.is_dir() and second.is_dir()
 
     def test_disable_flushes_and_closes(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         run = profile_trace._output_dir
         profile_trace.trace('t.csv', 'a,b', [1, 2], recording_id=profile_trace.NO_RECORDING)
         profile_trace.disable()
@@ -83,13 +84,13 @@ class TestEnableDisable:
 
 class TestTrace:
     def test_writes_header_on_first_row(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('a.csv', 'col1,col2', ['x', 42], recording_id='rec1')
         content = (_run_dir(tmp_path) / 'a.csv').read_text()
         assert content.splitlines() == ['recording_id,col1,col2', 'rec1,x,42']
 
     def test_does_not_duplicate_header(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('a.csv', 'col1,col2', ['x', 1], recording_id='r')
         profile_trace.trace('a.csv', 'col1,col2', ['y', 2], recording_id='r')
         lines = (_run_dir(tmp_path) / 'a.csv').read_text().splitlines()
@@ -104,7 +105,7 @@ class TestTrace:
         across both, which yields a plausible wrong rate rather than a
         visible failure.
         """
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('m.csv', 'v', [1], recording_id='recA')
         profile_trace.trace('m.csv', 'v', [2], recording_id='recB')
         profile_trace.trace('m.csv', 'v', [3], recording_id='recA')
@@ -122,7 +123,7 @@ class TestRequiredIdentity:
     """
 
     def test_trace_without_recording_id_raises(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         with pytest.raises(TypeError):
             profile_trace.trace('x.csv', 'a', [1])
 
@@ -139,17 +140,17 @@ class TestArityGuard:
     """
 
     def test_too_few_fields_raises(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         with pytest.raises(ValueError, match='row has 1 fields, header declares 2'):
             profile_trace.trace('x.csv', 'a,b', [1], recording_id='r')
 
     def test_too_many_fields_raises(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         with pytest.raises(ValueError):
             profile_trace.trace('x.csv', 'a,b', [1, 2, 3], recording_id='r')
 
     def test_batch_add_checks_arity(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         bt = profile_trace.BatchTrace('b.csv', 'a,b', 'r')
         with pytest.raises(ValueError):
             bt.add([1])
@@ -157,7 +158,7 @@ class TestArityGuard:
 
 class TestBatchTrace:
     def test_rows_are_written_on_flush(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         bt = profile_trace.BatchTrace('b.csv', 'a,b', 'rec1')
         bt.add([1, 2])
         bt.add([3, 4])
@@ -171,7 +172,7 @@ class TestBatchTrace:
         A second writer with its own escaping is how the column-shift defect
         would come back on the batched side alone.
         """
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         bt = profile_trace.BatchTrace('b.csv', 'a,b', 'rec1')
         bt.add(['X,Y', 'end'])
         bt.flush()
@@ -179,7 +180,7 @@ class TestBatchTrace:
         assert rows[1] == ['rec1', 'X,Y', 'end']
 
     def test_disable_flushes_pending_batches(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         run = profile_trace._output_dir
         bt = profile_trace.BatchTrace('b.csv', 'a', 'rec1')
         bt.add([1])
@@ -217,7 +218,7 @@ class TestFieldContentCannotShiftColumns:
     """
 
     def test_comma_bearing_field_stays_one_column(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('c.csv', 'a,b,c', ['x', 'Well A1, BF', 'z'], recording_id='r')
         rows = _read_rows(_run_dir(tmp_path) / 'c.csv')
         assert rows[0] == ['recording_id', 'a', 'b', 'c']
@@ -225,7 +226,7 @@ class TestFieldContentCannotShiftColumns:
 
     def test_motion_trace_multi_axis_field_stays_one_column(self, tmp_path):
         # The exact shape motion.py emits: header of 5, axis field 'X,Y'.
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace(
             'motion_trace.csv',
             'ts_ms,duration_ms,event,axis,detail',
@@ -237,13 +238,13 @@ class TestFieldContentCannotShiftColumns:
         assert rows[1][4] == 'X,Y'
 
     def test_quote_bearing_field_round_trips(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('q.csv', 'a,b', ['say "hi"', 'end'], recording_id='r')
         rows = _read_rows(_run_dir(tmp_path) / 'q.csv')
         assert rows[1] == ['r', 'say "hi"', 'end']
 
     def test_newline_bearing_field_stays_one_record(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('n.csv', 'a,b', ['line1\nline2', 'end'], recording_id='r')
         rows = _read_rows(_run_dir(tmp_path) / 'n.csv')
         assert len(rows) == 2, 'embedded newline split the row into two records'
@@ -252,7 +253,7 @@ class TestFieldContentCannotShiftColumns:
     def test_rows_are_not_double_spaced(self, tmp_path):
         """csv.writer on a handle opened without newline='' doubles line
         endings on Windows. Assert no blank records survive the round trip."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         profile_trace.trace('d.csv', 'a,b', [1, 2], recording_id='r')
         profile_trace.trace('d.csv', 'a,b', [3, 4], recording_id='r')
         rows = _read_rows(_run_dir(tmp_path) / 'd.csv')
@@ -319,7 +320,7 @@ class TestEveryTraceSitePassesIdentity:
     """
 
     def test_timed_lock_writes_a_row_with_tracing_enabled(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         lock = profile_trace.TimedLock(threading.Lock(), name='unit.lock')
         with lock:
             pass
@@ -358,22 +359,10 @@ class TestDiagnosticOutputIsWritable:
     """Diagnostic output must never default to the working directory.
 
     An installed build runs with its CWD in the install folder, where mkdir is
-    denied. profile_trace's gate calls enable() at import, so a CWD-relative
-    default does not merely fail to trace -- the PermissionError escapes a
-    module-level call and the application does not start. The same shape sits
-    in the cProfile helper, reached whenever its own flag is set.
+    denied, so a CWD-relative default fails the moment it is reached: the
+    session's profile tracer and the cProfile helper each anchor to the data
+    root instead.
     """
-
-    def test_default_output_dir_is_under_appdata(self, tmp_path, monkeypatch):
-        from modules import path_utils
-
-        monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
-        profile_trace._base_dir = None  # forget any base a prior test supplied
-        profile_trace.enable()
-        run = profile_trace._output_dir
-        assert run.is_absolute(), f'{run} is relative and would resolve against the CWD'
-        assert tmp_path in run.parents
-        assert run.parent == tmp_path / 'logs' / 'profile'
 
     def test_cprofile_default_path_is_under_appdata(self, tmp_path, monkeypatch):
         from modules import path_utils
@@ -407,14 +396,14 @@ class TestDiagnosticOutputIsWritable:
         assert not offenders, (
             'CWD-relative diagnostic output path(s): '
             + ', '.join(offenders)
-            + '. Anchor to profile_trace._appdata_root() -- an installed build '
+            + '. Anchor to path_utils.get_source_root() -- an installed build '
             'cannot write to its working directory.'
         )
 
 
 class TestTimer:
     def test_timer_writes_duration(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         with profile_trace.timer('t.csv', 'ts_ms,duration_ms,label', lambda: ['work']):
             time.sleep(0.01)
         lines = (_run_dir(tmp_path) / 't.csv').read_text().splitlines()
@@ -437,7 +426,7 @@ class TestTimer:
         assert calls == []
 
     def test_timer_handles_extra_fn_exception(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
 
         def boom():
             raise RuntimeError('nope')
@@ -450,7 +439,7 @@ class TestTimer:
 
 class TestThreadSafety:
     def test_concurrent_writes_do_not_corrupt(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         threads = []
         for i in range(10):
             t = threading.Thread(
@@ -472,128 +461,14 @@ class TestThreadSafety:
             assert len(line.split(',')) == 3
 
 
-class TestTimedLockInvariantThreshold:
-    """warn_hold_threshold_ms fires a logger.warning when a TimedLock is
-    held longer than the configured threshold. Runs regardless of the
-    trace-CSV feature flag -- the invariant is a structural guard, not
-    instrumentation. The LVP logger has propagate=False in production
-    so caplog can't observe it directly; tests mock the logger.warning
-    call instead."""
+class TestTimedLockLogsNothing:
+    """A TimedLock is instrumentation only: whatever its hold, it logs
+    nothing. What may run under a lock is read at build time (for the
+    axis-state lock, tests/guards/test_the_axis_state_lock_holds_only_state_work.py),
+    because a wall-clock hold measures the scheduler as much as the body."""
 
-    def test_warns_when_hold_exceeds_threshold(self, monkeypatch):
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='test_invariant_lock',
-            warn_hold_threshold_ms=1.0,
-        )
-        with lock:
-            time.sleep(0.005)  # 5ms; well above 1ms threshold
-        assert any('test_invariant_lock' in m and 'exceeded' in m for m in warnings_captured), (
-            f'Expected hold-threshold warning; got: {warnings_captured}'
-        )
-
-    def test_no_warning_under_threshold(self, monkeypatch):
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='test_under_threshold',
-            warn_hold_threshold_ms=100.0,
-        )
-        with lock:
-            pass  # essentially zero hold
-        assert not any('test_under_threshold' in m for m in warnings_captured)
-
-    def test_default_no_threshold_no_warning(self, monkeypatch):
-        # No warn_hold_threshold_ms means no invariant check; the TimedLock
-        # is pure instrumentation (off when profile_trace_enabled is false).
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(threading.Lock(), name='no_threshold')
-        with lock:
-            time.sleep(0.01)  # 10ms; would exceed any reasonable threshold
-        assert not any('no_threshold' in m for m in warnings_captured)
-
-    def test_warning_active_when_trace_off(self, monkeypatch):
-        """Threshold check fires regardless of ENABLE_PROFILE_TRACE state."""
-        # _reset_profile_trace fixture leaves trace OFF.
-        assert profile_trace.ENABLE_PROFILE_TRACE is False
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='trace_off_threshold_check',
-            warn_hold_threshold_ms=0.5,
-        )
-        with lock:
-            time.sleep(0.003)
-        assert any('trace_off_threshold_check' in m for m in warnings_captured)
-
-
-class TestSettingsActivation:
-    def test_settings_key_enables_at_import(self, monkeypatch, tmp_path):
-        out_dir = str(tmp_path / 'settings_out')
-        monkeypatch.setattr(
-            'modules.settings_init.load_profile_trace_setting',
-            lambda directory: {'enabled': True, 'output_dir': out_dir},
-        )
-        profile_trace.disable()
-        import importlib
-
-        importlib.reload(profile_trace)
-        assert profile_trace.ENABLE_PROFILE_TRACE is True
-        assert _run_dir(tmp_path / 'settings_out').is_dir()
-        profile_trace.disable()
-
-    def test_magicmock_settings_does_not_create_dirs(self, monkeypatch):
-        """Bare MagicMock for `modules.settings_init` must not leak a
-        real filesystem directory at import-time gate evaluation.
-
-        Reproduces the condition surfaced 2026-05-28: test files
-        register `sys.modules['modules.settings_init'] = MagicMock()`
-        without configuring `load_profile_trace_setting`'s return value.
-        The gate then dereferenced ['enabled'] (truthy MagicMock) and
-        Path()-ified ['output_dir'] (another MagicMock), producing a
-        stray `LumaViewPro/MagicMock/` directory at the repo root.
-        """
-        from unittest.mock import MagicMock
-
-        monkeypatch.setattr(
-            'modules.settings_init.load_profile_trace_setting',
-            lambda directory: MagicMock(),
-        )
-        profile_trace.disable()
-        import importlib
-
-        importlib.reload(profile_trace)
-        assert profile_trace.ENABLE_PROFILE_TRACE is False
-        assert not (REPO_ROOT / 'MagicMock').exists(), (
-            'profile_trace gate leaked a real directory from a MagicMock '
-            'load_profile_trace_setting() return value'
-        )
+    def test_a_long_hold_logs_nothing(self, caplog):
+        lock = profile_trace.TimedLock(threading.Lock(), name='long_hold')
+        with caplog.at_level(logging.DEBUG), lock:
+            time.sleep(0.01)
+        assert not [m for m in caplog.messages if 'long_hold' in m]

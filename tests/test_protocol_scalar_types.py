@@ -28,15 +28,13 @@ and must keep its dtypes.
 """
 
 import datetime
-import pathlib
 
 import numpy as np
 import pandas as pd
 
 from modules.config_helpers import find_nearest_step
 from modules.protocol import Protocol
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
@@ -67,6 +65,9 @@ def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
@@ -90,8 +91,7 @@ def _protocol_from_dataframe(rows):
 
 
 def _wrap(df):
-    return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': df,
@@ -119,9 +119,9 @@ def _numpy_valued(step):
 class TestProtocolHandsOutPythonScalars:
     def test_step_from_declared_schema_is_python(self):
         protocol = _protocol_from_declared_schema([_step_row()])
-        offenders = _numpy_valued(protocol.step(0))
+        offenders = _numpy_valued(protocol.step_row(0))
         assert not offenders, (
-            'Protocol.step() handed out numpy scalars: '
+            'Protocol.step_row() handed out numpy scalars: '
             f'{offenders}. These reach the layer settings verbatim and a '
             'Kivy NumericProperty rejects them, terminating the app at the '
             'end of every protocol run.'
@@ -129,22 +129,26 @@ class TestProtocolHandsOutPythonScalars:
 
     def test_step_from_dataframe_is_python(self):
         protocol = _protocol_from_dataframe([_step_row()])
-        offenders = _numpy_valued(protocol.step(0))
-        assert not offenders, f'Protocol.step() handed out numpy scalars: {offenders}.'
+        offenders = _numpy_valued(protocol.step_row(0))
+        assert not offenders, f'Protocol.step_row() handed out numpy scalars: {offenders}.'
 
     def test_step_from_file_is_python(self, tmp_path):
         """The file path must be clean too -- one of the three crashes came in this way."""
         protocol = _protocol_from_declared_schema([_step_row()])
         filepath = tmp_path / 'p.tsv'
         assert protocol.to_file(filepath) is None
-        reloaded = Protocol.from_file(file_path=filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        offenders = _numpy_valued(reloaded.step(0))
-        assert not offenders, f'Protocol.from_file(...).step() handed out numpy: {offenders}.'
+        reloaded = protocol_from_file(
+            file_path=filepath,
+        )
+        offenders = _numpy_valued(reloaded.step_row(0))
+        assert not offenders, (
+            f'Protocol.from_file(..., unit=stock_unit()).step_row() handed out numpy: {offenders}.'
+        )
 
     def test_step_keeps_its_series_behaviour(self):
         """Coercion must not cost the callers what they already rely on."""
         protocol = _protocol_from_declared_schema([_step_row(illumination=5.0)])
-        step = protocol.step(0)
+        step = protocol.step_row(0)
         assert step['Illumination'] == 5.0
         assert step.get('Illumination') == 5.0
         assert dict(step)['Color'] == 'BF'

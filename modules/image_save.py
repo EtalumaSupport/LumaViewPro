@@ -28,12 +28,18 @@ import numpy as np
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 from lib.handle_trace import tick as _h_tick
-from lvp_logger import logger, version
-from modules.exceptions import CaptureFailedError, ConfigurationDefectError, ImageSaveError
+from lvp_logger import logger
+from modules.exceptions import (
+    ArgumentRefusedError,
+    CaptureFailedError,
+    ConfigurationDefectError,
+    ImageSaveError,
+)
 
 if TYPE_CHECKING:
-    from modules.labware import LabWare
+    from modules.labware import Labware
     from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
 
@@ -41,38 +47,61 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
-def write_video_frame(
+def write_recorded_frame(
+    scope: Lumascope,
     frame: np.ndarray,
     file_loc: pathlib.Path,
-    metadata: dict,
+    *,
     channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    stage_moving: bool,
+    frame_number: int,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware,
+    well_label: str | None,
+    fallback_focus: str | None,
     false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
     save_encoding: str,
-    capture_depth: int,
 ) -> None:
-    """Save one captured video frame to TIFF through the single canonical path.
+    """Save one recorded frame with the still's builder and writer, in the container its name states.
 
-    Shared by the manual-record and protocol-video Frames branches so both
-    honor the image mode identically:
-
-      - a false-color-off layer (and any transmitted BF/PC/DF) saves mono, even
-        under the RGB encoding -- the mode never colorizes a colorless choice;
-      - a 12-bit frame carries significant_bits so msb_aligned left-justifies
-        and right_aligned marks the file at its true depth;
-      - 8-bit fluorescence false color is baked to RGB here, because the
-        video_frame TIFF write emits no palette colormap (unlike the still
-        8-bit path).
+    The file states what a still's states, from the frame's own record
+    (``generate_image_metadata``), and two facts only a recorded frame has:
+    its number in the recording and whether the stage was moving when it
+    arrived. It is written as a still is (``image_utils.write_tiff``): as
+    OME-TIFF when its name is one (``image_utils.is_ome_tiff``), else as
+    plain TIFF, a 12-bit frame in the ImageJ container; an 8-bit
+    fluorescence frame carries its colour as a palette, never baked into
+    its pixels.
 
     Args:
-        frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
-        file_loc: Output .tiff path.
-        metadata: Per-frame metadata dict (must include 'datetime').
-        channel: Acquiring channel ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
-        false_color_on: Whether the layer's false-color toggle was on.
-        save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
-            'msb_aligned'/'rgb').
-        capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
-            uint16 frames.
+        scope: As for ``generate_image_metadata``.
+        frame: The frame, oriented and fitted: mono uint8 or uint16.
+        file_loc: Output path, ``.ome.tiff`` or ``.tiff``
+            (``image_utils.derived_file_suffix``): the name is the container.
+        channel: The channel the frame is named for: the LED that lit it,
+            read as it arrived.
+        plate_x_mm: Plate X in mm where it arrived, or None.
+        plate_y_mm: Plate Y in mm, or None.
+        stage_z_um: Stage Z in um, or None.
+        stage_moving: Whether an axis was moving or homing as it arrived.
+        frame_number: Its ordinal within the recording.
+        objective_id: The objective the recording started with; it cannot
+            change while one runs.
+        frame_record: The frame's record (``delivered_frame_record``).
+        labware: The plate the recording's positions are stated on.
+        well_label: The well it arrived over, or None.
+        fallback_focus: As for ``generate_image_metadata``: why the step's
+            autofocus did not focus, for a video step recorded at its
+            fallback focus.
+        false_color_on: Whether the channel's false-color toggle was on --
+            how the frame is shown, never what it is.
+        channel_colors: Every layer's colour as the recording began.
+        save_encoding: The resolved image-mode save encoding.
 
     Raises:
         CaptureFailedError: ``'unknown_save_encoding'``, if save_encoding is
@@ -80,44 +109,35 @@ def write_video_frame(
             fall through to a plain mono write).
     """
     if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
-        raise CaptureFailedError(
-            f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
-            'with an unrecognized image-mode encoding',
-            'unknown_save_encoding',
-        )
-    # Rendering value, permanently: it collapses to 'BF' whenever false color
-    # is off, so it stops naming the channel that was imaged. Nothing derived
-    # from false_color_on may reach a field describing WHAT the frame is -- a
-    # display setting recorded as identity is a claim about the specimen that
-    # the file cannot walk back. Video frames carry no channel field today, so
-    # nothing structural stops it here; the names are what keep them apart.
-    render_color = channel if false_color_on else 'BF'
-    # State the payload depth so the file is labeled honestly: an 8-bit frame
-    # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
-    # msb_aligned can left-justify and right_aligned marks the true depth; a
-    # summed / full-container 16-bit frame is 16.
-    if frame.dtype == np.uint8:
-        significant_bits = 8
-    elif capture_depth and capture_depth < 16:
-        significant_bits = capture_depth
-    else:
-        significant_bits = 16
-    if (
-        frame.dtype == np.uint8
-        and false_color_on
-        and not image_utils.is_color_image(frame)
-        and render_color in common_utils.get_image_layers()
-    ):
-        frame = image_utils.add_false_color(array=frame, color=render_color)
+        raise CaptureFailedError('unknown_save_encoding', encoding=save_encoding)
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+        objective_id=objective_id,
+        frame_record=frame_record,
+        labware=labware,
+        well_label=well_label,
+        fallback_focus=fallback_focus,
+    )
+    metadata['recording_frame'] = frame_number
+    metadata['stage_moving'] = stage_moving
     image_utils.write_tiff(
         data=frame,
         file_loc=file_loc,
         metadata=metadata,
-        ome=False,
-        color=render_color,
-        video_frame=True,
-        significant_bits=significant_bits,
+        ome=image_utils.is_ome_tiff(file_loc),
+        # Rendering only: grey whenever false colour is off. The channel above
+        # is what the frame is.
+        color=layer_record.shown_color(channel, false_color_on, channel_colors),
+        # The frame's own depth: 8 for a frame rendered to 8 bits, else the
+        # depth it was delivered at.
+        significant_bits=8 if frame.dtype == np.uint8 else frame_record.frame_significant_bits,
         save_encoding=save_encoding,
+        # A recorded frame is one frame, never a sum: white is its depth.
+        white_bits=None,
     )
 
 
@@ -162,7 +182,7 @@ def generate_image_save_path(
     file_root: str | None,
     append: str,
     tail_id_mode: str | None,
-    output_format: str,
+    output_format: image_mode.OutputFormat,
 ) -> pathlib.Path:
     """Generate a unique save path for an image given the naming inputs.
 
@@ -194,9 +214,9 @@ def generate_image_save_path(
     if file_root is None:
         file_root = ''
 
-    if output_format == 'OME-TIFF':
+    if output_format == image_mode.OutputFormat.OME_TIFF:
         file_extension = '.ome.tiff'
-    elif output_format == 'JPG':
+    elif output_format == image_mode.OutputFormat.JPG:
         file_extension = '.jpg'
     else:
         file_extension = '.tiff'
@@ -268,16 +288,14 @@ def position_metadata_fields(
         stage_z_um: Stage Z in um, or None when unknown.
 
     Returns:
-        dict: ``plate_pos_mm`` / ``x_pos`` / ``y_pos`` when X and Y are
-            both known, ``z_pos_um`` when Z is; empty otherwise.
+        dict: ``plate_pos_mm`` when X and Y are both known, ``z_pos_um``
+            when Z is; empty otherwise.
     """
     fields: dict = {}
     if plate_x_mm is not None and plate_y_mm is not None:
         px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
         py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
         fields['plate_pos_mm'] = {'x': px, 'y': py}
-        fields['x_pos'] = px
-        fields['y_pos'] = py
     if stage_z_um is not None:
         fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
     return fields
@@ -292,8 +310,9 @@ def generate_image_metadata(
     *,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
@@ -314,7 +333,7 @@ def generate_image_metadata(
             written: the objective catalogue, the scope's identity and its
             pixel-size capabilities, and the motor board's serial and
             firmware.
-        channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
+        channel (str): Channel the frame was acquired on (e.g. "Ex405", "BF").
         plate_x_mm (float): Plate X position in mm (or None).
         plate_y_mm (float): Plate Y position in mm (or None).
         stage_z_um (float): Stage Z position in um (or None).
@@ -324,7 +343,7 @@ def generate_image_metadata(
             objective -- read then, the file would claim the wrong scale or
             none. The caller reads it when it takes the frame.
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.
@@ -334,6 +353,10 @@ def generate_image_metadata(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
@@ -355,12 +378,7 @@ def generate_image_metadata(
             f"{common_utils.get_layers()} or 'Composite'"
         )
 
-    objective = scope.runtime_state.get_objective_info(objective_id)
-
-    if 'focal_length' not in objective:
-        raise ConfigurationDefectError(
-            'objective_entry_incomplete', '[SCOPE API ] Objective focal length not provided'
-        )
+    objective = scope.objective_helper.get_objective_info(objective_id=objective_id)
 
     if labware is None:
         raise ConfigurationDefectError('labware_not_given', '[SCOPE API ] Labware not set')
@@ -368,7 +386,7 @@ def generate_image_metadata(
     _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
+        focal_length=objective.focal_length_mm,
         binning_size=frame_record.binning_size,
         capabilities=scope.capabilities,
     )
@@ -382,21 +400,15 @@ def generate_image_metadata(
             common_utils.max_decimal_precision('pixel_size'),
         )
 
-    captured_at = frame_record.captured_at
+    captured_at = frame_record.captured_at.at
     # The model this scope runs as, from its identity -- the one the layers
     # and capabilities carry. The board's own report is None on a scope
     # with no motor board (every FX2 model), so it cannot name the scope.
-    microscope_model = scope.layer_identity.model
+    microscope_model = scope.channel_identity.model
 
-    # Instrument + Plate metadata for OME-XML compatibility (#491).
-    # Sourced from diagnostics + runtime_state; failures are non-fatal
-    # since the per-image save must not block on diagnostics flakes.
-    try:
-        motor_info = scope.diagnostics.get_motor_info()
-    except Exception:
-        motor_info = {'serial_number': None}
-    plate_config = getattr(labware, 'config', None) or {}
-
+    # Instrument + Plate metadata for OME-XML compatibility (#491). The
+    # board's identity is what it reported at connect: no serial traffic.
+    motor_info = scope.diagnostics.get_motor_info()
     # The frame's own exposure and gain, from its record: the capture took
     # them from the frame's chunks, or beside the grab on a camera without
     # chunks, and left out a value it could not read -- so an absent key
@@ -418,60 +430,88 @@ def generate_image_metadata(
     # layers have no excitation, 'Composite' has no record, an unresolved
     # identity has no filterset -- a null or stand-in written here would
     # read downstream as a measured property of the capture. The board
-    # address (led_channel) deliberately stays out of metadata: it changes
+    # address (led_addresses) deliberately stays out of metadata: it changes
     # with a rewire, board swap, or motorconfig regeneration, so recording
     # it would version the files to the wiring.
-    identity = scope.layer_identity
+    identity = scope.channel_identity
     record = identity.find(channel)
+    # Every LED lit for the grab, by the layer it lights, in address order,
+    # so a frame two LEDs lit says both. A lit address no layer names is
+    # left out, as every board address is.
+    illumination_by_channel_ma = {
+        key: round(ma, common_utils.max_decimal_precision('illumination'))
+        for address, ma in sorted(frame_record.illumination_ma.items())
+        if (key := identity.key_at(address)) is not None
+    }
 
     metadata = {
-        'camera_make': 'Etaluma',
-        'microscope': microscope_model,
-        'microscope_model': microscope_model,
-        'software': f'LumaViewPro {version}',
         'channel': channel,
-        **({'channel_display': record.display_name} if record is not None else {}),
+        # What the channel is called wherever it is shown: a fluorescence
+        # layer's excitation, any other layer's name on this unit.
+        **({'channel_display': record.label} if record is not None else {}),
         **(
             {'excitation_nm': record.excitation_nm}
             if record is not None and record.excitation_nm is not None
             else {}
         ),
         **({'filterset': identity.filterset} if identity.filterset else {}),
-        'datetime': captured_at.strftime('%Y:%m:%d %H:%M:%S'),
-        'sub_sec_time': f'{captured_at.microsecond // 1000:03d}',
-        'objective': objective,
-        'focal_length': objective['focal_length'],
+        'datetime': captured_at,
+        # The objective under its own field names, each naming its unit; a
+        # measurement the catalogue does not hold is absent.
+        'objective': {
+            field: value for field, value in objective.to_dict().items() if value is not None
+        },
         **_position_fields,
         **_frame_settings,
         # An LED that was off for the grab, or on an absent board, has no
         # drive current -- a normal state for dark and luminescence
         # captures, so the key is simply absent (no warning, unlike the
-        # exposure/gain omissions, which indicate a failed read).
+        # exposure/gain omissions, which indicate a failed read). The
+        # frame records currents by address; the channel's record names its address.
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
-            if (_ma := frame_record.illumination_ma.get(channel)) is not None
+            if record is not None
+            and record.led_addresses
+            and (_ma := frame_record.illumination_ma.get(record.led_addresses[0])) is not None
             else {}
         ),
+        **(
+            {'illumination_by_channel_ma': illumination_by_channel_ma}
+            if illumination_by_channel_ma
+            else {}
+        ),
+        # When the currents were read: before a still's grab, or as a
+        # recorded frame arrived, after its exposure.
+        'illumination_timing': frame_record.illumination_timing.value,
         'frames_summed': frame_record.frames_summed,
         'binning_size': frame_record.binning_size,
         'pixel_size_um': pixel_size_um,
-        # Zero-well labware (Blank) has no well: omit the key rather than
-        # stamp an empty or fabricated label, mirroring the no-scale idiom
-        # above -- a fake well is measured off the file forever.
-        **({'well_label': well_label} if well_label else {}),
         'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
-        'instrument': {
-            'manufacturer': 'Etaluma',
-            'model': microscope_model,
-            'serial_number': motor_info.get('serial_number'),
-            'camera_model': frame_record.camera_model,
-        },
-        'plate': {
-            'name': microscope_model or 'Plate',
-            'rows': plate_config.get('rows'),
-            'columns': plate_config.get('columns'),
-            'standard': plate_config.get('standard'),
-        },
+        'timestamp_source': frame_record.captured_at.source.value,
+        # A value the scope or the catalogue did not give is absent from the
+        # record itself, so every container reads back the same record.
+        'instrument': image_utils.stated_fields(
+            manufacturer='Etaluma',
+            model=microscope_model,
+            serial_number=motor_info.serial_number,
+            camera_model=frame_record.camera_model,
+        ),
+        # Labware with no wells (Blank) is no plate. A well is a place on
+        # the plate, so it is stated inside it, and only when there is one:
+        # an empty or fabricated label is measured off the file forever.
+        **(
+            {
+                'plate': image_utils.stated_fields(
+                    name=labware.name,
+                    rows=labware.rows,
+                    columns=labware.columns,
+                    standard=labware.standard,
+                    well_label=well_label,
+                )
+            }
+            if labware.rows and labware.columns
+            else {}
+        ),
     }
 
     # Camera-side timestamp and frame id, where the camera stamps them
@@ -482,6 +522,25 @@ def generate_image_metadata(
         metadata['timestamp_camera_tick_hz'] = frame_record.camera_tick_hz
     if frame_record.frame_id is not None:
         metadata['frame_id'] = frame_record.frame_id
+    # Whether the frame counts for each change, and how long after it came.
+    if frame_record.judgments:
+        metadata['frame_validity'] = [j.fields() for j in frame_record.judgments]
+    # What the capture found the frame to be, where it judged: a dark file
+    # otherwise reads as any other black image, a blown one as a bright field.
+    if frame_record.saturated_fraction is not None:
+        metadata['saturated_fraction'] = frame_record.saturated_fraction
+    if frame_record.dark is not None:
+        metadata['dark'] = frame_record.dark
+    # Whether the camera held a layer's stored settings for the frame, and
+    # which: a frame taken after a script's raw gain or exposure write says
+    # it held none, rather than leaving the reader to guess.
+    metadata['camera_held_a_channel'] = frame_record.held_channel is not None
+    # A frame taken where a failed autofocus left the stage says so: the
+    # run's outcome names the step, but the file travels without it.
+    if fallback_focus is not None:
+        metadata['fallback_focus'] = fallback_focus
+    if frame_record.held_channel is not None:
+        metadata['camera_held_channel'] = frame_record.held_channel
 
     return metadata
 
@@ -505,7 +564,7 @@ def prepare_image_for_saving(
     file_root: str,
     append: str,
     tail_id_mode: str,
-    output_format: str,
+    output_format: image_mode.OutputFormat,
     plate_x_mm: float | None,
     plate_y_mm: float | None,
     stage_z_um: float | None,
@@ -514,8 +573,9 @@ def prepare_image_for_saving(
     significant_bits: int,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -548,7 +608,7 @@ def prepare_image_for_saving(
         objective_id: The objective in the light path when the frame was
             taken, for the same reason (see ``generate_image_metadata``).
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.
@@ -558,6 +618,10 @@ def prepare_image_for_saving(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
@@ -572,6 +636,7 @@ def prepare_image_for_saving(
         frame_record=frame_record,
         labware=labware,
         well_label=well_label,
+        fallback_focus=fallback_focus,
     )
 
     metadata['significant_bits'] = significant_bits
@@ -597,7 +662,7 @@ def prepare_image_for_saving(
 
 def save_image(
     scope: Lumascope,
-    array: np.ndarray | None,
+    array: np.ndarray,
     save_folder: pathlib.Path | str = './capture',
     file_root: str = 'img_',
     append: str = 'ms',
@@ -605,8 +670,9 @@ def save_image(
     *,
     channel: str,
     false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
     save_encoding: str,
-    output_format: str = 'TIFF',
+    output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
     plate_x_mm: float | None = None,
     plate_y_mm: float | None = None,
     stage_z_um: float | None = None,
@@ -614,10 +680,12 @@ def save_image(
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
     significant_bits: int,
+    white_bits: int | None,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
 
@@ -634,6 +702,8 @@ def save_image(
         false_color_on: Whether the channel's false-color toggle was on --
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
+        channel_colors: Every layer's colour, from the Session's one read
+            of it; the channel's is the one it is shown in.
         output_format: "TIFF", "OME-TIFF", or "JPG".
         plate_x_mm: Plate X position in mm -- the frame the file records, and
             the frame the caller must supply. Named for its frame because the
@@ -651,11 +721,17 @@ def save_image(
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
         significant_bits: Payload depth the frame was captured at.
+        white_bits: The depth whose full scale is white in ``array``: one
+            frame's depth for a capture, below ``significant_bits`` for a sum.
+            None for an array already rendered for display (an overlay), shown
+            at its depth. Required, from the caller: the frame record
+            describes the frame, and an overlay saved beside it is not that
+            frame.
         objective_id: The objective in the light path when the frame was
             taken; recorded as the file's scale. Required: read by the
             caller when it takes the frame, never at save time.
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.
@@ -665,41 +741,39 @@ def save_image(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         pathlib.Path: Path to the saved file.
 
     Raises:
-        CaptureFailedError: ``'no_frame_returned'``, if ``array`` is None (camera silent-stuck or
-            grab-timeout). Surfaces to IOTask popup with a user-friendly
-            message instead of a raw AttributeError downstream.
+        ArgumentRefusedError: ``'wrong_kind'``, if ``array`` is None. A capture
+            that got no frame raises rather than answering None, so None here
+            is a caller's defect, refused before anything is written.
         ImageSaveError: The file could not be written (a missing or
             read-only folder, a full disk), chained from the ``OSError``.
             Any other failure propagates as itself.
     """
-    # Camera silent-stuck or grab-timeout produces None; raise typed
-    # exception so the IOTask popup carries a user-friendly message
-    # instead of a raw AttributeError. The deeper recovery work
-    # (camera reset / USB reset on persistent stuck) lives elsewhere.
     if array is None:
-        raise CaptureFailedError(
-            'Camera did not return an image. The capture was skipped; '
-            'the protocol will retry on the next step.',
-            'no_frame_returned',
+        raise ArgumentRefusedError(
+            'wrong_kind', argument='array', value=None, takes='an image array'
         )
 
     # The one place the two facts meet, and they meet on the rendering side
-    # only. A channel with false color off is drawn like brightfield; it is
-    # still that channel, and the metadata below says so.
-    render_color = channel if false_color_on else 'BF'
+    # only. A channel with false color off is drawn grey; it is still that
+    # channel, and the metadata below says so.
+    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
 
-    if output_format == 'JPG':
-        # JPG is a convenience / sharing export: no metadata is embedded
-        # and the pixels come from the raw array (to match the live
-        # preview), so skip prepare_image_for_saving. Its
-        # generate_image_metadata step requires objective / labware to be
-        # configured, which an ad-hoc JPG snapshot taken before a protocol
-        # is set up has no reason to need. Only the save path is required.
+    if output_format == image_mode.OutputFormat.JPG:
+        # JPG is a convenience / sharing export: the pixels come from the
+        # raw array (to match the live preview) and the file has no place
+        # for the metadata a TIFF carries, so skip prepare_image_for_saving.
+        # A manual still states what the file cannot in the record its
+        # capture returns (manual_capture.SavedStill). Only the save path
+        # is required.
         image = None
         metadata = None
         file_loc = generate_image_save_path(
@@ -728,15 +802,16 @@ def save_image(
             frame_record=frame_record,
             labware=labware,
             well_label=well_label,
+            fallback_focus=fallback_focus,
         )
         image = image_data['image']
         metadata = image_data['metadata']
         file_loc = metadata['file_loc']
 
-    ome = output_format == 'OME-TIFF'
+    ome = output_format == image_mode.OutputFormat.OME_TIFF
 
     try:
-        if output_format == 'JPG':
+        if output_format == image_mode.OutputFormat.JPG:
             # Convenience / sharing export: bake the displayed channel
             # color into 8-bit pixels and write a JPEG. Shares the
             # orientation convention with the TIFF path via
@@ -751,7 +826,7 @@ def save_image(
                 _apply_save_orientation(array),
                 render_color,
                 significant_bits=significant_bits,
-                white_bits=frame_record.frame_significant_bits,
+                white_bits=white_bits,
                 jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
@@ -764,6 +839,7 @@ def save_image(
                 color=render_color,
                 significant_bits=metadata['significant_bits'],
                 save_encoding=save_encoding,
+                white_bits=white_bits,
                 false_color_buf=false_color_buf,
                 rgb_buf=rgb_buf,
             )

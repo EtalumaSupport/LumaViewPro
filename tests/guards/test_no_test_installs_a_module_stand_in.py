@@ -30,9 +30,9 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import Packages, iter_package_modules
 
-PRODUCTION_ROOTS = frozenset({'modules', 'ui', 'drivers', 'lumaviewpro'})
+PRODUCTION_ROOTS = Packages({'modules', 'ui', 'drivers', 'lumaviewpro'})
 EXEMPT = frozenset(
     {
         'tests/conftest.py',

@@ -62,12 +62,12 @@ def test_a_problem_names_the_same_id_its_log_line_does(client, caplog):
     assert 'GET /api/v1/no_such_member -> 404' in record.getMessage()
 
 
-def test_a_body_refused_before_any_route_is_logged_too(client, caplog):
+def test_a_body_refused_by_its_route_is_logged_too(client, caplog):
     caplog.set_level(logging.INFO, logger='lvp_logger.rest')
 
     answer = client.post(
-        '/api/v1/scope/illumination/leds_off',
-        content=b'x',
+        '/api/v1/scope/illumination/led_off',
+        content=b'channel=BF',
         headers={'Content-Type': 'text/plain'},
     )
 

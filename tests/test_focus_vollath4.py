@@ -53,6 +53,26 @@ def test_einsum_equals_explicit_multiply():
     assert focus_vollath4_original(image) == s1 - s2
 
 
+def test_a_frame_that_is_not_8_bit_is_refused_not_scored():
+    # A 12-bit frame in its 16-bit container: its clipped pixels read 4095,
+    # which the saturation mask (255 is full scale) would score as signal.
+    rng = np.random.default_rng(3)
+    native = rng.integers(0, 4096, size=(64, 64), dtype=np.uint16)
+    native[:8] = 4095
+    with pytest.raises(ValueError, match='8-bit frames, got uint16'):
+        af.focus_function(native)
+
+
+def test_autofocus_judges_a_frame_by_its_centre_quarter():
+    # Detail outside the centre quarter changes nothing autofocus scores.
+    rng = np.random.default_rng(5)
+    textured = rng.integers(0, 200, size=(80, 120), dtype=np.uint8)
+    framed = np.zeros_like(textured)
+    framed[20:60, 30:90] = textured[20:60, 30:90]
+    assert af.autofocus_score(framed) == af.autofocus_score(textured)
+    assert af.autofocus_score(textured) == af.focus_function(textured[20:60, 30:90])
+
+
 def test_default_focus_function_is_numpy():
     # The module default must be the numpy implementation (numba is gone).
     assert af._focus_function is focus_vollath4_original

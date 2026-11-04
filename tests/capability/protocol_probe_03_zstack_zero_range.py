@@ -10,16 +10,16 @@ from harness import make_session, banner
 session, live = make_session(
     'zszero',
     home=True,
-    zstack={'step_size': 0, 'range': 0, 'position': 'Current Position at Center'},
+    zstack={'step_size': 0, 'range': 0, 'position': 'center'},
 )
 try:
     from modules.protocol_runner import ProtocolRunner
 
     runner = ProtocolRunner(session)
-    banner('run_zstack with range=0 step_size=0')
+    banner('start_zstack with range=0 step_size=0')
     try:
-        outcome = runner.run_zstack(layer='BF')
-        settled = outcome.wait(timeout_s=120)
+        outcome = runner.start_zstack(channel='BF')
+        settled = outcome.result(timeout=120)
         print('NO RAISE. status:', settled.status, settled.reason, '|', settled.message)
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e}')

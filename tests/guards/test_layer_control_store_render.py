@@ -50,7 +50,7 @@ import ast
 import pathlib
 import re
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 
 
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
@@ -62,7 +62,7 @@ KV_LINES = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text(encoding='utf-8').spl
 
 RENDERER = 'render_layer_values_from_settings'
 PRIMITIVE = '_show_value_on_widgets'
-VALUE_SLIDERS = ('ill_slider', 'gain_slider', 'exp_slider')
+VALUE_SLIDERS = MemberNames('ui/layer_control.py', {'ill_slider', 'gain_slider', 'exp_slider'})
 UI_SOURCES = sorted(p for p in (REPO_ROOT / 'ui').rglob('*.py'))
 
 
@@ -177,27 +177,28 @@ def _assigned_subscript_attrs(node: ast.AST, attr: str) -> set[str]:
     return found
 
 
+def _text_box_writes(fn) -> list[ast.Assign]:
+    """Every `self.ids[text_id].text = ...` in *fn*."""
+    return [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign)
+        and any(ast.unparse(t) == 'self.ids[text_id].text' for t in n.targets)
+    ]
+
+
 class TestThePrimitiveIsTheOneWriter:
     """One home for "show this value on its slider and its text box"."""
 
     def test_it_writes_both_widgets(self):
+        """The slider through the writer that leaves a drag alone; the box by
+        assignment, which a box being typed in holds until it is left."""
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
-        slider_writes = [
-            n
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'value'
-        ]
-        text_writes = [
-            n
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'text'
-        ]
-        assert len(slider_writes) == 1, f'{PRIMITIVE} must write the slider exactly once.'
-        assert len(text_writes) == 1, f'{PRIMITIVE} must write the text box exactly once.'
+        calls = [ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)]
+        assert calls.count('show_on_slider') == 1, (
+            f'{PRIMITIVE} must write the slider exactly once.'
+        )
+        assert len(_text_box_writes(fn)) == 1, f'{PRIMITIVE} must write the text box exactly once.'
 
     def test_the_slider_is_clipped_and_the_text_is_not(self):
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
@@ -206,13 +207,7 @@ class TestThePrimitiveIsTheOneWriter:
             'The slider must take the nearest position it can represent, clipped to '
             'its OWN range -- a stored value above a convenience ceiling pins it.'
         )
-        written_to_text = {
-            ast.unparse(n.value)
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'text'
-        }
+        written_to_text = {ast.unparse(n.value) for n in _text_box_writes(fn)}
         assert written_to_text == {'str(value)'}, (
             'The text box must show the stored value itself, unclipped and uncast; '
             'anything else is the display reverting to the slider, which is the bug. '
@@ -327,7 +322,7 @@ class TestTheRendererRendersTheStore:
         )
 
 
-class TestTheReconcileRendersAndAppliesWithoutTouchingTheStore:
+class TestTheReconcileRendersWithoutTouchingTheStore:
     def test_it_writes_neither_stored_value(self):
         # The store is the user's intent and outlives the attached camera;
         # the cap belongs on what is written to hardware, which the API owns.
@@ -343,13 +338,12 @@ class TestTheReconcileRendersAndAppliesWithoutTouchingTheStore:
         }
         assert written == set(), f'reconcile must not write the store; found {sorted(written)}'
 
-    def test_it_renders_and_applies_explicitly(self):
+    def test_it_renders_and_leaves_the_camera_to_the_session(self):
         fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
         assert _calls(fn, RENDERER), 'The reconcile must re-render both widgets from the store.'
-        assert _calls(fn, 'apply_settings'), (
-            'The reconcile must deliver to the camera itself. It used to '
-            'arrive only as the debounced side effect of the slider write, which was the '
-            'only apply on the reconnect path.'
+        assert not _calls(fn, 'apply_settings'), (
+            'The Session caps each value as it puts a layer on the camera, and '
+            'bring-up has put the shown layer there: the reconcile applies nothing.'
         )
 
     def test_load_settings_reconciles_before_anything_renders(self):

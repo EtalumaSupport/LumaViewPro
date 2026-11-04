@@ -30,10 +30,11 @@ new member fails here until someone decides which it is.
 import ast
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import MemberNames, Words, iter_package_modules, parse_module
 
 # Public members of Protocol that change the protocol.
-WRITERS = frozenset(
+WRITERS = MemberNames(
+    'modules/protocol.py',
     {
         'adopt_focus_from',
         'apply_focus_all_layer_steps',
@@ -51,48 +52,53 @@ WRITERS = frozenset(
         'modify_step_z_height',
         'modify_time_params',
         'optimize_step_ordering',
-    }
+        'set_turret_slot',
+    },
 )
 
 # Public members of Protocol that do not change it: readers, constructors,
 # file output, and helpers.
-NOT_WRITERS = frozenset(
+NOT_WRITERS = MemberNames(
+    'modules/protocol.py',
     {
         'capture_prefix',
         'capture_root',
+        'channel_settings',
         'copy_for_execution',
         'create_empty',
-        'duration',
+        'duration_s',
         'estimate_write_mb',
         'from_config',
         'from_file',
-        'labware',
+        'has_saved_layer_settings',
+        'labware_id',
         'layer_acquires',
-        'layer_settings',
+        'new_channel_group_id',
+        'num_scans',
         'num_steps',
-        'period',
+        'period_s',
+        'refuse_unbuildable_zstack',
         'sanitize_step_name',
         'size_advisory',
-        'step',
         'step_list_revision',
+        'step_records',
+        'step_row',
         'steps',
         'tiling',
         'to_file',
         'validate_for_run',
         'validate_steps',
         'valid_colors',
-        'zstack_group_focus_anchor',
-    }
+        'focus_sweep_step',
+    },
 )
 
 _STEPS_WRITE = 'steps()[...] ='
 
 # Pinned at the tree that first counted them (fifteen writer calls and one
-# write into the live frame), lowered as each edit moved behind the API.
-_PIN = {
-    ('ui/protocol_settings.py', 'modify_capture_root'): 1,
-    ('ui/protocol_settings.py', 'modify_time_params'): 1,
-}
+# write into the live frame), lowered as each edit moved behind the API;
+# zero since the schedule and the capture root became Session members.
+_PIN: dict[tuple[str, str], int] = {}
 
 
 def _not_self(receiver: ast.expr) -> bool:
@@ -100,7 +106,7 @@ def _not_self(receiver: ast.expr) -> bool:
 
 
 # The receivers that are the API: ``ctx.session``, ``scope.protocols``.
-_API_RECEIVERS = frozenset({'session', 'protocols'})
+_API_RECEIVERS = Words({'session', 'protocols'})
 
 
 def _is_api(receiver: ast.expr) -> bool:
@@ -164,14 +170,21 @@ def test_every_public_protocol_member_is_classified():
 
 
 def test_the_gui_makes_no_new_protocol_edit():
-    assert _gui_protocol_edit_counts() == _PIN
+    counts = _gui_protocol_edit_counts()
+    _ratchets.observe(
+        'GUI: protocol edits made outside the API',
+        sum(counts.values()),
+        sum(_PIN.values()),
+        'equal',
+    )
+    assert counts == _PIN
 
 
 def test_the_census_sees_each_shape_of_edit():
     source = (
         'def f(self, protocol):\n'
-        '    self._protocol.delete_step(step_idx=0)\n'
-        '    protocol.modify_name(step_idx=0, step_name="a")\n'
+        '    self._protocol.delete_step(step_index=0)\n'
+        '    protocol.modify_name(step_index=0, step_name="a")\n'
         '    sequence.modify_autofocus_all_steps(enabled=True)\n'
         "    self._protocol.steps()['Z'] = 1\n"
         "    self._protocol.steps().loc[0, 'Z'] = 1\n"
@@ -186,11 +199,3 @@ def test_the_census_sees_each_shape_of_edit():
         'modify_autofocus_all_steps': 1,
         _STEPS_WRITE: 2,
     }
-
-
-_ratchets.register(
-    'GUI: protocol edits made outside the API',
-    lambda: sum(_gui_protocol_edit_counts().values()),
-    sum(_PIN.values()),
-    'equal',
-)

@@ -20,13 +20,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
-from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
+from modules.exceptions import (
+    FileWriterNotStuckError,
+    FileWriterStalledError,
+    Notice,
+    RunFilesNotWrittenError,
+)
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
-from tests.af_drives import af_runner_and_scope, drive_af
+from tests.af_drives import af_runner_on, sweep
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from modules.layer_record import release_colors
 
 WAIT_S = 30.0
 
@@ -46,12 +53,12 @@ def _hold_saves(monkeypatch):
 
 
 def _finish_one_run(runner, run_parent, name, events=None):
-    outcome = runner.run_single_scan(
+    outcome = runner.start_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
         events=events,
     )
-    result = outcome.wait(timeout_s=WAIT_S)
+    result = outcome.result(timeout=WAIT_S)
     assert result is not None and result.status == 'completed', result
     assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
 
@@ -75,10 +82,10 @@ class TestRecoveringAStuckWriter:
             time.sleep(0.5)
             assert session.protocol_files_stalled
 
-            abandoned = session.recover_file_writer()
+            abandoned = session.apply_remedy(FileWriterStalledError.recovery(1))
 
             assert abandoned == 1
-            assert not session.protocol_files_draining
+            assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
             deadline = time.monotonic() + WAIT_S
             while not files and time.monotonic() < deadline:
                 time.sleep(0.02)
@@ -103,7 +110,7 @@ class TestRecoveringAStuckWriter:
             assert started.acquire(timeout=WAIT_S)
 
             with pytest.raises(FileWriterNotStuckError) as refused:
-                session.recover_file_writer()
+                session.apply_remedy(FileWriterStalledError.recovery(1))
 
             assert refused.value.reason == 'file_writer_not_stuck'
             assert refused.value.pending == 1
@@ -163,7 +170,7 @@ class TestShuttingDownWithImagesStillWriting:
         monkeypatch.setattr(protocol_image_writer, 'WRITE_BACKLOG_BOUND', 1)
         release, started, _real_save = _hold_saves(monkeypatch)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_protocol([_step(f'C{i}', i, x=20.0, gain=1.0) for i in range(4)]),
                 parent_dir=str(tmp_path / 'runs'),
             )
@@ -178,18 +185,20 @@ class TestShuttingDownWithImagesStillWriting:
 
 
 class TestALateAutofocusSave:
-    def test_it_is_refused_reported_and_never_blocks_the_restore(self, tmp_path, monkeypatch):
+    def test_it_is_refused_reported_and_never_blocks_the_restore(
+        self, sim_scope, tmp_path, monkeypatch
+    ):
         import modules.autofocus_runner as autofocus_runner
 
         warned = []
         monkeypatch.setattr(
             autofocus_runner.logger, 'warning', lambda msg, *a, **k: warned.append(msg)
         )
-        runner, _scope = af_runner_and_scope()
+        runner = af_runner_on(sim_scope)
         batch = RunWriteBatch(MagicMock())
         batch.close()
 
-        drive_af(runner, save_results_to_file=True, results_dir=tmp_path, write_batch=batch)
+        sweep(runner, sim_scope, save_results_to_file=True, results_dir=tmp_path, write_batch=batch)
 
         assert any(
             'Autofocus data not saved: The autofocus data was not saved' in m for m in warned
@@ -197,11 +206,11 @@ class TestALateAutofocusSave:
         assert runner.saved_data_path() is None
         assert batch.pending == 0
 
-    def test_a_save_without_its_runs_batch_cannot_be_asked_for(self, tmp_path):
-        runner, _scope = af_runner_and_scope()
+    def test_a_save_without_its_runs_batch_cannot_be_asked_for(self, sim_scope, tmp_path):
+        runner = af_runner_on(sim_scope)
 
         with pytest.raises(ValueError, match="run's write batch"):
-            drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
+            sweep(runner, sim_scope, save_results_to_file=True, results_dir=tmp_path)
 
 
 class TestNothingBuildsFromAFolderMissingImages:
@@ -219,7 +228,9 @@ class TestNothingBuildsFromAFolderMissingImages:
 
         processor.assert_not_called()
 
-    def test_the_hyperstack_build_says_why_and_builds_nothing(self, monkeypatch, tmp_path):
+    def test_the_hyperstack_build_says_why_and_builds_nothing(
+        self, monkeypatch, tmp_path, post_processing
+    ):
         import modules.stack_builder as stack_builder
         from modules.notification_center import notifications
 
@@ -233,16 +244,20 @@ class TestNothingBuildsFromAFolderMissingImages:
         def _abandoned():
             raise RunFilesNotWrittenError('write_batch_abandoned')
 
+        answered = threading.Event()
         stack_builder.build_hyperstacks_for_run(
-            run_dir=tmp_path,
-            has_turret=False,
-            tiling_configs_file_loc=tmp_path / 'tiling.json',
-            wait_for_images=_abandoned,
-            save_encoding='8bit',
+            lambda: post_processing.run_hyperstack(
+                tmp_path,
+                save_encoding='8bit',
+                channel_colors=release_colors(),
+                written=_abandoned,
+            ),
+            answered.set,
         )
 
+        assert answered.wait(5.0), 'the build was never answered'
         loaded.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
         [(ex, kw)] = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]
         assert ex.reason == 'write_batch_abandoned'
-        assert kw['fault_title'] == 'Hyperstacks Not Saved'
+        assert kw['untyped_title'] == 'Hyperstacks Not Saved'

@@ -17,6 +17,7 @@ import numpy as np
 import tifffile as tf
 
 from modules import image_utils
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -56,7 +57,7 @@ def _structured_metadata(missing: str | None = None, missing_top: str | None = N
     top = {
         'Plane': plane,
         'PhysicalSizeX': 0.5,
-        'Channel': {'Name': ['Blue']},
+        'Channel': {'Name': [LED0]},
     }
     if missing_top is not None:
         top.pop(missing_top, None)
@@ -64,16 +65,16 @@ def _structured_metadata(missing: str | None = None, missing_top: str | None = N
 
 
 class TestMetadataReadRobustness:
-    """#8: read_postproc_input_metadata returns None on an incomplete
+    """#8: read_file_record returns None on an incomplete
     structured TIFF instead of raising KeyError mid-postproc."""
 
     def test_complete_structured_tiff_returns_metadata(self, tmp_path):
         p = tmp_path / 'complete.tiff'
         tf.imwrite(str(p), np.zeros((4, 4), dtype=np.uint16), metadata=_structured_metadata())
-        out = image_utils.read_postproc_input_metadata(p)
+        out = image_utils.read_file_record(p)
         assert out is not None
         assert out['exposure_time_ms'] == 10.0
-        assert out['channel'] == 'Blue'
+        assert out['channel'] == LED0
 
     def test_missing_acquisition_key_returns_none_not_keyerror(self, tmp_path):
         p = tmp_path / 'partial.tiff'
@@ -89,7 +90,7 @@ class TestMetadataReadRobustness:
             metadata=_structured_metadata(missing_top='Channel'),
         )
         # Must not raise; None, and the derived output states nothing it read.
-        assert image_utils.read_postproc_input_metadata(p) is None
+        assert image_utils.read_file_record(p) is None
 
     def test_a_plane_missing_only_its_position_still_recovers(self, tmp_path):
         """The reversal, and the reason for it: a capture with no coordinate
@@ -103,11 +104,11 @@ class TestMetadataReadRobustness:
             plane_without_position['Plane'].pop(key)
         tf.imwrite(str(p), np.zeros((4, 4), dtype=np.uint16), metadata=plane_without_position)
 
-        out = image_utils.read_postproc_input_metadata(p)
+        out = image_utils.read_file_record(p)
 
         assert out is not None
         assert out['pixel_size_um'] == 0.5
-        assert out['channel'] == 'Blue'
+        assert out['channel'] == LED0
         assert out['exposure_time_ms'] == 10.0
         assert 'plate_pos_mm' not in out
         assert 'z_pos_um' not in out
@@ -163,8 +164,8 @@ class TestJpgSkipsMetadata:
         src = _method_src('modules/image_save.py', None, 'save_image')
         # The JPG branch must compute the path directly; prepare_image_for_saving
         # (which calls generate_image_metadata) is the else branch only.
-        assert "if output_format == 'JPG':" in src
-        jpg_idx = src.find("if output_format == 'JPG':")
+        assert 'if output_format == image_mode.OutputFormat.JPG:' in src
+        jpg_idx = src.find('if output_format == image_mode.OutputFormat.JPG:')
         prepare_idx = src.find('prepare_image_for_saving', jpg_idx)
         save_path_idx = src.find('generate_image_save_path', jpg_idx)
         assert save_path_idx != -1, 'JPG branch must call generate_image_save_path.'

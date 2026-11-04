@@ -9,6 +9,8 @@ act on one value while the settings say another; a reader gets a copy, and
 a plate transform keeps the frame it was bound in.
 """
 
+import dataclasses
+
 import pytest
 
 from modules.exceptions import ConfigError
@@ -30,30 +32,34 @@ class TestAWriteIsWhatTheScopeActsOn:
     def test_the_labware(self, session):
         other = next(
             name
-            for name in session.wellplate_loader.get_plate_list()
+            for name in session.scope.wellplate_loader.get_plate_list()
             if name != session.settings['protocol']['labware']
         )
         session.select_labware(other)
-        assert session.scope.runtime_state.get_labware().config == (
-            session.wellplate_loader.get_plate(plate_key=other).config
-        )
+        assert session.scope.runtime_state.get_labware() == session.scope.labware[other]
 
     def test_the_stage_offset(self, session):
         session.update_settings('stage_offset.x', 11000.0)
-        assert session.scope.runtime_state.get_stage_offset()['x'] == 11000.0
+        assert session.scope.runtime_state.get_stage_offset().x_um == 11000.0
 
-    def test_the_turret_map(self, session):
-        objective = session.objective_helper.get_objectives_list()[0]
-        session.assign_turret_objective(2, objective)
-        assert session.scope.runtime_state.get_turret_config()[2] == objective
-        session.clear_turret_objective(2)
-        assert session.scope.runtime_state.get_turret_config()[2] is None
+    def test_the_turret_map(self, tmp_path):
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        )
+        try:
+            objective = session.scope.objective_helper.get_objectives_list()[0]
+            session.assign_turret_objective(2, objective)
+            assert session.scope.runtime_state.get_turret_config()[2] == objective
+            session.clear_turret_objective(2)
+            assert session.scope.runtime_state.get_turret_config()[2] is None
+        finally:
+            session.shutdown()
 
     def test_the_objective_with_no_turret(self, session):
-        assert not session.scope.runtime_state.is_turreted()
+        assert not session.scope.capabilities.has_turret
         objective = next(
             o
-            for o in session.objective_helper.get_objectives_list()
+            for o in session.scope.objective_helper.get_objectives_list()
             if o != session.settings['objective_id']
         )
         session.select_objective(objective)
@@ -62,26 +68,24 @@ class TestAWriteIsWhatTheScopeActsOn:
     def test_the_scale_bar(self, session):
         for enabled in (True, False):
             session.set_scale_bar(enabled)
-            assert session.scope.imaging.scale_bar_config['enabled'] is enabled
+            assert session.scale_bar_enabled is enabled
 
 
-def test_the_live_views_colour_write_never_changes_whether_the_bar_is_drawn(session):
-    # The live view sets the colour on every frame; a toggle between two of
-    # those writes used to be undone in the overlay and not in the settings.
-    session.set_scale_bar(True)
-    session.scope.imaging.set_scale_bar_color('Red')
-    session.set_scale_bar(False)
-    session.scope.imaging.set_scale_bar_color('BF')
-    assert session.scope.imaging.scale_bar_config == {'enabled': False, 'color': 'BF'}
-    assert session.settings['scale_bar']['enabled'] is False
-
-
-def test_changing_what_a_getter_returned_changes_no_setting(session):
-    state = session.scope.runtime_state
-    state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
-    state.get_stage_offset()['x'] = 0.0
-    assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
-    assert session.settings['stage_offset']['x'] != 0.0
+def test_changing_what_a_getter_returned_changes_no_setting(tmp_path):
+    # A turreted scope: with no turret the map read answers an empty map,
+    # which no write to could reach the stored slots.
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+    )
+    try:
+        state = session.scope.runtime_state
+        state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            state.get_stage_offset().x_um = 0.0
+        assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
+        assert session.settings['stage_offset']['x'] != 0.0
+    finally:
+        session.shutdown()
 
 
 def test_a_bound_plate_transform_keeps_its_frame(session):
@@ -99,17 +103,5 @@ def test_a_scope_no_session_bound_refuses_each_read_by_name():
         for read in (state.get_labware, state.get_stage_offset, state.get_turret_config):
             with pytest.raises(ConfigError, match='ScopeSession'):
                 read()
-        with pytest.raises(ConfigError, match='ScopeSession'):
-            scope.imaging.scale_bar_config  # noqa: B018 -- the read is the subject
     finally:
         scope.disconnect()
-
-
-def test_a_second_session_leaves_the_scope_reading_the_first(session):
-    # The lanes refuse a second session over one scope before it binds, so
-    # the scope never acts on settings nobody can see.
-    other = complete_settings(live_folder=session.settings['live_folder'])
-    other['stage_offset'] = {'x': 1.0, 'y': 2.0}
-    with pytest.raises(RuntimeError, match='already asks an activity claim'):
-        ScopeSession.create(other, scope=session.scope)
-    assert session.scope.runtime_state.get_stage_offset() == session.settings['stage_offset']

@@ -12,8 +12,18 @@ from modules.exceptions import RecordIncompleteError
 
 class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
-    CURRENT_VERSION = 3
+    # v4 states each row's time with its UTC offset (``TIMESTAMP_FORMAT``);
+    # a v2 or v3 row's time states none and is read as written.
+    CURRENT_VERSION = 4
     DEFAULT_FILENAME = 'protocol_record.tsv'
+    # A row's time is written in this one form, with microseconds always: the
+    # text a datetime gives on its own drops them on a whole second, which a
+    # reader of one fixed form refuses. The offset is the time's own: a time
+    # that states none, an older run's carried into a later record, is
+    # written as it was. read_timestamp reads it back.
+    TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f%z'
+    # The Filename of a capture taken with saving off: no file, by request.
+    UNSAVED = 'unsaved'
     # 'Scan Count' is the CONTRACT for the temporal ordinal everywhere a
     # post-processing dataframe carries the column: which pass through
     # the protocol produced this capture. Post-processing consumers
@@ -77,7 +87,7 @@ class ProtocolExecutionRecord:
 
     def _initialize_outfile(self, outfile: pathlib.Path):
         """Create file with header. Each add_step will append separately."""
-        with open(outfile, 'w', newline='') as fp:
+        with open(outfile, 'w', newline='', encoding='utf-8') as fp:
             csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
             csv_writer.writerow([self.FILE_HEADER])
             csv_writer.writerow(['Version', self.CURRENT_VERSION])
@@ -135,7 +145,7 @@ class ProtocolExecutionRecord:
         timestamp: datetime.datetime,
         frame_count: int = 1,
         duration_sec: float = 0.0,
-    ):
+    ) -> None:
         if self._mode != 'to_file':
             raise Exception(
                 "add_step() can only be called when the instance is initialized with an 'outfile'."
@@ -149,7 +159,7 @@ class ProtocolExecutionRecord:
             return
 
         try:
-            with open(self._outfile, 'a', newline='') as fp:
+            with open(self._outfile, 'a', newline='', encoding='utf-8') as fp:
                 csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
                 csv_writer.writerow(
                     [
@@ -157,7 +167,7 @@ class ProtocolExecutionRecord:
                         step_name,
                         step_index,
                         scan_count,
-                        timestamp,
+                        timestamp.strftime(self.TIMESTAMP_FORMAT),
                         frame_count,
                         duration_sec,
                     ]
@@ -167,6 +177,22 @@ class ProtocolExecutionRecord:
             self._rows_written += 1
         except Exception as e:
             logger.error(f'ProtocolExecutionRecord: Failed to write step {step_name}: {e}')
+
+    @staticmethod
+    def read_timestamp(stated: str) -> datetime.datetime:
+        """The time a record row states, as written: with its offset when the
+        row states one, naive when it does not.
+
+        Read cell by cell, so rows that state different offsets (a run across
+        a daylight-saving change), or an offset beside none (rows from either
+        side of an upgrade), each keep their own instant; a time a row wrote
+        without an offset is never given one. A whole second's time without
+        microseconds reads too, as older records wrote it.
+
+        Raises:
+            ValueError: the cell is not a time in ISO 8601 form.
+        """
+        return datetime.datetime.fromisoformat(stated)
 
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
         record = self._records.loc[self._records['Filename'] == str(file_path)]
@@ -179,6 +205,25 @@ class ProtocolExecutionRecord:
             'Scan Count': first_row['Scan Count'],
             'Timestamp': first_row['Timestamp'],
         }
+
+    def saved_entries(self) -> list[dict]:
+        """Every row of a capture the run meant to save, in record order.
+
+        Each is the row's ``Filename``, ``Step Index``, ``Scan Count``,
+        ``Timestamp`` and ``Frame Count``, and ``No File``: None for a row
+        naming the file its capture saved, else the reason word the run wrote
+        in the file's place (``capture_failed``, ``save_failed``,
+        ``video_<end_reason>``, ...). A row naming a file counts at least one
+        frame; a row for a capture that left no file counts none. Rows of
+        captures taken with saving off are not among them.
+        """
+        entries = []
+        for row in self._records.to_dict('records'):
+            if row['Filename'] == self.UNSAVED:
+                continue
+            row['No File'] = row['Filename'] if row['Frame Count'] == 0 else None
+            entries.append(row)
+        return entries
 
     def num_records(self) -> int:
         return len(self._records)
@@ -199,7 +244,7 @@ class ProtocolExecutionRecord:
 
     @classmethod
     def _read(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
-        with open(file_path) as fp:
+        with open(file_path, encoding='utf-8') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
@@ -209,7 +254,7 @@ class ProtocolExecutionRecord:
             if version[0] != 'Version':
                 raise ValueError('Version key not found')
 
-            if int(version[1]) not in (2, 3):  # Add 3 to supported versions
+            if int(version[1]) not in (2, 3, 4):
                 raise ValueError('Unsupported protocol execution record version')
 
             protocol_file_loc_row = next(csvreader)
@@ -227,7 +272,7 @@ class ProtocolExecutionRecord:
                     'Step Name': row[1],
                     'Step Index': int(row[2]),
                     'Scan Count': int(row[3]),
-                    'Timestamp': datetime.datetime.strptime(row[4], '%Y-%m-%d %H:%M:%S.%f'),
+                    'Timestamp': cls.read_timestamp(row[4]),
                 }
 
                 # Handle version 3 additions

@@ -9,7 +9,7 @@ went with it.
 
 A clone runs the hook it has installed, not the one in the tree, so an old
 hook would go on writing four lines; the shape test below stops such a
-clone at its next commit and says how to update the hook.
+clone at its next push suite and says how to update the hook.
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ from tools.install_hooks import _HOOK_SCRIPT, _STAMP_BLOCK
 
 _WRITE = '> "$VERSION_FILE"'
 
-# The guard gate runs this module inside the pre-commit hook, where git has
-# put GIT_INDEX_FILE and GIT_DIR into the environment so the hook judges the
-# index being committed. Inherited by a git command in a temporary repo,
-# they redirect it at the repository being committed: the first run of this
-# test re-inited the shared repository as bare and rewrote its user. The hook
-# now drops them before running the guards; this scrub stays because a clone
-# runs the hook it has installed, not the one in the tree.
+# A pre-commit hook once ran this module, where git had put GIT_INDEX_FILE
+# and GIT_DIR into the environment so the hook judged the index being
+# committed. Inherited by a git command in a temporary repo, they redirect it
+# at the repository being committed: the first run of this test re-inited
+# the shared repository as bare and rewrote its user. The hook no longer runs
+# the guards; this scrub stays because a clone runs the hook it has
+# installed, not the one in the tree.
 _CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
 
 # A GUID the stamp makes: eight hex digits, or its fallback when neither

@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 
-SCAN_DIRS = ('modules', 'drivers', 'ui')
+SCAN_DIRS = Packages({'modules', 'drivers', 'ui'})
 
-DEPTH_PARAMS = frozenset({'significant_bits'})
-COLOR_PARAMS = frozenset({'color', 'is_color', 'save_encoding', 'channel'})
+DEPTH_PARAMS = MemberNames(('modules', 'drivers', 'ui'), {'significant_bits'})
+COLOR_PARAMS = MemberNames(
+    ('modules', 'drivers', 'ui'), {'color', 'is_color', 'save_encoding', 'channel'}
+)
 
 # Terminal serializer / renderer sinks where the depth and the color/encoding
 # signal genuinely arrive together to write or draw the frame. Keyed by
@@ -36,7 +38,6 @@ ALLOWLISTED_SINKS = frozenset(
         ('modules/image_save.py', 'save_image'),
         ('modules/image_utils.py', 'encode_display_jpg'),
         ('modules/image_utils.py', 'write_tiff'),
-        ('modules/image_utils.py', 'add_scale_bar'),
         ('modules/image_utils.py', '_compute_scale_bar_overlay'),
         # Resolves the on-disk depth FROM the encoding + acquired depth so a
         # caller can report what the file actually carries; the encoding and

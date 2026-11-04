@@ -9,6 +9,7 @@ during the protocol-decomposition refactor.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import functools
 import logging
@@ -17,29 +18,45 @@ import threading
 import time
 from typing import TYPE_CHECKING, NamedTuple
 
-import numpy as np
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
+import modules.wall_time as wall_time
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.acquire_mode import AcquireMode
+from modules.lumascope_api.frame_record import CapturedStill, SettingSource
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
-    DiskSpaceCriticalError,
+    CaptureFailedError,
     ObjectiveUnknownError,
     RunFailedError,
     RunFilesNotWrittenError,
     RunWriteRefusedError,
 )
 from modules.image_save import save_image
-from modules.lumascope_api.imaging import capture_failure_cause
+from modules.layer_record import ChannelColors
+from modules.lumascope_api.bring_up import Part
 from modules.notification_center import notifications
 from modules.protocol import Protocol
+from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_recording import ProtocolVideoStep
 from modules.recording_frames import FrameFact, frame_fact
 from modules.run_events import RunEvents, deliver_here
-from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
+from modules.run_outcome import (
+    CaptureTally,
+    EndingLatch,
+    FailedCapture,
+    FatalTold,
+    FocusFailure,
+    FilesOutcome,
+    RunEnding,
+    RunStatus,
+    TakenCapture,
+    hardware_disconnected_ending,
+)
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -47,11 +64,11 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
-    from modules.image_mode import ImageCaptureConfig
-    from modules.labware import WellPlate
+    from modules.coord_transformations import PlatePosition
+    from modules.image_mode import ImageCaptureConfig, OutputFormat
+    from modules.labware import Labware
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
-    from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
@@ -87,6 +104,20 @@ SLOW_WRITE_BLOCKED_WARN_S = 30.0
 # writer is stuck, not slow. The write was not taken; the caller owns the loud
 # abort.
 WRITER_WEDGED = object()
+
+
+@dataclasses.dataclass(frozen=True)
+class NotWritten:
+    """A write's answer when it saved no image: why, as the batch counts it.
+
+    An outcome of the write, not an error: the save drive was below its
+    floor, and the fault was told where it was met.
+
+    Attributes:
+        lost: The batch's lost reason, ``'disk_full'``.
+    """
+
+    lost: str
 
 
 class _Write:
@@ -162,8 +193,8 @@ class RunWriteBatch:
             return len(self._outstanding)
 
     @property
-    def outcome(self) -> str | None:
-        """``'written'`` or ``'incomplete'`` once complete; None before."""
+    def outcome(self) -> FilesOutcome | None:
+        """What became of the run's images once complete; None before."""
         return self._outcome
 
     @property
@@ -342,7 +373,7 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
-    def when_complete(self, on_complete: Callable[[str], None]) -> None:
+    def when_complete(self, on_complete: Callable[[FilesOutcome], None]) -> None:
         """Run ``on_complete(outcome)`` once, when the batch completes.
 
         Now, on the caller's thread, when the last write has already
@@ -401,14 +432,14 @@ class RunWriteBatch:
         """
         if not self._completed.wait(timeout=timeout_s):
             raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
-        if self._outcome != 'written':
+        if self._outcome != FilesOutcome.WRITTEN:
             raise RunFilesNotWrittenError(self.not_written_reason)
 
     def _refuse_if_ended(self, what: str) -> None:
         if self._abandoned:
             raise RunWriteRefusedError('writes_abandoned', what)
         if self._closed:
-            raise RunWriteRefusedError('run_ended', what)
+            raise RunWriteRefusedError('run_writes_ended', what)
 
     def _counted(self, action, write: _Write):
         # functools.wraps keeps the action's name, which is what a stall
@@ -420,13 +451,11 @@ class RunWriteBatch:
                 return None
             try:
                 result = action(*args, **kwargs)
-            except DiskSpaceCriticalError:
-                self._settle(write, lost='disk_full')
-                raise
             except BaseException:
                 self._settle(write, lost='save_failed')
                 raise
-            self._settle(write)
+            # A write that saved nothing says why, as its answer.
+            self._settle(write, lost=result.lost if isinstance(result, NotWritten) else None)
             return result
 
         return _run
@@ -458,21 +487,23 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
-    def count_not_written(self, reason: str, what: str) -> None:
-        """Count one image the run captured that never became a write here.
+    def count_off_lane(self, what: str, lost: str | None) -> None:
+        """Count one image the run wrote on another lane: written, or *lost* and why.
 
         A video step writes its file on its own lane and finishes it after
-        the step; when that file does not finish, the run's image is not on
-        disk all the same. Counted before the run closes its writes, since
-        cleanup waits for video steps to finish first; one that finishes
-        after the batch completed is logged, and changes nothing.
+        the step, so the batch never sees the write; it is told the file's
+        end here, one image per step whatever the container. Counted before
+        the run closes its writes, since cleanup waits for video steps to
+        finish first; one that finishes after the batch completed is
+        logged, and changes nothing.
         """
         with self._cond:
             if self._outcome is None:
-                self._count_image_locked(reason)
+                self._count_image_locked(lost)
                 return
+        ended = 'written' if lost is None else f'not written ({lost})'
         logger.warning(
-            f'[Protocol-Writer] {what} was not written ({reason}), but the run had '
+            f'[Protocol-Writer] {what} was {ended}, but the run had '
             'already reported its files; it is not counted'
         )
 
@@ -491,10 +522,12 @@ class RunWriteBatch:
             return None
         # An abandon is incomplete whatever it counted: after it, the run's
         # later images are refused at hand-over and never reach the count.
-        self._outcome = 'incomplete' if (self._abandoned or self._lost) else 'written'
+        self._outcome = (
+            FilesOutcome.INCOMPLETE if (self._abandoned or self._lost) else FilesOutcome.WRITTEN
+        )
         return self._on_complete, self._outcome
 
-    def _complete(self, on_complete, outcome: str) -> None:
+    def _complete(self, on_complete, outcome: FilesOutcome) -> None:
         # Complete BEFORE the actions: one of them is the run-state edge,
         # and a listener re-reading the levels on it must already read the
         # drain as over -- no later edge would correct it.
@@ -527,16 +560,72 @@ class CapturedFrame(NamedTuple):
     turret move may already have changed the objective in the light path.
     Coupling them to the frame at capture makes handing over a frame
     without them unrepresentable. The same holds for everything else the
-    file records: the instrument's own account of the frame (``record``),
-    and where the stage was when it was taken (``position``) -- after an
-    autofocus sweep the focus it found, not the step's planned Z.
+    file records: the pixels with the instrument's own account of them and
+    the depth that account gives (``still``), where the stage was when
+    it was taken (``position``) -- after an autofocus sweep the focus it
+    found, not the step's planned Z -- and, when the sweep found none, why
+    (``fallback_focus``).
     """
 
-    image: np.ndarray
-    significant_bits: int
+    still: CapturedStill
     objective_id: str
-    record: FrameRecord
     position: FrameFact
+    # Why the step's autofocus did not focus, when the frame was taken at its
+    # fallback focus; None when it focused or was never asked to.
+    fallback_focus: str | None
+
+
+def _recorded_name(step, file_name, separate_folder_per_channel: bool):
+    """The name a run-record row gives a file the step saved: its path from
+    the run folder, the folder post-processing finds it from. With a folder
+    per channel the step saved into its channel's folder."""
+    if separate_folder_per_channel:
+        return pathlib.Path(step['Color']) / file_name
+    return file_name
+
+
+def _capture_evidence(still: CapturedStill, capture_info: dict) -> str:
+    """One-line provenance for a captured frame: its brightness and saturation,
+    the frame's exposure / gain and capture-hold timing.
+
+    Saved-frame defects (a frame exposed under the previous channel's
+    settings saturates or mis-exposes) previously left no log trace at
+    all; this line makes every protocol capture auditable from a
+    support bundle. The mean is the still's statistics
+    (``image_utils.image_statistics``) and the saturation the frame record's,
+    measured by the capture against each frame's own full scale, which a
+    run's capture always asks for (``all_ones_check``). Exposure
+    and gain are the frame record's, the values the saved file carries: the
+    frame's own chunk values where the camera stamps them, otherwise the
+    applied settings read beside the grab, marked ``(applied)`` so a reader
+    never takes them for a measurement of the frame. The hold and the drain
+    are the capture's evidence (``last_capture_info``).
+    """
+    record = still.record
+    parts = [
+        f'mean={image_utils.image_statistics(still.image).mean:.1f}',
+        f'sat={record.saturated_fraction * 100.0:.1f}%',
+    ]
+    exp_mark = '' if record.exposure_source == SettingSource.FRAME else '(applied)'
+    gain_mark = '' if record.gain_source == SettingSource.FRAME else '(applied)'
+    exp_ms, gain_db = record.exposure_ms, record.gain_db
+    parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
+    parts.append(f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na')
+    if capture_info.get('hold_ms') is not None:
+        parts.append(f'hold_ms={capture_info["hold_ms"]:.0f}')
+    if capture_info.get('drained') is not None:
+        parts.append(f'drained={capture_info["drained"]}')
+    if record.auto_gain is not None:
+        parts.append(f'auto_gain={record.auto_gain}')
+    if record.dark:
+        # The frame was delivered and saved with no pixel above the
+        # dark floor while illumination was commanded on. Stated on
+        # the row because the file itself looks like any other black
+        # image: without this, a run whose light path failed is
+        # indistinguishable in a support bundle from one imaging a
+        # genuinely dark sample.
+        parts.append('dark_saved=True')
+    return ' '.join(parts)
 
 
 class ProtocolImageWriter:
@@ -560,6 +649,10 @@ class ProtocolImageWriter:
         # owes the disk is answered per run, never by the shared lane.
         write_batch: RunWriteBatch,
         abort_fn,  # callable -- bound to protocol_thread.abort
+        # The runner's fatal ending, which also puts the run in ERROR: the
+        # one call that ends a run whose hardware left it, here and in the
+        # run loop, so both end it the same way.
+        end_run_fatally: Callable[[str, str], None],
         # THIS run's fatal-abort flag, allocated fresh per run by the runner.
         # Per-run, not runner-lifetime: queued write tasks keep draining after
         # the run ends and can fire a fatal abort (disk-full) from the OLD
@@ -585,28 +678,35 @@ class ProtocolImageWriter:
         # frame. The user's choice, snapshotted at run start like the rest
         # of the run config; required so no writer can silently decide it.
         timestamp_overlay: bool,
-        # The run's snapshot of the global "Video max FPS" cap (0 =
-        # uncapped). Required so video-step sizing and the recording rate
-        # can never read live settings mid-run.
+        # The run's snapshot of the global "Recording max FPS" limit (0 =
+        # none). Required so the recording rate can never read live
+        # settings mid-run.
         video_max_fps: float,
+        # The rate the run sized its video steps at (RunPlan.video_sizing_fps);
+        # None only for a run with no video step.
+        video_sizing_fps: float | None,
         # Whether this run stamps the turret position into every filename.
         # A run value the caller states, like the two above: the flag's
         # live store is the GUI's, and reading it from here left every
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
+        # Every layer's colour as the run began: what its stills and videos
+        # are coloured in, never the live settings mid-run.
+        channel_colors: ChannelColors,
         # The run's activity claim, lent to the work inside the run: a
         # video step records under it and cannot release it.
         run_claim: BorrowedClaim,
         # The plate the protocol is written for -- the plate the run moves
         # against. Its files name their wells and plate from it, not from
         # the plate the scope has selected, which a headless run never sets.
-        labware: WellPlate,
+        labware: Labware,
         # The stage-to-plate transform of the frame the run moves in -- the
         # protocol's plate and the offset the run started with -- that every
-        # frame the run saves states its position through. None on a scope
-        # with no X/Y stage: its frames state no plate position.
-        to_plate: Callable[[float, float], tuple[float, float]] | None,
+        # frame the run saves states its position through. A scope with no
+        # X/Y stage has no X/Y position to convert, so its frames state no
+        # plate position; None states none for any frame.
+        to_plate: Callable[[float, float], PlatePosition] | None,
         # How many captures the run is asked for: scans times steps for a
         # run that saves images, 0 for one that saves none. The runner
         # knows the scan count; the writer counts what became of each.
@@ -617,6 +717,7 @@ class ProtocolImageWriter:
         self._aborted = aborted
         self._write_batch = write_batch
         self._abort_fn = abort_fn
+        self._end_run_fatally = end_run_fatally
         self._fatal_abort_event = fatal_abort_event
         self._ending = ending
         self._execution_record = execution_record
@@ -625,23 +726,29 @@ class ProtocolImageWriter:
         self._config = image_capture_config
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
+        self._video_sizing_fps = video_sizing_fps
         self._engineering_mode = engineering_mode
+        self._channel_colors = channel_colors
         self._run_claim = run_claim
         self._labware = labware
         self._to_plate = to_plate
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
-        # One entry per (scan, step) slot: None when it produced an image,
-        # its FailedCapture when it did not. A slot, not a count, so a scan
-        # run again after a transient failure overwrites its earlier steps
-        # instead of counting them twice. Written on the protocol thread,
-        # read by cleanup on whichever thread ended the run.
+        # One entry per (scan, step) slot: its TakenCapture when it produced
+        # an image, its FailedCapture when it did not. A slot, not a count, so
+        # a scan run again after a transient failure overwrites its earlier
+        # steps instead of counting them twice. Written on the protocol
+        # thread, read by cleanup on whichever thread ended the run.
         self._captures_asked = captures_asked
-        self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
+        self._capture_slots: dict[tuple[int, int], TakenCapture | FailedCapture] = {}
+        # The same shape for a step's autofocus: None when it focused, its
+        # FocusFailure when it did not, so a scan run again that focuses the
+        # step clears it. Under the capture slots' lock.
+        self._focus_slots: dict[tuple[int, int], FocusFailure | None] = {}
         self._capture_slots_lock = threading.Lock()
 
-    def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
+    def _abort_run_fatal(self, reason: str, domain: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
 
         Ordering is load-bearing:
@@ -651,31 +758,60 @@ class ProtocolImageWriter:
         2. fatal flag -- read by cleanup (terminal-dark assertion) and by
            the step-boundary gate; set before the LEDs go dark so a step
            racing this call cannot observe dark-but-not-fatal.
-        3. the ending record -- a lock and a frozen construction, no I/O.
+        3. the record -- a lock and a frozen construction, no I/O.
            Recorded before anything that can block or raise, so the cause
            survives a force_off that wedges on a dead driver; first-wins,
-           so the fault that started the cascade is the one reported.
+           so the fault that started the cascade is the one reported. The
+           latch says what the person is told of it (``record_fatal``).
         4. force_off -- darkens the sample NOW, on this thread, via the
            direct driver path (no executor hop), because the fault that
            brought us here may be wedging the teardown that normally turns
            the LEDs off; a live sample must not stay illuminated while a
            dead disk times out. Worst case ~5 s behind an in-flight
-           confirmed LED write on the driver lock.
-        5. the fatal popup -- last, after the hardware is safe.
+           confirmed LED write on the driver lock. Not once the run has
+           settled: it has let go of the scope, and a channel lit now is
+           someone else's.
+        5. the report -- last, after the hardware is safe: shown for the
+           run's first fatal fault, after a Stop or a shutdown too; logged
+           for another behind it; nothing for a fault already told, or met
+           after the run settled, whose lost images the files report tells.
         Safe to re-enter: every step is idempotent, so a second fault
         surfacing while this runs (e.g. the failure-record write itself
         wedging) changes nothing.
         """
         self._abort_fn()
         self._fatal_abort_event.set()
-        self._ending.set_if_unset(RunEnding('failed', reason, title, message))
+        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
+        if told is FatalTold.SETTLED:
+            return
         self._scope.illumination.force_off()
+        self._tell_failed(told, reason, domain, message)
+
+    def _end_run_failed(self, reason: str, domain: str, message: str) -> None:
+        """Record a run the instrument could not complete, and tell it, leaving its LEDs be.
+
+        A policy ceiling on a scope that still answers -- the scan failed
+        too many times in a row -- is no fault that wedges the hardware: the
+        run ends 'failed' in the configured LED end state, not forced dark.
+        Told as the funnel tells a fault, by the run's latch, so it is shown
+        once, and logged when a fault was shown first.
+        """
+        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
+        self._tell_failed(told, reason, domain, message)
+
+    @staticmethod
+    def _tell_failed(told: FatalTold, reason: str, domain: str, message: str) -> None:
+        """Report a run's failure as its latch answered: shown, logged, or not again."""
+        if told in (FatalTold.SETTLED, FatalTold.TOLD):
+            return
         from modules.notification_center import notifications
 
         notifications.report_outcome(
-            RunFailedError(reason=reason, title=title, message=message),
+            RunFailedError(reason=reason, message=message),
             solicited=False,
             category=domain,
+            log_only=told is FatalTold.LOG,
+            ends_a_run=True,
         )
 
     @property
@@ -694,14 +830,19 @@ class ProtocolImageWriter:
         for step in self._video_steps:
             step.discard_pending()
 
-    def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
+    def wait_for_video_drains(self, timeout_s: float = 600.0) -> float | None:
         """Block until every video step's drain and finish complete.
 
         Called by the runner before the execution record reconciles, so a
-        drain tail's row cannot land after the record closes. True when
-        everything finished inside the timeout.
+        drain tail's row cannot land after the record closes.
+
+        Returns:
+            The seconds waited, when every step finished inside the timeout
+            having written every frame it kept (``kept_every_frame``); None
+            otherwise, since then "every frame was kept" is not true to say.
         """
-        deadline = time.monotonic() + timeout_s
+        started = time.monotonic()
+        deadline = started + timeout_s
         finished = True
         for step in self._video_steps:
             remaining = deadline - time.monotonic()
@@ -711,7 +852,10 @@ class ProtocolImageWriter:
                     f'{timeout_s:.0f} s; its execution-record row may be missing'
                 )
                 finished = False
-        return finished
+        waited_s = time.monotonic() - started
+        if not finished or not all(step.kept_every_frame for step in self._video_steps):
+            return None
+        return waited_s
 
     def _record_video_step_row(
         self,
@@ -724,19 +868,25 @@ class ProtocolImageWriter:
         frame_count,
         duration_sec,
         timestamp,
+        separate_folder_per_channel,
     ) -> None:
-        """Record one finished video step: the attempt and its row, paired.
+        """Record one finished video step: one image written, and the attempt and its row, paired.
 
-        The stills lane pairs note_capture_attempt with add_step inside
-        write_capture; the video lane pairs them here so the end-of-run
-        reconcile stays balanced.
+        The step's file is written on its own lane, outside the run's batch,
+        so the batch is told here; otherwise the run's count of files written
+        leaves out every video. The stills lane pairs note_capture_attempt
+        with add_step inside write_capture; the video lane pairs them here so
+        the end-of-run reconcile stays balanced.
         """
+        self._write_batch.count_off_lane(f'The video {name}', lost=None)
         if self._execution_record is None:
             return
         self._execution_record.note_capture_attempt()
         try:
             self._execution_record.add_step(
-                capture_result_file_name=capture_result_file_name,
+                capture_result_file_name=_recorded_name(
+                    step, capture_result_file_name, separate_folder_per_channel
+                ),
                 step_name=name if name else 'unknown',
                 step_index=step_index,
                 scan_count=scan_count,
@@ -754,7 +904,7 @@ class ProtocolImageWriter:
         so the batch is told here; otherwise a run whose video never
         finished would report its files written.
         """
-        self._write_batch.count_not_written('video_unfinished', f'The video {name}')
+        self._write_batch.count_off_lane(f'The video {name}', lost='video_unfinished')
         self._record_dropped_capture(reason=reason, name=name, **row)
 
     def _record_dropped_capture(
@@ -822,7 +972,7 @@ class ProtocolImageWriter:
             step=step,
             step_index=curr_step,
             scan_count=scan_count,
-            capture_time=datetime.datetime.now(),
+            capture_time=wall_time.now(),
             name=name,
         )
         self._leds_off()
@@ -832,15 +982,86 @@ class ProtocolImageWriter:
         """What this run captured of what it was asked for, so far."""
         with self._capture_slots_lock:
             slots = list(self._capture_slots.values())
+        captured = [slot for slot in slots if isinstance(slot, TakenCapture)]
         return CaptureTally(
             asked=self._captures_asked,
-            captured=sum(1 for slot in slots if slot is None),
-            failed=tuple(slot for slot in slots if slot is not None),
+            captured=len(captured),
+            failed=tuple(slot for slot in slots if isinstance(slot, FailedCapture)),
+            saturated=tuple(slot for slot in captured if slot.blown is True),
+            dark=tuple(slot for slot in captured if slot.dark is True),
         )
 
-    def _note_captured(self, *, curr_step, scan_count) -> None:
+    @property
+    def focus_failures(self) -> tuple[FocusFailure, ...]:
+        """Each step whose autofocus did not focus, so far."""
         with self._capture_slots_lock:
-            self._capture_slots[(scan_count, curr_step)] = None
+            return tuple(slot for slot in self._focus_slots.values() if slot is not None)
+
+    def note_autofocus(
+        self, *, step_name: str, curr_step: int, scan_count: int, failed: BaseException | None
+    ) -> None:
+        """Record how a step's autofocus resolved: focused, or ``failed`` in its words."""
+        slot = (
+            None
+            if failed is None
+            else FocusFailure(
+                scan_index=scan_count,
+                step_index=curr_step,
+                step_name=step_name,
+                cause=str(failed),
+            )
+        )
+        with self._capture_slots_lock:
+            self._focus_slots[(scan_count, curr_step)] = slot
+
+    def _fallback_focus(self, scan_count: int, curr_step: int) -> str | None:
+        """Why this step's autofocus did not focus in this scan, or None
+        when it focused or was never asked to."""
+        with self._capture_slots_lock:
+            failure = self._focus_slots.get((scan_count, curr_step))
+        return failure.cause if failure is not None else None
+
+    def _note_captured(self, *, step, curr_step, scan_count, record: FrameRecord | None) -> None:
+        """Record the capture in its slot, and tell the first blown and the
+        first dark frame of each step in this run. ``record`` is the
+        frame's, or None for a video step, which has no one frame.
+
+        A blown or dark frame is kept and saved, so it is a fact to count,
+        not a failure; one line per step says so, and the run's end gives
+        the count. Which is first is read from the slots, so a scan run
+        again does not tell its step twice.
+        """
+        key = (scan_count, curr_step)
+        captured = TakenCapture(
+            scan_index=scan_count,
+            step_index=curr_step,
+            step_name=str(step.get('Name', '?')),
+            blown=record.blown if record is not None else None,
+            dark=record.dark if record is not None else None,
+        )
+        with self._capture_slots_lock:
+            # Read before the write: the slot this capture takes over, from a
+            # scan run again, is among the earlier ones.
+            earlier = [
+                slot
+                for slot in self._capture_slots.values()
+                if isinstance(slot, TakenCapture) and slot.step_index == curr_step
+            ]
+            self._capture_slots[key] = captured
+        where = f'Step {curr_step + 1} ({captured.step_name}), scan {scan_count + 1}'
+        if captured.blown and not any(slot.blown for slot in earlier):
+            logger.warning(
+                f'[PROTOCOL] {where}: the frame is {record.saturated_fraction * 100.0:.0f}% '
+                f'saturated -- likely over-exposure or a stale camera gain; the frame may '
+                f'be unusable. Later saturated frames of this step in this run are '
+                f'counted, not told.'
+            )
+        if captured.dark and not any(slot.dark for slot in earlier):
+            logger.warning(
+                f'[PROTOCOL] {where}: the frame is dark -- no pixel above the dark floor '
+                f'with illumination on -- and was saved. Later dark frames of this step '
+                f'in this run are counted, not told.'
+            )
 
     def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
         """The strike counter + the 3-strike fatal abort, row-free.
@@ -852,29 +1073,23 @@ class ProtocolImageWriter:
         """
         with self._capture_slots_lock:
             self._capture_slots[(scan_count, curr_step)] = FailedCapture(
-                scan=scan_count,
+                scan_index=scan_count,
                 step_index=curr_step,
                 step_name=str(step.get('Name', '?')),
                 cause=cause,
             )
-        if self._scope.imaging.camera_removed:
+        if self._scope.camera.camera_removed:
             logger.error(
-                f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
-                f'scan {scan_count} -- the camera was removed'
+                f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
+                f'scan {scan_count + 1} -- the camera was removed'
             )
-            self._abort_run_fatal(
-                'hardware_disconnected',
-                'Protocol',
-                'Protocol Aborted',
-                'The camera was disconnected during the protocol run. '
-                'Check the USB cable and power connections, save the '
-                'protocol, then restart LumaViewPro and the protocol.',
-            )
+            ending = hardware_disconnected_ending((Part.CAMERA,))
+            self._end_run_fatally(ending.reason, ending.message)
             return
         self._consecutive_capture_failures += 1
         logger.error(
-            f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
-            f'scan {scan_count} -- {cause} (failure '
+            f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
+            f'scan {scan_count + 1} -- {cause} (failure '
             f'{self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
         )
         aborting = self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
@@ -902,7 +1117,6 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'led_channel_unavailable',
                     'Protocol',
-                    'Channel not available',
                     f"This microscope has no '{step_color}' LED "
                     f'channel, so its steps cannot capture here. '
                     f'The protocol was stopped after '
@@ -914,8 +1128,8 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'camera_failure',
                     'Protocol',
-                    'Camera Failure',
-                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                    f'The camera failed {self._consecutive_capture_failures} steps in a row; '
+                    f'the last: {cause}',
                 )
 
     def _submit_write(
@@ -972,7 +1186,6 @@ class ProtocolImageWriter:
         self._abort_run_fatal(
             'file_writer_stalled',
             'Protocol',
-            'File Writer Stalled',
             f'Saving stopped making progress ({stuck}), so the protocol '
             f'was stopped to avoid losing more captures. Check that the '
             f'save drive is connected and responsive, then run the '
@@ -999,76 +1212,21 @@ class ProtocolImageWriter:
         )
         return False
 
-    def _capture_evidence(self, image, full_scale: int) -> str:
-        """One-line provenance for a captured frame: brightness statistics
-        plus the frame's exposure / gain and capture-hold timing.
-
-        Saved-frame defects (a frame exposed under the previous channel's
-        settings saturates or mis-exposes) previously left no log trace at
-        all; this line makes every protocol capture auditable from a
-        support bundle. Exposure and gain are the frame record's, the values
-        the saved file carries: the frame's own chunk values where the camera
-        stamps them, otherwise the applied settings read beside the grab,
-        marked ``(applied)`` so a reader never takes them for a measurement
-        of the frame. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate. ``full_scale`` is the value
-        the frame saturates at (``ImagingAPI.capture_frame_full_scale``),
-        required because neither the container dtype nor the depth tag is
-        it: a 12-bit frame rides in uint16, and three blown 8-bit frames
-        summed are 765 under a 10-bit tag -- either read as full scale, a
-        saturated frame logs sat=0%.
-        """
-        try:
-            parts = []
-            if image is not None and getattr(image, 'size', 0) > 0:
-                sample = image[::8, ::8]
-                sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
-                parts.append(f'mean={float(sample.mean()):.1f}')
-                parts.append(f'sat={sat_fraction * 100.0:.1f}%')
-            info = self._scope.imaging.last_capture_info or {}
-            record = info.get('frame_record')
-            exp_ms = record.exposure_ms if record is not None else None
-            gain_db = record.gain_db if record is not None else None
-            exp_mark = '' if info.get('chunk_exposure_us') is not None else '(applied)'
-            gain_mark = '' if info.get('chunk_gain_db') is not None else '(applied)'
-            parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
-            parts.append(
-                f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na'
-            )
-            if info.get('hold_ms') is not None:
-                parts.append(f'hold_ms={info["hold_ms"]:.0f}')
-            if info.get('drained') is not None:
-                parts.append(f'drained={info["drained"]}')
-            if info.get('auto_gain') is not None:
-                parts.append(f'auto_gain={info["auto_gain"]}')
-            if info.get('dark_saved'):
-                # The frame was delivered and saved with no pixel above the
-                # dark floor while illumination was commanded on. Stated on
-                # the row because the file itself looks like any other black
-                # image: without this, a run whose light path failed is
-                # indistinguishable in a support bundle from one imaging a
-                # genuinely dark sample.
-                parts.append('dark_saved=True')
-            return ' '.join(parts)
-        except Exception as ex:
-            # Evidence is best-effort; never let it break the capture path.
-            logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
-            return ''
-
     def capture(
         self,
         save_folder: pathlib.Path,
         step: pd.Series | dict,
-        output_format: str,
+        output_format: OutputFormat,
         protocol: Protocol,
         *,
-        scan_count: int | None = None,
+        scan_count: int,
+        curr_step: int,
         sum_count: int = 1,
         enable_image_saving: bool = True,
         autogain_settings: dict | None = None,
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
-        curr_step: int = 0,
+        arm_refused: CameraSettingRejected | None = None,
     ) -> bool:
         """Orchestrate image/video acquisition for a single protocol step.
 
@@ -1077,6 +1235,20 @@ class ProtocolImageWriter:
         the one carrier for the run's capture/save intent -- so the values
         the camera captures with and the values the file-IO thread saves
         with cannot diverge for one run.
+
+        A step whose camera setting was not applied is not captured: no image
+        is saved at a setting the step did not ask for. A manual step's gain
+        or exposure write, an Auto_Gain step's arm (``arm_refused``, handed
+        over from the tick that armed it) and a video step's disarm or
+        one-shot each make the step a failed capture -- a strike, its
+        ``FailedCapture`` row naming the setting in the rejection's words. A
+        run that saves no images captures nothing to fail, so there each is
+        reported instead.
+
+        Args:
+            arm_refused: The rejection of this Auto_Gain step's arm, or None
+                when it armed; an Auto_Gain step's starting gain or exposure
+                that was not taken does not stop its capture.
 
         Returns:
             True if the capture completed normally and left the step channel
@@ -1088,14 +1260,18 @@ class ProtocolImageWriter:
             the LED off themselves; fatal faults route through
             _abort_run_fatal, which force-darkens immediately, and cleanup
             re-asserts dark as the run's terminal LED state.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera left
+                during the still's capture; the run loop ends the run on it.
         """
         if self._aborted.is_set():
             return False
         if not self._is_run_in_progress():
             return False
 
-        # N5 (STALL-1 H5 disambiguator): proto-state trace.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
+        # Proto-state trace: tells a stall inside a capture from the pause
+        # between steps, which looked alike in the profile timeline.
         # Wraps capture body in try/finally -- single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.
@@ -1121,17 +1297,14 @@ class ProtocolImageWriter:
             )
 
         try:
-            is_video = step['Acquire'] == 'video'
+            is_video = step['Acquire'] == AcquireMode.VIDEO
 
-            # #610 diagnostic: trace camera settings decision at each capture.
-            # camera_gain/camera_exp are read LIVE on purpose (the point is the
-            # ACTUAL camera state vs the step's intent), so the reads are gated
-            # on debug being enabled -- otherwise two SDK reads run every step
-            # even though the line is dropped in normal operation.
+            # #610 diagnostic: trace camera settings decision at each capture,
+            # the values the camera holds beside the step's intent.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.imaging.get_gain_db()
-                _curr_exp = self._scope.imaging.get_exposure_ms()
+                _curr_gain = self._scope.camera.gain_db
+                _curr_exp = self._scope.camera.exposure_ms
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
@@ -1139,6 +1312,7 @@ class ProtocolImageWriter:
                     f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
                 )
 
+            not_applied: list[CameraSettingRejected] = []
             if not step['Auto_Gain']:
                 logger.debug(
                     f'[CAPTURE DIAG] Applying step camera settings: gain={step["Gain"]}, exp={step["Exposure"]}'
@@ -1163,28 +1337,32 @@ class ProtocolImageWriter:
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
                 #
-                # A setting the camera rejects ends its flight here: it is
-                # reported once and the step captures at the value the camera
-                # holds -- one refused gain is not a reason to end a run.
-                imaging = self._scope.imaging
-                for setter, value in (
-                    (imaging.set_gain_db, step['Gain']),
-                    (imaging.set_exposure_ms, step['Exposure']),
-                ):
-                    try:
-                        setter(value)
-                    except CameraSettingRejected as rejected:
-                        notifications.report_outcome(rejected, solicited=False, category='Camera')
+                # The apply runs both writes even when one is not taken, so the
+                # camera is left at the step's other value; the step is then
+                # not captured (below). The auto-gain mode is left as it is:
+                # an auto-gain write and the resync after it, which can leave
+                # the exposure unknown, would run for every manual step.
+                try:
+                    self._scope.camera.apply(
+                        gain_db=step['Gain'],
+                        exposure_ms=step['Exposure'],
+                        auto_gain=None,
+                        channel=step['Color'],
+                    )
+                except CameraSettingRejected as rejected:
+                    not_applied.append(rejected)
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
-                # restarting AG mid-grab. The capture_and_wait drain below waits
+                # restarting AG mid-grab. The capture_still drain below waits
                 # the auto_gain settle frames before grabbing.
                 logger.debug(
                     f'[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate '
                     f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
-                    f'settle drained in capture_and_wait'
+                    f'settle drained in capture_still'
                 )
+                if arm_refused is not None:
+                    not_applied.append(arm_refused)
 
             # The objective in the light path, read once: the file name and
             # the frame's scale both come from this one answer, so they cannot
@@ -1202,7 +1380,7 @@ class ProtocolImageWriter:
                 objective_unknown = e
             objective_short_name = None
             if self._scope.capabilities.has_turret and frame_objective is not None:
-                objective_short_name = frame_objective['short_name']
+                objective_short_name = frame_objective.short_name
 
             # Build base name from the protocol's root prefix + step name. The
             # prefix is the one post-processing reads, so its outputs find
@@ -1214,7 +1392,7 @@ class ProtocolImageWriter:
             # whole slot halfway between two. An unknown slot adds nothing.
             turret_pos = None
             if self._engineering_mode and self._scope.capabilities.has_turret:
-                turret_pos = self._scope.motion.get_turret_slot()
+                turret_pos = self._scope.motion.turret_status().slot
 
             # The objective is stamped onto the saved filename here (the one
             # writer), separate from the step's identity Name. capture_root is
@@ -1242,6 +1420,22 @@ class ProtocolImageWriter:
                     name,
                 )
 
+            if not_applied:
+                if enable_image_saving:
+                    self._note_capture_failure(
+                        step=step,
+                        curr_step=curr_step,
+                        scan_count=scan_count,
+                        name=name,
+                        enable_image_saving=enable_image_saving,
+                        separate_folder_per_channel=separate_folder_per_channel,
+                        cause=' '.join(str(rejected) for rejected in not_applied),
+                    )
+                    _proto_outcome = 'setting_not_applied'
+                    return False
+                for rejected in not_applied:
+                    notifications.report_outcome(rejected, solicited=False, category='Camera')
+
             # The step's channel is already lit and confirmed on by the runner's
             # STEP_LIGHT illuminate before this leaf is called; the leaf is a
             # pure grab+save and drives no LED on the success path (its failure /
@@ -1261,6 +1455,8 @@ class ProtocolImageWriter:
                         capture_config=self._config,
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
+                        video_sizing_fps=self._video_sizing_fps,
+                        channel_colors=self._channel_colors,
                         autogain_settings=autogain_settings,
                         events=self._events,
                         aborted_event=self._aborted,
@@ -1272,6 +1468,7 @@ class ProtocolImageWriter:
                             step_index=curr_step,
                             scan_count=scan_count,
                             name=name,
+                            separate_folder_per_channel=separate_folder_per_channel,
                         ),
                         record_dropped_capture=functools.partial(
                             self._record_unfinished_video,
@@ -1282,9 +1479,26 @@ class ProtocolImageWriter:
                         ),
                         run_claim=self._run_claim,
                         to_plate=self._to_plate,
+                        labware=self._labware,
+                        fallback_focus=self._fallback_focus(scan_count, curr_step),
                     )
                     self._video_steps.append(recorder)
-                    outcome = recorder.run_blocking()
+                    try:
+                        outcome = recorder.run_blocking()
+                    except CameraSettingRejected as rejected:
+                        # The disarm or the one-shot before the recording
+                        # starts was not applied: nothing was recorded.
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause=str(rejected),
+                        )
+                        _proto_outcome = 'setting_not_applied'
+                        return False
                     self._leds_off()
 
                     if outcome == protocol_recording.NO_FRAMES:
@@ -1318,7 +1532,9 @@ class ProtocolImageWriter:
                         return False
 
                     self._consecutive_capture_failures = 0
-                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
+                    self._note_captured(
+                        step=step, curr_step=curr_step, scan_count=scan_count, record=None
+                    )
                     # The drain and the execution-record row finish on the
                     # step's own thread; the run moves on. Video always
                     # extinguishes -- leds_off called above.
@@ -1347,19 +1563,24 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    captured_image = self._scope.imaging.capture_and_wait(
-                        force_to_8bit=capture_depth == 8,
-                        all_ones_check=True,
-                        timeout_s=1.0,
-                        sum_count=sum_count,
-                        sum_delay_s=step['Exposure'] / 1000,
-                        sum_iteration_callback=sum_iteration_callback,
-                    )
-
-                    if captured_image is None:
-                        # The cause relays what the capture actually recorded,
-                        # through the one ladder the manual path reads too.
-                        cause = capture_failure_cause(self._scope.imaging.last_capture_info)
+                    # A capture that got no frame is a strike, named by its
+                    # own reason. A camera that is gone is refused, and the
+                    # refusal leaves this step: the run loop ends the run
+                    # on it, as for any hardware that left.
+                    # The camera as the step set it (``camera.apply`` above):
+                    # no layer is held, so the step's own gain and exposure
+                    # are what the frame is taken at.
+                    try:
+                        still = self._scope.imaging.capture_still(
+                            None,
+                            force_to_8bit=capture_depth == 8,
+                            all_ones_check=True,
+                            timeout_s=1.0,
+                            sum_count=sum_count,
+                            sum_delay_s=step['Exposure'] / 1000,
+                            sum_iteration_callback=sum_iteration_callback,
+                        )
+                    except CaptureFailedError as failed:
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
@@ -1367,7 +1588,7 @@ class ProtocolImageWriter:
                             name=name,
                             enable_image_saving=enable_image_saving,
                             separate_folder_per_channel=separate_folder_per_channel,
-                            cause=cause,
+                            cause=str(failed),
                         )
                         _proto_outcome = 'capture_failed'
                         return False
@@ -1384,52 +1605,34 @@ class ProtocolImageWriter:
                     # after an autofocus sweep that is the focus it found,
                     # not the step's planned Z, and an axis the scope lacks
                     # or has lost its reference on states no position.
-                    frame_position = frame_fact(
-                        self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
-                    )
-                    capture_info = self._scope.imaging.last_capture_info or {}
-                    if not capture_info.get('dark_saved'):
+                    frame_position = frame_fact(self._scope, to_plate=self._to_plate)
+                    # The instrument's account of this frame came back with
+                    # it from the camera lane, and its depth with that
+                    # account (a sum: the bits it can reach), so the
+                    # asynchronous save never re-derives either.
+                    frame_record = still.record
+                    if not frame_record.dark:
                         self._consecutive_capture_failures = 0
-                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
-                    # The instrument's account of this frame, taken with it on
-                    # the camera lane; read here, on the thread that captured,
-                    # before anything can capture again.
-                    frame_record = capture_info.get('frame_record')
-                    if frame_record is None:
-                        raise RuntimeError(
-                            'the capture returned a frame without its record; the file '
-                            'would record the scope at write time, not the frame'
-                        )
-
-                    # Depth travels with the frame so the evidence line's
-                    # saturation threshold AND the eventual file save scale
-                    # against the real range (a sum: the bits it can reach,
-                    # saturated at what it can hold). Resolved here at capture
-                    # time -- the async save must not re-derive it later, when
-                    # the camera may be at a different format or unreadable.
-                    frame_significant_bits = self._scope.imaging.capture_frame_depth(captured_image)
-                    full_scale = self._scope.imaging.capture_frame_full_scale(captured_image)
+                    self._note_captured(
+                        step=step, curr_step=curr_step, scan_count=scan_count, record=frame_record
+                    )
                     logger.info(
                         f'Protocol Image Captured: {name} '
-                        f'{self._capture_evidence(captured_image, full_scale)}'
+                        f'{_capture_evidence(still, self._scope.imaging.last_capture_info or {})}'
                     )
 
-                    # Read-only from here: the write job and frame_captured's
-                    # handler hold this one array, and no view of it can be
-                    # made writeable again, so no handler can change the
-                    # file's pixels. Nothing downstream writes it in place.
-                    captured_image.flags.writeable = False
-                    _success_capture_time = datetime.datetime.now()
+                    # The capture's image is read-only (capture_still), and
+                    # the write job and frame_captured's handler hold this one
+                    # array, so no handler can change the file's pixels.
                     if not self._submit_write(
                         kwargs={
                             'save_folder': save_folder,
                             'output_format': output_format,
                             'captured_image': CapturedFrame(
-                                image=captured_image,
-                                significant_bits=frame_significant_bits,
+                                still=still,
                                 objective_id=frame_objective_id,
-                                record=frame_record,
                                 position=frame_position,
+                                fallback_focus=self._fallback_focus(scan_count, curr_step),
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1437,7 +1640,9 @@ class ProtocolImageWriter:
                         step=step,
                         step_index=curr_step,
                         scan_count=scan_count,
-                        capture_time=_success_capture_time,
+                        # The row states the frame's own instant, the one its
+                        # file states, not a second clock read after the grab.
+                        capture_time=frame_record.captured_at.at,
                         name=name,
                     ):
                         _proto_outcome = 'write_aborted'
@@ -1450,13 +1655,13 @@ class ProtocolImageWriter:
                     deliver_here(
                         self._events.frame_captured,
                         'frame_captured',
-                        captured_image,
+                        still.image,
                         frame_record.frames_summed,
                         frame_record.frame_significant_bits,
                     )
 
             else:
-                _not_saving_capture_time = datetime.datetime.now()
+                _not_saving_capture_time = wall_time.now()
                 if not self._submit_write(
                     kwargs={
                         'enable_image_saving': enable_image_saving,
@@ -1508,17 +1713,20 @@ class ProtocolImageWriter:
         self,
         save_folder: str | None = None,
         name: str | None = None,
-        output_format: str | None = None,
+        output_format: OutputFormat | None = None,
         *,
         step: object | None = None,
+        step_index: int,
+        scan_count: int,
         captured_image: CapturedFrame | None = None,
-        step_index: int | None = None,
-        scan_count: int | None = None,
         capture_time: datetime.datetime | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
-    ) -> None:
+    ) -> NotWritten | None:
         """Write a captured still image to disk and record it in the run log.
+
+        Returns ``NotWritten('disk_full')`` when the save drive is below its
+        floor and nothing was written; None otherwise.
 
         Runs on the file-IO thread. Encoding, depth, and JPEG quality come
         from the writer's held run config -- the one carrier for the run's
@@ -1526,8 +1734,8 @@ class ProtocolImageWriter:
         write continuously on the recording engine's own writer thread.
 
         Args:
-            captured_image: ``CapturedFrame`` (frame + the payload depth it
-                was captured at), or None to record a capture_failed row.
+            captured_image: ``CapturedFrame`` (the still, with the depth its
+                record gives), or None to record a capture_failed row.
                 The depth travels with the frame because this save is
                 asynchronous -- deriving depth here would read the camera's
                 state at save time, when the format may have changed or the
@@ -1545,7 +1753,7 @@ class ProtocolImageWriter:
             try:
                 required_mb = max(
                     common_utils.MIN_PER_WRITE_DISK_MB,
-                    common_utils.estimate_step_write_mb(step, global_max_fps=self._video_max_fps),
+                    common_utils.estimate_step_write_mb(step, video_fps=self._video_sizing_fps),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
             except Exception as e:
@@ -1559,17 +1767,17 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'disk_space_critical',
                     'FileIO',
-                    'Disk Space Critical',
                     f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                 )
-                # Raised, not returned: a return reads as a write that
-                # landed, and this image is not on disk.
-                raise DiskSpaceCriticalError(free_mb)
+                # Answered, not raised: the floor is told by the funnel, or
+                # by the files report once the run has settled, and the batch
+                # counts this image as not on disk from the answer.
+                return NotWritten('disk_full')
 
         if enable_image_saving:
             if captured_image is None:
                 logger.warning(
-                    f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count}, recording as capture_failed'
+                    f'[PROTOCOL] _write_capture: captured_image is None for step {step_index + 1} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count + 1}, recording as capture_failed'
                 )
                 if self._execution_record is not None:
                     self._execution_record.add_step(
@@ -1593,7 +1801,7 @@ class ProtocolImageWriter:
             try:
                 capture_result = save_image(
                     self._scope,
-                    array=captured_image.image,
+                    array=captured_image.still.image,
                     save_folder=save_folder,
                     file_root=None,
                     append=name,
@@ -1606,6 +1814,7 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
+                    channel_colors=self._channel_colors,
                     # The frame's position fact holds plate mm for X and Y
                     # and stage um for Z -- the frames the saved file
                     # declares, so each goes into the parameter named for it
@@ -1614,9 +1823,10 @@ class ProtocolImageWriter:
                     plate_y_mm=captured_image.position.plate_y_mm,
                     stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
-                    significant_bits=captured_image.significant_bits,
+                    significant_bits=captured_image.still.significant_bits,
+                    white_bits=captured_image.still.record.frame_significant_bits,
                     objective_id=captured_image.objective_id,
-                    frame_record=captured_image.record,
+                    frame_record=captured_image.still.record,
                     labware=self._labware,
                     # The well at the position the file records, on the
                     # plate the run moves against: not the step's Well
@@ -1624,6 +1834,7 @@ class ProtocolImageWriter:
                     # on a moved one, nor its planned X/Y, which a scope
                     # with no XY stage never reaches.
                     well_label=captured_image.position.well_label(self._labware),
+                    fallback_focus=captured_image.fallback_focus,
                 )
             except Exception:
                 self._record_dropped_capture(
@@ -1636,17 +1847,12 @@ class ProtocolImageWriter:
                 )
                 raise
 
-            if capture_result is None:
-                capture_result_filepath_name = 'unsaved'
-            elif isinstance(capture_result, dict):
-                capture_result_filepath_name = capture_result['metadata']['file_loc']
-            elif separate_folder_per_channel:
-                capture_result_filepath_name = pathlib.Path(step['Color']) / capture_result.name
-            else:
-                capture_result_filepath_name = capture_result.name
+            capture_result_filepath_name = _recorded_name(
+                step, capture_result.name, separate_folder_per_channel
+            )
 
         else:
-            capture_result_filepath_name = 'unsaved'
+            capture_result_filepath_name = ProtocolExecutionRecord.UNSAVED
 
         if self._execution_record is not None:
             try:

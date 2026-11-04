@@ -13,14 +13,18 @@ The live grab loop and real conversion are bench-gated.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import ids_peak_ipl
+import numpy as np
 import pytest
 
+from drivers import host_clock
+from drivers.camera import HandOver
 from drivers.camera_profiles import CameraProfile
 from drivers.idscamera import (
     IDSCamera,
@@ -29,7 +33,9 @@ from drivers.idscamera import (
     _ids_ipl_target,
     ids_significant_bits,
 )
+from drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_ids_camera
+from tests.log_capture import records_of
 
 
 def _time_at(now):
@@ -39,6 +45,17 @@ def _time_at(now):
     in the process.
     """
     return SimpleNamespace(monotonic=lambda: now, perf_counter=time.perf_counter, sleep=time.sleep)
+
+
+def _cam_lines(caplog, level):
+    """The lines at ``level`` the driver wrote to its camera log."""
+    from drivers import idscamera
+
+    return [
+        r.getMessage()
+        for r in records_of(caplog, idscamera)
+        if r.name == idscamera._cam_log.name and r.levelno == level
+    ]
 
 
 class _RecordingNode:
@@ -101,34 +118,25 @@ class TestSignificantBitsFromFormat:
     def test_significant_bits(self, wire, expected):
         assert ids_significant_bits(wire) == expected
 
-    def test_unrecognized_format_warns_but_defaults_8(self):
+    def test_unrecognized_format_warns_but_defaults_8(self, caplog):
         # A non-Mono (color/packed) name is unexpected on this mono-only driver:
         # still default to 8, but WARN so it is loud rather than silently stamped.
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('BayerRG12') == 8
-        log.warning.assert_called_once()
+        assert len(_cam_lines(caplog, logging.WARNING)) == 1, caplog.messages
 
-    def test_recognized_mono_format_does_not_warn(self):
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+    def test_recognized_mono_format_does_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('Mono12') == 12
-        log.warning.assert_not_called()
+        assert _cam_lines(caplog, logging.WARNING) == []
 
-    def test_empty_format_defaults_8_quietly(self):
+    def test_empty_format_defaults_8_quietly(self, caplog):
         # An empty/None format is a failed-read sentinel, not a color camera --
         # default to 8 without the misleading "unrecognized color format" warning.
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('') == 8
             assert ids_significant_bits(None) == 8
-        log.warning.assert_not_called()
+        assert _cam_lines(caplog, logging.WARNING) == []
 
 
 class TestIplTarget:
@@ -168,20 +176,17 @@ class TestDeliveryTarget:
 
 
 class TestDepthContract:
-    """The driver no longer pins depth to 8; the container is the inherited
-    16-bit width and the payload depth is derived from the active format."""
+    """The container is the inherited 16-bit width, and the payload depth is
+    what the driver delivers for the active format: the 8-bit-mode Mono10
+    wire arrives as 8 bits, so its depth is 8, as its frames' stamp says."""
 
     def test_native_bit_depth_is_container_width_16(self):
         assert IDSCamera.native_bit_depth == 16
 
-    @pytest.mark.parametrize(
-        'wire,expected',
-        [('Mono12g24IDS', 12), ('Mono10g40IDS', 10), ('Mono8', 8)],
-    )
-    def test_significant_bits_property_tracks_format(self, wire, expected):
+    def test_the_delivered_depth_follows_the_wire_format(self):
         cam = bare_ids_camera()
-        cam._pixel_format_cache = wire
-        assert cam.significant_bits == expected
+        expected = {'Mono12g24IDS': 12, 'Mono10g40IDS': 8, 'Mono8': 8}
+        assert {wire: cam.significant_bits_for_format(wire) for wire in expected} == expected
 
 
 class TestFrameRateCap:
@@ -215,26 +220,28 @@ class TestFrameRateCap:
 
 
 class TestFreeRunConfig:
-    """_configure_free_run lifts every throttle so the camera free-runs:
-    DeviceLinkThroughputLimitComponent -> Link (the keystone -- in the default
-    Sensor mode the limit is computed against the full raw readout and caps
-    fps), the link limit to its max, the rate-target limiter off, and
-    AcquisitionFrameRate to its max."""
+    """_configure_free_run lifts every throttle so the camera free-runs: the
+    link limit to its max, the rate-target limiter off, and
+    AcquisitionFrameRate to its max unbinned, 1 ms of frame time under it
+    binned. DeviceLinkThroughputLimitComponent is a read-only report of the
+    limiting component, never written."""
 
-    def _cam(self):
+    def _cam(self, binning=1):
         cam = bare_ids_camera()
         cam.remote_nodemap = _RecordingNodemap(
             {
                 'DeviceLinkThroughputLimit': _RecordingNode(maximum=400_000_000),
                 'AcquisitionFrameRate': _RecordingNode(maximum=45.0),
+                'BinningVertical': _RecordingNode(value=binning),
+                'BinningHorizontal': _RecordingNode(value=binning),
             }
         )
         return cam
 
-    def test_sets_throughput_component_to_link(self):
+    def test_writes_nothing_to_the_reported_limiter(self):
         cam = self._cam()
         cam._configure_free_run()
-        assert cam.remote_nodemap.nodes['DeviceLinkThroughputLimitComponent'].entry == 'Link'
+        assert 'DeviceLinkThroughputLimitComponent' not in cam.remote_nodemap.nodes
 
     def test_maximizes_throughput_limit(self):
         cam = self._cam()
@@ -246,16 +253,50 @@ class TestFreeRunConfig:
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRateTargetEnable'].value is False
 
-    def test_maximizes_acquisition_frame_rate(self):
-        cam = self._cam()
+    def test_unbinned_runs_at_the_acquisition_frame_rate_maximum(self):
+        cam = self._cam(binning=1)
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value == 45.0
+
+    def test_binned_runs_1_ms_of_frame_time_under_the_maximum(self):
+        # Binned at the exact maximum the U3-34L skips sensor slots.
+        cam = self._cam(binning=2)
+        cam._configure_free_run()
+        rate = cam.remote_nodemap.nodes['AcquisitionFrameRate'].value
+        assert 1.0 / rate == pytest.approx(1.0 / 45.0 + 0.001)
 
     def test_inactive_camera_writes_nothing(self):
         cam = self._cam()
         cam.active = False
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value is _RecordingNode._UNSET
+
+    def test_a_rate_write_the_camera_refuses_is_a_warning_naming_it(self, caplog):
+        # A refused write leaves the rate where it was, which can be clamped
+        # low by an earlier long exposure: a bundle must say so.
+        class _RefusingNode(_RecordingNode):
+            def SetValue(self, v):
+                raise RuntimeError('OUT_OF_RANGE')
+
+        cam = self._cam()
+        cam.remote_nodemap.nodes['AcquisitionFrameRate'] = _RefusingNode(maximum=45.0)
+        with caplog.at_level(logging.WARNING):
+            assert cam._set_free_run_frame_rate() is None
+        message = _cam_lines(caplog, logging.WARNING)[-1]
+        assert 'AcquisitionFrameRate' in message and 'OUT_OF_RANGE' in message
+
+    def test_a_camera_without_the_rate_node_is_not_a_warning(self, caplog):
+        class _NoRateNodemap(_RecordingNodemap):
+            def FindNode(self, name):
+                if name == 'AcquisitionFrameRate':
+                    raise RuntimeError('NotFound')
+                return super().FindNode(name)
+
+        cam = self._cam()
+        cam.remote_nodemap = _NoRateNodemap()
+        with caplog.at_level(logging.WARNING):
+            assert cam._set_free_run_frame_rate() is None
+        assert _cam_lines(caplog, logging.WARNING) == []
 
 
 class TestGainDbConversion:
@@ -370,11 +411,14 @@ class _FakeBuffer:
     def IsIncomplete(self):
         return not self._complete
 
-    def SizeFilled(self):
-        return 1
-
+    # The ids_peak Buffer's own members, and no others: a fake that answered a
+    # name the SDK lacks (SizeFilled) hid that the incomplete-buffer warning
+    # never read the fill.
     def Size(self):
         return 2
+
+    def ExpectedDataSize(self):
+        return 4
 
     def DeliveredDataSize(self):
         # The bytes this buffer carried on the link; the store counts them.
@@ -396,17 +440,18 @@ class TestLatestBufferSlot:
         requeued = []
         return _LatestBufferSlot(requeued.append), requeued
 
-    def test_put_then_get_returns_buffer_without_requeue(self):
+    def test_put_then_get_returns_buffer_and_its_hand_over_without_requeue(self):
         slot, rq = self._slot()
-        slot.put('a')
-        assert slot.get(timeout=0) == 'a'
+        handed_over = HandOver(1, 0, 0)
+        slot.put('a', handed_over)
+        assert slot.get(timeout=0) == ('a', handed_over)
         assert rq == []  # nothing displaced -> nothing re-queued
 
     def test_newest_wins_requeues_the_displaced_buffer(self):
         slot, rq = self._slot()
-        slot.put('old')
-        slot.put('new')
-        assert slot.get(timeout=0) == 'new'
+        slot.put('old', HandOver(1, 0, 0))
+        slot.put('new', HandOver(2, 0, 0))
+        assert slot.get(timeout=0) == ('new', HandOver(2, 0, 0))
         assert rq == ['old']  # the stale buffer went back to the pool
         assert slot.dropped == 1
         assert slot.get(timeout=0) is None
@@ -427,7 +472,7 @@ class TestLatestBufferSlot:
         from drivers.idscamera import _LatestBufferSlot
 
         slot, rq = self._slot()
-        slot.put('held')
+        slot.put('held', HandOver(1, 0, 0))
         slot.stop()
         # The held buffer goes back to the pool (not to the worker), then STOP.
         assert rq == ['held']
@@ -443,10 +488,10 @@ class TestLatestBufferSlot:
         t = threading.Thread(target=consume)
         t.start()
         time.sleep(0.05)  # let the consumer park in get()
-        slot.put('arrived')
+        slot.put('arrived', HandOver(1, 0, 0))
         t.join(timeout=2.0)
         assert not t.is_alive()
-        assert out == ['arrived']
+        assert out == [('arrived', HandOver(1, 0, 0))]
 
 
 class _FakeDataStream:
@@ -838,9 +883,9 @@ class TestProbeDevicePresence:
             idscamera._DEVICE_UPDATE_TIMEOUT_MS
         )
 
-    def test_skipped_when_disconnect_requested(self):
+    def test_skipped_while_a_disconnect_runs(self):
         cam = self._cam()
-        cam._disconnect_requested = True
+        cam._disconnecting = True
         assert cam._probe_device_presence() is None
         cam.device_manager.Update.assert_not_called()
 
@@ -879,34 +924,29 @@ class TestWedgedBufferBreaksLoop:
         assert ds.requeued == []  # never touch an invalid handle to re-queue it
         h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_buffer_error_breaks_logs_and_routes_to_removal(self):
-        from drivers import idscamera
-
+    def test_handle_buffer_error_breaks_logs_and_routes_to_removal(self, caplog):
         ds = MagicMock()
         h = _ids_handler(ds)
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             should_stop = h._handle_buffer_error(RuntimeError('bufferHandle is invalid'))
         assert should_stop is True  # break the loop -- do NOT catch-and-continue
-        log.error.assert_called_once()  # routed through the camera log
+        assert len(_cam_lines(caplog, logging.ERROR)) == 1  # routed through the camera log
         h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_wait_error_invalid_stream_handle_breaks_and_routes(self):
+    def test_handle_wait_error_invalid_stream_handle_breaks_and_routes(self, caplog):
         # The SAME invalid-handle fault can surface from WaitForFinishedBuffer
         # itself (the data stream revoked during the wait), not only from buffer
         # access. The wait-path classifier must stop the loop and escalate the
         # wedge -- NOT fall through to keep-polling, which hot-spins on the dead
         # stream (a single wedge produced tens of thousands of identical warnings
         # on the bench before this case existed).
-        from drivers import idscamera
-
         ds = MagicMock()
         h = _ids_handler(ds)
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             should_stop = h._handle_wait_error(RuntimeError('dataStreamHandle is invalid!'))
         assert should_stop is True  # stop the loop -- do NOT keep polling (no hot-spin)
-        log.error.assert_called_once()  # routed through the camera log as a wedge
+        # routed through the camera log as a wedge
+        assert len(_cam_lines(caplog, logging.ERROR)) == 1
         h._parent._handle_device_lost.assert_called_once()  # same drop as the buffer path
 
     def test_buffer_device_lost_routes_to_single_owner(self):
@@ -998,7 +1038,8 @@ class TestIncompleteFrameEscalation:
         ds.WaitForFinishedBuffer.side_effect = _next
         h._poll_loop()
         h._parent._handle_device_lost.assert_not_called()  # one blip is absorbed
-        h._slot.put.assert_called_once_with(good)  # the complete frame reached the worker
+        h._slot.put.assert_called_once()  # the complete frame reached the worker
+        assert h._slot.put.call_args.args[0] is good
 
     def test_a_complete_frame_resets_the_bad_frame_run(self, monkeypatch):
         from drivers import idscamera
@@ -1503,21 +1544,24 @@ class TestConnectFailureUnregistersCallback:
         # so the connect aborts with a live registration in place.
         cam._load_profile = MagicMock(side_effect=RuntimeError('profile load boom'))
 
-        assert cam.connect() is False
+        # A found camera that fails is raised, not told as no camera.
+        with pytest.raises(CameraUsbOpenFailedError):
+            cam.connect()
         # The callback registered during the aborted connect was torn down.
         dm.UnregisterDeviceLostCallback.assert_called_once()
         assert cam._device_lost_callback is None
         assert cam._device_lost_callback_handle is None
 
     def test_connection_error_after_register_also_unregisters(self, monkeypatch):
-        # Both failure branches must clean up: a ConnectionError raised AFTER
-        # registration goes through `except ConnectionError`, which must also
-        # unregister -- otherwise the live callback leaks past the aborted connect.
+        # A ConnectionError raised AFTER registration is a found camera's
+        # failure, not the no-camera case: it is raised, and the cleanup still
+        # unregisters -- otherwise the live callback leaks past the aborted connect.
         dm = MagicMock()
         cam = self._drive_connect(monkeypatch, dm)
         cam._load_profile = MagicMock(side_effect=ConnectionError('late connection error'))
 
-        assert cam.connect() is False
+        with pytest.raises(CameraUsbOpenFailedError):
+            cam.connect()
         dm.UnregisterDeviceLostCallback.assert_called_once()
         assert cam._device_lost_callback_handle is None
 
@@ -1729,7 +1773,7 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
             (img, significant_bits, wire_bytes)
         )
         h.start()
@@ -1757,6 +1801,31 @@ class TestPipelineLifecycle:
         assert stored == []  # nothing stored for an incomplete buffer
         assert ds.requeued.count(bad) == 1  # re-queued once, by the poll loop
 
+    def test_an_incomplete_buffer_is_logged_with_what_it_delivered_against_what_it_expected(
+        self, caplog
+    ):
+        with caplog.at_level(logging.WARNING):
+            _ids_handler(_FakeDataStream([]))._log_incomplete(_FakeBuffer('bad', complete=False))
+        line = _cam_lines(caplog, logging.WARNING)[-1]
+        assert 'delivered=3 expected=4 capacity=2' in line
+
+    def test_a_size_the_sdk_cannot_give_is_named_and_the_others_still_logged(self, caplog):
+        # IDS peak 26.06 on the U3-34L answers one of an incomplete buffer's
+        # sizes with GC_ERR_NOT_AVAILABLE (bench, 2026-10-20); the sizes it can
+        # give still describe the loss.
+        class _ExpectedUnavailable(_FakeBuffer):
+            def ExpectedDataSize(self):
+                raise RuntimeError('GC_ERR_NOT_AVAILABLE')
+
+        with caplog.at_level(logging.WARNING):
+            _ids_handler(_FakeDataStream([]))._log_incomplete(
+                _ExpectedUnavailable('bad', complete=False)
+            )
+        line = _cam_lines(caplog, logging.WARNING)[-1]
+        assert 'delivered=3' in line
+        assert 'capacity=2' in line
+        assert 'expected=<not available: RuntimeError>' in line
+
     def test_newest_wins_requeues_every_buffer_exactly_once(self):
         bufs = [_FakeBuffer(f'b{i}') for i in range(3)]
         ds = _FakeDataStream(list(bufs))
@@ -1769,7 +1838,9 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
+            img
+        )
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
         release.set()
@@ -1798,12 +1869,49 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
+            img
+        )
         h.start()
         self._wait_until(lambda: 'good' in stored)
         h.stop()
         assert 'good' in stored  # the exception on 'boom' didn't kill the worker
         assert ds.requeued.count(boom) == 1  # re-queued via finally despite raising
+
+    def test_a_frame_is_numbered_and_timed_where_the_poll_thread_hands_it_over(self):
+        """The ordinal and steady time are the poll thread's, before the worker's unpack.
+
+        The worker is held in its unpack, as a host that has fallen behind
+        holds it: the frame is already numbered, and the time it carries is
+        from before the worker was let go. Numbered at the store instead, a
+        frame waiting for the worker when a write went out would be placed
+        after the write.
+        """
+        ds = _FakeDataStream([_FakeBuffer('b0')])
+        h = _ids_handler(ds)
+        release = threading.Event()
+
+        def held_unpack(buf):
+            release.wait(timeout=5)
+            return np.zeros((2, 2), dtype=np.uint16), 12
+
+        h._unpack = held_unpack
+        h.start()
+        try:
+            self._wait_until(lambda: h.frames_delivered == 1)
+            assert h.frames_delivered == 1, (
+                'the poll thread did not number the frame it handed over'
+            )
+            assert h.delivered_counts[0] == 0  # the worker has stored nothing yet
+            released_ns = host_clock.steady_ns()
+            release.set()
+            self._wait_until(lambda: h.get_last_image() is not None)
+        finally:
+            release.set()
+            h.stop()
+        frame = h.get_last_image()
+        assert frame.seq == 1
+        assert frame.arrived_ns < released_ns
 
     def test_stop_is_idempotent_and_joins(self):
         ds = _FakeDataStream([])
@@ -1906,15 +2014,296 @@ class TestLiveExposureMinimum:
 
         assert cam.get_min_exposure() == pytest.approx(0.031)
 
-    def test_falls_back_to_cached_floor_when_node_read_fails(self):
+    def test_a_failed_node_read_raises_rather_than_answering_the_cached_floor(self):
+        """The cached floor answered in its place would be told as the live
+        one, and can be the stale value the live read exists to replace."""
         from types import SimpleNamespace
 
+        from drivers.exceptions import CameraReadFailedError
+
         cam = bare_ids_camera()
-        # Minimum() returns a non-numeric, so the live read raises and the
-        # accessor falls back to the cached profile floor rather than crashing.
+        # Minimum() returns a non-numeric, so the live read raises.
         cam.remote_nodemap = _RecordingNodemap(
             preset={'ExposureTime': _RecordingNode(minimum=None)}
         )
         cam.profile = SimpleNamespace(exposure_min_us=31.0)
 
-        assert cam.get_min_exposure() == pytest.approx(0.031)
+        with pytest.raises(CameraReadFailedError, match='Minimum exposure read failed'):
+            cam.get_min_exposure()
+
+
+def _unanswered() -> RuntimeError:
+    """What the driver's classifier reads as the camera not answering.
+
+    ``ids_peak`` is a MagicMock under test, so ``_exc_is`` classifies by the
+    message's text, the path an SDK build without the typed name takes.
+    """
+    # The node is not named, so a writer's words must name its setting themselves.
+    return RuntimeError('GC_ERR_TIMEOUT: timeout waiting for the device')
+
+
+class _SdkNode:
+    """One remote node: a value, its range, and the accesses the camera does
+    not answer.
+
+    ``unanswered`` names the methods that time out. ``unanswered_reads``
+    times the value reads out only ``'before'`` the node is first written or
+    only ``'after'`` it, to tell a read ahead of a write from a read-back.
+    """
+
+    def __init__(
+        self,
+        name,
+        value=1,
+        minimum=1,
+        maximum=4096,
+        increment=1,
+        entries=(),
+        unanswered=(),
+        unanswered_reads=None,
+    ):
+        self.name = name
+        self.value = value
+        self._range = {'Minimum': minimum, 'Maximum': maximum, 'Increment': increment}
+        self._entries = entries
+        self.unanswered = set(unanswered)
+        self.unanswered_reads = unanswered_reads
+        self.writes = []
+
+    def _ask(self, method):
+        if method in self.unanswered:
+            raise _unanswered()
+
+    def _read(self, method):
+        self._ask(method)
+        when = 'after' if self.writes else 'before'
+        if self.unanswered_reads == when:
+            raise _unanswered()
+
+    def Value(self):
+        self._read('Value')
+        return self.value
+
+    def CurrentEntry(self):
+        self._read('CurrentEntry')
+        return SimpleNamespace(SymbolicValue=lambda: self.value)
+
+    def AvailableEntries(self):
+        self._read('AvailableEntries')
+        return [SimpleNamespace(SymbolicValue=lambda e=e: e) for e in self._entries]
+
+    def Minimum(self):
+        self._read('Minimum')
+        return self._range['Minimum']
+
+    def Maximum(self):
+        self._read('Maximum')
+        return self._range['Maximum']
+
+    def Increment(self):
+        self._read('Increment')
+        return self._range['Increment']
+
+    def SetValue(self, v):
+        self._ask('SetValue')
+        self.writes.append(v)
+        self.value = v
+
+    def SetCurrentEntry(self, entry):
+        self._ask('SetCurrentEntry')
+        self.writes.append(entry)
+        self.value = entry
+
+
+class _SdkNodemap:
+    def __init__(self, nodes):
+        self.nodes = {node.name: node for node in nodes}
+
+    def FindNode(self, name):
+        return self.nodes[name]
+
+    def HasNode(self, name):
+        return name in self.nodes
+
+
+def _camera_answering_except(*overrides: _SdkNode):
+    """A connected IDS body whose nodes answer, but for the ones overridden."""
+    cam = bare_ids_camera()
+    cam.profile = CameraProfile()
+    cam._gain_selector = 'AnalogAll'
+    nodes = {
+        node.name: node
+        for node in (
+            _SdkNode('ExposureTime', value=10000.0, minimum=20.0, maximum=2e6),
+            _SdkNode('Gain', value=1.0, minimum=1.0, maximum=31.62),
+            _SdkNode('GainSelector', value='AnalogAll'),
+            _SdkNode('Width', value=3504, minimum=48, maximum=3504, increment=48),
+            _SdkNode('Height', value=3544, minimum=4, maximum=3544, increment=4),
+            _SdkNode('OffsetX', value=0, minimum=0, increment=8),
+            _SdkNode('OffsetY', value=0, minimum=0, increment=2),
+            _SdkNode('BinningVertical', value=1, maximum=2),
+            _SdkNode('BinningHorizontal', value=1, maximum=2),
+            _SdkNode('PixelFormat', value='Mono8', entries=('Mono8', 'Mono12')),
+            _SdkNode('BlackLevel', value=3.0, minimum=0.0, maximum=255.0),
+            _SdkNode('BlackLevelAuto', value='Off'),
+        )
+    }
+    nodes.update({node.name: node for node in overrides})
+    cam.remote_nodemap = _SdkNodemap(nodes.values())
+    return cam
+
+
+# writer: (the node whose write decides it, that write's method, the call,
+# the setting its words name)
+_DECIDING_WRITES = {
+    'gain': ('Gain', 'SetValue', lambda cam: cam.gain(6.0), 'Gain'),
+    'exposure_t': ('ExposureTime', 'SetValue', lambda cam: cam.exposure_t(10.0), 'Exposure'),
+    'set_frame_size': (
+        'Width',
+        'SetValue',
+        lambda cam: cam.set_frame_size(1900, 1900),
+        'Width',
+    ),
+    'set_binning_size': (
+        'BinningVertical',
+        'SetValue',
+        lambda cam: cam.set_binning_size(2),
+        'Binning',
+    ),
+    'set_pixel_format': (
+        'PixelFormat',
+        'SetCurrentEntry',
+        lambda cam: cam.set_pixel_format('Mono12'),
+        'PixelFormat',
+    ),
+    'set_black_level': (
+        'BlackLevel',
+        'SetValue',
+        lambda cam: cam.set_black_level(3.0),
+        'BlackLevel',
+    ),
+}
+
+
+class TestASettingWriteTheCameraDoesNotAnswer:
+    """A setting write the camera does not answer is told apart from one it
+    refused: the refusal returns False, the unanswered write raises
+    CameraNoAnswerError so the API can send it once more, and the camera is not
+    taken for removed (a timeout is a camera still on the bus).
+
+    A read the write cannot be computed without is a no-answer too: nothing
+    was written, and the write may be sent again. A read that is only a
+    short-cut ahead of the write, or a read-back after it, does not turn an
+    applied write into a failed one.
+
+    Of the setting writers the API reaches, the IDS driver writes six nodes.
+    Its auto-gain and auto-exposure members refuse before touching the
+    camera (no hardware auto mode), and it has no conversion-gain or
+    line-noise-reduction member.
+    """
+
+    def test_every_unanswered_deciding_write_raises_no_answer_and_keeps_the_camera(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        offenders = []
+        for writer, (node_name, method, write, setting) in _DECIDING_WRITES.items():
+            cam = _camera_answering_except()
+            cam.remote_nodemap.nodes[node_name].unanswered.add(method)
+            try:
+                result = write(cam)
+            except CameraNoAnswerError as e:
+                if e.reason != 'camera_no_answer':
+                    offenders.append(f'{writer}: reason {e.reason!r}')
+                if setting not in str(e):
+                    offenders.append(f'{writer}: words {str(e)!r} do not name {setting}')
+                if 'GC_ERR_TIMEOUT' not in str(e):
+                    offenders.append(f"{writer}: words {str(e)!r} drop the SDK's text")
+            except Exception as e:
+                offenders.append(f'{writer}: raised {type(e).__name__}({e})')
+            else:
+                offenders.append(f'{writer}: returned {result!r}')
+            if cam._mark_disconnected.called or cam._device_removed:
+                offenders.append(f'{writer}: took the camera for removed')
+        assert offenders == []
+
+    def test_an_unanswered_frame_size_leaves_no_window_the_camera_may_not_have(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        cam = _camera_answering_except()
+        cam.remote_nodemap.nodes['Height'].unanswered.add('SetValue')
+        with pytest.raises(CameraNoAnswerError):
+            cam.set_frame_size(1900, 1900)
+        assert cam._frame_window is None
+
+    def test_an_unanswered_read_the_write_needs_is_a_no_answer_and_writes_nothing(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        # writer: (the node read ahead of the write, that read, the call, the
+        # setting's own node). Gain's selector is written before its range is
+        # read, since the range is the selected amplifier's; Gain is not.
+        reads = {
+            'exposure_t': (
+                'ExposureTime',
+                'Minimum',
+                lambda cam: cam.exposure_t(10.0),
+                'ExposureTime',
+            ),
+            'gain': ('Gain', 'Maximum', lambda cam: cam.gain(6.0), 'Gain'),
+            'set_frame_size': (
+                'Width',
+                'Increment',
+                lambda cam: cam.set_frame_size(1900, 1900),
+                'Width',
+            ),
+            'set_black_level': (
+                'BlackLevelAuto',
+                'CurrentEntry',
+                lambda cam: cam.set_black_level(3.0),
+                'BlackLevel',
+            ),
+            'set_pixel_format': (
+                'PixelFormat',
+                'AvailableEntries',
+                lambda cam: cam.set_pixel_format('Mono12'),
+                'PixelFormat',
+            ),
+            # The selector left unresolved at connect is resolved by the write.
+            'gain (its selector)': (
+                'GainSelector',
+                'AvailableEntries',
+                lambda cam: (setattr(cam, '_gain_selector', None), cam.gain(6.0))[1],
+                'Gain',
+            ),
+        }
+        offenders = []
+        for writer, (node_name, method, write, setting_node) in reads.items():
+            cam = _camera_answering_except()
+            cam.remote_nodemap.nodes[node_name].unanswered.add(method)
+            try:
+                result = write(cam)
+            except CameraNoAnswerError as e:
+                if 'not written' not in str(e):
+                    offenders.append(f'{writer}: words {str(e)!r} do not say nothing was written')
+            except Exception as e:
+                offenders.append(f'{writer}: raised {type(e).__name__}({e})')
+            else:
+                offenders.append(f'{writer}: returned {result!r}')
+            if cam.remote_nodemap.nodes[setting_node].writes:
+                offenders.append(f'{writer}: wrote {setting_node} after the read failed')
+        assert offenders == []
+
+    def test_a_short_cut_read_the_camera_does_not_answer_still_writes(self):
+        # Binning reads the current factor ahead of its write; a timeout there
+        # is tolerated and the write goes ahead.
+        cam = _camera_answering_except(
+            _SdkNode('BinningVertical', value=1, maximum=2, unanswered_reads='before')
+        )
+        assert cam.set_binning_size(2) is True
+        assert cam.remote_nodemap.nodes['BinningVertical'].writes == [2]
+
+    def test_a_read_back_the_camera_does_not_answer_is_the_write_applied(self):
+        cam = _camera_answering_except(
+            _SdkNode('BlackLevel', value=0.0, minimum=0.0, maximum=255.0, unanswered_reads='after')
+        )
+        assert cam.set_black_level(3.0) == 3.0
+        assert cam.remote_nodemap.nodes['BlackLevel'].writes == [3.0]

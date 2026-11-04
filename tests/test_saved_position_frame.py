@@ -24,6 +24,7 @@ import pytest
 import modules.image_save as image_save
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
 
 PLATE_X_MM = 15.38
 PLATE_Y_MM = 11.24
@@ -63,6 +64,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['plate_pos_mm']['x'] == pytest.approx(PLATE_X_MM), (
@@ -86,6 +88,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(STAGE_Z_UM)
@@ -104,6 +107,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
         far = image_save.generate_image_metadata(
             positioned_scope,
@@ -115,28 +119,11 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         delta = far['plate_pos_mm']['x'] - near['plate_pos_mm']['x']
         assert delta == pytest.approx(9.0), f'two captures 9 mm apart recorded {delta} mm apart'
-
-    def test_the_duplicate_position_keys_agree_with_the_plate_position(self, positioned_scope):
-        """`x_pos` / `y_pos` carry the same fact as `plate_pos_mm`. Two spellings
-        of one value can drift apart; while both exist they answer the same."""
-        metadata = image_save.generate_image_metadata(
-            positioned_scope,
-            channel='BF',
-            plate_x_mm=PLATE_X_MM,
-            plate_y_mm=PLATE_Y_MM,
-            stage_z_um=STAGE_Z_UM,
-            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
-            frame_record=frame_record(),
-            labware=plate(),
-            well_label=None,
-        )
-
-        assert metadata['x_pos'] == metadata['plate_pos_mm']['x']
-        assert metadata['y_pos'] == metadata['plate_pos_mm']['y']
 
 
 class TestTheWholeSaveChainCarriesOneFrame:
@@ -164,6 +151,9 @@ class TestTheWholeSaveChainCarriesOneFrame:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
+            white_bits=None,
+            fallback_focus=None,
         )
 
         plane = _read_plane(path)
@@ -176,9 +166,7 @@ class TestTheWholeSaveChainCarriesOneFrame:
 
 def _read_plane(path) -> dict:
     """The Plane block a consumer reads back out of a written TIFF."""
-    import json
-
     import tifffile
 
     with tifffile.TiffFile(str(path)) as tf:
-        return json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+        return tf.shaped_metadata[0]['Plane']

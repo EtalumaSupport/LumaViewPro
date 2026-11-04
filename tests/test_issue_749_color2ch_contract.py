@@ -9,7 +9,9 @@ capture guard, keyed on `illumination > 0` alone, would reject a genuinely
 dark luminescence frame as a failed capture once the LED correctly stays
 dark.
 
-Coverage: the driver contract (color2ch -> None, all four boards), the
+Coverage (the driver contract retired with the drivers' colour tables:
+a driver names no address, and the API's identity `color2ch` is the one
+place a colour becomes a channel): the
 named-colour / idempotent-off seam behavior through the real illumination
 API, the dark-floor drivability predicate driven through the real
 ProtocolImageWriter.capture(), the consecutive-failure abort wording, the
@@ -22,49 +24,25 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import ClassVar
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+import numpy as np
 import pytest
 
 from modules import common_utils
+from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope
-
-
-def _driver_classes():
-    from drivers.fx2driver import FX2LEDController
-    from drivers.ledboard import LEDBoard
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.simulated_ledboard import SimulatedLEDBoard
-
-    return [LEDBoard, NullLEDBoard, SimulatedLEDBoard, FX2LEDController]
-
-
-class TestColor2chContract:
-    """None is the only representation of 'this scope cannot drive it'."""
-
-    def test_color2ch_unknown_is_none_all_drivers(self):
-        for cls in _driver_classes():
-            board = cls.__new__(cls)
-            assert board.color2ch('NoSuchColour') is None, cls.__name__
-            assert board.ch2color(99) is None, cls.__name__
-
-    def test_known_colours_still_map(self):
-        for cls in _driver_classes():
-            board = cls.__new__(cls)
-            assert board.color2ch('BF') == 3, cls.__name__
-            assert board.ch2color(0) == 'Blue', cls.__name__
+from tests.stock_channels import LED0
+from modules.lumascope_api.frame_record import CapturedStill
+from tests.frame_records import frame_record
 
 
 class _FourColourRecordingBoard:
     """LED-board double shaped like the FX2 (no PC/DF/Lumi channels),
     recording every command that reaches the driver."""
-
-    _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def __init__(self):
         self.commands = []
@@ -75,17 +53,8 @@ class _FourColourRecordingBoard:
         # that omits it is treated as absent rather than failing loudly.
         return True
 
-    def color2ch(self, color):
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel):
-        return self._CH_TO_COLOR.get(channel)
-
     def available_channels(self):
         return (0, 1, 2, 3)
-
-    def available_colors(self):
-        return tuple(self._COLOR_TO_CH)
 
     def led_on(self, channel, illumination_ma, **kwargs):
         self.commands.append(('on', channel, illumination_ma))
@@ -94,6 +63,10 @@ class _FourColourRecordingBoard:
     def led_off(self, channel, **kwargs):
         self.commands.append(('off', channel))
         return True
+
+    def leds_off(self):
+        # The disconnect's off: a board that cannot take it is reported.
+        self.commands.append(('off', 'all'))
 
 
 @pytest.fixture
@@ -141,9 +114,12 @@ class TestTaskFailureNotificationWording:
 
     def _fire(self, centre_posts, *, protocol: bool):
         from modules.notification_center import Severity
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, max_workers=1, name='TEST_WORDING'
+        )
         try:
 
             def sample_operation():
@@ -207,7 +183,7 @@ class TestDarkFloorKeysOnLedDrivability:
     @staticmethod
     def _run_capture(step_overrides, writer_setup=None):
         """Drive the REAL ProtocolImageWriter.capture() on stub collaborators
-        and return (capture_and_wait kwargs, scope, writer)."""
+        and return (capture_still kwargs, scope, writer)."""
         from unittest.mock import MagicMock
 
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
@@ -218,18 +194,24 @@ class TestDarkFloorKeysOnLedDrivability:
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
+        # A capture returns its frame's pixels with their record.
+        scope.imaging.capture_still.return_value = CapturedStill(
+            image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+        )
         if writer_setup is not None:
             writer_setup(writer, scope)
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder='/tmp',
             step=_protocol_step(**step_overrides),
             output_format='TIFF',
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+        return scope.imaging.capture_still.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
         # The capture path derives dark-by-design from commanded state (a
@@ -250,7 +232,7 @@ class TestDarkFloorKeysOnLedDrivability:
         # which passes for the wrong reason. The invariant is pinned here
         # instead, on the one path every capture takes, and the drivability
         # half is pinned behaviourally by TestCaptureAbortWording below.
-        kwargs, _, _ = self._run_capture({'Color': 'Blue', 'Illumination': 50.0})
+        kwargs, _, _ = self._run_capture({'Color': LED0, 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
     def test_live_capture_reads_no_settings_predicate(self):
@@ -284,11 +266,13 @@ class TestCaptureAbortWording:
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder='/tmp',
             step=_protocol_step(Color=color),
             output_format='TIFF',
@@ -306,8 +290,8 @@ class TestCaptureAbortWording:
 
     def test_no_led_board_keeps_camera_wording(self, centre_posts):
         body = self._run_abort(centre_posts, color='BF', led_connected=False, channel=None)
-        assert 'Camera failed' in body
+        assert body.startswith('The camera failed 3 steps in a row; the last: '), body
 
     def test_drivable_colour_keeps_camera_wording(self, centre_posts):
         body = self._run_abort(centre_posts, color='BF', led_connected=True, channel=3)
-        assert 'Camera failed' in body
+        assert body.startswith('The camera failed 3 steps in a row; the last: '), body

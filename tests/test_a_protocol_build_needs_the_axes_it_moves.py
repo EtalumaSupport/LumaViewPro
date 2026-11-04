@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -23,8 +24,8 @@ from tests.test_step_label_ssot import _ZSTACK, _WIDE_Z, _build_protocol, _label
 
 UNREACHABLE = 'positions_unreachable'
 _WIDE_XY = {
-    'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
-    'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
+    'X': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
+    'Y': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
 }
 
 
@@ -39,7 +40,7 @@ def _tile_2x2(proto, axis_limits):
         binning_size=1,
         axis_limits=axis_limits,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         # Refused before the scale is read, so no real optics are needed.
         capabilities=SimpleNamespace(),

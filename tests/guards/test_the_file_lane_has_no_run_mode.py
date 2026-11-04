@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words
 
-_RUN_MODE_MEMBERS = frozenset(
+_RUN_MODE_MEMBERS = MemberNames(
+    'modules/sequential_io_executor.py',
     {
         'protocol_put',
         'protocol_start',
@@ -28,15 +29,15 @@ _RUN_MODE_MEMBERS = frozenset(
         'protocol_finish_then_end',
         'end_protocol_mode',
         'clear_protocol_pending',
-    }
+    },
 )
 
 # Receivers that name the IO or CAMERA lane.
-_RUN_MODE_LANES = frozenset({'io_executor', '_io_executor', 'camera_executor'})
+_RUN_MODE_LANES = Words({'io_executor', '_io_executor', 'camera_executor'})
 
 _EXECUTOR_SOURCE = 'modules/sequential_io_executor.py'
 
-_SOURCES = ('modules', 'ui', 'drivers', 'plugins')
+_SOURCES = Packages({'modules', 'ui', 'drivers'})
 
 
 def _receiver_name(node: ast.expr) -> str:

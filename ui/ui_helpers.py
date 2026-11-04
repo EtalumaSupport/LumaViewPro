@@ -3,18 +3,22 @@
 UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
 
 Moved from modules/ui_helpers.py to ui/ because this is GUI code (imports
-Kivy Window, ScrollView). A compatibility shim at modules/ui_helpers.py
+Kivy Window). A compatibility shim at modules/ui_helpers.py
 re-exports everything for existing callers.
 """
 
 import logging
+import threading
 import typing
 
-from kivy.properties import StringProperty
+from kivy.properties import AliasProperty, StringProperty
 from kivy.uix.accordion import AccordionItem
-from kivy.uix.scrollview import ScrollView
-from modules import gui_logger
+from kivy.uix.textinput import TextInput
+from modules import gui_logger, live_work
+from modules.acquire_mode import AcquireMode
+from modules.caller import Caller, calling
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.run_events import VideoPhase
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -22,9 +26,27 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 
 if typing.TYPE_CHECKING:
+    from modules.coord_transformations import PlateLocation
     from modules.sequential_io_executor import SequentialIOExecutor
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
+
+# How often the UI thread's Clock looks at its own gap, and the gap it reports.
+UI_HOLD_TICK_S = 0.25
+UI_HOLD_REPORT_S = 1.0
+
+
+def report_ui_thread_hold(dt: float) -> None:
+    """The Clock's interval callback: say once, on return, that the UI thread was held.
+
+    Kivy hands an interval callback the time since its last run, so a gap
+    over ``UI_HOLD_REPORT_S`` is a hold of that length, read with no state
+    of its own. A field bundle's 9-10 s protocol loads froze the GUI with no
+    line saying so; the watchdog's UI probe sees only a hold of a minute or
+    more, and dumps the stack it is in.
+    """
+    if dt > UI_HOLD_REPORT_S:
+        logger.warning(f'[UI        ] The UI thread was held {dt:.1f} s')
 
 
 def run_reported(
@@ -132,8 +154,7 @@ def submit_reported(
     reaches the task's callback once. The executor's own narration is the
     record of a refused or dropped call, under the gesture's label.
 
-    Two executor paths run no callback, so their redraw is lost: a queue
-    drained by ``clear_pending`` (the lane closing down), and a task whose
+    One executor path runs no callback, so its redraw is lost: a task whose
     worker was abandoned by wedge recovery while stuck inside it.
 
     ``stop`` is for a Stop: it goes ahead of every queued request, so a
@@ -157,7 +178,9 @@ def submit_reported(
         _schedule_ui(lambda dt: _reported(redraw, label))
 
     def _off_the_gui_thread():
-        _reported(call, label)
+        # The GUI's request, on whichever worker or lane runs it.
+        with calling(Caller.GUI):
+            _reported(call, label)
 
     # The executor names a refused task by its action, so the action carries
     # the gesture's label rather than this wrapper's name.
@@ -171,6 +194,33 @@ def submit_reported(
     queued = executor.put(IOTask(action=_off_the_gui_thread, callback=_redraw, priority=priority))
     if queued is None:
         _redraw()
+
+
+def take_back_control() -> None:
+    """A press of Take back control: the person at the scope takes control back.
+
+    Whatever session is held when the press lands is ended, the one the
+    banner showed or one taken since, since control back is what was asked
+    for; with none held, nothing is ended and nothing is said.
+    """
+    submit_reported(_app_ctx.ctx.session.take_back_control, None, 'TAKE_BACK_CONTROL')
+
+
+def stop_the_stage() -> None:
+    """A press of the red STOP: ``stop_motion`` at once, reported as any request is.
+
+    Sent on a thread of its own. Not the GUI thread: on a board that has
+    stopped answering a STOP holds its exchange for seconds, and the window
+    would freeze for them. Not the IO lane or the worker pool: either may be
+    held by the very work the person is stopping. Every press sends; the API
+    decides what a press stops and what it refuses.
+    """
+
+    def _press():
+        with calling(Caller.GUI):
+            _reported(_app_ctx.ctx.scope.motion.stop_motion, 'STOP')
+
+    threading.Thread(target=_press, name='STOP', daemon=True).start()
 
 
 def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
@@ -188,6 +238,88 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     False, without deciding what the outcome meant.
     """
     return _contained(call, label, solicited=False)
+
+
+class CommitInput(TextInput):
+    """A text box that commits what the person typed, and nothing else.
+
+    It fires ``on_commit`` when the person leaves it edited, or presses
+    Enter in it whatever it holds. A click in and out with nothing typed
+    commits nothing: the box's text when it gained focus is compared with
+    its text when it lost it, so a focus loss alone -- which moved Z to the
+    number a moving Z box showed -- is never taken for a request.
+
+    That comparison holds only while nothing but the person writes the box,
+    so the box is never written from code while it has focus. ``text`` is
+    redefined over Kivy's own getter with a setter that, while focused,
+    holds the newest value instead of showing it: a writer's assignment, a
+    kv ``text:`` binding and a put-back alike. Kivy applies the person's
+    keystrokes, deletions and pastes through ``_set_line_text``, never this
+    setter, so typing is untouched. Left unedited, the box then shows the
+    held value; left edited, it drops it, since the commit's own redraw
+    runs after the unfocus and writes the box.
+
+    The getter and setter are Kivy's private ``_get_text`` / ``_set_text``
+    (Kivy is pinned in requirements.txt); a real-Kivy test fails if either
+    moves (tests/test_a_box_commits_an_edit.py).
+
+    Enter reaches the commit through Kivy's unfocus: ``on_text_validate``
+    is dispatched, then ``focus`` is cleared, in one call. The note the
+    validate leaves is what makes an unchanged Enter a commit, so a box
+    that turns ``text_validate_unfocus`` off would leave a stale note for
+    the next click away; the guard refuses it
+    (tests/test_text_input_single_commit.py).
+    """
+
+    __events__ = ('on_commit',)
+
+    def __init__(self, **kwargs):
+        self._text_at_focus: str | None = None
+        self._held_text: str | None = None
+        self._entered = False
+        super().__init__(**kwargs)
+
+    def _shown_text(self) -> str:
+        return TextInput._get_text(self)
+
+    def _show_unless_focused(self, text: str) -> None:
+        if self.focus:
+            self._held_text = text
+            return
+        TextInput._set_text(self, text)
+
+    text = AliasProperty(_shown_text, _show_unless_focused, bind=('_lines',), cache=True)
+
+    def on_text_validate(self) -> None:
+        self._entered = True
+
+    def on_focus(self, _instance, focused: bool) -> None:
+        if focused:
+            self._text_at_focus = self.text
+            self._held_text = None
+            self._entered = False
+            return
+        held, self._held_text = self._held_text, None
+        entered, self._entered = self._entered, False
+        if entered or self.text != self._text_at_focus:
+            self.dispatch('on_commit')
+        elif held is not None:
+            self.text = held
+
+    def on_commit(self) -> None:
+        """The person's entry, bound in the kv; one call per entry."""
+
+
+def show_on_slider(slider, value: float) -> None:
+    """Show *value* on a slider a redraw writes, unless the operator is dragging it.
+
+    Under the finger the store lags the drag -- its writes go through a lane
+    -- so a redraw would pull the slider back to an older value; the drag's
+    own last write is redrawn once it lands.
+    """
+    if getattr(slider, 'user_interacting', False):
+        return
+    slider.value = value
 
 
 def typed_number(
@@ -260,16 +392,12 @@ def restore_display_after_run(*_ended) -> None:
 
     A run shows each step in the layer panel and in the shader's false
     colour without writing the user's settings; this puts every layer's
-    widgets back on the settings and the shader back on the open drawer's
-    layer, or BF when none is open. Takes and ignores ``run_ended``'s values.
+    widgets back on the settings and the shader back on the shown channel's
+    layer. Takes and ignores ``run_ended``'s values.
     """
     sync_layer_widgets_from_settings()
     ctx = _app_ctx.ctx
-    layer_name = common_utils.get_opened_layer(ctx.image_settings)
-    if layer_name is not None:
-        ctx.image_settings.layer_lookup(layer=layer_name).update_shader(dt=0)
-        return
-    ctx.viewer.update_shader(false_color='BF')
+    ctx.image_settings.layer_lookup(layer=ctx.session.shown_channel.channel).update_shader(dt=0)
 
 
 def set_last_save_folder(dir):
@@ -285,18 +413,13 @@ def set_last_save_folder(dir):
 # ============================================================================
 
 
-def focus_log(positions, values):
-    ctx = _app_ctx.ctx
-    ctx.focus_round = config_helpers.focus_log(positions, values, ctx.focus_round, ctx.source_path)
-
-
 def sync_layer_widgets_from_settings():
     """Every layer's panel shows its stored settings again.
 
-    The run-end callback: a protocol run displays each step in the panel
-    without writing the user's settings, so at run end the widgets are
-    the last step's and the settings are the user's; this puts the panel
-    back on the settings. One call per run, every layer.
+    The run-end callback: a run moves only the step pointer and writes no
+    layer setting, and its end restores the camera from the settings; this
+    shows every layer's stored settings once the run has let go. One call
+    per run, every layer.
     """
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
@@ -317,96 +440,114 @@ def find_nearest_step(x, y, protocol):
 # ============================================================================
 
 
-def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
+def _handle_ui_update_for_axis(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
     if axis == 'Z':
-        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui()
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
     elif axis == 'ALL':
         # A full home moves every axis the scope has, the turret included.
-        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui()
         ctx.motion_settings.update_xy_stage_control_gui()
         if ctx.scope.capabilities.has_turret:
             ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
 
 def _user_motion_locked(axis: str) -> bool:
-    """True while an exclusive activity locks the control surface.
+    """True while the Session's lock record locks the whole control surface.
 
     kv ``disabled:`` reaches widgets, but bound input observers (the
     viewer's right-click-to-center, scroll-to-focus) fire before any
     widget's disabled state is consulted -- so the user-gesture motion
-    funnel enforces the lock itself, once, for every gesture path.
-    Headless callers run without a Kivy app and are never locked here.
+    funnel obeys the lock (``app.lock``) itself, once, for every gesture
+    path; it decides nothing of its own. Headless callers run without a
+    Kivy app and are never locked here.
     """
     from kivy.app import App
 
     app = App.get_running_app()
-    locked = getattr(app, 'controls_locked', False) if app is not None else False
-    # The lock engages only on the App property's explicit True: the
-    # real BooleanProperty always yields a bool, and anything else means
-    # there is no real app (headless / mocked hosts are never locked).
-    if locked is not True:
+    if app is None or not app.lock.controls_locked:
         return False
-    logger.info(f'[UI] {axis} move blocked: controls locked (protocol run or recording active)')
+    logger.info(f'[UI] {axis} move blocked: controls locked ({app.lock.named})')
     return True
 
 
-def move_absolute(
-    axis: str,
-    position: float,
-    overshoot_enabled: bool = True,
-    frame: str = 'stage',
-):
-    """Start an axis moving for a person's gesture, keeping the gesture lock in one place.
+def xy_gestures_offered() -> bool:
+    """Whether a gesture on the stage map or the viewer is offered: the scope has an XY stage and the controls are not locked.
+
+    Read from the scope's capability and the lock record (``app.lock``); a
+    move asked anyway meets the funnel and the API.
+    """
+    from kivy.app import App
+
+    return (
+        _app_ctx.ctx.scope.capabilities.has_xy_stage
+        and not App.get_running_app().lock.controls_locked
+    )
+
+
+def move_z(position: float):
+    """Start Z moving to a place for a person's gesture, keeping the gesture lock in one place.
 
     Started, not waited: a gesture returns at once, and a move that fails
-    on the way is the motion monitor's to report.
-
-    A turret slot goes to the turret widget, which asks the API to move and
-    then shows where the API says the turret is.
-
-    ``frame='plate'`` hands the API the number a user typed, in plate mm,
-    instead of converting first. The conversion and its bound then happen
-    inside the submitted call, on the IO lane, where the reporter shows a
-    refusal; the axis boxes redraw once the command has landed.
+    on the way is the motion monitor's to report. The approach is the
+    API's (``MotionAPI.start_move_z``).
     """
     ctx = _app_ctx.ctx
 
-    if _user_motion_locked(axis):
-        return
-
-    if axis == 'T':
-        ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
+    if _user_motion_locked('Z'):
         return
 
     submit_reported(
-        lambda: ctx.scope.motion.start_move_absolute(
-            axis,
-            position,
-            overshoot_enabled=overshoot_enabled,
-            frame=frame,
-        ),
-        lambda: _handle_ui_update_for_axis(axis=axis),
-        f'MOVE_{axis}',
+        lambda: ctx.scope.motion.start_move_z(position),
+        lambda: _handle_ui_update_for_axis(axis='Z'),
+        'MOVE_Z',
         lane=ctx.io_executor,
     )
 
 
-def move_relative(axis: str, distance: float, overshoot_enabled: bool = True):
-    """Start an axis jogging for a person's gesture; started, not waited, as ``move_absolute``."""
+def move_to_plate(label: str, at: 'PlateLocation') -> None:
+    """Start X and Y moving to a plate position a person gave, in plate mm; started, not waited.
+
+    The API converts and bounds the number the person typed or clicked
+    (``MotionAPI.start_move_to_plate``), so a refusal names it in mm; an
+    axis left None is not moved and not redrawn.
+    """
+    ctx = _app_ctx.ctx
+    axes = tuple(axis for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None)
+    submit_move(
+        label,
+        axes=axes,
+        call=lambda: ctx.scope.motion.start_move_to_plate(at),
+        lane=ctx.io_executor,
+    )
+
+
+def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:
+    """Start ``axes`` moving to the bookmark for a go-to-bookmark button; started, not waited."""
+    ctx = _app_ctx.ctx
+    submit_move(
+        label,
+        axes=axes,
+        call=lambda: ctx.session.start_go_to_bookmark(axes),
+        lane=ctx.io_executor,
+    )
+
+
+def jog(axis: str, steps: float, coarse: bool):
+    """Start ``axis`` jogging by ``steps`` objective steps for a person's gesture; started, not waited, as ``move_z``.
+
+    The gesture goes to the API whole: the step size, and which refusal
+    answers first, are the API's.
+    """
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     submit_reported(
-        lambda: ctx.scope.motion.start_move_relative(
-            axis,
-            distance,
-            overshoot_enabled=overshoot_enabled,
-        ),
-        lambda: _handle_ui_update_for_axis(axis=axis),
+        lambda: ctx.scope.motion.start_jog(axis, steps, coarse),
+        lambda: _handle_ui_update_for_axis(axis='Z' if axis == 'Z' else 'XY'),
         f'JOG_{axis}',
         lane=ctx.io_executor,
     )
@@ -423,8 +564,10 @@ def submit_gesture(
     """Run a person's several-axis gesture as one task on the IO lane.
 
     The lane asks the motion API once whether every axis the gesture needs
-    knows where it is, then runs *moves*, whose members run inline there. A
-    home or a stop can no longer land between the question and the moves,
+    knows where it is, then runs *moves*, whose members run inline there,
+    as one command (``motion.one_command``): a capture asked during the
+    gesture waits for all its moves, never taking the new X at the old Y.
+    A home or a stop can no longer land between the question and the moves,
     and a refusal is shown once by the reporter instead of once per axis.
     A move refused part way leaves the axes that already moved where they
     went.
@@ -446,11 +589,13 @@ def submit_gesture(
     axes = tuple(axes)
 
     def call() -> None:
-        if axes:
-            _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
-        moves()
+        if not axes:
+            moves()
+            return
+        with _app_ctx.ctx.scope.motion.one_command(axes, then=then):
+            moves()
 
-    submit_move(label, axes=axes, call=call, on_moved=on_moved)
+    submit_move(label, axes=axes, call=call, lane=_app_ctx.ctx.io_executor, on_moved=on_moved)
 
 
 def submit_move(
@@ -458,19 +603,20 @@ def submit_move(
     *,
     axes: typing.Iterable[str],
     call: typing.Callable[[], None],
+    lane: 'SequentialIOExecutor | None',
     on_moved: typing.Callable[[], None] | None = None,
 ) -> None:
-    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
+    """Run a person's move, redraw its axes, then its GUI work.
 
     The lane half of ``submit_gesture``, for a move an API member composes
     itself (asking about its axes included): the control-surface lock is
-    enforced here, *call* runs as one task on the IO lane, the axes are
-    redrawn once the task has ended whatever its outcome, and *on_moved*
-    runs on the GUI thread only when *call* returned. A gesture's moves are
-    started, never waited on, so the task holds the lane only for the
-    commands.
+    enforced here, *call* runs as one task on *lane* (``submit_reported``'s:
+    the IO lane for a call of motion members alone, None for the worker pool
+    when the call also waits on another lane), the axes are redrawn once the
+    task has ended whatever its outcome, and *on_moved* runs on the GUI
+    thread only when *call* returned. A gesture's moves are started, never
+    waited on, so the task holds the lane only for the commands.
     """
-    ctx = _app_ctx.ctx
     axes = tuple(axes)
     if _user_motion_locked(label):
         return
@@ -489,7 +635,7 @@ def submit_move(
         if moved and on_moved is not None:
             on_moved()
 
-    submit_reported(moving, redraw, label, lane=ctx.io_executor)
+    submit_reported(moving, redraw, label, lane=lane)
 
 
 def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:
@@ -573,13 +719,15 @@ def get_title_event_text():
     return _title_event_text
 
 
-def set_title_event_text(text):
+def set_title_event_text(text, *, stage=None):
     """Set the suffix shown after the product name in the window title.
-    Pass None or '' to clear. Safe to call from any thread (single attribute
-    write on a module-level CPython str/None -- atomic under GIL)."""
+    Pass None or '' to clear. ``stage`` names what a counting text is doing,
+    so the GUI record logs it once per stage (``gui_logger.display``). Safe
+    to call from any thread (single attribute write on a module-level
+    CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
-    gui_logger.display('TITLE_EVENT', _title_event_text)
+    gui_logger.display('TITLE_EVENT', _title_event_text, stage=stage)
 
 
 # The suffix the last video progress wrote, so its 'ended' clears only its
@@ -594,17 +742,20 @@ def show_video_progress(progress) -> None:
     the text this wrote; anything another writer has put there since stays.
     """
     global _video_progress_text
-    if progress.phase == 'ended':
+    if progress.phase == VideoPhase.ENDED:
         if get_title_event_text() == _video_progress_text:
             set_title_event_text(None)
         _video_progress_text = None
         return
-    if progress.phase == 'recording':
+    if progress.phase == VideoPhase.RECORDING:
+        # The step's length is which video this is; its elapsed seconds are progress.
         text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
+        stage = f'Recording Video... / {int(progress.total_s)}s'
     else:
-        text = f'Writing Video... {int(progress.percent)}%'
+        text = f'Writing Video... {int(progress.progress_pct)}%'
+        stage = 'Writing Video...'
     _video_progress_text = text
-    set_title_event_text(text)
+    set_title_event_text(text, stage=stage)
 
 
 def reset_title():
@@ -626,6 +777,7 @@ def live_histo_off():
     if ctx.live_histo_setting and ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = False
         logger.info('[LVP Main  ] Live Histogram Equalization] False')
+        gui_logger.display('LIVE_EQUALIZATION', 'off while the scope is held')
 
 
 def live_histo_reverse():
@@ -633,47 +785,49 @@ def live_histo_reverse():
     if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
+        gui_logger.display('LIVE_EQUALIZATION', 'on')
 
 
 _DRAIN_TITLE = 'Writing protocol scan files to disk...'
 
 
-def draw_shared_run_displays() -> None:
+def work_item_text(item: live_work.WorkItem) -> str:
+    """One piece of the session's live work, as the close's popups show it."""
+    if item.progress_pct is not None:
+        return f'{item.name} ({item.progress_pct:.0f}%)'
+    if item.left is not None:
+        return f'{item.name} ({item.left} left)'
+    return item.name
+
+
+def draw_shared_run_displays(lock, work) -> None:
     """Draw the displays every run shares -- equalization, title, LED toggles.
 
     Their only writer. Each run control redraws on every run-state edge,
     including the edge where ANOTHER run takes the scope, so a control
     that wrote these while drawing its own idle state would undo the live
-    run's display. These are drawn from what the session says holds the
-    scope, never from any one control's run.
+    run's display. These are drawn from the edge's lock record (``lock``,
+    a ``ControlsLock``) and live work (``work``, a ``LiveWork``), never
+    from any one control's run.
 
     While anything holds the scope its own writers title the window, so
     the title is left to them; the LED toggles are reconciled only once
     nothing holds the scope, after the run's hardware restore has settled
-    and with no diagnostic lighting the LEDs underneath them.
+    and with no diagnostic lighting the LEDs underneath them. A run still
+    unwinding at its release edge holds it here; the idle edge that
+    follows draws the same.
     """
-    ctx = _app_ctx.ctx
-    session = ctx.session
-    if session.run_lockout:
+    if lock.run_named is not None:
         live_histo_off()
     else:
         live_histo_reverse()
-    if session.exclusive_activity is not None:
+    if any(work.has(kind) for kind in live_work.SCOPE_HOLDERS):
         return
-    if session.protocol_files_draining:
+    if work.has(live_work.WorkKind.RUN_FILES):
         set_title_event_text(_DRAIN_TITLE)
     else:
         reset_title()
-    ctx.ui_listener_bridge.reconcile_led_buttons()
-
-
-def homing_banner_shown(session) -> bool:
-    """Whether the middle of the window shows the homing banner: while a home holds the scope.
-
-    A home only: a run shows its own progress, and a banner over the live
-    view would hide the images it captures.
-    """
-    return session.exclusive_activity == 'home'
+    _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
 # ============================================================================
@@ -687,9 +841,9 @@ def reset_acquire_ui():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         layer_obj._initializing = True
         try:
-            if ctx.settings[layer]['acquire'] == 'image':
+            if ctx.settings[layer]['acquire'] == AcquireMode.IMAGE:
                 layer_obj.ids['acquire_image'].active = True
-            elif ctx.settings[layer]['acquire'] == 'video':
+            elif ctx.settings[layer]['acquire'] == AcquireMode.VIDEO:
                 layer_obj.ids['acquire_video'].active = True
             else:
                 layer_obj.ids['acquire_none'].active = True
@@ -699,7 +853,7 @@ def reset_acquire_ui():
 
 def reset_stim_ui():
     # Display only: a loaded protocol's stimulation was turned off by the
-    # Session (``ScopeSession.apply_layer_settings``), which writes it.
+    # Session (``ScopeSession.apply_channel_settings``), which writes it.
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
@@ -710,11 +864,6 @@ def reset_stim_ui():
             finally:
                 layer_obj._initializing = False
             layer_obj.update_stim_controls_visibility()
-
-
-# ============================================================================
-# ScrollView Memory Cleanup
-# ============================================================================
 
 
 class LoggedAccordionItem(AccordionItem):
@@ -728,14 +877,22 @@ class LoggedAccordionItem(AccordionItem):
 
     Every item sets both names in the kv; the GUI-logging census refuses an
     item that does not (tests/gui_logging_census.py).
+
+    ``person_opened``, when the panel owning the item sets it, is called
+    after the record, for a person's open only: a layer drawer asks the
+    Session to show its layer there, and the app's own expands, which draw
+    what the Session already shows, ask nothing.
     """
 
     log_group = StringProperty('')
     log_item = StringProperty('')
+    person_opened: typing.Callable[[], None] | None = None
 
     def on_touch_down(self, touch):
         if self.collapse and not self.disabled and self.collide_point(*touch.pos):
             gui_logger.select(self.log_group, self.log_item)
+            if self.person_opened is not None:
+                self.person_opened()
         return super().on_touch_down(touch)
 
 
@@ -773,34 +930,3 @@ def resort_accordion(accordion, items: typing.Sequence[tuple[object | None, bool
         accordion.add_widget(widget)
     for widget in untracked:
         accordion.add_widget(widget, 0)
-
-
-def cleanup_scrollview_viewport(scrollview):
-    """
-    Clean up ScrollView viewport textures to prevent memory accumulation.
-    This is called after accordion collapse events to release viewport resources.
-    """
-    try:
-        if not isinstance(scrollview, ScrollView):
-            return
-
-        # Clear viewport canvas
-        if (
-            hasattr(scrollview, '_viewport')
-            and scrollview._viewport
-            and hasattr(scrollview._viewport, 'canvas')
-        ):
-            scrollview._viewport.canvas.ask_update()
-
-        # Clear effect textures (primary source of memory accumulation)
-        for effect in [scrollview.effect_x, scrollview.effect_y]:
-            if effect and hasattr(effect, '_texture'):
-                effect._texture = None
-
-        # Clear viewport texture reference
-        if hasattr(scrollview, '_viewport_texture'):
-            scrollview._viewport_texture = None
-
-        logger.debug('[LVP Main  ] ScrollView viewport cleanup completed')
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] ScrollView cleanup error: {e}')

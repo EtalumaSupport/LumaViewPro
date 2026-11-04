@@ -13,7 +13,7 @@ has no excitation, and a record-less channel ('Composite', or an
 unresolved identity) has no display name -- the keys are absent, never
 null and never fabricated. The same idiom now covers illumination_ma,
 which used to write a fabricated 0 mA when the LED was off or the
-board absent. led_channel is a per-unit board address that changes
+board absent. led_addresses is a per-unit board address that changes
 with a rewire or board swap; it must never reach metadata.
 """
 
@@ -22,25 +22,16 @@ from pathlib import Path
 import pytest
 
 from modules import image_save, image_utils
-from modules.layer_record import UNRESOLVED, LayerIdentity, LayerRecord
+from modules.layer_record import UNRESOLVED, release_color
 from tests.frame_records import frame_record
-from tests.scope_fakes import bind_settings_like_a_session
+from tests.scope_fakes import bind_settings_like_a_session, identity_with_layers
+from tests.stock_channels import LED1
 
 PLATE = '24 well microplate'
 
-_BF = LayerRecord(
-    id=0, key_name='BF', display_name='Brightfield', led_channel=(3,), excitation_nm=None
-)
-_GREEN = LayerRecord(
-    id=4, key_name='Green', display_name='Green', led_channel=(1,), excitation_nm=488.0
-)
-
-_IDENTITY = LayerIdentity(
-    layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig', model=None
-)
-_IDENTITY_NO_FILTERSET = LayerIdentity(
-    layers=(_BF, _GREEN), filterset='', source='scopes', model=None
-)
+_IDENTITY = identity_with_layers(['BF', LED1], filterset='FS-STOCK')
+_IDENTITY_NO_FILTERSET = identity_with_layers(['BF', LED1])
+_GREEN = _IDENTITY.find(LED1)
 
 
 @pytest.fixture
@@ -51,12 +42,12 @@ def metadata_scope(sim_scope):
         protocol={'labware': PLATE},
         stage_offset={'x': 0.0, 'y': 0.0},
     )
-    sim_scope.layer_identity = _IDENTITY
+    sim_scope.channel_identity = _IDENTITY
     return sim_scope
 
 
 def _metadata(scope, channel, lit=None):
-    """The metadata for a frame taken with ``lit`` (layer -> mA) lighting it."""
+    """The metadata for a frame taken with ``lit`` (LED address -> mA) lighting it."""
     return image_save.generate_image_metadata(
         scope,
         channel,
@@ -67,14 +58,15 @@ def _metadata(scope, channel, lit=None):
         frame_record=frame_record(illumination_ma=lit or {}),
         labware=scope.runtime_state.get_labware(),
         well_label=None,
+        fallback_focus=None,
     )
 
 
 class TestSpectralTrio:
     def test_fluorescence_capture_carries_the_trio(self, metadata_scope):
-        metadata = _metadata(metadata_scope, 'Green')
-        assert metadata['channel'] == 'Green'
-        assert metadata['channel_display'] == 'Green'
+        metadata = _metadata(metadata_scope, LED1)
+        assert metadata['channel'] == LED1
+        assert metadata['channel_display'] == '488 nm'
         assert metadata['excitation_nm'] == 488.0
         assert metadata['filterset'] == 'FS-STOCK'
 
@@ -93,20 +85,20 @@ class TestSpectralTrio:
         assert metadata['filterset'] == 'FS-STOCK'
 
     def test_unresolved_identity_omits_the_trio(self, metadata_scope):
-        metadata_scope.layer_identity = UNRESOLVED
+        metadata_scope.channel_identity = UNRESOLVED
         metadata = _metadata(metadata_scope, 'BF')
         assert 'channel_display' not in metadata
         assert 'excitation_nm' not in metadata
         assert 'filterset' not in metadata
 
     def test_empty_filterset_is_absent(self, metadata_scope):
-        metadata_scope.layer_identity = _IDENTITY_NO_FILTERSET
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata_scope.channel_identity = _IDENTITY_NO_FILTERSET
+        metadata = _metadata(metadata_scope, LED1)
         assert 'filterset' not in metadata
-        assert metadata['channel_display'] == 'Green'
+        assert metadata['channel_display'] == '488 nm'
 
     def test_led_channel_never_reaches_metadata(self, metadata_scope):
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         assert 'led_channel' not in str(metadata)
 
 
@@ -114,24 +106,25 @@ class TestIlluminationAbsentWhenUnknown:
     def test_unlit_channel_omits_illumination(self, metadata_scope):
         # LED off (never set on a fresh sim scope): unknown stays
         # unknown, no fabricated 0 mA.
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         assert 'illumination_ma' not in metadata
 
     def test_lit_channel_records_real_current(self, metadata_scope):
-        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 123.0})
+        metadata = _metadata(metadata_scope, LED1, lit={_GREEN.led_addresses[0]: 123.0})
         assert metadata['illumination_ma'] == pytest.approx(123.0)
 
     def test_tiff_write_tolerates_absent_illumination(self, metadata_scope):
         import numpy as np
 
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         assert 'illumination_ma' not in metadata
         metadata['significant_bits'] = 12
         tiff_data = image_utils.generate_tiff_data(
             data=np.zeros((8, 8), dtype=np.uint16),
             metadata=metadata,
             image_type='ome',
-            color='Green',
+            color=release_color(LED1),
+            white_bits=None,
         )
         plane = tiff_data['metadata']['Plane']
         assert 'Illumination' not in plane
@@ -156,56 +149,53 @@ class TestWrittenFileRoundTrip:
             metadata=metadata,
             file_loc=path,
             ome=ome,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
     def test_16bit_imagej_tile_round_trips_the_trio(self, metadata_scope, tmp_path):
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
-        assert back['channel'] == 'Green'
-        assert back['channel_display'] == 'Green'
+        assert back['channel'] == LED1
+        assert back['channel_display'] == '488 nm'
         assert back['excitation_nm'] == 488.0
         assert back['filterset'] == 'FS-STOCK'
 
-    def test_16bit_ome_tile_keeps_excitation_drops_the_rest_knowingly(
-        self, metadata_scope, tmp_path
-    ):
-        # tifffile's auto-OME serializer writes only schema attributes:
-        # ExcitationWavelength is one (measured 2026-08-30), DisplayName
-        # and FilterSet are not -- they join gain / illumination /
-        # instrument in that path's documented losses. The imagej /
-        # shaped container above is the primary still path and lossless.
-        metadata = _metadata(metadata_scope, 'Green')
+    def test_16bit_ome_tile_keeps_the_trio(self, metadata_scope, tmp_path):
+        # ExcitationWavelength is an OME Channel attribute; the display name
+        # and the filterset have none, so they ride in LVP's annotation, and
+        # the OME tile reads back the trio as the ImageJ one does.
+        metadata = _metadata(metadata_scope, LED1)
         path = self._write_tile(tmp_path, metadata, ome=True)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
-        assert back['channel'] == 'Green'
+        assert back['channel'] == LED1
         assert back['excitation_nm'] == 488.0
-        assert 'channel_display' not in back
-        assert 'filterset' not in back
+        assert back['channel_display'] == '488 nm'
+        assert back['filterset'] == 'FS-STOCK'
 
     def test_16bit_tile_without_illumination_still_reads(self, metadata_scope, tmp_path):
         # The read side must not treat a dark capture as an unreadable
         # file: Illumination is optional on read-back, like exposure and
         # gain. (The OME container's fallback reader keeps its documented
         # sentinel-default contract and is not asserted here.)
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         assert 'illumination_ma' not in metadata
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['plate_pos_mm'] is not None
         assert 'illumination_ma' not in back
 
     def test_lit_capture_round_trips_illumination(self, metadata_scope, tmp_path):
-        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 55.0})
+        metadata = _metadata(metadata_scope, LED1, lit={_GREEN.led_addresses[0]: 55.0})
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['illumination_ma'] == pytest.approx(55.0)
 
@@ -214,7 +204,7 @@ class TestDerivedOutputs:
     def test_same_channel_derived_output_keeps_the_trio(self, metadata_scope, tmp_path):
         import numpy as np
 
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         metadata['pixel_size_um'] = 1.0
         path = tmp_path / 'in.tiff'
         image_utils.write_tiff(
@@ -222,22 +212,25 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
-        out = image_utils.build_postproc_output_metadata(Path(path), 'Green', significant_bits=12)
-        assert out['channel_display'] == 'Green'
+        out = image_utils.build_postproc_output_metadata(
+            [image_utils.read_file_record(Path(path))], LED1, significant_bits=12, adds_frames=False
+        )
+        assert out['channel_display'] == '488 nm'
         assert out['excitation_nm'] == 488.0
         assert out['filterset'] == 'FS-STOCK'
 
     def test_channel_change_drops_layer_claims_keeps_unit_fact(self, metadata_scope, tmp_path):
-        # A composite built from a Green input is not a Green image: the
+        # A composite built from an LED1 input is not an LED1 image: the
         # per-layer claims would pair wrongly with channel='Composite'.
         # The filterset stays -- the same unit produced the inputs.
         import numpy as np
 
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         metadata['pixel_size_um'] = 1.0
         path = tmp_path / 'in.tiff'
         image_utils.write_tiff(
@@ -245,26 +238,28 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(
-            Path(path), 'Composite', significant_bits=12
+            [image_utils.read_file_record(Path(path))],
+            'Composite',
+            significant_bits=12,
+            adds_frames=False,
         )
         assert 'channel_display' not in out
         assert 'excitation_nm' not in out
         assert out['filterset'] == 'FS-STOCK'
 
-    def test_hyperstack_builder_knowingly_drops_the_trio(self, metadata_scope, tmp_path):
-        # Recorded drop, not an accident: build_hyperstack_output_metadata
-        # composes its own OME schema dict from scratch and does not copy
-        # arbitrary input keys. Extending the hyperstack schema with
-        # per-channel spectral arrays is future work; until then this
-        # test is the record that the drop is known.
+    def test_a_one_channel_hyperstack_keeps_the_trio(self, metadata_scope, tmp_path):
+        # A hyperstack states what a derived file states of its frames: on
+        # its frames' one channel, the layer's display name and excitation,
+        # and the unit's filterset, read back from its annotation.
         import numpy as np
 
-        metadata = _metadata(metadata_scope, 'Green')
+        metadata = _metadata(metadata_scope, LED1)
         metadata['pixel_size_um'] = 1.0
         path = tmp_path / 'in.tiff'
         image_utils.write_tiff(
@@ -272,13 +267,16 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
+        stack = tmp_path / 'stack.ome.tiff'
         out = image_utils.build_hyperstack_output_metadata(
-            Path(path),
-            channel_names=['Green'],
+            [image_utils.read_file_record(Path(path))],
+            channel_names=[LED1],
+            channel_colors=[release_color(name) for name in [LED1]],
             plane_positions={
                 'PositionX': [0.0],
                 'PositionY': [0.0],
@@ -288,5 +286,15 @@ class TestDerivedOutputs:
             significant_bits=12,
             pixel_size_um=1.0,
         )
-        assert 'channel_display' not in str(out)
-        assert 'filterset' not in str(out)
+        image_utils.write_hyperstack_tiff(
+            iter([np.zeros((16, 16), dtype=np.uint16)]),
+            stack,
+            (1, 1, 1, 16, 16),
+            np.uint16,
+            out,
+            {'photometric': 'minisblack'},
+        )
+        back = image_utils.read_file_record(stack)
+        assert back['channel_display'] == '488 nm'
+        assert back['excitation_nm'] == 488.0
+        assert back['filterset'] == 'FS-STOCK'

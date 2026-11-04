@@ -5,16 +5,15 @@ from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
-import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import is_image_saving_enabled
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
+    run_reported,
     set_last_save_folder,
     show_captured_frame,
     show_video_progress,
@@ -22,15 +21,26 @@ from ui.ui_helpers import (
     sync_layer_widgets_from_settings,
     typed_number,
 )
-from modules.zstack_config import ZStackConfig
+from modules.zstack_config import ZStackConfig, ZStackReference
 
 logger = logging.getLogger('LVP.ui.zstack')
+
+# The reference spinner's labels, in its order. A label is display: the store,
+# the API and a protocol hold the ZStackReference value, so a label is renamed
+# with no migration.
+ZSTACK_REFERENCE_LABELS = {
+    ZStackReference.TOP: 'Current Position at Top',
+    ZStackReference.CENTER: 'Current Position at Center',
+    ZStackReference.BOTTOM: 'Current Position at Bottom',
+}
+
+LABEL_TO_ZSTACK_REFERENCE = {label: ref for ref, label in ZSTACK_REFERENCE_LABELS.items()}
 
 
 class ZStack(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
-    _zstack_run: 'RunHandle | None' = None
+    _zstack_run: 'Operation | None' = None
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     zstack_pending = BooleanProperty(False)
@@ -38,6 +48,8 @@ class ZStack(FloatLayout):
     # run, a recording, a diagnostic -- as the Session answers; greys the
     # button, and its own run leaves it live as that run's Stop.
     zstack_held = BooleanProperty(False)
+    # False on a scope with no focus axis: the block hides and takes no height.
+    visible = BooleanProperty(True)
 
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
@@ -50,10 +62,15 @@ class ZStack(FloatLayout):
         # events so it reads the box first.
         typed = {wid: self.ids[wid].text for wid in ('zstack_stepsize_id', 'zstack_range_id')}
 
-        # A number is stored as typed, whatever its sign: a stack whose step
-        # or range is not above zero is refused when it is built, naming the
-        # values the person entered, and the Steps field reads 0 meanwhile.
-        for wid, key in (('zstack_stepsize_id', 'step_size'), ('zstack_range_id', 'range')):
+        # The writer holds the range: a negative number is refused, named in
+        # its words, and the box shows what is stored. A stack whose step or
+        # range is 0 is refused when it is built, and the Steps field reads 0
+        # meanwhile.
+        fields = (
+            ('zstack_stepsize_id', 'step_size', 'ZSTACK_STEP_SIZE'),
+            ('zstack_range_id', 'range', 'ZSTACK_RANGE'),
+        )
+        for wid, key, name in fields:
             box = self.ids[wid]
 
             def put_back(box=box, key=key):
@@ -61,23 +78,26 @@ class ZStack(FloatLayout):
 
             value = typed_number(box.text, float, put_back)
             if value is not None:
-                _app_ctx.ctx.update_settings(f'zstack.{key}', value)
+                run_reported(
+                    lambda key=key, value=value: _app_ctx.ctx.update_settings(
+                        f'zstack.{key}', value
+                    ),
+                    None,
+                    name,
+                )
+                # Redrawn only when the store did not take what was typed: a
+                # number taken stays as typed, so its record is not a put-back.
+                if settings['zstack'][key] != value:
+                    put_back()
 
-        for wid, name in (
-            ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
-            ('zstack_range_id', 'ZSTACK_RANGE'),
-        ):
+        for wid, _key, name in fields:
             if self.ids[wid].text != typed[wid]:
                 gui_logger.text_input(f'{name}_APPLIED', self.ids[wid].text)
-
-        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=self.ids['zstack_spinner'].text
-        )
 
         zstack_config = ZStackConfig(
             range=settings['zstack']['range'],
             step_size=settings['zstack']['step_size'],
-            current_z_reference=z_reference,
+            current_z_reference=ZStackReference(settings['zstack']['position']),
             current_z_value=None,
         )
 
@@ -98,8 +118,28 @@ class ZStack(FloatLayout):
         gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
-        gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
-        _app_ctx.ctx.update_settings('zstack.position', self.ids['zstack_spinner'].text)
+        position = LABEL_TO_ZSTACK_REFERENCE.get(self.ids['zstack_spinner'].text)
+        # The placeholder before the first redraw names no reference, and the
+        # spinner set from the store fires this too; neither is a pick.
+        if position is None or position == _app_ctx.ctx.settings['zstack']['position']:
+            return
+        _app_ctx.ctx.update_settings('zstack.position', position)
+
+    def show_settings(self) -> None:
+        """Show the stored z-stack: its reference, step, range and the steps they make."""
+        settings = _app_ctx.ctx.settings['zstack']
+        reference = ZStackReference(settings['position'])
+        self.ids['zstack_spinner'].values = list(ZSTACK_REFERENCE_LABELS.values())
+        self.ids['zstack_spinner'].text = ZSTACK_REFERENCE_LABELS[reference]
+        self.ids['zstack_stepsize_id'].text = str(settings['step_size'])
+        self.ids['zstack_range_id'].text = str(settings['range'])
+        zstack_config = ZStackConfig(
+            range=settings['range'],
+            step_size=settings['step_size'],
+            current_z_reference=reference,
+            current_z_value=None,
+        )
+        self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
     def run_zstack_acquire_from_ui(self):
         """Start a z-stack, or stop the one this button started.
@@ -107,8 +147,8 @@ class ZStack(FloatLayout):
         Everything about the run -- the objective, the stack, the capture,
         and every refusal of it -- is the member's, and the boundary shows
         a refusal once. This button states only what a running GUI knows:
-        the open drawer, its own token, the live engineering flag and the
-        engineering panel's saving switch, all read here on the GUI thread.
+        the open drawer, its own token and the engineering panel's saving
+        switch, all read here on the GUI thread.
 
         Whether the press means Stop is the engine's answer -- is the run
         this button started still live -- never the toggle's, which Kivy has
@@ -123,7 +163,7 @@ class ZStack(FloatLayout):
         # second press cannot race the first one to the pool.
         self.zstack_pending = True
 
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             submit_reported(
                 run.stop,
                 self._zstack_request_done,
@@ -132,30 +172,30 @@ class ZStack(FloatLayout):
             )
             return
 
-        runner = ctx.session.create_protocol_runner()
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        enable_image_saving = is_image_saving_enabled()
+        runner = ctx.session.protocol_runner()
+        layer = ctx.session.shown_channel.channel
+        enable_image_saving = not ctx.motion_settings.ids['protocol_settings_id'].saving_disabled
         events = RunEvents(
             frame_captured=show_captured_frame,
             # Each slice redraws the button, which reads the step from the
             # engine: a redraw from any other edge draws the same thing.
-            step_started=lambda step_idx: self.draw_zstack_button(),
+            step_started=lambda step_index: self.draw_zstack_button(),
             video_progress=show_video_progress,
             run_ended=lambda *ended: sync_layer_widgets_from_settings(),
+            on_ui_thread=True,
         )
 
         def _start():
-            started = runner.run_zstack(
-                layer=layer,
+            started = runner.start_zstack(
+                channel=layer,
                 events=events,
-                run_trigger_source='zstack',
                 enable_image_saving=enable_image_saving,
             )
             self._zstack_run = started
-            # A refusal raises out of run_zstack before this line, so the
+            # A refusal raises out of start_zstack before this line, so the
             # save folder can only ever point at THIS run's directory,
             # never a previous run's stale data.
-            set_last_save_folder(dir=started.run_dir)
+            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 
@@ -179,23 +219,27 @@ class ZStack(FloatLayout):
         if label is None:
             button.state = 'normal'
             button.text = 'Acquire'
-            return
-        button.state = 'down'
-        button.text = label
+        else:
+            button.state = 'down'
+            button.text = label
+        # The slice count is progress; the stage is acquiring or stopping.
+        stage = button.text if label in (None, 'Stopping...') else 'Z running'
+        gui_logger.display(
+            'ZSTACK_BUTTON',
+            f'{button.text} held={self.zstack_held}',
+            stage=f'{stage} held={self.zstack_held}',
+        )
 
 
-def _running_label(run: 'RunHandle | None') -> str | None:
-    """What the button says while its run is live; None when it is not.
-
-    None also when the run ended between the live read and the progress
-    reads -- its progress is None then -- so the button draws what it read
-    rather than a running label for a run that has ended.
-    """
-    if run is None or not run.is_live:
+def _running_label(run: 'Operation | None') -> str | None:
+    """What the button says while its run is live; None when it is not, or has no step yet."""
+    progress = None if run is None else run.progress()
+    if progress is None or not progress.is_live:
         return None
-    if run.is_stopping:
+    if progress.is_stopping:
         return 'Stopping...'
-    step, total = run.step_number, run.num_steps
-    if step is None or total is None:
+    step_index, total = progress.step_index, progress.num_steps
+    if step_index is None or total is None:
         return None
-    return f'Z {step}/{total}'
+    # A person counts slices from 1.
+    return f'Z {step_index + 1}/{total}'

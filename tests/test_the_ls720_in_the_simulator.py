@@ -7,7 +7,6 @@ sequence, moves on all three axes, refuses X and Y with the lid open while
 Z still moves, and runs a protocol with tiling and a Z-stack.
 """
 
-import threading
 import time
 
 import pytest
@@ -19,7 +18,9 @@ from modules.exceptions import (
     MoveNotCompletedError,
     RunCheckFailedError,
 )
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from modules.lumascope_api import AxisState
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from tests.motion_moves import axis_move
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
     _run_and_wait,
@@ -31,14 +32,12 @@ from tests.test_integration import (  # noqa: F401 -- the fixtures are used by n
 @pytest.fixture
 def scope():
     s = build_scope(simulate=True, sim_model='LS720', source_path='.', register_atexit=False)
-    # Bring-up records that the scope has no turret, asks which objective is
-    # mounted and writes the stage offset; a bare scope skipped all three,
-    # and a run reads each.
-    record_turret_answer(s)
+    # Bring-up asks which objective is mounted and writes the stage offset;
+    # a bare scope skipped both, and a run reads each.
     # The shipped stage offset, which the bench LS720's index positions
     # were measured against.
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     s.disconnect()
 
@@ -56,12 +55,12 @@ def _board(scope):
 def test_the_ls720_runs_the_6110_driver_and_starts_unknown(scope):
     assert isinstance(scope._motion_driver, Tmcm6110Board)
     assert set(scope.capabilities.axes) == {'X', 'Y', 'Z'}
-    assert not scope.motion.has_homed()
+    assert scope.motion.axes_without_position().keys() - {'T'}
 
 
 def test_a_home_makes_every_axis_known_at_its_index_position(homed):
-    assert homed.motion.has_homed()
-    assert homed.motion.get_current_position() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
+    assert not (homed.motion.axes_without_position().keys() - {'T'})
+    assert homed.motion.get_current_positions() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
 
 
 # Where the bench LS720's board stood with A1 and H12 centred by eye
@@ -75,16 +74,14 @@ BENCH_BOARD_USTEPS = {
 BY_EYE_USTEPS = 0.3 * 6400
 
 
-@pytest.mark.parametrize(('well', 'column', 'row'), [('A1', 0, 0), ('H12', 11, 7)])
-def test_a_map_click_on_a_well_drives_the_board_where_the_bench_found_it(homed, well, column, row):
+@pytest.mark.parametrize('well', ['A1', 'H12'])
+def test_a_move_to_a_well_drives_the_board_where_the_bench_found_it(homed, well):
     """The plate frame is the one every model shares; the LS720's index
-    positions register its board against it, so a click on a well's centre
+    positions register its board against it, so a move to a well's centre
     drives the board's registers to where the bench centred that well, X
     from the column-12 end as on an LS850. Read at the board: a plate
     position round-trips through any frame."""
-    plate_x, plate_y = homed.runtime_state.get_labware().get_well_position(column, row)
-    homed.motion.move_absolute('X', plate_x, frame='plate')
-    homed.motion.move_absolute('Y', plate_y, frame='plate')
+    homed.motion.move_to_well(well)
     board = _board(homed)
     for axis in ('X', 'Y'):
         assert board.position(axis) == pytest.approx(
@@ -99,30 +96,30 @@ def _at(scope, axis):
 
 
 def test_each_axis_moves_through_the_api(homed):
-    homed.motion.move_absolute('X', 12_000)
-    homed.motion.move_absolute('Y', 8_000)
-    homed.motion.move_absolute('Z', 3_000)
-    homed.motion.move_relative('Z', -500)
+    homed.motion.move_xy(x_um=12_000)
+    homed.motion.move_xy(y_um=8_000)
+    homed.motion.move_z(3_000)
+    homed.motion.move_z_by(-500)
     assert _at(homed, 'X') == pytest.approx(12_000, abs=0.2)
     assert _at(homed, 'Y') == pytest.approx(8_000, abs=0.2)
     assert _at(homed, 'Z') == pytest.approx(2_500, abs=0.1)
 
 
 def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
-    _board(homed).lid_open = True
+    homed.simulation.interlock(lid_open=True)
     assert homed.motion.interlocks() == {'lid_open'}
     for axis in ('X', 'Y'):
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            homed.motion.move_absolute(axis, 1_000)
-        assert refused.value.reason == 'lid_open'
-    homed.motion.move_absolute('Z', 1_000)
+            axis_move(homed.motion, axis, 1_000)
+        assert refused.value.reason == 'lid_open_before_motion'
+    homed.motion.move_z(1_000)
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert _at(homed, 'X') == 117_690.0
 
 
 def _ended(handle):
     with pytest.raises(MoveNotCompletedError) as raised:
-        handle.wait()
+        handle.result()
     return raised.value.reason
 
 
@@ -130,80 +127,102 @@ def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
     """The stage stops all three axes in refusing an X move for the lid, so
     a Z move in flight learns it was stopped, as after stop_motion, instead
     of reading its halt as arrival."""
-    z = homed.motion.start_move_absolute('Z', 8_000)
-    _board(homed).lid_open = True
+    z = homed.motion.start_move_z(8_000)
+    homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError):
-        homed.motion.move_absolute('X', 1_000)
+        homed.motion.move_xy(x_um=1_000)
     assert _ended(z) == 'stopped'
     assert 0 < _at(homed, 'Z') < 8_000
 
 
-def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
-    """A home the lid refuses before it moves anything still stops every
-    axis, and the X move in flight says so."""
-    x = homed.motion.start_move_absolute('X', 100_000)
-    _board(homed).lid_open = True
-    with pytest.raises(HardwareCommandRefusedError):
+def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monkeypatch):
+    """The lid opening under an X move stops every axis, and a Z home asked
+    in that moment is refused for the lid, not ended as a Stop someone asked
+    for. The stage's stop landed after the home was asked and before it drove,
+    which on a loaded host it does about one time in five: the home read it
+    as a Stop pressed just after Home and said it was stopped."""
+    x = homed.motion.start_move_xy(x_um=100_000)
+    homed.simulation.interlock(lid_open=True)
+    x_ended = []
+    frame_validity = homed.imaging.frame_validity
+    invalidate = frame_validity.invalidate
+
+    def _held_until_x_ends(source, *, began_ns):
+        # A stand-in by design: the home is held after it was asked, until the
+        # stage's lid stop has ended X, so that stop lands where the race puts it.
+        if source == 'z_move' and not x_ended:
+            x_ended.append(_ended(x))
+        return invalidate(source, began_ns=began_ns)
+
+    monkeypatch.setattr(frame_validity, 'invalidate', _held_until_x_ends)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home('Z')
-    assert _ended(x) == 'stopped'
+    assert refused.value.reason == 'lid_open_before_motion'
+    assert x_ended == ['stopped']
     # X set out from its index position, down toward 100 mm.
     assert 100_000 < _at(homed, 'X') < 117_690
 
 
 def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
-    homed.motion.move_absolute('Z', 1_000)
-    _board(homed).lid_open = True
+    homed.motion.move_z(1_000)
+    homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home()
-    assert refused.value.reason == 'lid_open'
+    assert refused.value.reason == 'lid_open_before_motion'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
-    assert homed.motion.has_homed()
+    assert not (homed.motion.axes_without_position().keys() - {'T'})
 
 
 def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
     """A board that stays silent leaves the position unread: a relative
     move is refused before anything drives, and the read raises, as on an
     EL-0940. A None position reached the move's arithmetic as a TypeError."""
-    _board(homed).silent = True
+    homed.simulation.silence('motor')
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            homed.motion.move_relative('X', -100)
+            homed.motion.move_xy_by(dx_um=-100)
         assert refused.value.reason == 'position_unread'
         with pytest.raises(HardwareError, match='no reply from the TMCM-6110'):
             homed.motion.get_actual_position('X')
     finally:
-        _board(homed).silent = False
+        homed.simulation.unsilence('motor')
 
 
 def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     """The monitor reads the actual position of a moving axis; a board that
     misses those reads for a while is an unread position, which the monitor
-    handles, and a later move still arrives. A None position killed the
-    monitor thread, and every later move waited out its time limit."""
-    homed.motion.start_move_absolute('X', 60_000)
+    handles: the move arrives once the board answers again, and a later move
+    still arrives. A None position killed the monitor thread, and every
+    later move waited out its time limit."""
+    move = homed.motion.start_move_xy(x_um=60_000)
     time.sleep(0.05)
-    _board(homed).silent = True
+    homed.simulation.silence('motor')
     time.sleep(1.5)
-    _board(homed).silent = False
-    assert any(t.name == 'motion-monitor' and t.is_alive() for t in threading.enumerate())
+    # Answered, X arrives well inside the 1.5 s; silenced, no arrival is read.
+    assert homed.motion.get_axis_state('X') == AxisState.MOVING
+    homed.simulation.unsilence('motor')
+    move.result()
     homed.motion.home()
-    homed.motion.move_absolute('Y', 20_000)
+    homed.motion.move_xy(y_um=20_000)
     assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)
 
 
 def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, tmp_path):
     """A board that does not answer the lid read leaves the stage's state
-    unknown: the run is neither admitted nor refused, as when the
-    connection read crashes."""
-    _board(homed).silent = True
+    unknown: the run is neither admitted nor refused, as when the camera's
+    streaming read fails. The person reads what could not be read; the
+    board's own error is chained for the log, never quoted."""
+    homed.simulation.silence('motor')
     try:
         with pytest.raises(RunCheckFailedError) as failed:
             _run_and_wait(executor, _make_protocol([_BF_STEP]), tmp_path)
     finally:
-        _board(homed).silent = False
+        homed.simulation.unsilence('motor')
     assert failed.value.reason == 'hardware_state_unknown'
     assert "read the stage's interlocks" in failed.value.message
     assert 'no reply from the TMCM-6110' in str(failed.value.__cause__)
+    assert type(failed.value.__cause__).__name__ not in failed.value.message
+    assert 'TMCM-6110' not in failed.value.message
 
 
 _BF_STEP = {'color': 'BF', 'x': 10.0, 'y': 20.0, 'illumination_ma': 50.0}
@@ -292,10 +311,10 @@ def test_a_z_move_down_drives_one_leg_on_a_stage_with_no_backlash(homed):
     # not a leg to the same point first.
     from drivers.tmcm6110 import MOTORS, MVP
 
-    homed.motion.move_absolute('Z', 3000)
+    homed.motion.move_z(3000)
     board = _board(homed)
     board.commands.clear()
-    homed.motion.move_absolute('Z', 1500, overshoot_enabled=True)
+    homed.motion.move_z(1500, overshoot_enabled=True)
     starts = [c for c in board.commands if c.command == MVP and c.motor == MOTORS['Z']]
     assert len(starts) == 1
     assert homed.motion.get_current_position('Z') == pytest.approx(1500, abs=1)

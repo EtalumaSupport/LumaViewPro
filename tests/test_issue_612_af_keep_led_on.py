@@ -46,7 +46,7 @@ PSR_SRC = REPO / 'modules' / 'protocol_step_runner.py'
 
 
 def _module_tree(path: pathlib.Path) -> ast.Module:
-    return ast.parse(path.read_text())
+    return ast.parse(path.read_text(encoding='utf-8'))
 
 
 def _method_node(tree: ast.Module, class_name: str, method_name: str) -> ast.FunctionDef:

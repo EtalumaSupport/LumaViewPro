@@ -31,7 +31,6 @@ case is the firmware's own reply rather than a hand-written one.
 from __future__ import annotations
 
 import logging
-import sys
 
 import pytest
 
@@ -39,10 +38,7 @@ from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture
@@ -88,8 +84,8 @@ class TestMotorStopCapabilityProbe:
 
     @pytest.mark.parametrize('board', ['field'], indirect=True)
     def test_motor_stop_caches_unsupported_on_error_response(self, board):
-        """ERROR response -> cache unsupported -> return False."""
-        assert board.motor_stop() is False
+        """ERROR response -> cache unsupported -> halt each axis -> return True."""
+        assert board.motor_stop() is True
         assert board._supports_stop_cached is False
 
     @pytest.mark.parametrize('board', ['3.0'], indirect=True)
@@ -100,10 +96,10 @@ class TestMotorStopCapabilityProbe:
 
     @pytest.mark.parametrize('board', ['field'], indirect=True)
     def test_motor_stop_skips_wire_when_cached_unsupported(self, board, caplog):
-        """Cached unsupported: skip the wire call entirely."""
+        """Cached unsupported: the STOP is not sent again; each stop halts axis by axis."""
         with caplog.at_level(logging.INFO, logger='LVP.serial'):
-            assert board.motor_stop() is False
-            assert board.motor_stop() is False
+            assert board.motor_stop() is True
+            assert board.motor_stop() is True
         assert len(_stop_exchanges(caplog)) == 1, (
             'Cached unsupported state must skip the wire to avoid '
             're-probing the same firmware repeatedly.'

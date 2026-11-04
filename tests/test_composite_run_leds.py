@@ -4,7 +4,7 @@
 The composite run kind is the one run kind a user triggers while standing
 at the scope with the live preview lit, so its illumination contract is
 different from a scan's: it borrows the LEDs and hands them back the way
-it found them (``leds_state_at_end='return_to_original'``), and only a
+it found them (``led_end_policy`` ``RETURN_TO_ORIGINAL``), and only a
 FATAL abort forces the sample dark. Every other file about this run kind
 checks what reached DISK. Nothing checks what reached the SAMPLE.
 
@@ -37,12 +37,13 @@ from tests.test_composite_run_e2e import (
     open_composite_session,
     single_run_dir,
 )
+from tests.stock_channels import LED0, LED1, LED2
 
 # Lit before the run and never acquired: the channel whose survival is
 # the whole question. A channel the run itself lights would be restored
 # by accident, so the pre-run state has to be one the run has no reason
 # to touch.
-_PRE_RUN_CHANNEL = 'Red'
+_PRE_RUN_CHANNEL = LED2
 _PRE_RUN_MA = 50.0
 
 
@@ -52,9 +53,11 @@ def _light_pre_run_channel(session):
 
 
 def _lit_channels(session):
-    """Colour -> mA for every channel the simulated board has driven on."""
+    """Layer -> mA for every address the simulated board has driven on,
+    named through the unit's layer identity."""
     driver = session.scope._led_driver
-    return {driver.ch2color(ch): ma for ch, ma in driver._channel_states.items() if ma and ma > 0}
+    layer_of = session.scope.illumination.ch2color
+    return {layer_of(ch): ma for ch, ma in driver._channel_states.items() if ma and ma > 0}
 
 
 def _record_led_commands(monkeypatch, session):
@@ -67,13 +70,14 @@ def _record_led_commands(monkeypatch, session):
     implementation detail this file must not depend on.
     """
     driver = session.scope._led_driver
+    layer_of = session.scope.illumination.ch2color
     events = []
 
     def _wrap_on(name):
         original = getattr(driver, name)
 
         def recorded(channel, mA, *args, **kwargs):
-            events.append(('on', driver.ch2color(channel), float(mA)))
+            events.append(('on', layer_of(channel), float(mA)))
             return original(channel, mA, *args, **kwargs)
 
         monkeypatch.setattr(driver, name, recorded)
@@ -82,7 +86,7 @@ def _record_led_commands(monkeypatch, session):
         original = getattr(driver, name)
 
         def recorded(channel, *args, **kwargs):
-            events.append(('off', driver.ch2color(channel), 0.0))
+            events.append(('off', layer_of(channel), 0.0))
             return original(channel, *args, **kwargs)
 
         monkeypatch.setattr(driver, name, recorded)
@@ -143,7 +147,7 @@ def _frame_channels(run_dir, channels):
 # ---------------------------------------------------------------------------
 
 
-_ABORT_ACQUIRING = ('BF', 'Blue', 'Green')
+_ABORT_ACQUIRING = ('BF', LED0, LED1)
 
 
 @pytest.fixture
@@ -171,10 +175,10 @@ def aborted_composite(tmp_path):
         started = []
         have_handle = threading.Event()
 
-        def _abort_after_the_first_step(step_idx):
-            if step_idx == 0 or aborted_at:
+        def _abort_after_the_first_step(step_index):
+            if step_index == 0 or aborted_at:
                 return
-            aborted_at.append(step_idx)
+            aborted_at.append(step_index)
             # This callback can beat start_composite()'s return, so the Stop
             # waits for the handle the caller holds.
             assert have_handle.wait(120), 'start_composite never returned its handle'
@@ -185,11 +189,10 @@ def aborted_composite(tmp_path):
             sequence_name='abort',
             parent_dir=str(tmp_path),
             events=RunEvents(step_started=_abort_after_the_first_step),
-            run_trigger_source='composite',
         )
         started.append(outcome)
         have_handle.set()
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
 
         yield {
             'session': session,
@@ -241,7 +244,7 @@ class TestAbortMidComposite:
     def test_the_run_releases_the_scope(self, aborted_composite):
         # A stop that leaves the activity claim held refuses every later
         # run and recording with nothing to point at.
-        assert not aborted_composite['session'].is_protocol_running, (
+        assert aborted_composite['session'].activity_claim.run_holder is None, (
             'the aborted run still holds the activity claim'
         )
 
@@ -282,7 +285,7 @@ class TestPreRunStateSurvivesACompleteRun:
         # abort branch; this is the branch every successful composite
         # takes, and the two derive their end-state separately enough
         # that one can regress while the other stays green.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with open_composite_session(settings) as (session, runner):
             _light_pre_run_channel(session)
             assert _lit_channels(session) == {_PRE_RUN_CHANNEL: _PRE_RUN_MA}, (
@@ -304,7 +307,7 @@ class TestPreRunStateSurvivesACompleteRun:
     def test_the_acquiring_channels_are_dark_after_a_complete_run(self, tmp_path):
         # A composite that ends with its last step's channel still lit
         # bleaches the sample for as long as the user leaves the scope.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with open_composite_session(settings) as (session, runner):
             _light_pre_run_channel(session)
             runner.run_composite(sequence_name='restore', parent_dir=str(tmp_path))
@@ -320,7 +323,7 @@ class TestPreRunStateSurvivesACompleteRun:
 # ---------------------------------------------------------------------------
 
 
-_ORDER_ACQUIRING = ('BF', 'PC', 'DF', 'Blue', 'Green')
+_ORDER_ACQUIRING = ('BF', 'PC', 'DF', LED0, LED1)
 
 
 @pytest.fixture
@@ -389,7 +392,7 @@ class TestCaptureOrder:
 # ---------------------------------------------------------------------------
 
 
-_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green')
+_SEQUENCE_ACQUIRING = ('BF', LED0, LED1)
 
 # Luminescence is emitted BY the sample; illuminating it is the one thing
 # that destroys the measurement. It is also the only acquiring channel
@@ -462,7 +465,7 @@ class TestOneChannelAtATime:
             f'the run captured {captured}, not the planned channel set '
             f'{sequenced_composite["expected"]}'
         )
-        for channel in ('BF', 'Blue', 'Green'):
+        for channel in ('BF', LED0, LED1):
             timeline = [
                 (kind, color) for kind, color, _ in events if color == channel or kind == 'all_off'
             ]

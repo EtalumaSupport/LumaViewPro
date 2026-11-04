@@ -14,6 +14,7 @@ temp directory stands in for a log Windows will not let go of.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import logging
 import os
 import pathlib
@@ -45,6 +46,17 @@ def _make(directory: pathlib.Path, name: str, content: str = 'log body') -> path
     return path
 
 
+def _captured(log_dir: pathlib.Path, name: str) -> pathlib.Path:
+    """The one copy of ``name`` among the log folder's capture folders."""
+    copies = list((log_dir / 'install').glob(f'*/{name}'))
+    assert len(copies) == 1, f'{name} must be captured exactly once, found {copies}'
+    return copies[0]
+
+
+def _capture_folder_names(log_dir: pathlib.Path) -> list[str]:
+    return sorted(path.name for path in (log_dir / 'install').iterdir())
+
+
 @contextlib.contextmanager
 def _undeletable(directory: pathlib.Path):
     """Its files stay put, as a log still held open by an install does on Windows."""
@@ -68,7 +80,7 @@ def test_matching_installer_logs_are_copied_into_the_install_subfolder(tmp_path)
         'LumaViewPro-4.0.0-beta23_20260730150620_0_LVP.log',
     ]
     for name in copied:
-        assert (log_dir / 'install' / name).read_text(encoding='utf-8') == 'log body'
+        assert _captured(log_dir, name).read_text(encoding='utf-8') == 'log body'
 
 
 def test_unrelated_temp_files_are_left_alone(tmp_path):
@@ -92,7 +104,7 @@ def test_a_captured_log_is_deleted_from_temp(tmp_path):
     assert not source.exists(), (
         'a captured log must leave TEMP, or every later start takes it again'
     )
-    assert (log_dir / 'install' / source.name).read_text(encoding='utf-8') == 'log body'
+    assert _captured(log_dir, source.name).read_text(encoding='utf-8') == 'log body'
 
 
 def test_a_source_run_captures_nothing(tmp_path, monkeypatch):
@@ -134,19 +146,72 @@ def test_repeat_startup_does_not_recopy_captured_logs(tmp_path):
     assert second == [], 'an already-captured log must not be copied again'
 
 
-def test_a_grown_log_is_recaptured(tmp_path):
+def test_a_grown_log_is_recaptured_into_the_folder_that_holds_it(tmp_path):
     temp_dir = tmp_path / 'temp'
     log_dir = tmp_path / 'logs'
-    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_2.log', content='partial')
-    with _undeletable(temp_dir):
-        capture_installer_logs(log_dir, temp_dir=temp_dir)
-        source.write_text('partial plus the rest of the install', encoding='utf-8')
-        again = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    name = 'LumaViewPro-4.0.0-beta23_2.log'
+    # An earlier start took the log while the install was still writing it.
+    _make(log_dir / 'install' / '2026-01-01-090000', name, content='partial')
+    _make(temp_dir, name, content='partial plus the rest of the install')
 
-    assert again == ['LumaViewPro-4.0.0-beta23_2.log']
-    assert (log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_2.log').read_text(
-        encoding='utf-8'
-    ) == 'partial plus the rest of the install'
+    again = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert again == [name]
+    assert _capture_folder_names(log_dir) == ['2026-01-01-090000'], (
+        'a recapture joins its install, never a folder of its own'
+    )
+    assert _captured(log_dir, name).read_text(encoding='utf-8') == (
+        'partial plus the rest of the install'
+    )
+
+
+def test_a_start_captures_into_its_own_folder_and_only_the_last_three_are_kept(tmp_path):
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    older = ['2026-01-01-090000', '2026-02-01-090000', '2026-03-01-090000', '2026-04-01-090000']
+    for stamp in older:
+        _make(log_dir / 'install' / stamp, f'LumaViewPro-old-{stamp}.log')
+    _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+    _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0_LVP.log')
+
+    capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    folders = _capture_folder_names(log_dir)
+    assert folders[:2] == older[-2:], 'the oldest captures go, the newest three stay'
+    assert len(folders) == 3
+    # Both of this start's logs, the elevated one included, share its folder.
+    assert sorted(p.name for p in (log_dir / 'install' / folders[2]).iterdir()) == [
+        'LumaViewPro-4.0.0-beta23_0.log',
+        'LumaViewPro-4.0.0-beta23_0_LVP.log',
+    ]
+
+
+def test_logs_captured_before_capture_folders_are_folded_into_one_named_for_the_newest(
+    tmp_path,
+):
+    log_dir = tmp_path / 'logs'
+    flat = [_make(log_dir / 'install', f'LumaViewPro-4.0.0-beta16_{i}.log') for i in range(2)]
+    os.utime(flat[0], (1_780_000_000, 1_780_000_000))
+    os.utime(flat[1], (1_781_000_000, 1_781_000_000))
+    stamp = datetime.datetime.fromtimestamp(1_781_000_000).strftime('%Y-%m-%d-%H%M%S')
+
+    capture_installer_logs(log_dir, temp_dir=tmp_path / 'temp')
+
+    assert _capture_folder_names(log_dir) == [stamp]
+    assert sorted(p.name for p in (log_dir / 'install' / stamp).iterdir()) == [p.name for p in flat]
+
+
+def test_folded_logs_count_as_one_capture_toward_the_three_kept(tmp_path):
+    log_dir = tmp_path / 'logs'
+    flat = _make(log_dir / 'install', 'LumaViewPro-4.0.0-beta16_0.log')
+    os.utime(flat, (1_780_000_000, 1_780_000_000))
+    newer = ['2027-01-01-090000', '2027-02-01-090000', '2027-03-01-090000']
+    for stamp in newer:
+        _make(log_dir / 'install' / stamp, f'LumaViewPro-{stamp}.log')
+
+    capture_installer_logs(log_dir, temp_dir=tmp_path / 'temp')
+
+    assert _capture_folder_names(log_dir) == newer
 
 
 def test_a_bundle_the_installer_did_not_install_captures_nothing(tmp_path):
@@ -210,7 +275,7 @@ def test_a_utf16_installer_log_lands_as_utf8(tmp_path):
 
     capture_installer_logs(log_dir, temp_dir=temp_dir)
 
-    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_1_LVP.log'
+    target = _captured(log_dir, 'LumaViewPro-4.0.0-beta23_1_LVP.log')
     raw = target.read_bytes()
     assert raw == body.encode('utf-8'), 'content must survive the transcode intact'
     assert raw[:2] not in (b'\xff\xfe', b'\xfe\xff'), 'the byte-order mark must be dropped'
@@ -243,7 +308,7 @@ def test_a_grown_utf16_log_is_recaptured(tmp_path):
         again = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert again == ['LumaViewPro-4.0.0-beta23_3_LVP.log']
-    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_3_LVP.log'
+    target = _captured(log_dir, 'LumaViewPro-4.0.0-beta23_3_LVP.log')
     assert target.read_bytes() == b'partial\r\nand the rest\r\n'
 
 
@@ -255,7 +320,7 @@ def test_a_non_utf16_log_is_copied_byte_for_byte(tmp_path):
 
     capture_installer_logs(log_dir, temp_dir=temp_dir)
 
-    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_4.log'
+    target = _captured(log_dir, 'LumaViewPro-4.0.0-beta23_4.log')
     assert target.read_bytes() == b'plain ascii body'
 
 
@@ -273,7 +338,7 @@ def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
     copied = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert copied == ['LumaViewPro-4.0.0-beta23_5_LVP.log']
-    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_5_LVP.log'
+    target = _captured(log_dir, 'LumaViewPro-4.0.0-beta23_5_LVP.log')
     assert target.read_bytes() == corrupt, 'an undecodable log must survive intact'
 
 
@@ -304,5 +369,5 @@ def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkey
     finally:
         held.close()
 
-    assert (log_dir / 'install' / source.name).read_text(encoding='utf-8') == 'log body'
+    assert _captured(log_dir, source.name).read_text(encoding='utf-8') == 'log body'
     assert not source.exists()

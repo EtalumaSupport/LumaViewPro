@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import threading
-import time
 
 import cv2
 import httpx
@@ -100,17 +100,12 @@ def _decoded(jpeg: bytes) -> np.ndarray:
 
 
 def _frame_width(session) -> int:
-    image, _ = session.scope.imaging.get_image_from_buffer(force_to_8bit=True)
-    return image.shape[1]
+    # A capture returns once the camera has delivered a frame; the live buffer
+    # read straight after bring-up can still be empty on a loaded host.
+    return session.scope.imaging.capture_still().image.shape[1]
 
 
-def _until(condition, what: str, timeout_s: float = 10.0) -> None:
-    # The view's watchers change on the server's loop when it sees the
-    # client go; nothing signals the test thread, so this waits, bounded.
-    deadline = time.monotonic() + timeout_s
-    while not condition():
-        assert time.monotonic() < deadline, f'never {what}'
-        time.sleep(0.01)
+_LET_GO_S = 10.0
 
 
 def test_a_snapshot_is_the_newest_frame_at_half_its_width(session):
@@ -128,11 +123,23 @@ def test_a_snapshot_is_the_newest_frame_at_half_its_width(session):
     assert _decoded(narrow.content).shape[1] == 64
 
 
+def test_a_frames_time_states_its_offset(session):
+    """``X-Frame-Timestamp`` is the frame's arrival, host local with its UTC
+    offset, so a client can compare it with any other time LVP states."""
+    _frame_width(session)
+    with _serving(session) as (_app, _server, client):
+        shot = client.get('/api/v1/live.jpg')
+
+    assert shot.status_code == 200
+    arrived = datetime.datetime.fromisoformat(shot.headers['x-frame-timestamp'])
+    assert arrived.utcoffset() is not None, shot.headers['x-frame-timestamp']
+
+
 def test_a_snapshot_with_no_frame_is_refused_until_one_comes(session):
-    session.scope.imaging.stop_streaming()
+    session.scope.imaging.disable_streaming()
     with _serving(session) as (app, _server, client):
         refused = client.get('/api/v1/live.jpg')
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         shot = client.get('/api/v1/live.jpg')
         watchers = app.state.live.watchers
 
@@ -165,9 +172,14 @@ def test_the_listener_is_attached_only_while_someone_watches(session):
             parts = _Parts(response)
             parts.next()
             watching = live.watchers
-        _until(lambda: live.watchers == 0, 'let go of the listener')
+            unwatched_while_held = live.wait_unwatched(0.1)
+        # The server sees the client go on its own loop; the view says when.
+        let_go = live.wait_unwatched(_LET_GO_S)
 
     assert (before, watching) == (0, 1)
+    assert not unwatched_while_held, 'the view said nobody watched while a stream was open'
+    assert let_go, 'never let go of the listener'
+    assert live.watchers == 0
 
 
 def test_a_client_ready_for_a_frame_gets_the_newest_skipping_the_rest(session):
@@ -176,7 +188,7 @@ def test_a_client_ready_for_a_frame_gets_the_newest_skipping_the_rest(session):
     skipped_by = 10
     delivered = threading.Semaphore(0)
 
-    def counted(image, timestamp, chunks):
+    def counted(frame):
         delivered.release()
 
     async def watch() -> tuple[int, int]:
@@ -212,11 +224,13 @@ def test_a_camera_that_is_not_connected_is_refused_before_any_frame(make_session
         watched = client.get('/api/v1/live')
         shot = client.get('/api/v1/live.jpg')
         watchers = app.state.live.watchers
+        unwatched = app.state.live.wait_unwatched(0)
 
     for refused in (watched, shot):
         assert refused.headers['content-type'] == 'application/problem+json'
         assert refused.json()['reason'] == 'not_connected'
     assert watchers == 0
+    assert unwatched, 'a refused watch left the view marked watched'
 
 
 def test_the_close_refuses_a_new_watch_and_ends_the_open_ones(session):
@@ -232,8 +246,9 @@ def test_the_close_refuses_a_new_watch_and_ends_the_open_ones(session):
             with pytest.raises(AssertionError, match='the stream ended'):
                 while True:
                     parts.next()
-        _until(lambda: app.state.live.watchers == 0, 'let go of the listener')
+        let_go = app.state.live.wait_unwatched(_LET_GO_S)
 
+    assert let_go, 'never let go of the listener'
     assert [(r.status_code, r.json()['reason']) for r in refused] == [(503, 'server_closing')] * 2
 
 

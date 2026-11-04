@@ -8,26 +8,26 @@ Runs on the **protocol-executor** thread.  Extracted from
 
 from __future__ import annotations
 
-import datetime
 import time
 from typing import TYPE_CHECKING
 
+from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
 
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
+from modules import wall_time
 from modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
-    RunFailedError,
     describe_unknown_positions,
 )
 from modules.run_events import deliver
-from modules.run_outcome import RunEnding
+from modules.run_outcome import RunEnding, RunStatus, hardware_disconnected_ending
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle, SequencedCaptureRunner
+    from modules.sequenced_capture_runner import EngineRun, SequencedCaptureRunner
 
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
@@ -46,10 +46,8 @@ MAX_CONSECUTIVE_SCAN_FAILURES = 3
 # One object, because a normal ending is one fact: the loop reaches its end
 # either having run every scan or having been told to stop, and both exits
 # report through the same record.
-RUN_COMPLETED = RunEnding(
-    'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
-)
-RUN_STOPPED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+RUN_COMPLETED = RunEnding(RunStatus.COMPLETED, 'completed', 'The run finished normally.')
+RUN_STOPPED = RunEnding(RunStatus.ABORTED, 'stopped', 'Stopped')
 
 
 class ProtocolRunLoop:
@@ -58,13 +56,14 @@ class ProtocolRunLoop:
     def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
-    def run_loop(self, run: RunHandle) -> None:
+    def run_loop(self, run: EngineRun) -> None:
         """Main entry point -- runs the loop, then unwinds the run once.
 
         ``run`` is the run this loop was dispatched for. The loop body only
         decides how the run ended and returns that; the one teardown is
         here, in the finally, so it runs on every way out of the body --
-        a return, an exception, or anything that skips the except below.
+        a return, an exception, or anything that skips the except below. A
+        run that could not begin is unwound as one whose setup failed is.
         """
         ending = None
         try:
@@ -74,19 +73,29 @@ class ProtocolRunLoop:
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
                 exc_info=True,
             )
-            ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', str(ex))
-            self._p._ending.set_if_unset(ending)
-        finally:
-            self._p._cleanup(
-                ending
-                or RunEnding(
-                    'failed',
-                    'run_loop_crashed',
-                    'Protocol Crashed',
-                    'The run loop stopped without saying how the run ended.',
-                ),
-                run,
+            # The exception's own text is a programmer's, kept in the log.
+            ending = RunEnding(
+                RunStatus.FAILED,
+                'run_loop_crashed',
+                'The protocol stopped: LumaViewPro failed while running it. '
+                'The log has the details.',
             )
+            # Through the funnel, as every run-killing fault: a crashed run
+            # is shown, and a fault already shown stays the one shown.
+            self._p.abort_run_fatal(ending.reason, ending.message)
+        finally:
+            if ending is not None and ending.status == RunStatus.FAILED_AT_START:
+                self._p.end_run_not_begun(ending, run)
+            else:
+                self._p._cleanup(
+                    ending
+                    or RunEnding(
+                        RunStatus.FAILED,
+                        'run_loop_crashed',
+                        'The run loop stopped without saying how the run ended.',
+                    ),
+                    run,
+                )
 
     def _inter_scan_wait_follows(self) -> bool:
         """Whether the run is about to enter an inter-scan period wait.
@@ -150,10 +159,10 @@ class ProtocolRunLoop:
         p = self._p
         if not self._inter_scan_wait_follows():
             return
-        first_step = p._protocol.step(idx=0)
+        first_step = p._protocol.step_row(step_index=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
-    def _run_loop_inner(self, run: RunHandle) -> RunEnding:
+    def _run_loop_inner(self, run: EngineRun) -> RunEnding:
         """The run loop body; returns how the run ended, for run_loop to unwind."""
         p = self._p
         last_connection_check = time.monotonic()
@@ -172,12 +181,11 @@ class ProtocolRunLoop:
         # The camera becomes the run's only once the lane has finished what
         # it already held. A Stop during that wait returns with no ending
         # and falls through to the while, which ends the run stopped with
-        # nothing to restore; a stuck lane is a fatal ending, shaped like
-        # the disconnect below.
-        stalled = p._take_camera()
-        if stalled is not None:
-            p.end_run_fatally(stalled.reason, stalled.title, stalled.message)
-            return stalled
+        # nothing to restore; a camera the run could not take is a run that
+        # did not begin, unwound by run_loop.
+        not_begun = p._take_camera()
+        if not_begun is not None:
+            return not_begun
 
         while p._is_run_live() and not p._aborted.is_set():
             try:
@@ -188,25 +196,13 @@ class ProtocolRunLoop:
                     # The probe's handler computes a fact and nothing else: an
                     # abort raised or swallowed in here would leave the run
                     # going with the hardware gone.
-                    try:
-                        connected = p._scope.are_all_connected()
-                    except Exception as ex:
-                        logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
-                        connected = True
-                    if not connected:
+                    gone = p._scope.unconnected_parts()
+                    if gone:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
                         )
-                        ending = RunEnding(
-                            'failed',
-                            'hardware_disconnected',
-                            'Protocol Aborted',
-                            'Hardware disconnected during protocol run. '
-                            'Check the USB cable and power connections, '
-                            'save the protocol, then restart LumaViewPro '
-                            'and the protocol.',
-                        )
-                        p.end_run_fatally(ending.reason, ending.title, ending.message)
+                        ending = hardware_disconnected_ending(gone)
+                        p.end_run_fatally(ending.reason, ending.message)
                         return ending
 
                 # Check if we've completed all scans
@@ -222,7 +218,7 @@ class ProtocolRunLoop:
                     current_time = time.monotonic()
                     elapsed_time = current_time - p._start_t
 
-                    if elapsed_time < p._protocol.period().total_seconds():
+                    if elapsed_time < p._protocol.period_s():
                         time.sleep(0.1)
                         continue
 
@@ -230,11 +226,11 @@ class ProtocolRunLoop:
 
                 # Time for next scan
                 deliver(
-                    p._events.scan_started,
+                    p._events,
                     'scan_started',
-                    p._scan_count + 1,
+                    p._scan_count,
                     remaining_scans,
-                    p._protocol.period(),
+                    p._protocol.period_s(),
                 )
 
                 # Initialize per-scan state (curr_step, AF pointer).
@@ -243,24 +239,31 @@ class ProtocolRunLoop:
                 # Check disk space once per scan, against the per-run estimate
                 # summed once on the first check and reused thereafter.
                 # As with the connection probe: the handler computes the
-                # numbers, the abort happens outside it. Inside, the
-                # proceeding-anyway catch below would swallow the abort and
-                # walk straight into the next step.
+                # numbers, the abort happens outside it. The estimate is
+                # outside the catch: prepare() sized the run, so a failure of
+                # it is LumaViewPro's own and ends the run where it happens
+                # instead of switching the disk guard off.
                 disk_ok, free_mb = True, 0.0
-                try:
-                    if p._parent_dir is not None:
-                        if run_required_mb is None:
-                            num_steps = p._protocol.num_steps()
-                            run_required_mb = max(
-                                MIN_REQUIRED_DISK_MB,
-                                p._protocol.estimate_write_mb(
-                                    video_as_frames=p._video_as_frames,
-                                    global_max_fps=p._video_max_fps,
-                                ),
-                            )
+                if p._parent_dir is not None:
+                    if run_required_mb is None:
+                        num_steps = p._protocol.num_steps()
+                        run_required_mb = max(
+                            MIN_REQUIRED_DISK_MB,
+                            p._protocol.estimate_write_mb(
+                                video_as_frames=p._video_as_frames,
+                                video_fps=p._video_sizing_fps,
+                            ),
+                        )
+                    try:
                         disk_ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)
-                except Exception as e:
-                    logger.debug(f'[PROTOCOL] Disk space check failed (proceeding anyway): {e}')
+                    except OSError as e:
+                        # The probe's own failure: the folder's free space
+                        # cannot be read, and the scan proceeds unguarded,
+                        # said where it is seen.
+                        logger.warning(
+                            f'[PROTOCOL] Free disk at {p._parent_dir} could not be read '
+                            f'(proceeding without the disk check this scan): {e}'
+                        )
                 if not disk_ok:
                     msg = (
                         f'Insufficient disk space: {free_mb:.0f} MB free, '
@@ -269,7 +272,7 @@ class ProtocolRunLoop:
                     logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                     # The funnel sets the abort this site used to set by hand,
                     # so the next iteration still exits and cleanup still runs.
-                    p.abort_run_fatal('disk_space_critical', 'Protocol Aborted', msg)
+                    p.abort_run_fatal('disk_space_critical', msg)
                     break
 
                 # No nuclear leds_off before step 0: each step's capture makes
@@ -279,7 +282,7 @@ class ProtocolRunLoop:
                 # WITHOUT clearing the LED-state cache. Clearing the cache here
                 # forced the following same-color led_on to re-fire, blinking
                 # the LED off->on at the start of every scan.
-                p._step_executor.go_to_step(step_idx=p._curr_step)
+                p._step_executor.go_to_step(step_index=p._curr_step)
                 # A Stop that landed during the step move ends the run here,
                 # before the scan starts.
                 if p._aborted.is_set():
@@ -290,15 +293,15 @@ class ProtocolRunLoop:
                 # once per step (scan_iterate keys the one-shot on curr_step).
                 p._auto_gain_armed_step = -1
 
-                start_scan_time = datetime.datetime.now()
+                start_scan_time = wall_time.now()
                 p._step_executor.scan_loop()
-                end_scan_time = datetime.datetime.now()
+                end_scan_time = wall_time.now()
                 scan_duration = end_scan_time - start_scan_time
 
                 scan_aborted = p._aborted.is_set()
                 scan_outcome = 'aborted after' if scan_aborted else 'completed in'
                 logger.info(
-                    f'Protocol scan {p._scan_count} {scan_outcome} '
+                    f'Protocol scan {p._scan_count + 1} {scan_outcome} '
                     f'{scan_duration.total_seconds():.2f} seconds'
                 )
 
@@ -328,11 +331,13 @@ class ProtocolRunLoop:
                 )
 
                 deliver(
-                    p._events.scan_ended,
+                    p._events,
                     'scan_ended',
-                    new_count,
+                    # The scan that ended, by its index: the count has
+                    # already been advanced past it.
+                    new_count - 1,
                     p._remaining_scans(),
-                    p._protocol.period(),
+                    p._protocol.period_s(),
                 )
 
                 p._scan_in_progress.clear()
@@ -344,6 +349,14 @@ class ProtocolRunLoop:
                 self._return_to_first_step_between_scans()
 
             except Exception as ex:
+                # Our own defect first: no retry cures it, and asked after the
+                # checks below it would read as the lost part or lost position
+                # its own failure left behind (a motion door sets the axis
+                # UNKNOWN on its way out). It ends the run at once, as a crash.
+                # Every outcome the API reports is a LumascopeError, and keeps
+                # the classification below.
+                if not isinstance(ex, LumascopeError):
+                    raise
                 # Classify: hardware disconnected = fatal (abort +
                 # notify); everything else = transient (silent log,
                 # retry on next period). Only loss of one of the
@@ -351,7 +364,7 @@ class ProtocolRunLoop:
                 # the protocol from making progress; transient errors
                 # (one bad LED ack, one frame timeout, etc.) are
                 # exactly what a periodic protocol is supposed to ride
-                # out. The 30s periodic are_all_connected() check
+                # out. The 30s periodic unconnected_parts() check
                 # earlier in this loop covers between-scan
                 # disconnects; this branch covers during-scan ones.
                 # Handle-state check only (cached connected flags), NOT a
@@ -360,29 +373,14 @@ class ProtocolRunLoop:
                 # transient. The consecutive-failure cap below bounds that case;
                 # a true liveness probe (a hardware round-trip) is deferred --
                 # it needs bench validation before it can change classification.
-                try:
-                    connected = p._scope.are_all_connected()
-                except Exception:
-                    # If the connection probe itself fails, assume
-                    # the worst -- a disconnect that broke the probe
-                    # is still a disconnect.
-                    connected = False
-
-                if not connected:
+                gone = p._scope.unconnected_parts()
+                if gone:
                     logger.error(
                         f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,
                     )
-                    ending = RunEnding(
-                        'failed',
-                        'hardware_disconnected',
-                        'Protocol Aborted',
-                        'Hardware disconnected during protocol run. '
-                        'Check the USB cable and power connections, save '
-                        'the protocol, then restart LumaViewPro and the '
-                        'protocol.',
-                    )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    ending = hardware_disconnected_ending(gone)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # A move the stage's interlock refused is not transient: the
@@ -394,12 +392,11 @@ class ProtocolRunLoop:
                 if isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS:
                     logger.error(f'[Protocol] Stage interlock refused a move during scan: {ex}')
                     ending = RunEnding(
-                        'failed',
+                        RunStatus.FAILED,
                         'interlock',
-                        f'Protocol Aborted -- {ex.title}',
                         f'The run stopped. {ex}',
                     )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # A lost axis position is not transient: nothing in a run
@@ -415,13 +412,12 @@ class ProtocolRunLoop:
                         exc_info=True,
                     )
                     ending = RunEnding(
-                        'failed',
+                        RunStatus.FAILED,
                         'position_lost',
-                        'Protocol Aborted -- Position Lost',
                         f'The run stopped: {describe_unknown_positions(lost_axes)}. '
                         'Home the scope before running the protocol again.',
                     )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # Transient: log warning, do NOT increment scan_count,
@@ -438,25 +434,14 @@ class ProtocolRunLoop:
 
                 consecutive_scan_failures += 1
                 if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:
-                    from modules.notification_center import notifications
-
                     message = (
                         f'The scan failed {consecutive_scan_failures} times '
                         'in a row. Check the USB cable and power connections '
                         'and the log for the cause, save the protocol, then '
                         'restart LumaViewPro and the protocol.'
                     )
-                    ending = RunEnding(
-                        'failed', 'consecutive_scan_failures', 'Protocol Aborted', message
-                    )
-                    notifications.report_outcome(
-                        RunFailedError(
-                            reason=ending.reason, title=ending.title, message=ending.message
-                        ),
-                        solicited=False,
-                        category='Protocol',
-                    )
-                    p._ending.set_if_unset(ending)
+                    ending = RunEnding(RunStatus.FAILED, 'consecutive_scan_failures', message)
+                    p.end_run_failed(ending.reason, ending.message)
                     return ending
 
                 # The failed scan may have died with a channel lit (an

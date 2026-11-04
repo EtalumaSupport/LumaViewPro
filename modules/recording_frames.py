@@ -1,20 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Shared frame-edge helpers for video recording write lanes.
 
-Every recording controller (manual today, protocol video steps next)
-writes engine-delivered frames through the same physical edge: rebase
-camera hardware ticks onto the host epoch, orient the raw camera array,
-fit it to the recording geometry, and stamp per-frame TIFF metadata.
+Every recording controller (the manual recording and the protocol video
+step) writes engine-delivered frames through the same physical edge: rebase
+camera hardware ticks onto the host epoch, build each frame's record as it
+arrives, orient the raw camera array, fit it to the recording geometry, and
+write it with its record through the still's builder and writer.
 One home for that logic so the capture paths cannot drift on frame
 identity or geometry.
 """
 
-import datetime
 import pathlib
 import re
 
-from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, NamedTuple
+from collections.abc import Callable
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -22,9 +22,18 @@ import modules.common_utils as common_utils
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.lumascope_api._constants import AxisState
+from modules.lumascope_api.frame_record import (
+    FrameRecord,
+    FrameTime,
+    delivered_frame_record,
+)
 
 if TYPE_CHECKING:
-    from modules.labware import WellPlate
+    from drivers.camera import Frame
+    from modules.coord_transformations import PlatePosition
+    from modules.image_mode import OutputFormat
+    from modules.labware import Labware
+    from modules.layer_record import ChannelColors
     from modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------
@@ -36,11 +45,15 @@ if TYPE_CHECKING:
 # forever. Changing a token means changing every consumer below plus a
 # two-generation reader for old folders -- never change one in isolation.
 #
-# Protocol video steps write   <step_name>_Frame_<NNNN>.tiff   into a
+# Protocol video steps write   <step_name>_Frame_<NNNN><suffix>   into a
 # per-recording folder named <step_name>, where <step_name> ends with the
 # 'video' post suffix (common_utils.build_step_name) -- so protocol frame
 # names carry '_video_Frame_'. Manual "Frames" recordings write
-# ManualVideo_Frame_<NNNN>_<ts>.tiff. The two vocabularies differ by case
+# ManualVideo_Frame_<NNNN>_<ts><suffix>. The suffix is the recording's
+# format's (image_utils.derived_file_suffix): .ome.tiff for an OME-TIFF
+# recording, .tiff for every other, and the writer takes its container from
+# it. Readers find a frame by its token and a TIFF last suffix, which both
+# satisfy. The two vocabularies differ by case
 # ('Video_Frame' vs 'video_Frame'), so the predicates below are disjoint;
 # consumers must never re-derive them with ad-hoc substring checks.
 
@@ -65,14 +78,14 @@ _FRAME_NUM_RE = re.compile(rf'{_FRAME_TOKEN}(\d+)')
 _MANUAL_FRAME_RE = re.compile(rf'{re.escape(_MANUAL_FRAME_PREFIX)}\d')
 
 
-def protocol_frame_filename_template(step_name: str) -> str:
-    """Frame-file template for a protocol video step's recording."""
-    return f'{step_name}{_FRAME_TOKEN}{{n:04d}}.tiff'
+def protocol_frame_filename_template(step_name: str, output_format: 'OutputFormat') -> str:
+    """Frame-file template for a protocol video step's recording in *output_format*, the run's."""
+    return f'{step_name}{_FRAME_TOKEN}{{n:04d}}{image_utils.derived_file_suffix(output_format)}'
 
 
-def manual_frame_filename_template() -> str:
-    """Frame-file template for a manual "Frames" recording."""
-    return f'{_MANUAL_FRAME_PREFIX}{{n:04d}}_{{ts}}.tiff'
+def manual_frame_filename_template(output_format: 'OutputFormat') -> str:
+    """Frame-file template for a manual "Frames" recording in *output_format*, the Live one."""
+    return f'{_MANUAL_FRAME_PREFIX}{{n:04d}}_{{ts}}{image_utils.derived_file_suffix(output_format)}'
 
 
 def frame_number(filename: str | pathlib.Path) -> int:
@@ -106,47 +119,28 @@ def is_video_frame(filename: str | pathlib.Path) -> bool:
 
 
 def is_video_recording_dir_name(dirname: str) -> bool:
-    """True when a directory NAME is a protocol video recording folder.
+    """True when a directory NAME is a protocol video step's folder name.
 
-    Tests the final path component only -- a parent folder that happens
-    to carry the token anywhere in its path must not classify.
+    A name only: the support report's census, which would rather list a
+    recording that wrote nothing than miss it. A build asks
+    ``is_video_recording_dir``, which reads the frames. Tests the final path
+    component only -- a parent folder that happens to carry the token
+    anywhere in its path must not classify.
     """
     return dirname.endswith(_VIDEO_RECORDING_DIR_SUFFIX)
 
 
-class CameraTickRebaser:
-    """Host-epoch seconds for camera frames; hardware ticks when usable.
+def is_video_recording_dir(path: str | pathlib.Path) -> bool:
+    """True when *path* is a protocol video recording folder: it holds a video step's frames.
 
-    Camera hardware ticks are the frame's own clock, free of the OS
-    scheduling jitter host arrival stamps carry; rebasing them onto the
-    host epoch at the first tick-carrying frame keeps camera-grade
-    intervals on the axis cadence selection runs on. Without usable
-    ticks the host arrival time is used and the manifest's timestamp
-    grade reports it.
-
-    One instance per recording: the rebase offset anchors at the first
-    tick-carrying frame and must never survive into the next recording.
+    Read from what the folder holds, never from its name: a run folder a
+    person renames ``plate1_video`` holds stills, and read as a recording it
+    was scanned as one and every build on it found no images. Only the
+    folder itself is read, so a parent that carries the token does not
+    classify.
     """
-
-    def __init__(self, tick_freq_hz: float | None, clock):
-        self._freq = tick_freq_hz
-        self._clock = clock
-        self._offset: float | None = None
-
-    def frame_time_s(self, timestamp, chunks) -> float:
-        """Host-epoch seconds for one frame delivered by the SDK callback."""
-        if isinstance(timestamp, datetime.datetime):
-            host_s = timestamp.timestamp()
-        elif timestamp is not None:
-            host_s = float(timestamp)
-        else:
-            host_s = self._clock()
-        ticks = chunks.get('Timestamp') if chunks else None
-        if self._freq and ticks is not None:
-            if self._offset is None:
-                self._offset = host_s - ticks / self._freq
-            return self._offset + ticks / self._freq
-        return host_s
+    path = pathlib.Path(path)
+    return path.is_dir() and any(is_protocol_video_frame(p.name) for p in path.iterdir())
 
 
 def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -172,35 +166,6 @@ def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
     return image
 
 
-def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
-    """Effective um/pixel for a recording about to start, or None if unknown.
-
-    Both recording legs call this once at start so their frames agree on scale
-    and cannot drift from each other. Returns None when the scope cannot report
-    its optics; the writer then omits the scale claim rather than inventing one,
-    because a guessed scale is measured off the file forever and cannot be told
-    from a real one.
-
-    Args:
-        scope: The Lumascope instance the recording is running against.
-
-    Raises:
-        ObjectiveUnknownError: No one can say which objective is in the light
-            path. A recording is refused there as a capture is: a file with
-            no objective would carry no scale while the scope went on with
-            one the person had not confirmed.
-    """
-    _, objective = scope.runtime_state.resolve_current_objective()
-    pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
-        binning_size=scope.imaging._binning_size,
-        capabilities=scope.capabilities,
-    )
-    if pixel_size_um is None:
-        return None
-    return round(pixel_size_um, common_utils.max_decimal_precision('pixel_size'))
-
-
 class FrameFact(NamedTuple):
     """What was true of the scope when one recorded frame arrived.
 
@@ -210,17 +175,17 @@ class FrameFact(NamedTuple):
     did not know them: X and Y as a pair in plate millimetres, Z alone in
     micrometres. ``moving`` says an axis was MOVING or HOMING when the
     frame was delivered -- delivery follows exposure and readout, so this
-    is the state at delivery, not during the exposure. ``channel`` is the
-    channel that lit the frame, resolved the way a still's is.
+    is the state at delivery, not during the exposure. What lit a recorded
+    frame is read beside it (``arrival_facts``); a still's own record says
+    what lit it.
     """
 
     plate_x_mm: float | None
     plate_y_mm: float | None
     z_um: float | None
     moving: bool
-    channel: str
 
-    def well_label(self, labware: 'WellPlate') -> str | None:
+    def well_label(self, labware: 'Labware') -> str | None:
         """The well this frame's position lies in on ``labware``, the plate
         the position is stated on.
 
@@ -237,8 +202,7 @@ class FrameFact(NamedTuple):
 def frame_fact(
     scope: 'Lumascope',
     *,
-    channel_tiebreak: str | None,
-    to_plate: Callable[[float, float], tuple[float, float]] | None,
+    to_plate: Callable[[float, float], 'PlatePosition'] | None,
 ) -> FrameFact:
     """The fact for the frame arriving now; called on the camera callback.
 
@@ -252,15 +216,14 @@ def frame_fact(
 
     Args:
         scope: The scope the recording runs against.
-        channel_tiebreak: The channel to record when no LED is lit -- the
-            one the recording started on, or the still's open drawer (None
-            when none is open) -- so luminescence frames are named.
         to_plate: The plate transform bound when the recording started
-            (``runtime_state.plate_transform()``), or None when the scope
-            had no labware or offset then; X and Y are then unknown.
+            (``runtime_state.plate_transform()``), or None when the caller
+            states no plate position; X and Y are then unknown.
     """
     positions = scope.motion.axis_positions()
-    moving = any(p.state in (AxisState.MOVING, AxisState.HOMING) for p in positions.values())
+    turret = scope.motion.turret_status()
+    states = [p.state for p in positions.values()] + ([turret.state] if turret else [])
+    moving = any(state in (AxisState.MOVING, AxisState.HOMING) for state in states)
     x = positions.get('X')
     y = positions.get('Y')
     z = positions.get('Z')
@@ -269,85 +232,152 @@ def frame_fact(
         to_plate is not None
         and x is not None
         and y is not None
-        and x.position is not None
-        and y.position is not None
+        and x.position_um is not None
+        and y.position_um is not None
     ):
-        plate_x_mm, plate_y_mm = to_plate(x.position, y.position)
+        plate = to_plate(x.position_um, y.position_um)
+        plate_x_mm, plate_y_mm = plate.x_mm, plate.y_mm
     return FrameFact(
         plate_x_mm=plate_x_mm,
         plate_y_mm=plate_y_mm,
-        z_um=z.position if z is not None else None,
+        z_um=z.position_um if z is not None else None,
         moving=moving,
-        channel=common_utils.resolve_channel_identity(scope.illumination, channel_tiebreak),
     )
 
 
-def tiff_frame_metadata(
-    timestamp_s: float,
-    frame_number: int,
-    chunks: Mapping[str, Any] | None,
-    tick_freq_hz: float | None,
-    pixel_size_um: float | None,
-    fact: FrameFact,
-) -> tuple[dict, str]:
-    """Per-frame TIFF metadata plus a path-safe timestamp string.
+class RecordingCamera(NamedTuple):
+    """The camera facts every frame of one recording shares, read as it
+    starts: the binning cannot change while a recording runs."""
 
-    The timestamp travels in metadata, not pixels -- Create Video draws
-    it at build time when the overlay is enabled. Camera chunk identity
-    (hardware ticks, FrameID) is recorded when the frame carried it. The
-    frame's own fact -- where it was taken, whether the stage was moving,
-    which channel lit it -- is recorded with the still capture's position
-    keys, so the file says what it is with or without a hyperstack.
+    binning_size: int
+    camera_model: str | None
+    camera_tick_hz: int | None
 
-    Args:
-        timestamp_s: Frame time, epoch seconds.
-        frame_number: Ordinal within the recording.
-        chunks: Camera chunk data, or None when the frame carried none.
-        tick_freq_hz: Camera tick frequency, or None when unknown.
-        pixel_size_um: Image scale measured once at recording start, or
-            None when the scope cannot report its optics. Required rather
-            than defaulted: this builder is the only scale source the
-            recording legs have, so a caller that omits it would write
-            unmeasurable files, and a default would hide that at the one
-            place it must be visible.
-        fact: What was true when the frame arrived (``frame_fact``).
-            Required for the same reason, and refused as None: a frame
-            file with no fact would claim nothing about where it was
-            taken, silently.
 
-    Returns:
-        ``(metadata, ts_filename)`` -- the metadata dict for the TIFF
-        writer, and a colon-free millisecond-precision timestamp string
-        safe for Windows filenames.
+def recording_camera(scope: 'Lumascope') -> RecordingCamera:
+    """The camera facts a recording's frames share, read at its start.
 
     Raises:
-        ValueError: If ``fact`` is None.
+        CameraReadFailedError: The binning is unknown and the camera does
+            not answer its read.
     """
-    if fact is None:
-        raise ValueError('a recorded frame needs its fact; none was given')
-    ts = datetime.datetime.fromtimestamp(timestamp_s)
-    ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
-    metadata = {
-        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
-        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
-        'timestamp_iso': ts.isoformat(timespec='microseconds'),
-        'frame_num': frame_number,
-        'channel': fact.channel,
-        'stage_moving': fact.moving,
-        **image_save.position_metadata_fields(fact.plate_x_mm, fact.plate_y_mm, fact.z_um),
-        # The writer reads this as a required key. A real value makes the file
-        # declare its scale; None makes it declare no absolute unit rather than
-        # inherit tifffile's 1/1 default under a centimetre unit, which reads as
-        # 1 px/cm -- a concrete and wildly wrong measurement.
-        'pixel_size_um': pixel_size_um,
-    }
-    if chunks is not None:
-        ts_ticks = chunks.get('Timestamp')
-        if ts_ticks is not None:
-            metadata['timestamp_camera_ticks'] = int(ts_ticks)
-        if tick_freq_hz is not None:
-            metadata['timestamp_camera_tick_hz'] = int(tick_freq_hz)
-        frame_id = chunks.get('FrameID')
-        if frame_id is not None:
-            metadata['frame_id'] = int(frame_id)
-    return metadata, ts_filename
+    camera = scope.capabilities
+    return RecordingCamera(
+        binning_size=scope.camera.binning or scope.camera.read_binning(),
+        camera_model=camera.camera_model,
+        camera_tick_hz=camera.camera_timestamp_tick_hz,
+    )
+
+
+class Arrival(NamedTuple):
+    """What a recorded frame states, read as it arrived: where it was taken
+    (``fact``), the channel it is named for (``light``), and the
+    instrument's record of it (``record``)."""
+
+    fact: FrameFact
+    light: common_utils.Light
+    record: FrameRecord
+
+
+def arrival(
+    scope: 'Lumascope',
+    frame: 'Frame',
+    *,
+    frame_time: FrameTime,
+    channel_tiebreak: str,
+    to_plate: Callable[[float, float], 'PlatePosition'] | None,
+    camera: RecordingCamera,
+) -> Arrival:
+    """What a recorded frame states, read as it arrives.
+
+    The light is one read of the LEDs, so the channel a frame is named for
+    and the currents its record states cannot disagree. Called on the camera
+    callback, under ``frame_fact``'s rule that nothing here raises: the LED
+    states and the held layer are memory reads.
+
+    Args:
+        scope: The scope the recording runs against.
+        frame: The frame as the camera delivered it.
+        frame_time: Its time, with what that time is.
+        channel_tiebreak: The channel to record when no LED is lit -- the
+            one the recording started on -- so luminescence frames are named.
+        to_plate: As for ``frame_fact``.
+        camera: The recording's camera facts (``recording_camera``).
+    """
+    from modules.lumascope_api.illumination import snapshot_lit_pairs
+
+    readings = scope.illumination.get_led_states()
+    return Arrival(
+        fact=frame_fact(scope, to_plate=to_plate),
+        light=common_utils.light_of(readings, channel_tiebreak),
+        record=delivered_frame_record(
+            captured_at=frame_time,
+            chunks=frame.chunks,
+            frame_significant_bits=frame.significant_bits,
+            lit=dict(snapshot_lit_pairs(readings)),
+            held_channel=scope.camera.get_held_layer(),
+            binning_size=camera.binning_size,
+            camera_model=camera.camera_model,
+            camera_tick_hz=camera.camera_tick_hz,
+        ),
+    )
+
+
+def write_frame(
+    scope: 'Lumascope',
+    image: np.ndarray,
+    file_loc: pathlib.Path,
+    arrived: Arrival,
+    *,
+    frame_number: int,
+    objective_id: str,
+    labware: 'Labware',
+    fallback_focus: str | None,
+    false_color_on: bool,
+    channel_colors: 'ChannelColors',
+    save_encoding: str,
+) -> None:
+    """Write one recorded frame through the still's builder and writer
+    (``image_save.write_recorded_frame``), stating what it arrived with.
+
+    Args:
+        scope: The scope the recording runs against.
+        image: The frame, oriented and fitted (``orient_and_fit``).
+        file_loc: Output path, from the recording's template: its suffix
+            names the container.
+        arrived: What the frame states, read as it arrived (``arrival``).
+        frame_number: Its ordinal within the recording.
+        objective_id: The objective the recording started with.
+        labware: The plate its positions are stated on, which names its well.
+        fallback_focus: Why the step's autofocus did not focus, for a video
+            step recorded at its fallback focus; None otherwise.
+        false_color_on: Whether the channel's false-color toggle was on.
+        channel_colors: Every layer's colour as the recording began.
+        save_encoding: The resolved image-mode save encoding.
+    """
+    fact, light, record = arrived
+    image_save.write_recorded_frame(
+        scope,
+        image,
+        file_loc,
+        channel=light.channel,
+        plate_x_mm=fact.plate_x_mm,
+        plate_y_mm=fact.plate_y_mm,
+        stage_z_um=fact.z_um,
+        stage_moving=fact.moving,
+        frame_number=frame_number,
+        objective_id=objective_id,
+        frame_record=record,
+        labware=labware,
+        well_label=fact.well_label(labware),
+        fallback_focus=fallback_focus,
+        false_color_on=false_color_on,
+        channel_colors=channel_colors,
+        save_encoding=save_encoding,
+    )
+
+
+def filename_time(arrived: Arrival) -> str:
+    """The frame's time for a file name: colon-free, to the millisecond,
+    safe on Windows."""
+    return arrived.record.captured_at.at.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]

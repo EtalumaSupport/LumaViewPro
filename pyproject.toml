@@ -5,11 +5,27 @@ repo = "lumaviewpro"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short -q --durations=50 --dist loadgroup"
+addopts = "--tb=short -q --durations=50 --dist loadgroup --max-worker-restart 0"
+# A dead xdist worker ends the run red. A replacement worker deadlocks the
+# loadgroup scheduler (pytest-xdist 3.8.0): the dead worker's whole workload
+# goes back on the queue, its completed units with it, and the replacement is
+# handed a unit with nothing left to run while the scheduler waits for a
+# completion that never comes; the run sat at 99% until CI's 90-minute bound.
+# Restarted, a worker was also handed the test that had killed its predecessor.
+# A test still running after this many seconds dumps every thread's Python stack
+# into the run's output ("Timeout (0:03:00)!"), naming a hung test and its frames
+# without a rerun, a profiler or sudo; the test itself goes on. The longest
+# recorded test takes about 105 s (a slow-marked wire conformance case).
+faulthandler_timeout = 180
+# Every log line production writes during a test is captured, DEBUG up, so a
+# failed test's report holds what the code did, not only what it warned of;
+# the report is also written whole to build/test_failures/ (tests/conftest.py).
+# Measured free: two files' 9 tests 37.24 s at the default, 37.03 s at DEBUG.
+log_level = "DEBUG"
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
-    "slow: a test that takes 5 s or more; a push to the trunk runs `-m \"not slow\"`, the trunk-to-shipping merge runs every test",
+    "slow: a test that takes 5 s or more, a fact about the test; the push suite runs every test, and CI's trunk-push fast check leaves these out (tests.yml)",
 ]
 
 [tool.coverage.run]
@@ -59,7 +75,16 @@ extend-exclude = [
 # auto-sort risks a test-invisible runtime regression for purely cosmetic
 # gain. Rule 26's stdlib / third-party / first-party grouping stays a
 # human-review norm; it does not mandate alphabetical order within a group.
-select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
+select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM", "PLW1514"]
+
+# PLW1514 (a text open with no encoding) fails the build: without one, a
+# file's bytes are the platform's (cp1252 on Windows, UTF-8 elsewhere), and
+# every text file LVP reads or writes is UTF-8. It is a preview rule, so
+# preview is on; explicit-preview-rules enables only preview rules named by
+# their full code, but the stable rules take their preview behaviour too
+# (F401 reads a dotted import), which is why a ruff bump is a lint pass.
+preview = true
+explicit-preview-rules = true
 
 # Unused-import handling: F401 stays in `select` so ruff still flags genuinely
 # dead imports for human review, but it is REMOVED from autofix. ruff cannot

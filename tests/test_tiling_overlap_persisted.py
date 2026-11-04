@@ -25,6 +25,7 @@ from __future__ import annotations
 import ast
 import json
 import pathlib
+from tests.settings_fixtures import shipped_template
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -32,12 +33,12 @@ PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
 
 def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
-                    return ast.get_source_segment(path.read_text(), child)
+                    return ast.get_source_segment(path.read_text(encoding='utf-8'), child)
     raise AssertionError(f'{class_name}.{method_name} not found in {path}')
 
 
@@ -57,9 +58,9 @@ def test_tiling_overlap_percent_in_settings_schema():
 
 def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
     """Opening Advanced Settings writes the stored overlap into the spinner,
-    which runs its handler; that is not a person's pick, so nothing is
-    recorded or written. A different overlap is a pick: recorded once, and
-    stored."""
+    which runs its handler; that writes nothing and records nothing. A
+    different overlap is stored, and the handler records nothing either: a
+    person's pick is recorded by the spinner itself, from the pick."""
     import logging
     from types import SimpleNamespace
 
@@ -87,7 +88,7 @@ def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
         spinner.text = '20%'
         AdvancedSettings.update_tiling_overlap(panel)
 
-    assert _recorded() == ['SELECT TILING_OVERLAP 20.0']
+    assert _recorded() == []
     assert settings['tiling_overlap_percent'] == 20.0
 
 
@@ -101,7 +102,7 @@ def test_scan_config_carries_the_persisted_overlap():
     that overlap comes from the persisted key and never from the spinner,
     held throughout. A source-shape assertion cannot tell those two apart.
     """
-    settings = json.loads((REPO / 'data' / 'settings.json').read_text())
+    settings = shipped_template()
     settings['tiling_overlap_percent'] = 25.0
 
     from modules.config_helpers import get_sequenced_capture_config_from_settings

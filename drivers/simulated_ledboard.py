@@ -10,15 +10,16 @@ Timing modes:
   'realistic' -- serial delays matching real hardware (~12ms per command)
 
 Failure injection (for testing error recovery):
-  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
-  fail_on={'LEDS_ENT'} -- return None for specific commands (simulates timeout)
+  fail_on={'LEDS_ENT'} -- no reply to specific commands (simulates timeout)
 """
 
 import logging
 import threading
 import time
 from typing import ClassVar
-from lvp_logger import logger
+from lib.log_helpers import logger
+from drivers import host_clock
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from drivers.registry import led_registry
 
@@ -32,21 +33,16 @@ _serial_log = logging.getLogger('LVP.serial')
 
 @led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
+    # Whether the diagnostic door may send it text commands.
+    takes_text_commands: ClassVar[bool] = True
     TIMING_INSTANT: ClassVar[dict] = {'delay': 0.0}  # Zero delay -- for unit tests only
     TIMING_FAST: ClassVar[dict] = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
     TIMING_REALISTIC: ClassVar[dict] = {
         'delay': 0.012
     }  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
-    _COLOR_TO_CH: ClassVar[dict] = {
-        'Blue': 0,
-        'Green': 1,
-        'Red': 2,
-        'BF': 3,
-        'PC': 4,
-        'DF': 5,
-    }
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+    # The EL-0940 firmware's LED addresses, as LEDBoard drives them.
+    _ADDRESSES: ClassVar[tuple[int, ...]] = tuple(range(8))
 
     # Emulates the EL-0940 firmware, so its ceiling is that firmware's.
     _MAX_MA = FIRMWARE_LED_CH_MAX_MA
@@ -59,13 +55,11 @@ class SimulatedLEDBoard:
 
     def __init__(
         self,
-        delay: float = 0.0,
         timing: str = 'fast',
         firmware_version: str | None = '2.0.1',
         firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         supports_firmware_stim: bool = False,
-        fail_after: int | None = None,
         fail_on: set | None = None,
         **kwargs,
     ):
@@ -75,7 +69,6 @@ class SimulatedLEDBoard:
         self.port = '/dev/simulated_led'
         self.baudrate = 115200
         self.driver = True  # truthy sentinel -- not a real serial port
-        self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         # The date INFO carries; None as the original firmware's version is.
         self.firmware_date = firmware_date
@@ -85,22 +78,12 @@ class SimulatedLEDBoard:
         self._supports_firmware_stim = supports_firmware_stim
 
         # Failure injection
-        self._fail_after = fail_after  # disconnect after N commands
-        self._fail_on = fail_on or set()  # return None for these commands
-        self._cmd_count = 0
+        self._fail_on = fail_on or set()  # no reply to these commands
 
-        # Apply timing preset (overrides delay if preset given)
+        # The timing preset is the one setter of the command delay.
         self.set_timing_mode(timing)
-        self.led_ma = {
-            'BF': -1,
-            'PC': -1,
-            'DF': -1,
-            'Red': -1,
-            'Blue': -1,
-            'Green': -1,
-        }
         self._enabled = True
-        self._channel_states = dict.fromkeys(range(6), 0)  # channel -> mA
+        self._channel_states = dict.fromkeys(self._ADDRESSES, 0)  # channel -> mA
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -193,10 +176,10 @@ class SimulatedLEDBoard:
 
     def exchange_command(
         self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> str | list[str] | None:
+    ) -> str | list[str]:
         """Exchange a single command with the simulated firmware.
 
-        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        Honors failure injection (``fail_on``) so callers
         can exercise disconnect / timeout paths without real hardware.
 
         Args:
@@ -205,31 +188,17 @@ class SimulatedLEDBoard:
             timeout: Accepted for API parity; ignored by the simulator.
 
         Returns:
-            Response string ``f'RE: {command}'``, or None on injected failure.
+            Response string ``f'RE: {command}'``.
+
+        Raises:
+            BoardNoReplyError: an injected failure, as the driver raises a
+                missed reply.
+            BoardPortFailedError: the port is closed.
         """
         with self._lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return None
-            if self.driver is None:
-                return None
-
-            # Failure injection: disconnect after N commands
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[LED Sim] {command} -> INJECTED DISCONNECT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
-                return None
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # Failure injection: fail on specific commands, matched by first
             # word as the motor board matches them
@@ -238,13 +207,13 @@ class SimulatedLEDBoard:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[LED Sim] {command} -> INJECTED TIMEOUT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                    f'({(host_clock.steady_ns() - t_start) / 1e6:.1f}ms)'
                 )
-                return None
+                raise BoardNoReplyError(f'{command}: no reply from the board')
 
             self._sim_delay()
             response = f'RE: {command}'
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
             resp_repr = repr(response)
             if len(resp_repr) > 200:
@@ -258,7 +227,7 @@ class SimulatedLEDBoard:
         timeout: float = 60,
         end_markers: list[str] | None = None,
         line_end: bytes = b'\n',
-    ) -> str | None:
+    ) -> str:
         """Simulated multi-line response.
 
         Args:
@@ -274,31 +243,12 @@ class SimulatedLEDBoard:
 
     def _write_command_fast(self, command: str):
         with self._lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return
-            if self.driver is None:
-                return
-
-            # Failure injection (same as exchange_command)
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[LED Sim] {command} -> INJECTED DISCONNECT (write_fast) '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
-                return
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # No delay on fast path
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
             # SIM-SERIAL-LOG: write-only path -> mark as TX with no response
             _serial_log.info(f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
@@ -309,44 +259,9 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Channel helpers
     # ------------------------------------------------------------------
-    def color2ch(self, color: str) -> int | None:
-        """Convert color name to numerical channel.
-
-        Args:
-            color: Color name (e.g. 'BF', 'Red', 'Blue').
-
-        Returns:
-            Channel number (0-5), or None for a colour this scope cannot
-            drive.
-        """
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel: int) -> str | None:
-        """Convert numerical channel to color name.
-
-        Args:
-            channel: Channel number (0-5).
-
-        Returns:
-            Color name, or None for a channel this scope does not have.
-        """
-        return self._CH_TO_COLOR.get(channel)
-
-    def available_channels(self) -> tuple:
-        """Return all known LED channel numbers.
-
-        Returns:
-            tuple: Channel numbers (ints) supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.values())
-
-    def available_colors(self) -> tuple:
-        """Return all known LED color names.
-
-        Returns:
-            tuple: Color name strings supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.keys())
+    def available_channels(self) -> tuple[int, ...]:
+        """The LED addresses this board drives, as ``LEDBoard`` does."""
+        return self._ADDRESSES
 
     # ------------------------------------------------------------------
     # LED control
@@ -359,8 +274,6 @@ class SimulatedLEDBoard:
     def leds_disable(self) -> None:
         """Disable all LED channels (master disable) and clear cached state."""
         self._enabled = False
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_ENF')
@@ -371,7 +284,13 @@ class SimulatedLEDBoard:
         Test-injectable: pass ``supports_firmware_stim=True`` to the
         constructor to simulate v3.0.8+ firmware; defaults to False so
         existing sim runs match pre-v3.0.8 behavior.
+
+        Raises:
+            BoardNoReplyError: an injected failure on ``STIM``, as the
+                driver raises a probe the board did not answer.
         """
+        # Asked on the simulated wire so an injected failure answers as the board's.
+        self.exchange_command('STIM 0 0 1 2 1')
         return self._supports_firmware_stim
 
     def get_status(self) -> str:
@@ -431,7 +350,7 @@ class SimulatedLEDBoard:
         """Turn on the LED on a channel at a given current.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps.
             block: Accepted for API parity; ignored by the simulator.
         """
@@ -439,8 +358,6 @@ class SimulatedLEDBoard:
             # As the real board does: 0 is sent as the board's off.
             self.led_off(channel)
             return
-        color = self.ch2color(channel)
-        self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self.exchange_command(f'LED{int(channel)}_{int(mA)}')
 
@@ -448,10 +365,8 @@ class SimulatedLEDBoard:
         """Turn off the LED on a channel.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self.exchange_command(f'LED{int(channel)}_OFF')
 
@@ -459,11 +374,9 @@ class SimulatedLEDBoard:
         """Fast write-only version of led_on for time-critical toggling.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps.
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self._write_command_fast(f'LED{int(channel)}_{int(mA)}')
 
@@ -471,25 +384,19 @@ class SimulatedLEDBoard:
         """Fast write-only version of led_off for time-critical toggling.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self._write_command_fast(f'LED{int(channel)}_OFF')
 
     def leds_off(self) -> None:
         """Turn off every LED channel. Clears the cached per-channel state."""
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off."""
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self._write_command_fast('LEDS_OFF')
@@ -529,7 +436,7 @@ class SimulatedLEDBoard:
             list: One line per channel plus a final ``'SELFTEST Complete'``.
         """
         lines = []
-        for ch in range(6):
+        for ch in self._ADDRESSES:
             lines.append(f'LED{ch}: 0.1mA OK  1mA OK  10mA OK  100mA OK  500mA OK')
         lines.append('SELFTEST Complete')
         return lines
@@ -553,15 +460,21 @@ class SimulatedLEDBoard:
         """Simulated ADC feedback -- returns the set current for the channel.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
 
         Returns:
             float | None: Set current in mA, 0.0 for unknown channels,
                 or None when firmware is too old (not v2+).
+
+        Raises:
+            BoardNoReplyError: an injected failure (``fail_on``), as the
+                driver raises a missed reply.
         """
         if not self.is_v2:
             return None
         ch = int(channel)
+        # Asked on the simulated wire so an injected failure answers as the board's.
+        self.exchange_command(f'LEDREAD{ch}')
         if ch in self._channel_states:
             return float(self._channel_states[ch])
         return 0.0

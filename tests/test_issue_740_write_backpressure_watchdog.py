@@ -19,6 +19,7 @@ task (no sleeps for synchronization; bounded waits only where the assertion
 IS "it blocks").
 """
 
+import logging
 import pathlib
 import threading
 
@@ -26,20 +27,24 @@ import numpy as np
 import pytest
 
 import modules.protocol_image_writer as piw
+from modules.exceptions import FileWriterReplacedError
 from modules.notification_center import Severity, notifications
 from modules.protocol_image_writer import RunWriteBatch
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import (
     ENQUEUED,
     IOTask,
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+from modules.lumascope_api.frame_record import CapturedStill
+from tests.frame_records import frame_record
 
 
 @pytest.fixture
 def file_lane():
     """A started file lane."""
-    ex = SequentialIOExecutor(name='TEST_BP')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP')
     ex.start()
     yield ex
     ex.shutdown(wait=True)
@@ -102,7 +107,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     from unittest.mock import MagicMock
 
     monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 2)
-    ex = SequentialIOExecutor(name='TEST_BP_WRITER')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_WRITER')
     ex.start()
     saved = threading.Event()
     monkeypatch.setattr(
@@ -116,8 +121,9 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+    )
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
 
@@ -131,6 +137,8 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
         def _capture():
             results.append(
                 writer.capture(
+                    scan_count=0,
+                    curr_step=0,
                     save_folder=tmp_path,
                     step=_protocol_step(),
                     output_format='TIFF',
@@ -199,7 +207,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.4)
     monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
 
-    ex = SequentialIOExecutor(name='TEST_BP_WEDGE')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_WEDGE')
     ex.start()
     aborts = []
     record = MagicMock()
@@ -212,8 +220,9 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+    )
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
 
@@ -227,6 +236,8 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         _fill(writer._write_batch, 1)
 
         result = writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder=tmp_path,
             step=_protocol_step(),
             output_format='TIFF',
@@ -261,7 +272,7 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
     state."""
     import time as _time
 
-    ex = SequentialIOExecutor(name='TEST_BP_RECOVER')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_RECOVER')
     ex.start()
     batch = RunWriteBatch(ex)
     fired = []
@@ -299,7 +310,7 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
 
         orphan_thread = ex._worker_thread
         abandoned = batch.abandon('File writer recovery')
-        ex.replace_stuck_worker()
+        ex.replace_stuck_worker(FileWriterReplacedError)
 
         assert abandoned == 1, 'recovery must count the write it gave up on'
         assert not batch.draining, 'recovery must clear the lockout gate'
@@ -414,7 +425,6 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     def _prepare():
         runner.prepare(
             protocol=MagicMock(),
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -433,13 +443,11 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     assert excinfo.value.reason == 'files_writing'
 
 
-def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():
+def test_replacing_a_stuck_worker_is_a_warning_not_a_failure(caplog):
     """Replacing a stuck worker is the recovery a person chose, after the
     stall was already reported as a fault; logging it at ERROR counted one
     failure twice. It is a WARNING: a thread is abandoned and its write lost."""
-    from lvp_logger import logger as executor_logger
-
-    ex = SequentialIOExecutor(name='TEST_BP_REPLACE_LEVEL')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_REPLACE_LEVEL')
     ex.start()
     started = threading.Event()
     release = threading.Event()
@@ -451,19 +459,14 @@ def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():
 
         assert ex.put(IOTask(action=_wedge)) is ENQUEUED
         assert started.wait(2), 'worker never picked up the wedge task'
-        executor_logger.reset_mock()
+        caplog.clear()
 
-        ex.replace_stuck_worker()
+        ex.replace_stuck_worker(FileWriterReplacedError)
 
-        def _said(method):
-            return [str(c.args[0]) for c in method.call_args_list if c.args]
-
-        assert any('Replacing a worker stuck' in m for m in _said(executor_logger.warning)), _said(
-            executor_logger.warning
-        )
-        assert not any('Replacing a worker stuck' in m for m in _said(executor_logger.error)), (
-            _said(executor_logger.error)
-        )
+        replaced = [
+            r.levelno for r in caplog.records if 'Replacing a worker stuck' in r.getMessage()
+        ]
+        assert replaced == [logging.WARNING], caplog.text
     finally:
         release.set()
         ex.shutdown(wait=True)

@@ -25,7 +25,7 @@ EXTRACT = 'sed -n \'/^fx2_driver_py()/,/^}/p;/^setup_fx2_usb()/,/^}/p\' "$SCRIPT
 
 
 def _stub(path: Path, body: str) -> None:
-    path.write_text('#!/bin/bash\n' + body)
+    path.write_text('#!/bin/bash\n' + body, encoding='utf-8')
     path.chmod(0o755)
 
 

@@ -19,10 +19,15 @@ the API, and each result is held to the bench:
 One repetition of each call is replayed; the pools hold all of them. The
 replay runs twice: once in realistic timing, where a home and a move take
 as long as on the board (about a minute of real waits, so the tests that
-need it are marked slow), and once in instant timing, which takes seconds
-and answers every reply the same except where the record stopped a move in
-flight. Durations and the stopped positions read the realistic replay; every
-other reply reads the instant one.
+need it are marked slow), and once in instant timing, which answers every
+reply the same except where the record stopped a move in flight. Instant
+timing takes the board's delays away, not the host's: a command the field
+firmware does not know (DRVSTAT, CURRENT, MOTORDETECT, the LEDREADs) is
+answered with an error and no end marker, and the host waits out its reply
+timeout, 5 s on a multi-line drain and 4 s on one line, as on the bench. So
+the instant replay also takes about a minute, all of it in the first test
+on its worker, which fetches the shared replay. Durations and the stopped
+positions read the realistic replay; every other reply reads the instant one.
 
 Where the model does not yet behave like the board, the check is a strict
 xfail naming the difference, so it turns red when the model is fixed and the
@@ -32,7 +37,6 @@ marker goes with the fix.
 import ast
 import functools
 import subprocess
-import sys
 
 import pytest
 
@@ -51,15 +55,11 @@ from tests.sim_wire_bench import (
     reply_group,
 )
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
 
 # The replays are module fixtures, the realistic one about a minute; under
 # xdist each worker that draws one of these tests would run them again. One
 # group sends them all to one worker (`--dist loadgroup`, in the pytest addopts).
-pytestmark = pytest.mark.xdist_group('sim_wire_conformance')
+pytestmark = [pytest.mark.firmware_tier, pytest.mark.xdist_group('sim_wire_conformance')]
 
 
 def _unit_config() -> dict:
@@ -112,26 +112,25 @@ _DURATIONS = _pools('api_ms')
 _POSITIONS = _pools('reply')
 
 
-def _replayed(timing: str) -> dict:
-    """The bench's calls replayed on the simulated unit in ``timing``; index -> (reply, ms)."""
+def _replayed(simulator_tier: str) -> dict:
+    """The bench's calls replayed on the simulated unit on ``simulator_tier``; index -> (reply, ms).
+
+    The tier is what sets the boards' timing: ``'realistic'`` moves at the
+    bench-fitted ramp, ``'firmware'`` at once. The unit is this bench's,
+    booted on the field firmware with its own config.
+    """
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            sim_backend,
-            'LedBoardSpec',
-            functools.partial(sim_backend.LedBoardSpec, timing=timing),
-        )
         mp.setattr(
             sim_backend,
             'MotorBoardSpec',
             functools.partial(
                 sim_backend.MotorBoardSpec,
                 dialect='field',
-                timing=timing,
                 unit_config=_UNIT_CONFIG,
             ),
         )
         session = ScopeSession.create(
-            complete_settings(simulator_tier='firmware', microscope=BENCH['unit']['model']),
+            complete_settings(simulator_tier=simulator_tier, microscope=BENCH['unit']['model']),
             simulate=True,
             warn_pre_release=False,
         )
@@ -147,7 +146,7 @@ def replayed_on_the_firmware():
 @pytest.fixture(scope='module')
 def replayed_instantly():
     """The replay in instant timing: every other reply, in seconds."""
-    return _replayed('instant')
+    return _replayed('firmware')
 
 
 def _duration_group(record) -> str | None:
@@ -176,6 +175,9 @@ _DURATION_GROUPS = groups(_duration_group)
 # A reply that depends on the boards' timing: where the record stopped a move
 # in flight, the position it rests at is set by how far the move had got.
 _TIMED_REPLY_GROUPS = frozenset(name for name in _REPLY_GROUPS if name.startswith('stop_position'))
+# The reply groups that take 5 s or more: the timed ones, and INFO's, which
+# took 59 s on the Mac (2026-11-03).
+_SLOW_REPLY_GROUPS = _TIMED_REPLY_GROUPS | {'query INFO'}
 
 # What the model does not yet do as the board does. Each is fixed in the
 # model, and its entry removed, on its own.
@@ -199,6 +201,10 @@ _FLAKY_REPLY_GAPS = {'stop_position X': _STOP_REST, 'stop_position Y': _STOP_RES
 _FLAKY_DURATION_GAPS = {
     'multi-line drains': 'the drain ends a few ms sooner than on the board, which sometimes '
     "still falls inside the bench's window",
+    # Measured idle 2026-10-22: 2036-2048 ms against the bench's 2119-2251;
+    # a loaded host's delay stretches the wall-clock timing into the window.
+    'turret': 'a slot change finishes about 4% sooner than on the board, which a loaded host '
+    "sometimes stretches inside the bench's window",
 }
 _DURATION_GAPS = {
     'one-line exchanges': 'the board takes longer to answer than the simulator: a few ms on a '
@@ -209,7 +215,6 @@ _DURATION_GAPS = {
     'moves Y': "the unit's own XY register table is not in the simulator; moves finish a few "
     'percent sooner than on the board',
     'moves Z': 'moves finish 1-5% sooner than on the board',
-    'turret': 'a slot change finishes about 5% sooner than on the board',
     'STOP': 'the settle after STOP on X ends about 110 ms sooner than on the board',
     'LED exchanges': 'the LED board takes about 10 ms longer to answer each exchange than the '
     'simulator',
@@ -220,8 +225,9 @@ def _microstep_um(axis: str) -> float:
     return 1000.0 / _UNIT_CONFIG['Axis Microsteps per mm / Objective'][axis]
 
 
+# parametrize-justified: each group carries its own slow or flaky mark
 @pytest.mark.parametrize(
-    'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_TIMED_REPLY_GROUPS)
+    'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_SLOW_REPLY_GROUPS)
 )
 def test_replies_match_the_bench(request, group):
     replayed = request.getfixturevalue(
@@ -242,6 +248,7 @@ def test_replies_match_the_bench(request, group):
 
 
 @pytest.mark.slow
+# parametrize-justified: each group carries its own flaky mark
 @pytest.mark.parametrize('group', marked(_DURATION_GROUPS, _DURATION_GAPS, _FLAKY_DURATION_GAPS))
 def test_durations_fall_within_the_bench(replayed_on_the_firmware, group):
     outside = []
@@ -267,6 +274,7 @@ def test_a_unit_config_for_another_scope_is_refused():
         sim_backend.MotorBoardSpec('LS820', frozenset('Z'), unit_config=_UNIT_CONFIG)
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_the_runtime_computes_in_single_precision_as_the_board_does(dialect):
     # 2**24 + 1 is the smallest integer a single-precision float cannot hold.

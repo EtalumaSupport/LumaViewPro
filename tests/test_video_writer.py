@@ -6,16 +6,18 @@ per-frame drop accounting, thread capping, and true sub-1-fps rates --
 against a fake av module so no real encode runs.
 """
 
+import datetime
 from unittest import mock
 
 import numpy as np
 import pytest
 
-from tests.protocol_drives import lent_run_claim
-from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
-from tests.scope_fakes import answer_auto_gain_like_the_api
+from modules.layer_record import GREY, release_color
+from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED2
+from tests.video_step_drives import record_first_frame
 
 
 class _FakeStream:
@@ -162,7 +164,7 @@ class TestEagerInitColorDeferral:
                 fps=30,
                 width=32,
                 height=24,
-                color=None,
+                color=GREY,
                 include_timestamp_overlay=False,
             )
             # color=None -> encoder init deferred until the first frame's ndim.
@@ -183,7 +185,7 @@ class TestEagerInitColorDeferral:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
             writer.close()
@@ -210,7 +212,7 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 
@@ -227,11 +229,38 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 
         assert fake_stream.thread_count == 1, 'never below 1 thread on a 1-2 core box'
+
+
+class TestTimestampOverlay:
+    """The timestamp is drawn on the writer's own copy of a frame: the
+    encoded frame carries it, and the frame the caller handed in -- a
+    camera's delivered frame, shared with the preview and a capture --
+    keeps the pixels it had."""
+
+    def test_an_8bit_grey_frame_is_encoded_with_the_timestamp_and_left_unchanged(self, tmp_path):
+        captured = []
+        fake_av, _ = _make_fake_av(captured)
+        frame = np.full((240, 320), 128, dtype=np.uint8)
+        as_handed_in = frame.copy()
+        with mock.patch.object(video_writer_module, 'av', fake_av):
+            writer = VideoWriter(
+                output_path=tmp_path / 'ts.mp4',
+                fps=10,
+                width=320,
+                height=240,
+                include_timestamp_overlay=True,
+            )
+            writer.add_frame(image=frame, timestamp=1.5)
+
+        np.testing.assert_array_equal(frame, as_handed_in)
+        ((encoded, fmt),) = captured
+        assert fmt == 'gray'
+        assert np.count_nonzero(encoded != as_handed_in) > 0, 'no timestamp was drawn'
 
 
 class TestVideoWriterDropAccounting:
@@ -271,88 +300,10 @@ class TestProtocolVideoDropNotification:
             for level in ('warning', 'error', 'critical')
         }
 
-    def _run_one_frame_step(self, tmp_path, monkeypatch, *, write_fails):
-        import threading
-        import time as _time
-        from unittest.mock import MagicMock
-
-        import modules.protocol_recording as protocol_recording
-        from modules.protocol_recording import ProtocolVideoStep
-
-        monkeypatch.setattr(
-            protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
-        )
-
-        written = []
-        self.written = written
-
-        def _write_frame(**kwargs):
-            written.append(kwargs)
-            if write_fails:
-                raise OSError('disk said no')
-
-        monkeypatch.setattr(protocol_recording.image_save, 'write_video_frame', _write_frame)
-
-        listeners = {}
-        scope = MagicMock()
-        answer_auto_gain_like_the_api(scope.imaging)
-        scope.runtime_state.resolve_current_objective.return_value = (
-            '4x Oly',
-            {'focal_length': 45.0},
-        )
-        # The frames leg reads the scope's tracked state per frame; a
-        # MagicMock answers a MagicMock, which is not a position.
-        scope.motion.axis_positions = lambda: {}
-        scope.runtime_state.plate_transform = lambda: None
-        scope.illumination.get_led_states = lambda: {}
-        scope.imaging.frames_until_valid.return_value = 0
-        scope.imaging.active_cached = True
-        scope.capabilities.camera_model = 'sim'
-        scope.capabilities.camera_serial_number = '0'
-        scope.capabilities.camera_timestamp_tick_hz = None
-        scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
-        scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
-
-        clock = {'t': 1000.0}
-        recorder = ProtocolVideoStep(
-            scope=scope,
-            step={
-                'Video Config': {'fps': 5, 'duration': 1},
-                'Color': 'Blue',
-                'False_Color': False,
-                'Auto_Gain': False,
-                'Exposure': 10.0,
-            },
-            save_folder=tmp_path,
-            name='clip',
-            video_as_frames=True,
-            capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
-            timestamp_overlay=True,
-            global_max_fps=0,
-            autogain_settings={},
-            events=RunEvents(),
-            aborted_event=threading.Event(),
-            is_run_in_progress=lambda: True,
-            abort_run_fatal=MagicMock(),
-            record_step_row=MagicMock(),
-            record_dropped_capture=MagicMock(),
-            clock=lambda: clock['t'],
-            run_claim=lent_run_claim(),
-            to_plate=None,
-        )
-        worker = threading.Thread(target=recorder.run_blocking)
-        worker.start()
-        deadline = _time.monotonic() + 5.0
-        while 'cb' not in listeners and _time.monotonic() < deadline:
-            _time.sleep(0.01)
-        listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
-        clock['t'] = 1002.0
-        worker.join(timeout=10.0)
-        assert recorder.wait_until_finished(timeout=10.0)
-        return recorder
-
-    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch, centre_posts):
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
+    def test_write_failure_posts_one_nonfatal_error(
+        self, tmp_path, monkeypatch, centre_posts, sim_scope
+    ):
+        record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
         fired = self._posted(centre_posts)
         assert len(fired['error']) == 1 and fired['warning'] == [], (
             'a step that lost frames must post exactly one error through the '
@@ -360,25 +311,30 @@ class TestProtocolVideoDropNotification:
         )
         assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
 
-    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts):
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts, sim_scope):
+        record_first_frame(sim_scope, tmp_path, monkeypatch)
         fired = self._posted(centre_posts)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
 
-    def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
-        self, tmp_path, monkeypatch
-    ):
+    def test_each_frame_carries_its_own_fact_and_channel(self, tmp_path, monkeypatch, sim_scope):
         # The protocol leg reads the scope's tracked state when the frame
-        # arrives, like the manual leg: with no LED reported lit the channel
-        # is the step's, the stage is not moving, and with no plate transform
-        # the frame states no plate position rather than a number.
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
-        (kwargs,) = self.written
-        metadata = kwargs['metadata']
-        assert metadata['channel'] == 'Blue'
-        assert metadata['stage_moving'] is False
-        assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
-        assert kwargs['channel'] == 'Blue', 'rendered as the channel the frame records'
+        # arrives, like the manual leg: with no LED lit the channel is the
+        # step's, the stage stands where it was parked, and with no plate
+        # transform the frame states no plate position rather than a number.
+        # The write names and renders the frame by that one channel.
+        from tests.af_drives import park_z
+        from tests.scope_fakes import home_sim_scope
+
+        park_z(home_sim_scope(sim_scope), 3000.0)
+        _step, written = record_first_frame(sim_scope, tmp_path, monkeypatch)
+        arrived = written[0]
+        assert arrived.light.channel == LED0
+        assert arrived.fact.moving is False
+        assert (arrived.fact.plate_x_mm, arrived.fact.plate_y_mm, arrived.fact.z_um) == (
+            None,
+            None,
+            3000.0,
+        )
 
 
 class TestVideoBuilderDropAccounting:
@@ -397,6 +353,7 @@ class TestVideoBuilderDropAccounting:
             source_dir=src,
             output_file=tmp_path / 'out.mp4',
             fps=10,
+            channel_colors=release_colors(),
         )
         assert result['frame_count'] == 0, 'no readable frame should encode'
         assert result['dropped_frames'] == 2, 'both unreadable sources must be counted'
@@ -443,7 +400,7 @@ class TestBuildVideoSignificantBits:
                 # authority after close.
                 self.output_path = kwargs.get('output_path') or (args[0] if args else None)
 
-            def add_frame(self, image=None, timestamp=None, significant_bits=None):
+            def add_frame(self, image=None, timestamp=None, significant_bits=None, white_bits=None):
                 captured.append(significant_bits)
 
             def close(self):
@@ -455,6 +412,7 @@ class TestBuildVideoSignificantBits:
                 source_dir=src,
                 output_file=tmp_path / 'out.mp4',
                 fps=10,
+                channel_colors=release_colors(),
             )
 
         assert result['frame_count'] == 1, 'the readable frame must encode'
@@ -503,9 +461,30 @@ class TestSubOneFpsRate:
                 fps=0.3,  # 3 frames over 10 seconds
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 
         assert fake_container.rate != 0, 'sub-1 fps must not open the encoder at rate 0'
         assert float(fake_container.rate) == pytest.approx(0.3)
+
+
+def test_the_overlay_prints_a_frames_own_time_with_its_offset(pacific_time):
+    """A saved frame's time prints with the offset it states; a live
+    recording's epoch seconds print in local time with the offset in force
+    then, so the two passes through the repeated hour print apart; a time
+    written before times stated one prints as written; no time prints
+    nothing."""
+    daylight = datetime.datetime(2026, 11, 1, 8, 30, 0, 125000, tzinfo=datetime.UTC)
+    standard = daylight + datetime.timedelta(hours=1)
+
+    assert video_writer_module.overlay_text(daylight.astimezone()) == (
+        '2026-11-01 01:30:00.125 -07:00'
+    )
+    assert video_writer_module.overlay_text(standard.timestamp()) == (
+        '2026-11-01 01:30:00.125 -08:00'
+    )
+    assert video_writer_module.overlay_text(datetime.datetime(2026, 9, 29, 12, 0, 0, 5000)) == (
+        '2026-09-29 12:00:00.005'
+    )
+    assert video_writer_module.overlay_text(None) is None

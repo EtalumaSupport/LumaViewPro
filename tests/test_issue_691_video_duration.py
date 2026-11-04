@@ -51,7 +51,7 @@ def test_the_end_of_a_video_clears_only_its_own_title():
     ui_helpers.show_video_progress(VideoProgress('ended'))
     assert ui_helpers._title_event_text is None
 
-    ui_helpers.show_video_progress(VideoProgress('writing', percent=40))
+    ui_helpers.show_video_progress(VideoProgress('writing', progress_pct=40))
     ui_helpers.set_title_event_text('Homing, please wait...')
     ui_helpers.show_video_progress(VideoProgress('ended'))
     assert ui_helpers._title_event_text == 'Homing, please wait...'

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from modules.objectives_loader import ObjectiveLoader
+from modules.protocol import Protocol
 from modules.protocol_time_estimator import (
     ProtocolTimeEstimator,
     StepTimeEstimate,
@@ -20,6 +21,9 @@ from modules.protocol_time_estimator import (
     STEP_OVERHEAD_S,
     AUTOGAIN_MAX_DURATION_S,
 )
+from tests.objective_records import objective
+from tests.stock_channels import LED0
+from tests.protocol_fixtures import protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -27,8 +31,8 @@ from modules.protocol_time_estimator import (
 # ---------------------------------------------------------------------------
 
 
-def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0):
-    """Create a mock Protocol with given steps."""
+def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None, duration=None):
+    """A stand-in Protocol with given steps, whose schedule is a real Protocol's."""
     protocol = MagicMock()
     if steps_data:
         df = pd.DataFrame(steps_data)
@@ -36,20 +40,37 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0):
         df = pd.DataFrame()
     protocol.steps.return_value = df
     protocol.num_steps.return_value = len(df)
-    protocol.period.return_value = datetime.timedelta(minutes=period_min)
-    protocol.duration.return_value = datetime.timedelta(hours=duration_hr)
+    # The steps here are in no z-stack, where a step sweeps when its
+    # Auto_Focus is on; a stack's one sweep is pinned on a real Protocol in
+    # tests/test_zstack_group_autofocus.py.
+    protocol.focus_sweep_step.side_effect = lambda step_index: (
+        step_index if df.iloc[step_index].get('Auto_Focus', False) else None
+    )
+    schedule = protocol_of(
+        config={
+            'version': Protocol.CURRENT_VERSION,
+            'steps': pd.DataFrame(),
+            'period': period or datetime.timedelta(minutes=period_min),
+            'duration': duration or datetime.timedelta(hours=duration_hr),
+            'capture_root': '',
+            'labware_id': 'Center Plate',
+        },
+    )
+    protocol.period_s = schedule.period_s
+    protocol.duration_s = schedule.duration_s
+    protocol.num_scans = schedule.num_scans
     return protocol
 
 
 def _valid_step(**overrides) -> dict:
     """Return a minimal valid step dict."""
     step = {
-        'Name': 'A1_Blue',
+        'Name': f'A1_{LED0}',
         'X': 0.0,
         'Y': 0.0,
         'Z': 5000.0,
         'Auto_Focus': False,
-        'Color': 'Blue',
+        'Color': LED0,
         'False_Color': False,
         'Illumination': 100.0,
         'Gain': 1.0,
@@ -64,13 +85,13 @@ def _valid_step(**overrides) -> dict:
     return step
 
 
-OBJ_10X = {
-    'magnification': 10,
-    'focal_length': 18.0,
-    'AF_min': 8.0,
-    'AF_max': 36.0,
-    'AF_range': 75.0,
-}
+OBJ_10X = objective(
+    magnification=10,
+    focal_length_mm=18.0,
+    autofocus_step_min_um=8.0,
+    autofocus_step_max_um=36.0,
+    autofocus_half_range_um=75.0,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +196,7 @@ class TestAutofocusEstimation:
 
     def test_af_zero_range_returns_zero(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        obj = {'AF_range': 0, 'AF_max': 0, 'AF_min': 0}
+        obj = objective(autofocus_half_range_um=0, autofocus_step_max_um=0, autofocus_step_min_um=0)
         t = estimator._estimate_autofocus(obj, exposure_s=0.05)
         assert t == 0.0
 
@@ -189,7 +210,7 @@ class TestStepEstimation:
     def test_basic_image_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Exposure=50)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.move_time_s == 0.0  # first step
         assert est.led_time_s == LED_SETTLE_S + LED_SERIAL_S
         assert est.autofocus_time_s == 0.0
@@ -200,26 +221,30 @@ class TestStepEstimation:
     def test_autofocus_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Focus=True)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.autofocus_time_s > 0
 
     def test_autogain_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Gain=True)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.autogain_time_s == AUTOGAIN_MAX_DURATION_S
 
     def test_video_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        vc = {'fps': 30, 'duration': 10.0}
+        vc = {'duration': 10.0}
         step = _valid_step(Acquire='video', **{'Video Config': vc})
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.capture_time_s >= 10.0
 
     def test_sum_increases_capture_time(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        est1 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X)
-        est4 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X)
+        est1 = estimator._estimate_step(
+            0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X, sweeps=False
+        )
+        est4 = estimator._estimate_step(
+            0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X, sweeps=False
+        )
         assert est4.capture_time_s > est1.capture_time_s
 
 
@@ -279,6 +304,14 @@ class TestProtocolEstimation:
         protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=2.0)
         result = estimator.estimate(protocol)
         assert result.num_scans == 6  # 120min / 20min
+
+    def test_the_estimate_counts_the_scans_the_run_will_take(self):
+        # 5.000075 s over 1.000015 s is 5 scans exactly; float seconds make it 4.
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
+        period = datetime.timedelta(microseconds=1_000_015)
+        protocol = _make_protocol([_valid_step()], period=period, duration=period * 5)
+        result = estimator.estimate(protocol)
+        assert result.num_scans == 5
 
     def test_summary_string(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())

@@ -18,7 +18,8 @@ port (no LumaViewPro running):
 ``SAP 1`` test moves X's origin; every test after it homes first.
 
 Each test writes what it read to ``$TMCM6110_RECORD_DIR`` (default
-``build/tmcm6110_bench_<date>/``) as ``<test>.json``, for the bench record.
+``<log folder>/bench_results/tmcm6110_bench_<date>/``) as ``<test>.json``, for the
+bench record.
 
 The lid and supply test reads the inputs in the state the operator states in
 ``TMCM6110_EXPECT`` (``lid=closed,power=on`` and so on) and checks the board
@@ -57,15 +58,13 @@ from drivers.tmcm6110 import (
     Tmcm6110Board,
 )
 
+from tests.bench_results import bench_results_dir
+
 pytestmark = pytest.mark.tmcm6110_hardware
 
 logger = logging.getLogger('LVP.tests.tmcm6110_hardware')
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-RECORD_DIR = pathlib.Path(
-    os.environ.get('TMCM6110_RECORD_DIR')
-    or REPO / 'build' / f'tmcm6110_bench_{datetime.date.today().isoformat()}'
-)
 
 # The motion monitor's cycle, which its four reads per moving axis must fit.
 MONITOR_CYCLE_S = 0.020
@@ -81,8 +80,14 @@ ARRIVAL_TIMEOUT_S = 30.0
 
 
 def _record(name, data):
-    RECORD_DIR.mkdir(parents=True, exist_ok=True)
-    path = RECORD_DIR / f'{name}.json'
+    # Resolved when a test records, not at import: the simulator suite
+    # collects this file and must write nothing to the log folder.
+    record_dir = pathlib.Path(
+        os.environ.get('TMCM6110_RECORD_DIR')
+        or bench_results_dir() / f'tmcm6110_bench_{datetime.date.today().isoformat()}'
+    )
+    record_dir.mkdir(parents=True, exist_ok=True)
+    path = record_dir / f'{name}.json'
     path.write_text(json.dumps(data, indent=2, default=str))
     logger.info(f'[6110 bench] {name}: {json.dumps(data, default=str)}')
     return path
@@ -405,7 +410,7 @@ def _drive_to_switch(board, axis, toward_reference):
             'toward_reference': toward_reference,
             'switches': _switches(board, axis),
             'board_usteps': actual,
-            'api_um': round(board._usteps_to_um(axis, board._from_board(axis, actual)), 2),
+            'api_um': round(board.steps_to_position(axis, board._from_board(axis, actual)), 2),
             'seconds': round(time.monotonic() - started, 1),
         }
     finally:

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import MotorStopFailedError, ScopeDisconnectError
 from modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope
@@ -26,7 +26,7 @@ def scope():
 
 
 def _stop_fails(scope, monkeypatch):
-    cause = HardwareError('no response from motor board')
+    cause = BoardNoReplyError('no response from motor board')
 
     def _dead():
         raise cause
@@ -47,6 +47,23 @@ def test_a_failed_stop_raises_chained_and_moves_the_generation(scope, centre_pos
     assert 'power-cycle the microscope' in str(raised.value)
     assert scope.motion._stop_generation == generation + 1
     assert centre_posts == []
+
+
+def test_a_defect_in_the_stop_leaves_as_itself_and_moves_the_generation(scope, monkeypatch):
+    def defect():
+        # a stand-in by design: our own defect inside the driver's stop,
+        # which no simulated board fault produces
+        raise TypeError('scripted defect')
+
+    monkeypatch.setattr(scope._motion_driver, 'motor_stop', defect)
+    generation = scope.motion._stop_generation
+
+    with pytest.raises(TypeError, match='scripted defect'):
+        scope.motion.stop_motion()
+
+    assert scope.motion._stop_generation == generation + 1, (
+        'the board may have taken the STOP, so no move in flight is vouched for'
+    )
 
 
 def test_disconnect_raises_a_failed_stop_after_finishing(scope, centre_posts, monkeypatch):

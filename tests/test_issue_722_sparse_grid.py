@@ -20,14 +20,19 @@ test_capture_collision_policy.py.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
 import pandas as pd
 import tifffile as tf
 
+from modules import post_derivation
 from modules import image_utils
 from modules.stack_builder import StackBuilder
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
 def _write_frame(
@@ -40,16 +45,14 @@ def _write_frame(
         significant_bits=8,
         save_encoding='8bit',
         metadata={
-            'datetime': '2026-07-06T12:00:00',
+            'datetime': datetime.datetime(2026, 7, 6, 12, 0, 0),
             'plate_pos_mm': {'x': 10.0, 'y': 5.0},
             'z_pos_um': z_um,
             'objective': {
-                'model': 'PlanFluor20x',
-                'manufacturer': 'Nikon',
+                'id': '20x Oly',
                 'magnification': 20,
-                'aperture': 0.45,
-                'working_distance': 8.1,
-                'immersion': 'Air',
+                'numerical_aperture': 0.45,
+                'working_distance_mm': 8.1,
             },
             'exposure_time_ms': 50.0,
             'gain_db': 3.0,
@@ -62,11 +65,11 @@ def _write_frame(
                 'serial_number': 'SN12062',
                 'camera_model': 'Basler a2A1920',
             },
-            'plate': {'name': '96-well', 'rows': 8, 'columns': 12},
-            'well_label': 'A1',
+            'plate': {'name': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
         },
         ome=False,
-        color=color,
+        color=release_color(color),
+        white_bits=None,
     )
 
 
@@ -84,16 +87,16 @@ def _row(fname, *, color, z_idx, z_um, well='A1', scan=0):
 
 
 def test_sparse_grid_refused_not_crashed(tmp_path):
-    # One well: Brightfield z-stacked over 3 slices + Green single-shot.
+    # One well: Brightfield z-stacked over 3 slices + an LED 1 single-shot.
     # Dense cube wants 1 x 3 x 2 = 6 planes; only 4 frames exist -> the
-    # phantom (Green, z1/z2) cells are the pre-fix IndexError.
+    # phantom (LED 1, z1/z2) cells are the pre-fix IndexError.
     rows = []
     for z_idx in range(3):
         fname = f'bf_z{z_idx}.tiff'
         _write_frame(tmp_path / fname, color='BF', value=50 + z_idx * 10)
         rows.append(_row(fname, color='BF', z_idx=z_idx, z_um=100.0 + z_idx * 10))
-    _write_frame(tmp_path / 'green_z0.tiff', color='Green', value=200)
-    rows.append(_row('green_z0.tiff', color='Green', z_idx=0, z_um=100.0))
+    _write_frame(tmp_path / 'green_z0.tiff', color=LED1, value=200)
+    rows.append(_row('green_z0.tiff', color=LED1, z_idx=0, z_um=100.0))
     df = pd.DataFrame(rows)
 
     result = StackBuilder._create_stack(
@@ -101,6 +104,7 @@ def test_sparse_grid_refused_not_crashed(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('out.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is False, 'a non-rectangular grid must be refused, not built'
@@ -128,6 +132,7 @@ def test_duplicate_cell_refused(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('dup.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is False
@@ -138,7 +143,7 @@ def test_rectangular_multichannel_still_builds(tmp_path):
     # Complete 1 x 2 x 2 grid (both channels captured at both z-slices):
     # the guard must NOT false-refuse a valid multi-channel z-stack.
     rows = []
-    for color, base in (('BF', 10), ('Green', 100)):
+    for color, base in (('BF', 10), (LED1, 100)):
         for z_idx in range(2):
             fname = f'{color}_z{z_idx}.tiff'
             _write_frame(tmp_path / fname, color=color, value=base + z_idx * 10)
@@ -150,6 +155,7 @@ def test_rectangular_multichannel_still_builds(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('good.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is True, f'valid grid must build: {result.get("error")}'
@@ -167,15 +173,14 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
     # recording refuses the stills group exactly as before while the
     # video group builds. Grouping keeps them apart; neither outcome
     # leaks into the other.
-    from modules.common_utils import PostFunction
 
     rows = []
     for z_idx in range(3):
         fname = f'bf_z{z_idx}.tiff'
         _write_frame(tmp_path / fname, color='BF', value=50 + z_idx * 10)
         rows.append(_row(fname, color='BF', z_idx=z_idx, z_um=100.0 + z_idx * 10))
-    _write_frame(tmp_path / 'green_z0.tiff', color='Green', value=200)
-    rows.append(_row('green_z0.tiff', color='Green', z_idx=0, z_um=100.0))
+    _write_frame(tmp_path / 'green_z0.tiff', color=LED1, value=200)
+    rows.append(_row('green_z0.tiff', color=LED1, z_idx=0, z_um=100.0))
 
     video_dir = tmp_path / 'BF' / 'A1_BF_0000_video'
     video_dir.mkdir(parents=True)
@@ -188,9 +193,9 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
     for extra in ('Name', 'Label', 'Objective', 'Tile', 'Tile Group ID', 'Timestamp'):
         df[extra] = ''
     df['Custom Step'] = False
+    df['Channel Group ID'] = 0
     df['Raw'] = True
-    for column in PostFunction.list_values():
-        df[column] = False
+    df = df.assign(**post_derivation.raw_columns())
 
     builder = StackBuilder(has_turret=False)
     groups = StackBuilder._get_groups(df)
@@ -203,6 +208,7 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path(f'out_{i}.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         from modules import recording_frames
 

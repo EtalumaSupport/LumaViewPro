@@ -1,7 +1,7 @@
 """A run refused because the last run's file writer stalled names its own remedy.
 
-The remedy is data the refusal carries -- the Session member that answers it
-and the words of the offer -- so the one reporter can show the refusal as a
+The remedy is data the refusal carries -- the remedy that answers it and the
+words of the offer -- so the one reporter can show the refusal as a
 confirmation and a REST or SDK caller receives the same remedy by name. The
 Session is the one place a name becomes an action. Before this, the offer
 lived in the GUI's press gates: delete them and a person who declined the
@@ -12,7 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError, Remedy, RemedyUnknownError
+from modules.caller import Caller, calling
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ControlSessionRefusedError,
+    ProtocolRunRefusedError,
+    Refusal,
+    Remedy,
+    RemedyName,
+)
 from modules.image_mode import ImageCaptureConfig
 from modules.notification_center import NotificationCenter, Severity
 from modules.protocol_image_writer import RunWriteBatch
@@ -20,6 +28,7 @@ from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
@@ -52,7 +61,6 @@ def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.sequenced_capture_runner.prepare(
             protocol=MagicMock(),
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -95,14 +103,43 @@ class TestTheSessionAppliesARemedyByName:
         session.file_io_executor.replace_stuck_worker.assert_called_once()
         assert batch.outcome == 'incomplete'
 
-    def test_a_name_the_session_does_not_offer_is_refused(self, session):
-        """A remedy names a member; only the members the Session allows are reachable."""
-        with pytest.raises(RemedyUnknownError) as refused:
-            session.apply_remedy(Remedy(member='shutdown', confirm_text='Go', cancel_text='No'))
+    def test_a_name_the_session_does_not_offer_is_refused_where_the_remedy_is_built(self):
+        """A remedy names a member; it holds only a ``RemedyName``, so no other is reachable."""
+        with pytest.raises(ArgumentRefusedError) as refused:
+            Remedy(member='shutdown', confirm_text='Go', cancel_text='No')
 
-        assert refused.value.reason == 'remedy_unknown'
-        assert refused.value.title, 'a refusal is shown under its own title'
-        session.file_io_executor.replace_stuck_worker.assert_not_called()
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Remedy.member')
+        assert refused.value.offered == tuple(RemedyName)
+
+    def test_every_name_a_remedy_can_hold_reaches_its_member(self):
+        """Each ``RemedyName`` is one ``apply_remedy`` acts on: on an idle
+        simulated scope its member refuses (nothing is stuck; the repair needs
+        a Classic on Windows), never a lookup failing on a name it lacks."""
+        idle = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            for name in RemedyName:
+                with pytest.raises(Refusal):
+                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+        finally:
+            idle.shutdown()
+
+    def test_every_remedy_is_refused_to_another_caller_while_a_control_session_is_held(self):
+        """Each remedy writes -- a run's images given up, a camera driver
+        installed -- so while a client holds the control session, any other
+        caller's remedy is refused before it acts."""
+        idle = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            with calling(Caller.REST):
+                idle.take_control('plate reader')
+            refused = {}
+            for name in RemedyName:
+                with pytest.raises(ControlSessionRefusedError) as raised:
+                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+                refused[name] = raised.value.reason
+        finally:
+            idle.shutdown()
+
+        assert refused == dict.fromkeys(RemedyName, 'control_session_held')
 
 
 class TestTheReporterCarriesTheRemedyToItsListeners:
@@ -111,7 +148,6 @@ class TestTheReporterCarriesTheRemedyToItsListeners:
         # by the reporter it raised through, and is not shown again.
         refusal = ProtocolRunRefusedError(
             reason='files_writing_stalled',
-            title='File Writer Stalled',
             message='Recover it.',
             remedy=Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait'),
         )
@@ -130,9 +166,7 @@ class TestTheReporterCarriesTheRemedyToItsListeners:
         center.add_listener(heard.append, min_severity=Severity.DEBUG)
 
         center.report_outcome(
-            ProtocolRunRefusedError(
-                reason='files_writing', title='Files Still Writing', message='Wait.'
-            ),
+            ProtocolRunRefusedError(reason='files_writing', message='Wait.'),
             solicited=True,
             category='Protocol',
         )

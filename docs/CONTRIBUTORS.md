@@ -8,3 +8,6 @@ The following people have contributed to LumaViewPro:
 - Gerard Decker
 - Ori Amir
 - Eric Weiner
+- Daniel Book
+- Dovydas Vabaliene
+- Jordan Corey

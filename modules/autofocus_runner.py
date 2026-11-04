@@ -1,24 +1,28 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import datetime
 import concurrent.futures
 import logging
+import math
 import pathlib
 import threading
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, NamedTuple
 
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 
+from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
 
 import modules.path_utils as path_utils
+import modules.wall_time as wall_time
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
-from modules.activity_claim import current_taking
+from modules.activity_claim import activity_taking, current_taking
 from modules.exceptions import (
     AutofocusAborted,
     AutofocusFailedError,
@@ -28,7 +32,9 @@ from modules.exceptions import (
     AutofocusStopped,
     AutofocusZNotRestoredError,
     CameraSettingRejected,
-    HardwareCommandRefusedError,
+    CaptureFailedError,
+    FileWriterReplacedError,
+    SessionClosingError,
 )
 from modules.lumascope_api.illumination import (
     LedTransition,
@@ -52,6 +58,136 @@ _af_log = logging.getLogger('LVP.autofocus')
 AF_DATA_WRITE_WAIT_S = 5.0
 
 
+class FocusPick(NamedTuple):
+    """Where a pass's curve puts the focus, and why it is not trusted when it is not.
+
+    ``untrusted`` is None when the curve has a peak -- a Gaussian fit it
+    trusts, or a curve with contrast (a point below half its maximum) whose
+    raw maximum is the focus -- and otherwise says why ``position`` is the
+    raw maximum of a curve with no peak. A raw
+    maximum stands in while the passes narrow the window; on the final
+    pass it is no focus.
+    """
+
+    position: float
+    untrusted: str | None
+
+
+# The final pass sweeps this many of its steps either side of the earlier
+# passes' best: 7 points, enough for the four-parameter fit that places the
+# focus. Whether each objective needs that many is a parameter to tune on
+# real images, not a property of the step table.
+FINAL_PASS_STEPS_EACH_SIDE = 3
+
+
+class SweepPass(NamedTuple):
+    """One pass of an autofocus sweep: the half-width of its window and its step."""
+
+    half_window_um: float
+    step_um: float
+
+    @property
+    def targets(self) -> int:
+        """The targets the pass asks for, counted from its start.
+
+        ``floor``, not ``round``: a window that is not a whole number of
+        steps (2x's first, 2000 / 350) would otherwise ask a target past the
+        window its travel was checked for. The tolerance keeps a window that
+        is a whole number of steps from losing its last target to float
+        division.
+        """
+        return math.floor(2 * self.half_window_um / self.step_um + 1e-6) + 1
+
+
+def sweep_passes(
+    half_range_um: float, step_max_um: float, step_min_um: float
+) -> tuple[SweepPass, ...]:
+    """Every pass an autofocus with an objective's three numbers makes, in order.
+
+    The first pass sweeps the whole range at the coarse step; each later one
+    sweeps the previous step either side of the best so far at a third of
+    it, until the step reaches ``step_min_um``; the final pass sweeps
+    ``FINAL_PASS_STEPS_EACH_SIDE`` fine steps either side. The runner sweeps
+    these and the time estimator counts them, so the two cannot disagree.
+
+    Raises:
+        ValueError: a number that is not positive, which sweeps no window or
+            never reaches the fine step.
+    """
+    for name, value in (
+        ('AF_range', half_range_um),
+        ('AF_max', step_max_um),
+        ('AF_min', step_min_um),
+    ):
+        if value <= 0:
+            raise ValueError(f'{name} must be positive, got {value}')
+    passes = [SweepPass(half_range_um, step_max_um)]
+    step = step_max_um
+    while True:
+        previous = step
+        step = max(step_min_um, previous / 3)
+        if step == step_min_um:
+            passes.append(SweepPass(FINAL_PASS_STEPS_EACH_SIDE * step_min_um, step_min_um))
+            return tuple(passes)
+        passes.append(SweepPass(previous, step))
+
+
+def _floor_gaussian(z, floor, height, mu, sigma):
+    return floor + height * np.exp(-((z - mu) ** 2) / (2 * sigma**2))
+
+
+def focus_of_the_final_pass(
+    positions: Sequence[float], scores: Sequence[float], step_um: float
+) -> float:
+    """Where the final pass's own points put the focus.
+
+    The centre of a Gaussian on a floor fitted to that pass alone: points
+    at one Z in different passes disagree by a few percent of the peak, and
+    a curve's tails sit on a floor, so one model across every pass wanders
+    from run to run on the same field where this one holds. A fit that
+    cannot run or does not converge leaves the pass's raw maximum, logged
+    as such. The log line says when that raw maximum is the pass's first or
+    last point: the summit may then lie outside the window, and the fit is
+    held to it.
+    """
+    z = np.asarray(positions, dtype=float)
+    s = np.asarray(scores, dtype=float)
+    finite = np.isfinite(s)
+    z, s = z[finite], s[finite]
+    order = np.argsort(z)
+    z, s = z[order], s[order]
+    peak = int(np.argmax(s))
+    raw = float(z[peak])
+    at_edge = (
+        ", the pass's first point: the summit may lie below the window"
+        if peak == 0
+        else ", the pass's last point: the summit may lie above the window"
+        if peak == len(z) - 1
+        else ''
+    )
+    if len(z) < 4:
+        _af_log.info(f'  FINAL FIT: {len(z)} finite points, too few; raw max {raw:.2f}um{at_edge}')
+        return raw
+    span = float(z[-1] - z[0])
+    lower = [0.0, 0.0, float(z[0]), step_um / 4]
+    upper = [np.inf, np.inf, float(z[-1]), span]
+    # The optimizer starts inside its bounds: a score below zero would put
+    # the floor's start outside them.
+    start = np.clip([s.min(), s.max() - s.min(), raw, span / 6], lower, upper)
+    try:
+        (floor, height, mu, sigma), _ = curve_fit(
+            _floor_gaussian, z, s, p0=start, bounds=(lower, upper), maxfev=5000
+        )
+    except RuntimeError as ex:
+        _af_log.info(f'  FINAL FIT: did not converge ({ex}); raw max {raw:.2f}um{at_edge}')
+        return raw
+    _af_log.info(
+        f'  FINAL FIT: {mu:.2f}um floor={floor:.1f} height={height:.1f} '
+        f'sigma={sigma:.2f}um (raw max {raw:.2f}um{at_edge})'
+    )
+    return float(mu)
+
+
 def _describe_restore(restore: dict) -> str:
     """The restore dict for the log, the arm as a flag rather than its repr."""
     if not restore:
@@ -69,8 +205,8 @@ def _its_run_has_ended() -> bool:
     person whose run is over; a refused LED lease is kept quiet for the same
     reason.
     """
-    taking = current_taking()
-    return taking is not None and not taking.holds
+    activity = activity_taking(current_taking())
+    return activity is not None and not activity.holds
 
 
 class AutofocusRunner:
@@ -80,12 +216,18 @@ class AutofocusRunner:
         # Set by run() before the loop starts; consulted by _iterate
         # each iteration. AutofocusThread owns the actual Event.
         self._abort_event: threading.Event | None = None
+        # Set by run(); AutofocusThread owns it. Set with an abort that is a
+        # person's stop, so the sweep leaves Z where the stop left it.
+        self._stay_put: threading.Event | None = None
+        # Whether the sweep ended on a person's stop, read where it is
+        # aborted: the restore then leaves Z where the stop left it.
+        self._ended_by_a_stop = False
 
         self._af_in_progress = threading.Event()
 
         self._reset_state()
 
-    def reset(self):
+    def reset(self) -> None:
         # Skip if a run is in flight: _reset_state() would wipe _params
         # while AFE.run() reads it on the AF thread. AFE.run()'s own
         # _reset_state() on entry covers deferred cleanup. Callers that
@@ -104,36 +246,43 @@ class AutofocusRunner:
         # of which AF phase was interrupted so subsequent protocol Z
         # moves stop accurately.
         try:
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
         except Exception as e:
             logger.debug(
                 f'[AF] Could not restore precision mode during reset (scope may be unavailable): {e}'
             )
         self._reset_state()
 
-    def _calculate_params(self):
-        center = self._scope.motion.get_current_position('Z')
+    def _calculate_params(self, center: float):
+        # Where the run found the stage, which a sweep that chooses no focus
+        # puts it back to. Not the centre: a z-stack sweeps from its first
+        # slice, centred on its reference slice.
+        found_z = self._scope.motion.get_current_position('Z')
 
-        range = self._objective['AF_range']
-
-        if range <= 0:
-            raise ValueError(f'AF_range must be positive, got {range}')
-
-        z_min = center - range
-        z_max = center + range
+        self._passes = sweep_passes(
+            self._objective.autofocus_half_range_um,
+            self._objective.autofocus_step_max_um,
+            self._objective.autofocus_step_min_um,
+        )
+        first = self._passes[0]
+        z_min = center - first.half_window_um
+        z_max = center + first.half_window_um
         if self._past_travel(z_min, z_max, 'the first window'):
             raise AutofocusOutOfTravelError()
-        resolution = self._objective['AF_max']
-        exposure = self._scope.imaging.get_exposure_ms()
+        exposure = self._scope.camera.exposure_ms
 
         self._params = {
             'center': center,
-            'range': range,
+            'found_z': found_z,
+            'range': first.half_window_um,
             'z_min': z_min,
             'z_max': z_max,
-            'resolution': resolution,
+            'resolution': first.step_um,
+            'targets': first.targets,
             'exposure': exposure,
         }
+        # Which of the pass's targets the stage was last sent to.
+        self._target_index = 0
 
     def _past_travel(self, low: float, high: float, what: str) -> bool:
         """Whether a sweep window reaches past Z's travel, judged before any move into it.
@@ -147,11 +296,11 @@ class AutofocusRunner:
         sweep that has.
         """
         limits = self._scope.motion.get_axis_limits('Z')
-        if limits is None or (limits['min'] <= low and high <= limits['max']):
+        if limits is None or (limits.min_um <= low and high <= limits.max_um):
             return False
         _af_log.warning(
             f'--- AF REFUSED: {what} [{low:.1f}, {high:.1f}] reaches past '
-            f'Z travel [{limits["min"]:.1f}, {limits["max"]:.1f}] ---'
+            f'Z travel [{limits.min_um:.1f}, {limits.max_um:.1f}] ---'
         )
         return True
 
@@ -159,17 +308,19 @@ class AutofocusRunner:
         self,
         objective_id: str,
         save_results_to_file: bool = False,
-        run_trigger_source: str | None = None,
         results_dir: pathlib.Path | None = None,
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
         *,
+        center_um: float,
+        stay_put: threading.Event | None = None,
         led_color: str | None,
         led_illumination: float,
         led_lease: 'LedLease',
         write_batch: 'RunWriteBatch | None' = None,
+        ends_its_run: bool = False,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -178,9 +329,13 @@ class AutofocusRunner:
 
         Args:
             objective_id: which objective profile to use.
+            center_um: the Z the first pass is centred on: the Z of the
+                step whose light the sweep runs in, which for a z-stack is
+                its reference slice, the slice built at the user's focus,
+                not the first slice, where the stage stands when the sweep
+                starts.
             save_results_to_file: if True, save the AF results to
                 results_dir at AF end, as one of the run's writes.
-            run_trigger_source: free-form string recorded in saved data.
             results_dir: required when save_results_to_file=True.
             led_color, led_illumination, camera_gain, camera_exposure:
                 AF-scan settings applied at start, restored at end. Under
@@ -188,18 +343,27 @@ class AutofocusRunner:
                 the lock read from the camera instead of camera_gain /
                 camera_exposure (see _apply_sweep_camera_targets).
             abort_event: signalled by caller to abort the run. Required.
+            stay_put: set with an abort that is a person's stop; the sweep
+                then leaves Z where the stop left it.
             led_lease: the LED lease of the run AF executes inside -- AF
                 takes a child lease under it. Every AF runs inside a run,
                 an interactive one as a one-step run.
             write_batch: the write batch of that run; required when
                 save_results_to_file, so the save is counted among the run's
                 writes and lands before the run says its files are written.
+            ends_its_run: True when the sweep is its run's whole job, the
+                Autofocus button's run, so its failure is how that run ended
+                and is reported as the run's ending. A scan step's sweep
+                failing is a step's failure; the run goes on.
 
         Returns:
-            best_focus_position (float) on success, or None when the AF
-            curve was degenerate.
+            best_focus_position (float): the focus the sweep chose.
 
         Raises:
+            AutofocusFailedError: the sweep chose no focus -- a flat or
+                invalid curve ('flat_focus_curve'), a window past Z's travel
+                after the stage moved ('travel_exhausted'), or an unexpected
+                error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
             AutofocusRunEnded: the run it belongs to had ended before it
                 took its LEDs.
@@ -207,8 +371,12 @@ class AutofocusRunner:
                 the LEDs.
             AutofocusOutOfTravelError: the first window reaches past Z's
                 travel; nothing moved.
-            Exception: any other AF failure; logged + user-notified
-                before re-raising.
+            CaptureFailedError, HardwareCommandRefusedError: a capture that
+                got no frame after its retries, or a command the hardware
+                refused, raised as itself.
+
+            Every failure is reported once (only logged when its run had
+            already ended) and puts the stage back at the pre-AF Z.
         """
         if self._af_in_progress.is_set():
             raise RuntimeError('Autofocus already in progress')
@@ -227,7 +395,7 @@ class AutofocusRunner:
 
         self._reset_state()
         self._abort_event = abort_event
-        self._run_trigger_source = run_trigger_source
+        self._stay_put = stay_put
         self._led_color = led_color
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
@@ -241,7 +409,6 @@ class AutofocusRunner:
         # interactive AF runs default to False so pre-AF state is
         # restored as before.
         self._keep_led_on = keep_led_on
-        self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
         self._write_batch = write_batch
@@ -276,7 +443,7 @@ class AutofocusRunner:
                 objective_id=objective_id
             )
 
-            self._calculate_params()
+            self._calculate_params(center_um)
             self._af_start_time = time.monotonic()
             self._af_pass_num = 0
             _af_log.info(
@@ -289,19 +456,19 @@ class AutofocusRunner:
             # The camera snapshot must precede the auto-gain lock below: it
             # records a live-view arm BEFORE the lock consumes it, and the
             # restore in the finally is what puts that arm back.
-            self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
-            self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
+            self._saved_led_state = self._scope.illumination.get_led_states()
+            self._saved_camera_state = self._scope.camera.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep
             # capture would lock and re-arm on its own -- paying the
             # auto-gain settle at every position -- and the step's gain
             # and exposure written next would be overridden by the loop.
-            auto_gain_lock = self._scope.imaging.lock_auto_gain()
+            auto_gain_lock = self._scope.camera.lock_auto_gain()
             self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Saved pre-AF camera state: '
-                f'gain={self._saved_camera_state.get("gain_db", "?")} '
-                f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
+                f'gain={self._saved_camera_state["gain_db"]} '
+                f'exp={self._saved_camera_state["exposure_ms"]} '
                 f'(sweep at gain={self._camera_gain} exp={self._camera_exposure} '
                 f'source={self._sweep_targets_source})'
             )
@@ -358,7 +525,7 @@ class AutofocusRunner:
             # precision ON, and all exit paths (success, abort, exception)
             # also restore ON via the finally block and reset().
             try:
-                self._scope.motion.set_precision_mode('Z', False)
+                self._scope.motion.set_precision_mode(False)
             except Exception as e:
                 logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
             self._move_absolute_position(position=self._params['z_min'])
@@ -382,7 +549,8 @@ class AutofocusRunner:
                     break
 
             if abort_event.is_set() and not self._is_complete_event.is_set():
-                _af_log.info(f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---')
+                _af_log.info('--- AF ABORTED ---')
+                self._ended_by_a_stop = self._stay_put is not None and self._stay_put.is_set()
                 raise AutofocusStopped()
 
             completed_successfully = True
@@ -399,18 +567,20 @@ class AutofocusRunner:
             # protocol Z move stops accurately even if AF threw mid-
             # coarse-pass with precision OFF.
             try:
-                self._scope.motion.set_precision_mode('Z', True)
+                self._scope.motion.set_precision_mode(True)
             except Exception:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            if isinstance(
-                ex, (AutofocusFailedError, AutofocusOutOfTravelError, HardwareCommandRefusedError)
-            ):
-                # A refusal the sweep decided, already logged with its
-                # numbers, is reported as itself; so is a command the
-                # hardware refused -- the light that could not go on names
-                # the missing LED controller, not an unexpected error.
+            if isinstance(ex, LumascopeError):
+                # An outcome with a kind is reported as itself: a refusal the
+                # sweep decided, already logged with its numbers; a command
+                # the hardware refused -- the light that could not go on names
+                # the missing LED controller, not an unexpected error; a
+                # capture that got no frame after its retries; a move fault
+                # the motion monitor reported as it gave the axis up. An
+                # outcome is told once per object, so one already told is
+                # not told again, where a new object around it would be.
                 failed = ex
             else:
                 params_repr = repr(getattr(self, '_params', None))[:500]
@@ -420,12 +590,20 @@ class AutofocusRunner:
                 # Chained, so the one report logs the traceback.
                 failed = AutofocusFailedError('unexpected_error')
                 failed.__cause__ = ex
-            # An unattended run's mute keeps this off the screen; the run
-            # captures at its fallback Z and the report is the record.
-            if _its_run_has_ended():
+            # A sweep that ended on a lost Z tells nothing: the fault that
+            # lost it was told where it was found, a move asked after it is
+            # refused on that loss alone, and the run's position check ends
+            # the run on it, sending the user to home. An unattended run's
+            # mute keeps the rest off the screen; the run captures at its
+            # fallback Z and the report is the record.
+            if 'Z' in self._scope.motion.axes_without_position():
+                _af_log.info(f'[AF] {failed} -- on a lost Z, which was told, so not reported')
+            elif _its_run_has_ended():
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
-                notifications.report_outcome(failed, solicited=False, category='Autofocus')
+                notifications.report_outcome(
+                    failed, solicited=False, category='Autofocus', ends_a_run=ends_its_run
+                )
             # The object reported is the object raised, so whoever reads the
             # future holds what the one report named.
             if failed is ex:
@@ -486,41 +664,50 @@ class AutofocusRunner:
                 # precision to restore.
                 try:
                     if self._scope.motor_connected:
-                        self._scope.motion.set_precision_mode('Z', True)
+                        self._scope.motion.set_precision_mode(True)
                 except Exception:
                     logger.debug('[AF] precision restore in finally failed', exc_info=True)
                 # A run that chose a focus leaves the stage standing there; one
                 # that chose none -- degenerate curve, abort, exception, refused
                 # lease -- puts the stage back where the run found it. The result
                 # IS that question, so the restore asks it rather than a separate
-                # flag, and reads the scan centre: the same pre-AF Z, written once
-                # before the sweep and never mutated, so there is no absent value
-                # to guard against.
-                if self._best_focus_position is None and self._params:
-                    pre_af_z = self._params['center']
+                # flag, and reads the pre-AF Z, written once with the sweep's
+                # parameters and never mutated, so there is no absent value to
+                # guard against.
+                # A person's stop leaves Z where it stopped it: putting it back
+                # is a move made after they pressed STOP.
+                if self._best_focus_position is None and self._params and not self._ended_by_a_stop:
+                    pre_af_z = self._params['found_z']
                     try:
-                        self._scope.motion.move_absolute('Z', pre_af_z)
+                        self._scope.motion.move_z(pre_af_z)
                         _af_log.info(
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
                     except Exception as restore_ex:
-                        # Which of two things the user must do depends on how the
-                        # restore failed: a move that faulted has lost Z, and no
-                        # move is accepted on it until a home; a refused target
-                        # left Z known, where the sweep parked it. Chained, so the
-                        # one report logs the restore's traceback.
-                        not_restored = AutofocusZNotRestoredError(
-                            z_lost='Z' in self._scope.motion.axes_without_position()
-                        )
-                        not_restored.__cause__ = restore_ex
-                        if _its_run_has_ended():
-                            logger.warning(
-                                f'[AF] {not_restored} -- after its run ended, so not reported'
+                        # A lost Z is not this restore's news: the fault that
+                        # lost it -- in the sweep or in this move -- was told
+                        # where it was found, no move is accepted on it until
+                        # a home, and the run's position check ends the run on
+                        # it, sending the user to home. A refused target left
+                        # Z known, where the sweep parked it, and only this
+                        # tells that. Chained, so the one report logs the
+                        # restore's traceback.
+                        if 'Z' in self._scope.motion.axes_without_position():
+                            _af_log.info(
+                                f'[AF DIAG] Non-success exit: Z not restored, its position '
+                                f'is lost ({type(restore_ex).__name__}: {restore_ex})'
                             )
                         else:
-                            notifications.report_outcome(
-                                not_restored, solicited=False, category='Autofocus'
-                            )
+                            not_restored = AutofocusZNotRestoredError()
+                            not_restored.__cause__ = restore_ex
+                            if _its_run_has_ended():
+                                logger.warning(
+                                    f'[AF] {not_restored} -- after its run ended, so not reported'
+                                )
+                            else:
+                                notifications.report_outcome(
+                                    not_restored, solicited=False, category='Autofocus'
+                                )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
                 # pre-AF snapshot. Hold only on success -- after an abort or error
@@ -547,14 +734,7 @@ class AutofocusRunner:
                             if self._led_color is not None
                             else None
                         )
-                        snapshot_lit = (
-                            snapshot_lit_pairs(
-                                self._saved_led_state.get('states', {}),
-                                illumination.state_color2ch,
-                            )
-                            if self._saved_led_state
-                            else frozenset()
-                        )
+                        snapshot_lit = snapshot_lit_pairs(self._saved_led_state)
                         self._led_lease.apply(
                             LedTransition.AF_TO_CAPTURE,
                             LedTransitionCtx(
@@ -590,7 +770,7 @@ class AutofocusRunner:
                     # still fail PART WAY through on its own, which is the
                     # imaging API's contract and not this runner's to change.
                     try:
-                        self._scope.imaging.restore_camera_state(restore)
+                        self._scope.camera.restore_camera_state(restore)
                     except Exception:
                         logger.exception(
                             '[AF] post-AF camera restore failed; the camera may be '
@@ -599,8 +779,8 @@ class AutofocusRunner:
                         )
                 _af_log.info(
                     f'[AF DIAG] Clearing _af_in_progress -- '
-                    f'camera now at gain={self._scope.imaging.get_gain_db()} '
-                    f'exp={self._scope.imaging.get_exposure_ms()}'
+                    f'camera now at gain={self._scope.camera.gain_db} '
+                    f'exp={self._scope.camera.exposure_ms}'
                 )
             finally:
                 self._af_in_progress.clear()
@@ -635,17 +815,17 @@ class AutofocusRunner:
         Returns the source of the sweep's targets for the log: 'lock' or
         'step'.
         """
-        if lock.state is not None and lock.exposure_ms is not None:
+        if lock.exposure_ms is not None:
             self._camera_gain = lock.gain_db
             self._camera_exposure = lock.exposure_ms
             return 'lock'
         # A target the camera rejects ends its flight here: it is reported
         # once and the sweep scans at the value the camera holds -- one
         # refused gain is not a reason to abandon the focus.
-        imaging = self._scope.imaging
+        camera = self._scope.camera
         for setter, value in (
-            (imaging.set_gain_db, self._camera_gain),
-            (imaging.set_exposure_ms, self._camera_exposure),
+            (camera.set_gain_db, self._camera_gain),
+            (camera.set_exposure_ms, self._camera_exposure),
         ):
             if value is None:
                 continue
@@ -695,7 +875,7 @@ class AutofocusRunner:
     def run_in_progress(self) -> bool:
         return self._af_in_progress.is_set()
 
-    def _iterate(self):
+    def _iterate(self) -> None:
         if not self._is_focusing_event.is_set():
             return
 
@@ -704,32 +884,31 @@ class AutofocusRunner:
 
         # Check if Z is still moving (in-memory state check, zero serial I/O
         # when IDLE). Covers both target arrival and overshoot.
-        if self._scope.motion.is_moving():
+        if self._scope.motion.is_any_axis_moving():
             return
 
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()
             return
 
-        image = False
         num_retries = 5
-        count = 0
-        while True:
+        for attempt in range(1, num_retries + 1):
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
             # mean-intensity retry below handles dark frames. The Z move is
             # waited out like any other change: a frame already on its way
             # when the move went out shows the previous step's Z, and its
-            # score would be recorded at this one.
-            image = self._scope.imaging.capture_and_wait(accept_dark=True)
-            count += 1
-            if isinstance(image, np.ndarray):
+            # score would be recorded at this one. A capture that got no
+            # frame is tried again; the last failure is the sweep's, raised
+            # as itself. A camera that is gone is refused, and stops the
+            # sweep at once.
+            try:
+                image = self._scope.imaging.capture_still(accept_dark=True).image
                 break
-
-            if count >= num_retries:
-                raise Exception('Unable to grab image for autofocusing after max retries')
-
-        height, width = image.shape
+            except CaptureFailedError as failed:
+                if attempt == num_retries:
+                    raise
+                _af_log.warning(f'  NO FRAME ({failed.reason}), try {attempt}/{num_retries}')
 
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()
@@ -743,15 +922,12 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(accept_dark=True)
-            if isinstance(retry, np.ndarray):
-                image = retry
+            try:
+                image = self._scope.imaging.capture_still(accept_dark=True).image
+            except CaptureFailedError as failed:
+                _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
 
-        # Use center quarter of image for focusing
-        height, width = image.shape
-        image = image[int(height / 4) : int(3 * height / 4), int(width / 4) : int(3 * width / 4)]
-
-        focus_score = autofocus_functions.focus_function(image=image)
+        focus_score = autofocus_functions.autofocus_score(image=image)
         current_pos = round(
             self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z')
         )
@@ -769,12 +945,12 @@ class AutofocusRunner:
             return
 
         resolution = self._params['resolution']
-        next_target = self._scope.motion.get_target_position('Z') + resolution
-
-        if self._abort_event is not None and self._abort_event.is_set():
-            self._is_focusing_event.clear()
-            self._last_progress_ts = time.monotonic()
-            return
+        # Each target is counted from the pass's start, never added to the
+        # last one: the stage's target carries the motor's microstep
+        # rounding, and a sum of them drifted past the window's top and
+        # lost the pass's last point.
+        next_index = self._target_index + 1
+        next_target = self._params['z_min'] + next_index * resolution
 
         # INTENTIONAL: No early termination on the coarse pass. Real
         # samples have multiple focal planes (cells + debris, thick
@@ -784,7 +960,7 @@ class AutofocusRunner:
         # Extend scan if peak is at the edge -- we need both sides
         # of the peak for a reliable Gaussian fit. Keep going until
         # we see 2 consecutive drops below 50% of peak.
-        if next_target > self._params['z_max'] and len(self._af_data_pass) >= 3:
+        if next_index >= self._params['targets'] and len(self._af_data_pass) >= 3:
             pass_scores = [d['score'] for d in self._af_data_pass if np.isfinite(d['score'])]
             if pass_scores:
                 pass_max = max(pass_scores)
@@ -795,20 +971,23 @@ class AutofocusRunner:
                     if not all(s < pass_max * 0.5 for s in recent):
                         if self._past_travel(
                             self._params['z_min'],
-                            self._params['z_max'] + resolution,
+                            next_target,
                             'the extended window',
                         ):
-                            raise AutofocusFailedError('out_of_travel')
-                        self._params['z_max'] += resolution
+                            raise AutofocusFailedError('travel_exhausted')
+                        self._params['targets'] += 1
+                        self._params['z_max'] = next_target
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
                         )
-                        self._move_relative_position(distance=resolution)
+                        self._target_index = next_index
+                        self._move_absolute_position(position=next_target)
                         return
 
         # Measure next step?
-        if next_target <= self._params['z_max']:
-            self._move_relative_position(distance=resolution)
+        if next_index < self._params['targets']:
+            self._target_index = next_index
+            self._move_absolute_position(position=next_target)
             return
 
         # Pass is complete
@@ -820,14 +999,8 @@ class AutofocusRunner:
             f'  PASS {self._af_pass_num} complete: {n_pts} pts, '
             f'step={resolution:.2f}, peak={peak:.1f}'
         )
-
-        # Adjust the resolution
-        prev_resolution = self._params['resolution']
-        next_resolution = prev_resolution / 3
-
-        # Bound the resolution to AF_min
-        af_min = self._objective['AF_min']
-        self._params['resolution'] = max(af_min, next_resolution)
+        last_pass = self._af_pass_num == len(self._passes)
+        final_pass_points = self._af_data_pass
 
         # Add the scores for the pass to the full dataset and then reset
         # the pass list
@@ -840,27 +1013,32 @@ class AutofocusRunner:
         scores = df['score']
         if scores.max() == 0 or scores.isna().all():
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            notifications.report_outcome(
-                AutofocusFailedError('flat_focus_curve'), solicited=False, category='Autofocus'
+            # A failure like every other: run()'s failure path reports it
+            # once and takes the stage back to where the sweep started.
+            raise AutofocusFailedError('flat_focus_curve')
+
+        best_focus_position, untrusted = self._find_best(df=df)
+
+        if last_pass:
+            # The final pass is the dense one: a curve that still gives no
+            # peak the fit trusts has no focus, and its raw maximum is a
+            # made-up one. Before the final approach moves the stage.
+            if untrusted is not None:
+                _af_log.warning(f'--- AF ABORT: no peak the fit trusts ({untrusted}) ---')
+                raise AutofocusFailedError('flat_focus_curve')
+            # Whether the curve has a peak is every point's question; where
+            # the peak is, the final pass's alone.
+            best_focus_position = focus_of_the_final_pass(
+                [d['position'] for d in final_pass_points],
+                [d['score'] for d in final_pass_points],
+                resolution,
             )
-            # Restore Z precision ON before bailing so the pre-AF position
-            # the unwind restores is reached accurately.
-            self._scope.motion.set_precision_mode('Z', True)
-            self._is_focusing_event.clear()
-            # No result and no completion event: this sweep chose nothing.
-            # The unwind's restore reads exactly that and takes the stage
-            # back to where the run started.
-            return
-
-        best_focus_position = self._find_best(df=df)
-
-        if self._last_pass:
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
             approach = best_focus_position - self._params['resolution']
             if self._past_travel(approach, best_focus_position, 'the final approach'):
-                raise AutofocusFailedError('out_of_travel')
+                raise AutofocusFailedError('travel_exhausted')
             self._move_absolute_position(position=approach)
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
@@ -882,7 +1060,7 @@ class AutofocusRunner:
             # so the invariant "Z precision ON outside of AF" holds
             # regardless of exit path. Idempotent when the fine pass
             # already set it.
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
 
             self._is_focusing_event.clear()
             self._is_complete_event.set()
@@ -898,23 +1076,25 @@ class AutofocusRunner:
             self._best_focus_position = float(best_focus_position)
             return
 
+        following = self._passes[self._af_pass_num]
         if self._past_travel(
-            best_focus_position - prev_resolution,
-            best_focus_position + prev_resolution,
+            best_focus_position - following.half_window_um,
+            best_focus_position + following.half_window_um,
             'the refined window',
         ):
-            raise AutofocusFailedError('out_of_travel')
-        self._params['z_min'] = best_focus_position - prev_resolution
-        self._params['z_max'] = best_focus_position + prev_resolution
+            raise AutofocusFailedError('travel_exhausted')
+        self._params['z_min'] = best_focus_position - following.half_window_um
+        self._params['z_max'] = best_focus_position + following.half_window_um
+        self._params['resolution'] = following.step_um
+        self._params['targets'] = following.targets
+        self._target_index = 0
 
         self._move_absolute_position(position=self._params['z_min'])
-        self._last_progress_ts = time.monotonic()
 
-        if self._params['resolution'] == af_min:
-            self._last_pass = True
+        if self._af_pass_num == len(self._passes) - 1:
             # Enable precision mode for the fine pass -- accurate
             # motor stopping for reliable focus measurements.
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
             _af_log.info('  PRECISION MODE ON for fine pass')
 
     def best_focus_position(self) -> float | None:
@@ -955,10 +1135,7 @@ class AutofocusRunner:
     def _move_absolute_position(self, position):
         # Started, not waited: _iterate holds the next frame while the
         # scope reports motion.
-        self._scope.motion.start_move_absolute('Z', position)
-
-    def _move_relative_position(self, distance):
-        self._scope.motion.start_move_relative('Z', distance)
+        self._scope.motion.start_move_z(position)
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
@@ -1020,16 +1197,17 @@ class AutofocusRunner:
             del fig
 
     @staticmethod
-    def _find_best(df: pd.DataFrame) -> float:
+    def _find_best(df: pd.DataFrame) -> FocusPick:
+        """The focus the curve gives, and whether its peak is trusted (``FocusPick``)."""
         # Drop NaN/infinite scores before finding best
         valid = df[df['score'].apply(lambda x: np.isfinite(x))]
         if valid.empty:
             logger.warning(
                 'Autofocus: all focus scores are NaN/infinite -- returning first position'
             )
-            return df['position'].iloc[0]
+            return FocusPick(float(df['position'].iloc[0]), 'no finite score')
         max_score_idx = valid['score'].idxmax()
-        raw_best = valid['position'].loc[max_score_idx]
+        raw_best = float(valid['position'].loc[max_score_idx])
 
         # Gaussian peak fitting for sub-step interpolation.
         # Fit ln(score) = a*z^2 + b*z + c to points above 50% of peak.
@@ -1038,52 +1216,66 @@ class AutofocusRunner:
             z_vals = valid['position'].values.astype(float)
             scores = valid['score'].values.astype(float)
             peak_score = scores.max()
+            if peak_score <= 0:
+                return FocusPick(raw_best, 'no positive peak')
 
-            if peak_score > 0:
-                threshold = peak_score * 0.5
-                mask = scores > threshold
-                if np.sum(mask) >= 5:
-                    z_fit = z_vals[mask]
-                    s_fit = scores[mask]
-                    s_fit_safe = np.clip(s_fit, 1.0, None)
-                    log_s = np.log(s_fit_safe)
-                    coeffs = np.polyfit(z_fit, log_s, 2)
-                    a, b, _c = coeffs
-                    if a < 0:  # concave-down = valid Gaussian peak
-                        fit_z = -b / (2 * a)
-                        # Sanity: fit peak must be within the measured range
-                        z_min, z_max = z_vals.min(), z_vals.max()
-                        if z_min <= fit_z <= z_max:
-                            shift = abs(fit_z - raw_best)
-                            # Sanity: fit shift must be less than the step
-                            # spacing between measured points. A larger shift
-                            # means the fit is extrapolating beyond the data
-                            # -- likely an asymmetric curve fooling the Gaussian.
-                            z_diffs = np.diff(np.sort(z_vals))
-                            max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
-                            if shift <= max_shift:
-                                _af_log.info(
-                                    f'  FIT: {fit_z:.2f}um '
-                                    f'(raw max: {raw_best:.2f}, shift: {shift:.2f}um)'
-                                )
-                                return float(fit_z)
-                            else:
-                                _af_log.info(
-                                    f'  FIT: {fit_z:.2f}um shift {shift:.2f}um '
-                                    f'exceeds max {max_shift:.2f}um, using raw max'
-                                )
-                        else:
-                            _af_log.info(
-                                f'  FIT: {fit_z:.2f}um outside range '
-                                f'[{z_min:.2f}, {z_max:.2f}], using raw max'
-                            )
+            threshold = peak_score * 0.5
+            mask = scores > threshold
+            # What tells a curve from no curve is contrast: an empty field's
+            # scores all sit near their maximum, and a peak's fall below half
+            # of it. A fit the checks below do not trust leaves a curve with
+            # contrast its raw maximum as the focus (a flat-topped peak fits
+            # no Gaussian); only a curve with none is left with no focus.
+            no_contrast = bool(np.all(mask))
+
+            def untrusted(reason: str) -> FocusPick:
+                return FocusPick(raw_best, reason if no_contrast else None)
+
+            if np.sum(mask) < 5:
+                # A peak narrower than the fit needs: a flat curve has
+                # nearly every point above half its maximum, so few points
+                # there is a sharp peak, and its raw maximum is the focus.
+                return FocusPick(raw_best, None)
+            z_fit = z_vals[mask]
+            s_fit = scores[mask]
+            s_fit_safe = np.clip(s_fit, 1.0, None)
+            log_s = np.log(s_fit_safe)
+            coeffs = np.polyfit(z_fit, log_s, 2)
+            a, b, _c = coeffs
+            if a >= 0:  # only concave-down (a < 0) is a Gaussian peak
+                _af_log.info('  FIT: not concave, using raw max')
+                return untrusted('fit not concave')
+            fit_z = -b / (2 * a)
+            # Sanity: fit peak must be within the measured range
+            z_min, z_max = z_vals.min(), z_vals.max()
+            if not z_min <= fit_z <= z_max:
+                _af_log.info(
+                    f'  FIT: {fit_z:.2f}um outside range [{z_min:.2f}, {z_max:.2f}], using raw max'
+                )
+                return untrusted('fit peak outside the measured range')
+            shift = abs(fit_z - raw_best)
+            # Sanity: fit shift must be less than the step
+            # spacing between measured points. A larger shift
+            # means the fit is extrapolating beyond the data
+            # -- likely an asymmetric curve fooling the Gaussian.
+            z_diffs = np.diff(np.sort(z_vals))
+            max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
+            if shift > max_shift:
+                _af_log.info(
+                    f'  FIT: {fit_z:.2f}um shift {shift:.2f}um '
+                    f'exceeds max {max_shift:.2f}um, using raw max'
+                )
+                return untrusted('fit shifted past twice the step spacing')
+            _af_log.info(f'  FIT: {fit_z:.2f}um (raw max: {raw_best:.2f}, shift: {shift:.2f}um)')
+            return FocusPick(float(fit_z), None)
         except Exception as ex:
+            # Before the contrast is known, or with it: no fit is no peak.
             _af_log.info(f'  FIT: failed ({ex}), using raw max')
-
-        return raw_best
+            return FocusPick(raw_best, f'fit failed ({ex})')
 
     def _reset_state(self):
         self._objective = None
+        self._ended_by_a_stop = False
         # Events are recreated each reset so a fresh AF run starts from
         # a known-clear state regardless of how the prior run exited.
         self._is_focusing_event = threading.Event()
@@ -1101,9 +1293,9 @@ class AutofocusRunner:
         self._saved_data_path = None
         self._data_write_future = None
         self._write_batch = None
-        self._last_pass = False
+        self._passes = ()
+        self._target_index = 0
         self._params = {}
-        self._run_trigger_source = None
         self._led_color = None
         self._led_illumination = 0
 
@@ -1122,9 +1314,10 @@ class AutofocusRunner:
         stays None, which is wrong-but-honest in the safe direction, and
         the log says a write outlived its window rather than leaving a
         reader to wonder. A save the run's writes gave up on resolves the
-        waiter with no result; a lane that drops the save -- a shutdown
-        clearing its queue, or a stuck writer replaced -- cancels it. Either
-        resolves this wait at once.
+        waiter with no result; a save LumaViewPro's close finds unstarted
+        answers ``SessionClosingError``, and one still running when its stuck
+        writer is replaced answers ``FileWriterReplacedError``. Each resolves
+        this wait at once.
 
         A refused submit returns no waiter at all, which needs no wait:
         nothing was queued, and saved_data_path() correctly stays None.
@@ -1135,12 +1328,16 @@ class AutofocusRunner:
             return
         try:
             fut.result(timeout=AF_DATA_WRITE_WAIT_S)
-        except concurrent.futures.CancelledError:
-            # The lane dropped the save before it ran: a shutdown cleared
-            # its queue, or a stuck writer was replaced.
+        except SessionClosingError:
             logger.warning(
-                "[AF] autofocus characterization write was given up with the run's "
-                'writes; this sweep reports no data file'
+                '[AF] autofocus characterization write was not done: LumaViewPro is closing; '
+                'this sweep reports no data file'
+            )
+        except FileWriterReplacedError:
+            logger.warning(
+                '[AF] autofocus characterization write was still running when the file writer '
+                'was replaced; this sweep reports no data file, and one may still appear on '
+                'disk afterwards'
             )
         except concurrent.futures.TimeoutError:
             logger.warning(
@@ -1159,7 +1356,7 @@ class AutofocusRunner:
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)
-        now = datetime.datetime.now()
+        now = wall_time.now()
         return now.strftime('%Y%m%d_%H%M%S')
 
     def _allocate_results_dir(self, parent_dir: pathlib.Path) -> pathlib.Path:
@@ -1175,5 +1372,5 @@ class AutofocusRunner:
         # capture location usually means an unplugged drive. An autofocus
         # results folder is ours to make under a location the caller chose.
         parent_dir.mkdir(parents=True, exist_ok=True)
-        base = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        base = wall_time.now().strftime('%Y%m%d_%H%M%S')
         return path_utils.allocate_directory(parent_dir / base)

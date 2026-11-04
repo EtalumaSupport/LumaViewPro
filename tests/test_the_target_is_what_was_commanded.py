@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""get_target_position answers the commanded target, or the polled position when none was reached.
+"""get_target_position answers the commanded target, or the polled position when none was reached; get_target_positions answers it for every axis.
 
 The target used to live only in the move's ramp profile, cleared the moment
 the axis went IDLE, so an arrived axis answered the polled position, a
@@ -15,6 +15,7 @@ from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import axis_move
 
 
 @pytest.fixture
@@ -50,50 +51,57 @@ def turret_session(tmp_path):
 
 def test_an_arrived_move_answers_its_commanded_target(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', 100.0)
-    assert motion.get_target_position('Z') == 100.0
+    motion.move_z(100.0)
+    assert motion.get_target_positions()['Z'] == 100.0
     # Proves the answer above is not the poll.
     assert motion.get_current_position('Z') != 100.0
+
+
+def test_every_axis_answers_its_commanded_target(session):
+    motion = session.scope.motion
+    for axis, target in (('X', 100.0), ('Y', 200.0), ('Z', 300.0)):
+        axis_move(motion, axis, target)
+    assert motion.get_target_positions() == {'X': 100.0, 'Y': 200.0, 'Z': 300.0}
 
 
 def test_a_stopped_move_answers_the_poll(session):
     motion = session.scope.motion
     driver = motion._driver
     driver.set_timing_mode('realistic')
-    hold = driver.hold_travel('X')
-    handle = motion.start_move_absolute('X', 60000.0)
-    assert hold.reached.wait(10.0)
+    held = session.scope.simulation.hold_axis('X')
+    handle = motion.start_move_xy(x_um=60000.0)
+    assert held.wait(10.0)
     motion.stop_motion()
     with pytest.raises(MoveNotCompletedError):
-        handle.wait()
-    assert motion.get_target_position('X') == motion.get_current_position('X')
-    assert motion.get_target_position('X') != 60000.0
+        handle.result()
+    assert motion.get_target_positions()['X'] == motion.get_current_position('X')
+    assert motion.get_target_positions()['X'] != 60000.0
 
 
 def test_a_home_answers_the_poll(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', 100.0)
+    motion.move_z(100.0)
     motion.home('Z')
-    assert motion.get_target_position('Z') == motion.get_current_position('Z')
+    assert motion.get_target_positions()['Z'] == motion.get_current_position('Z')
 
 
 def test_a_refused_move_keeps_the_previous_target(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', 100.0)
+    motion.move_z(100.0)
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_absolute('Z', 10_000_000.0)
-    assert motion.get_target_position('Z') == 100.0
+        motion.move_z(10_000_000.0)
+    assert motion.get_target_positions()['Z'] == 100.0
 
 
 def test_an_unknown_axis_answers_the_poll(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', 100.0)
+    motion.move_z(100.0)
     motion._set_axis_state('Z', AxisState.UNKNOWN)
-    assert motion.get_target_position('Z') == motion.get_current_position('Z')
+    assert motion.get_target_positions()['Z'] == motion.get_current_position('Z')
 
 
 def test_an_objective_change_returns_z_to_the_commanded_target(turret_session):
     motion = turret_session.scope.motion
-    motion.move_absolute('Z', 100.0)
+    motion.move_z(100.0)
     motion.move_turret(2)
-    assert motion.get_target_position('Z') == 100.0
+    assert motion.get_target_positions()['Z'] == 100.0

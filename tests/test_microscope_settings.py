@@ -11,90 +11,17 @@ max_exposure` branch where `max_exposure == 0` caused every stored
 exposure to be clamped to 0. Shutdown's `save_settings()` then wrote
 zeros back to disk, corrupting the settings file for future sessions.
 
-Structural fix (4.1): `ImagingAPI.max_exposure_ms_cached` now returns `None`
-(not 0.0) when no camera is connected, so callers can distinguish
-"camera missing" from a real driver value. The exposure slider's range is
-sized through `camera_max_exposure_for_ui`, which substitutes
-`DEFAULT_MAX_EXPOSURE_MS` only for `None`: a slider needs some range to draw,
-and a cap of 0 is a cap, not a missing one.
+Structural fix (4.1): the camera's limits (`capabilities.camera_limits`)
+are `None` (not 0.0) when no camera is connected, so callers can
+distinguish "camera missing" from a real driver value. The exposure slider's
+maximum is the session's answer (`ScopeSession.channel_slider_maxima`, pinned in
+tests/test_the_slider_maxima_are_the_sessions.py), None with no camera, which
+the slider leaves alone.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
-from tests.scope_fakes import build_scope
-
-
-class TestCameraMaxExposureContract:
-    """Pin the ImagingAPI.max_exposure_ms_cached no-camera contract.
-
-    The contract is: the property returns None when no camera is
-    connected or the cache has not been populated with a real value.
-    load_settings relies on `value or DEFAULT_MAX_EXPOSURE_MS` for the
-    fallback, so anything falsy (None, 0, 0.0) is equivalent from the
-    caller's perspective -- but None is the intended sentinel.
-    """
-
-    def test_inactive_camera_yields_none_max_exposure(self):
-        """Forcing camera cache to inactive must leave max_exposure None."""
-
-        scope = build_scope(simulate=True)
-        # Simulator connects an active camera by default. Force the exact
-        # no-camera state that load_settings sees on a real missing camera.
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['active'] = False
-            scope.imaging._camera_cache['max_exposure_ms'] = None
-
-        assert scope.imaging.max_exposure_ms_cached is None
-
-    def test_zero_in_cache_yields_none_max_exposure(self):
-        """Legacy 0.0 in cache (driver returned 0) is coerced to None.
-
-        Belt-and-suspenders: even if something writes 0.0 into the cache,
-        the property still returns None so callers see a consistent
-        "camera missing" signal.
-        """
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 0.0
-
-        assert scope.imaging.max_exposure_ms_cached is None
-
-    def test_populated_value_passes_through(self):
-        """A real positive value in the cache is returned as float."""
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 500.0
-
-        assert scope.imaging.max_exposure_ms_cached == 500.0
-        assert isinstance(scope.imaging.max_exposure_ms_cached, float)
-
-    def test_integer_in_cache_is_coerced_to_float(self):
-        """Integer from a driver is returned as float for caller consistency."""
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 750
-
-        assert scope.imaging.max_exposure_ms_cached == 750.0
-        assert isinstance(scope.imaging.max_exposure_ms_cached, float)
-
-
-class TestTheSliderRangeWithNoCamera:
-    """Regression for #616: the slider's range comes from the one UI resolver."""
-
-    @pytest.mark.parametrize(
-        ('cached', 'expected'),
-        [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
-    )
-    def test_only_a_missing_cap_takes_the_default(self, cached, expected):
-        imaging = SimpleNamespace(max_exposure_ms_cached=cached)
-        assert camera_max_exposure_for_ui(imaging) == expected
 
 
 class TestCoalescingApplier:
@@ -273,8 +200,15 @@ def _bind_write_frame_text(fake_self):
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
+    from ui.ui_helpers import show_on_slider, typed_number
+
     fn_src = _extract_ms_method(method_name)
-    ns = dict(namespace)
+    # The module's own helpers the methods call.
+    ns = {
+        'show_on_slider': show_on_slider,
+        'typed_number': typed_number,
+        **namespace,
+    }
     exec(compile(fn_src, f'<microscope_settings::{method_name}>', 'exec'), ns)
     return ns[method_name]
 
@@ -285,12 +219,6 @@ class _RecordingGuiLogger:
     def __init__(self, ids=None):
         self.calls = []
         self._ids = ids or {}
-
-    def note_write_back(self, name, value):
-        # The text the spinner holds when the declaration is made, so a test
-        # can tell a declaration before the write from one after it.
-        spinner = {'BINNING': 'binning_spinner', 'IMAGE_MODE': 'image_mode_spinner'}[name]
-        self.calls.append(('note_write_back', name, value, self._ids[spinner].text))
 
     def frame_size(self, width, height, binning_size):
         self.calls.append(('frame_size', width, height, binning_size))
@@ -341,49 +269,35 @@ class TestTheFramingRedrawShowsTheStore:
             'the framing the camera answered with is recorded once'
         )
 
-    def test_a_refused_pick_puts_the_selector_back_and_declares_it(self):
+    def test_a_refused_pick_puts_the_selector_back(self):
         # The Session refused the pick and stored nothing, so the selector
-        # goes back to the stored factor and the boxes to the stored frame;
-        # the selector write is the app's, declared before it dispatches.
+        # goes back to the stored factor and the boxes to the stored frame.
         settings = {'frame': {'width': 960, 'height': 600}, 'binning': {'size': '2x2'}}
-        applied, ids, log, _fov = self._make(settings, '8x8')
+        applied, ids, _log, _fov = self._make(settings, '8x8')
 
         applied()
 
         assert ids['binning_spinner'].text == '2x2'
         assert ids['frame_width_id'].text == '960'
         assert ids['frame_height_id'].text == '600'
-        assert ('note_write_back', 'BINNING', '2x2', '8x8') in log.calls, (
-            f'the selector restore was not declared before the write: {log.calls}'
-        )
 
-    def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
-        """Run the refresh against a scope whose active objective is
-        ``objective`` (None when unknown); returns the two label texts."""
+    def _refresh_fov(self, monkeypatch, fov):
+        """Run the refresh against a scope whose field of view is ``fov``
+        (None when it cannot say one); returns the two label texts."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         import modules.common_utils as common_utils_real
-        import modules.config_ui_getters as config_ui_getters_real
 
+        # a stand-in by design: the widget's subject is the display of the
+        # scope's answer, which the scope's own test pins on the simulator
         ctx = SimpleNamespace(
-            settings={'frame': {'width': 1896, 'height': 1900}},
-            # The active objective is the runtime state's answer.
-            scope=SimpleNamespace(
-                runtime_state=SimpleNamespace(get_current_objective=lambda: objective)
-            ),
-            # The GUI getter resolves the scale off the LIVE scope.
-            lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
-            session=SimpleNamespace(get_binning_size=lambda: 1),
+            scope=SimpleNamespace(runtime_state=SimpleNamespace(get_field_of_view=lambda: fov))
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
             'refresh_fov_labels',
-            {
-                '_app_ctx': SimpleNamespace(ctx=ctx),
-                'common_utils': common_utils_real,
-                'config_ui_getters': config_ui_getters_real,
-            },
+            {'_app_ctx': SimpleNamespace(ctx=ctx), 'common_utils': common_utils_real},
         )
         ids = {
             'field_of_view_width_id': SimpleNamespace(text='stale'),
@@ -392,50 +306,68 @@ class TestTheFramingRedrawShowsTheStore:
         fn(SimpleNamespace(ids=ids))
         return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-    def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
-        import modules.common_utils as common_utils_real
+    def test_the_readout_shows_the_scopes_field_of_view(self, monkeypatch):
+        from modules.scope_capabilities import FieldOfView
 
-        objective = {'focal_length': 9.0}
-        width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
+        fov = FieldOfView(width_um=714.6, height_um=716.2)
+        assert self._refresh_fov(monkeypatch, fov) == ('715.0', '716.0')
 
-        expected_fov = common_utils_real.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size={'width': 1896, 'height': 1900},
-            binning_size=1,
-            capabilities=scale_capabilities,
-        )
-        assert width == str(round(expected_fov['width'], 0))
-        assert height == str(round(expected_fov['height'], 0))
-
-    def test_an_unknown_objective_blanks_the_readout(self, scale_capabilities, monkeypatch):
-        # No objective, no field of view: the readout says nothing rather
-        # than keep a stale value or compute one from a guess.
-        assert self._refresh_fov(scale_capabilities, monkeypatch, None) == ('', '')
+    def test_a_field_of_view_the_scope_cannot_say_reads_unknown(self, monkeypatch):
+        # No objective, no camera report, no optics: the readout says so
+        # rather than keep a stale value or compute one from a guess.
+        assert self._refresh_fov(monkeypatch, None) == ('unknown', 'unknown')
 
 
 class TestSelectBinningHandler:
     """select_binning_size reads the selector and hands the pick to the
-    Session on the camera lane; the store is the Session's to write. During
-    init it only redraws. Live, it shows the frame the new binning will give
-    in the boxes before it submits, so an edit typed while the apply runs is
-    read against the binning the selector shows."""
+    camera API (``scope.camera``) on the camera lane; the store is the
+    camera API's to write. During init it only redraws. Live, it shows the
+    frame the new binning will give in the boxes before it submits, so an
+    edit typed while the apply runs is read against the binning the selector
+    shows. A preview the camera API refuses is reported once, through the
+    real boundary, and no apply is sent."""
 
-    def _make_select(self, initializing, settings):
+    @pytest.fixture(autouse=True)
+    def _reported(self, monkeypatch):
+        """The outcomes the real boundary hands the one reporter, in order."""
+        from modules.notification_center import notifications
+
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc)
+        )
+        return reported
+
+    def _make_select(self, initializing, settings, preview_refusal=None):
         from types import SimpleNamespace
 
         import modules.binning as binning_real
+        from ui.ui_helpers import refused_in_this_input, run_reported
 
         submits = []
         previews = []
         applies = []
-        session = SimpleNamespace(
-            frame_at_binning=lambda size: previews.append(size) or {'width': 960, 'height': 600},
-            set_binning_size=lambda size: applies.append(size),
+
+        def _frame_at_binning(size):
+            previews.append(size)
+            if preview_refusal is not None:
+                raise preview_refusal
+            return {'width': 960, 'height': 600}
+
+        # A stand-in by design: the subject is the handler's answer to what
+        # the camera API says; its own refusal is pinned against the
+        # simulated scope in
+        # test_an_argument_a_member_cannot_use_is_refused_before_it_is_read.py.
+        scope = SimpleNamespace(
+            camera=SimpleNamespace(
+                frame_at_binning=_frame_at_binning,
+                set_binning=lambda size: applies.append(size),
+            )
         )
         ctx = SimpleNamespace(
             settings=settings,
             initializing=initializing,
-            session=session,
+            scope=scope,
             camera_executor=object(),
         )
         ids = {
@@ -462,6 +394,8 @@ class TestSelectBinningHandler:
             'gui_logger': MagicMock(),
             'logger': MagicMock(),
             'submit_reported': _submit_reported,
+            'run_reported': run_reported,
+            'refused_in_this_input': refused_in_this_input,
         }
         fn = _compile_ms_method('select_binning_size', namespace)
         redraw = _compile_ms_method('_redraw_framing', namespace)
@@ -500,12 +434,34 @@ class TestSelectBinningHandler:
         assert submit['boxes'] == ('960', '600'), (
             'the boxes must show the frame the new binning gives BEFORE the submit'
         )
-        assert submit['stored_binning'] == '1x1', "the store is the Session's to write"
+        assert submit['stored_binning'] == '1x1', "the store is the camera API's to write"
         assert submit['label'] == 'BINNING'
         assert submit['lane'] is ctx.camera_executor
         assert submit['redraw'] is fake_self._framing_applied
         submit['call']()
         assert applies == [2]
+
+    def test_a_refused_preview_is_reported_once_and_sends_no_apply(self, _reported):
+        from modules.exceptions import CameraSettingUnsupportedError
+
+        settings = {'binning': {'size': '1x1'}, 'frame': {'width': 1920, 'height': 1200}}
+        refusal = CameraSettingUnsupportedError('binning', 2, [1], message='not offered')
+        fn, fake_self, _ctx, submits, previews, applies = self._make_select(
+            False, settings, preview_refusal=refusal
+        )
+
+        fn(fake_self)
+
+        assert previews == [2]
+        assert _reported == [refusal], 'the refusal reaches the one reporter, once'
+        assert submits == [] and applies == [], 'an apply the Session would refuse is not sent'
+        assert fake_self.ids['binning_spinner'].text == '1x1', (
+            'the selector shows the stored binning'
+        )
+        assert (fake_self.ids['frame_width_id'].text, fake_self.ids['frame_height_id'].text) == (
+            '1920',
+            '1200',
+        )
 
 
 class TestImageModeMirrorAgreesWithTheStore:
@@ -524,13 +480,12 @@ class TestImageModeMirrorAgreesWithTheStore:
         from types import SimpleNamespace
 
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         settings = {'image_mode': stored_mode}
         scope_display = SimpleNamespace(image_mode=shown_mode)
         ids = {
-            'image_mode_spinner': SimpleNamespace(
-                text=image_mode_real.IMAGE_MODE_LABELS[shown_mode]
-            ),
+            'image_mode_spinner': SimpleNamespace(text=IMAGE_MODE_LABELS[shown_mode]),
         }
         log = _RecordingGuiLogger(ids)
         ctx = SimpleNamespace(settings=settings, scope_display=scope_display)
@@ -539,6 +494,7 @@ class TestImageModeMirrorAgreesWithTheStore:
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'image_mode': image_mode_real,
+                'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS,
                 'gui_logger': log,
             },
         )
@@ -565,6 +521,7 @@ class TestImageModeMirrorAgreesWithTheStore:
         # stayed and the selector moved. Either way the mirror follows the
         # store.
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         for stored in image_mode_real._MODE_TABLE:
             redraw, settings, scope_display, ids, _log = self._make_redraw(
@@ -576,27 +533,22 @@ class TestImageModeMirrorAgreesWithTheStore:
             assert settings['image_mode'] == scope_display.image_mode, (
                 f'the redraw to {stored} left the mirror and the store disagreeing'
             )
-            assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS[stored]
+            assert ids['image_mode_spinner'].text == IMAGE_MODE_LABELS[stored]
 
-    def test_a_refused_format_puts_the_selector_back_and_declares_it(self):
+    def test_a_refused_format_puts_the_selector_back(self):
         # The Session refused 12-bit and stored nothing; the selector the
-        # person moved goes back to the stored mode, declared as the app's
-        # write before it dispatches.
-        import modules.image_mode as image_mode_real
+        # person moved goes back to the stored mode.
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
-        redraw, _settings, scope_display, ids, log = self._make_redraw(
+        redraw, _settings, scope_display, ids, _log = self._make_redraw(
             '8bit', shown_mode='12bit_scientific'
         )
         scope_display.image_mode = '8bit'
 
         redraw()
 
-        assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS['8bit']
+        assert ids['image_mode_spinner'].text == IMAGE_MODE_LABELS['8bit']
         assert scope_display.image_mode == '8bit'
-        shown_12bit = image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
-        assert ('note_write_back', 'IMAGE_MODE', '8bit', shown_12bit) in log.calls, (
-            f'the selector restore was not declared before the write: {log.calls}'
-        )
 
 
 class TestTheFrameBoxesRecordWhatWasTyped:
@@ -611,7 +563,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
     that never happened while the box sat blank.
     """
 
-    def _make(self, width_text, unparseable=False, camera_present=True):
+    def _make(self, width_text, camera_present=True):
         from types import SimpleNamespace
 
         records = []
@@ -623,11 +575,9 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         }
 
         def _typed():
-            if unparseable:
-                raise ValueError('Invalid value for frame width/height')
             return {
-                'width': int(boxes['frame_width_id'].text),
-                'height': int(boxes['frame_height_id'].text),
+                'width': boxes['frame_width_id'].text,
+                'height': boxes['frame_height_id'].text,
             }
 
         applied = []
@@ -638,7 +588,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
 
         ctx = SimpleNamespace(
             settings=settings,
-            session=SimpleNamespace(set_frame_size=_set_frame_size),
+            scope=SimpleNamespace(camera=SimpleNamespace(set_frame_size=_set_frame_size)),
             camera_executor=object(),
         )
 
@@ -678,7 +628,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         )
 
     def test_a_blank_entry_is_reported_as_a_correction_and_applies_nothing(self):
-        fn, fake_self, records, applied, _settings, _boxes = self._make('', unparseable=True)
+        fn, fake_self, records, applied, _settings, _boxes = self._make('')
 
         fn(fake_self, 'frame_width_id')
 
@@ -694,7 +644,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         )
 
     def test_a_blank_entry_puts_both_boxes_back(self):
-        fn, fake_self, _records, _applied, settings, boxes = self._make('', unparseable=True)
+        fn, fake_self, _records, _applied, settings, boxes = self._make('')
 
         fn(fake_self, 'frame_width_id')
 
@@ -704,7 +654,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
     def test_a_disconnected_camera_still_records_the_entry(self):
         """The user typed it whether or not a camera was there to hear it.
 
-        That an absent camera stores nothing is the Session's answer, pinned
+        That an absent camera stores nothing is the camera API's answer, pinned
         in tests/test_the_session_applies_and_stores_camera_settings.py.
         """
         fn, fake_self, records, _applied, _settings, _boxes = self._make(
@@ -723,14 +673,53 @@ class TestTheImageModeSelectorRendersTheApi:
     predicate; the panel decides neither."""
 
     def test_every_mode_is_offered(self):
+        """The selector lists every mode the API offers, in its order, by label."""
         from types import SimpleNamespace
 
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         spinner = SimpleNamespace(values=None)
-        fn = _compile_ms_method('load_image_modes', {'image_mode': image_mode_real})
+        fn = _compile_ms_method(
+            'load_image_modes',
+            {'image_mode': image_mode_real, 'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS},
+        )
         fn(SimpleNamespace(ids={'image_mode_spinner': spinner}))
-        assert spinner.values == image_mode_real.available_mode_labels()
+        assert spinner.values == [
+            '8-bit',
+            'Scientific (full depth)',
+            'Scaled (full depth)',
+            'RGB (full depth)',
+        ]
+
+    def test_every_label_names_one_mode(self):
+        """Every mode has a label and the label maps back to that mode, so a
+        pick reaches the API as the mode the selector showed."""
+        from modules.image_mode import ImageMode
+        from ui.microscope_settings import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE
+
+        assert set(IMAGE_MODE_LABELS) == set(ImageMode)
+        for mode, label in IMAGE_MODE_LABELS.items():
+            assert LABEL_TO_IMAGE_MODE[label] == mode
+
+    def test_every_output_format_has_one_label_and_reads_back_from_it(self):
+        """Every format has a label, and the label maps back to it, so a pick
+        stores the format the selector showed."""
+        from modules.image_mode import OutputFormat
+        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT, OUTPUT_FORMAT_LABELS
+
+        assert set(OUTPUT_FORMAT_LABELS) == set(OutputFormat)
+        for fmt, label in OUTPUT_FORMAT_LABELS.items():
+            assert LABEL_TO_OUTPUT_FORMAT[label] == fmt
+
+    def test_the_mode_labels_differ_in_their_first_word(self):
+        """A spinner shortens text too wide for it from the right, so labels that
+        share their opening read the same in the closed selector; each mode's
+        label is told apart by its first word."""
+        from ui.microscope_settings import IMAGE_MODE_LABELS
+
+        first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
+        assert len(set(first_words)) == len(first_words), first_words
 
     @pytest.mark.parametrize(
         ('mode', 'live', 'shown'),
@@ -746,11 +735,14 @@ class TestTheImageModeSelectorRendersTheApi:
         import modules.image_mode as image_mode_real
 
         settings = {'image_mode': mode, 'image_output_format': {'live': live, 'sequenced': 'TIFF'}}
+        from modules import gui_logger
+
         fn = _compile_ms_method(
             '_refresh_jpg_depth_hint',
             {
                 '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
                 'image_mode': image_mode_real,
+                'gui_logger': gui_logger,
             },
         )
         panel = SimpleNamespace(jpg_depth_hint_active=None)
@@ -767,6 +759,9 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
         from types import SimpleNamespace
 
+        import modules.image_mode as image_mode_real
+        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT
+
         settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
         refreshed = []
 
@@ -781,6 +776,8 @@ class TestTheImageModeSelectorRendersTheApi:
                     ctx=SimpleNamespace(settings=settings, update_settings=update_settings)
                 ),
                 'gui_logger': SimpleNamespace(select=lambda *a: None),
+                'image_mode': image_mode_real,
+                'LABEL_TO_OUTPUT_FORMAT': LABEL_TO_OUTPUT_FORMAT,
                 'run_reported': lambda fn, on_done, name: fn(),
             },
         )
@@ -788,6 +785,7 @@ class TestTheImageModeSelectorRendersTheApi:
             SimpleNamespace(
                 ids={spinner: SimpleNamespace(text='JPG')},
                 _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+                show_capture_settings=lambda: None,
             )
         )
         assert refreshed == [True]
@@ -799,13 +797,10 @@ def test_a_mode_redraw_refreshes_the_jpg_hint():
     from types import SimpleNamespace
 
     import modules.image_mode as image_mode_real
+    from ui.microscope_settings import IMAGE_MODE_LABELS
 
     settings = {'image_mode': '12bit_scientific'}
-    ids = {
-        'image_mode_spinner': SimpleNamespace(
-            text=image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
-        )
-    }
+    ids = {'image_mode_spinner': SimpleNamespace(text=IMAGE_MODE_LABELS['12bit_scientific'])}
     refreshed = []
     fn = _compile_ms_method(
         '_redraw_image_mode',
@@ -816,6 +811,7 @@ def test_a_mode_redraw_refreshes_the_jpg_hint():
                 )
             ),
             'image_mode': image_mode_real,
+            'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS,
             'gui_logger': _RecordingGuiLogger(ids),
         },
     )

@@ -8,10 +8,10 @@ kv (line numbers are file-absolute); lumaviewpro.kv never mentions them.
   stimulation enable     ui/advanced_settings.py:556 -> :268
   high conversion gain   ui/advanced_settings.py:587 -> :131
   line noise reduction   ui/advanced_settings.py:608 -> :147
-  video max fps          ui/advanced_settings.py:632 -> :161
+  recording max fps      ui/advanced_settings.py:632 -> :161
   video time limit       ui/advanced_settings.py:656 -> :196
   video timestamp ovl    ui/advanced_settings.py:675 -> :225
-  live view fps          ui/advanced_settings.py:700 -> :237
+  display max fps        ui/advanced_settings.py:700 -> :237
   protocol LED on        ui/advanced_settings.py:741 -> :256
   keep LED between steps ui/advanced_settings.py:764 -> :262
   tiling overlap         ui/advanced_settings.py:792 -> :277
@@ -27,7 +27,7 @@ from modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
-    im, mo = s.scope.imaging, s.scope.motion
+    camera, mo = s.scope.camera, s.scope.motion
 
     # --- camera low-noise toggles: real API setters ----------------------
     caps = s.scope.capabilities
@@ -38,8 +38,8 @@ try:
         caps.has_xy_stage,
     )
     for fn, good, bad in (
-        (im.set_conversion_gain_mode, 'High', 'Sideways'),
-        (im.set_line_noise_reduction, True, 'yes-please'),
+        (camera.set_high_conversion_gain, True, 'Sideways'),
+        (camera.set_line_noise_reduction, True, 'yes-please'),
     ):
         try:
             print(f'{fn.__name__}({good!r}) ->', fn(good))
@@ -52,13 +52,13 @@ try:
 
     # --- acceleration limit: API setter with a documented raise ----------
     try:
-        mo.set_acceleration_limit(val_pct=50)
+        mo.set_acceleration_limit(limit_pct=50)
         _common.ok('acceleration 50% applied', True)
     except Exception as e:
         _common.ok('acceleration 50% applied', False, f'{type(e).__name__}: {e}')
     for bad in (0, 250, -5):
         try:
-            mo.set_acceleration_limit(val_pct=bad)
+            mo.set_acceleration_limit(limit_pct=bad)
             _common.ok(f'acceleration {bad}% refused', False, 'accepted')
         except ValueError as e:
             _common.ok(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
@@ -69,16 +69,16 @@ try:
 
     # --- pure settings-store rows ----------------------------------------
     s.update_settings('video.max_fps', 25)
-    s.update_settings('video.max_duration_seconds', 120)
+    s.update_settings('video.max_duration_s', 120)
     s.update_settings('video.timestamp_overlay', False)
     back = s.get_settings_snapshot()['video']
     _common.ok(
         'video limits took effect',
-        back['max_fps'] == 25 and back['max_duration_seconds'] == 120,
+        back['max_fps'] == 25 and back['max_duration_s'] == 120,
         str(back),
     )
     # out of range: the writer owns 0..200 / 1..3600
-    for path, bad in (('video.max_fps', 9999), ('video.max_duration_seconds', 999999)):
+    for path, bad in (('video.max_fps', 9999), ('video.max_duration_s', 999999)):
         try:
             s.update_settings(path, bad)
             _common.ok(f'{path} {bad} refused by the API', False, 'stored')
@@ -114,13 +114,13 @@ try:
         s.update_settings(key, good)
 
     # tiling overlap: is there a validator a script can reach?
-    from modules.tiling_config import TilingConfig
+    from modules.tiling_config import TilingGrids
 
     try:
-        TilingConfig.validate_overlap_percent(999)
-        _common.ok('TilingConfig refuses 999% overlap', False)
+        TilingGrids.validate_overlap_percent(999)
+        _common.ok('TilingGrids refuses 999% overlap', False)
     except Exception as e:
-        _common.ok('TilingConfig refuses 999% overlap', True, f'{type(e).__name__}: {e}')
+        _common.ok('TilingGrids refuses 999% overlap', True, f'{type(e).__name__}: {e}')
     was_refused, detail = refused('tiling_overlap_percent', 999.0)
     _common.ok('the settings writer refuses 999% overlap', was_refused, detail)
 

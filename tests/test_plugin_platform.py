@@ -14,20 +14,36 @@ Covers:
 
 from __future__ import annotations
 
+import re
+import threading
 import types
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.exceptions import PluginNotLoadedError, RefusalCause
+from modules.api_surface import IN_PROCESS, mark_of
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ArgumentTypeRefusedError,
+    PluginNotLoadedError,
+    RefusalCause,
+)
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.plugins import (
     PluginRegistrationError,
+    PluginRegistry,
     PluginSpec,
     ProcessorResult,
-    UI_MOUNT_POINTS,
+    UIMountPoint,
     is_version_compatible,
 )
+from modules.plugins import (
+    LiveProcessingRegistry,
+    PostProcessingRegistry,
+    RESTRegistry,
+    UIRegistry,
+)
+from modules.scope_session import ScopeSession
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 
@@ -43,7 +59,6 @@ def _make_spec(name: str = 'demo', version: str = '0.1.0', requires: str = '>=4.
         requires_lvp_version=requires,
         description='Demo plugin',
         capabilities=('scope.imaging',),
-        subscribes_to=(),
         author='test',
     )
 
@@ -62,7 +77,6 @@ def test_plugin_spec_defaults():
         description='d',
     )
     assert spec.capabilities == ()
-    assert spec.subscribes_to == ()
     assert spec.author == ''
     assert spec.url == ''
     assert spec.auto_run_on_protocol_complete is False
@@ -77,6 +91,41 @@ def test_plugin_spec_auto_run_opt_in():
         auto_run_on_protocol_complete=True,
     )
     assert spec.auto_run_on_protocol_complete is True
+
+
+def test_the_retired_record_fields_are_refused_where_the_record_is_built():
+    """``PluginSpec.subscribes_to`` and ``ProcessorResult.metadata`` are gone
+    (plugin API level 59): a plugin still passing either fails where it builds
+    the record, not later in the host."""
+    with pytest.raises(TypeError, match='subscribes_to'):
+        PluginSpec(
+            name='x',
+            version='0.1.0',
+            requires_lvp_version='>=4.0.0',
+            description='d',
+            subscribes_to=(),
+        )
+    with pytest.raises(TypeError, match='metadata'):
+        ProcessorResult(success=True, metadata={})
+
+
+def test_the_plugin_contract_is_declared():
+    """What the tutorial teaches is API, in process: the session's ``plugins``
+    and each namespace's registration members; ``rest.register``, which takes
+    a framework router, is outside the contract."""
+    taught = {
+        'ScopeSession.plugins': ScopeSession.__dict__['plugins'].fget,
+        'UIRegistry.register': UIRegistry.register,
+        'PostProcessingRegistry.register': PostProcessingRegistry.register,
+        'PostProcessingRegistry.names': PostProcessingRegistry.names,
+        'PostProcessingRegistry.get': PostProcessingRegistry.get,
+        'LiveProcessingRegistry.register': LiveProcessingRegistry.register,
+        'LiveProcessingRegistry.unregister': LiveProcessingRegistry.unregister,
+        'RESTRegistry.enable_stub_mode': RESTRegistry.enable_stub_mode,
+    }
+    unmarked = sorted(name for name, member in taught.items() if mark_of(member) != IN_PROCESS)
+    assert unmarked == [], unmarked
+    assert mark_of(RESTRegistry.register) is None
 
 
 # ---------------------------------------------------------------------------
@@ -96,24 +145,13 @@ def test_ui_register_known_mount(harness_ctx):
     assert b is builder
 
 
-def test_ui_register_unknown_mount_raises(harness_ctx):
+def test_ui_register_unknown_mount_is_refused_before_anything_registers(harness_ctx):
     spec = _make_spec(name='ui_demo')
-    with pytest.raises(PluginRegistrationError) as exc:
-        harness_ctx.plugins.ui.register(
-            spec,
-            'nonexistent.mount',
-            lambda: None,
-        )
-    assert 'nonexistent.mount' in str(exc.value)
-    assert 'left_sidebar.accordion' in str(exc.value)
-    # The plugin asked for something this LumaViewPro does not have; asking
-    # again unchanged cannot succeed.
-    outcome = outcome_of(exc.value)
-    assert (outcome.kind, outcome.cause, outcome.reason) == (
-        OutcomeKind.REFUSAL,
-        RefusalCause.REQUEST,
-        'unknown_mount_point',
-    )
+    with pytest.raises(ArgumentRefusedError) as exc:
+        harness_ctx.plugins.ui.register(spec, 'nonexistent.mount', lambda: None)
+    assert exc.value.reason == 'not_offered'
+    assert exc.value.offered == ('left_sidebar.accordion',)
+    assert harness_ctx.plugins.ui.mounts() == ()
 
 
 def test_ui_register_duplicate_name_raises(harness_ctx):
@@ -141,9 +179,8 @@ def test_ui_health_after_register(harness_ctx):
     assert harness_ctx.plugins.not_loaded() == ()
 
 
-def test_ui_mount_points_constant_is_frozen():
-    assert isinstance(UI_MOUNT_POINTS, frozenset)
-    assert 'left_sidebar.accordion' in UI_MOUNT_POINTS
+def test_the_mount_points_are_the_ones_the_host_attaches():
+    assert [m.value for m in UIMountPoint] == ['left_sidebar.accordion']
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +205,14 @@ def test_post_processing_duplicate_name_raises(harness_ctx):
     harness_ctx.plugins.post_processing.register(spec, _trivial_processor)
     with pytest.raises(PluginRegistrationError):
         harness_ctx.plugins.post_processing.register(spec, _trivial_processor)
+
+
+def test_a_processor_that_cannot_be_called_is_refused_at_register(harness_ctx):
+    spec = _make_spec(name='not_callable')
+    with pytest.raises(ArgumentTypeRefusedError) as exc:
+        harness_ctx.plugins.post_processing.register(spec, 'not a function')
+    assert exc.value.reason == 'wrong_argument_type'
+    assert harness_ctx.plugins.post_processing.names() == ()
 
 
 def test_post_processing_get_missing_returns_none(harness_ctx):
@@ -231,6 +276,35 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
 
     assert len(calls) == 1
     assert calls[0] == ('opted_in', '/in', {'k': 'v'}, '/out')
+
+
+def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tmp_path):
+    """The log names how many files the processor made and the folder they
+    share, not each file: a plate's stitch makes thousands."""
+    made = tuple(str(tmp_path / 'stitched' / f'tile_{i}.tiff') for i in range(3))
+
+    def stitches(input_dir, manifest, output_dir):
+        return ProcessorResult(success=True, outputs=made, message='Stitched 3 tiles.')
+
+    spec = PluginSpec(
+        name='stitches',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
+    )
+    harness_ctx.plugins.post_processing.register(spec, stitches)
+    harness_ctx.plugins._track('stitches', types.ModuleType('stitches'))
+
+    with caplog.at_level('INFO', logger='lvp_logger'):
+        harness_ctx.plugins.run_protocol_complete_processors(
+            input_dir='/in', manifest={}, output_dir='/out', files='written'
+        )
+
+    succeeded = [r.getMessage() for r in caplog.records if 'auto-run succeeded' in r.getMessage()]
+    assert succeeded == [
+        f'[Plugins ] stitches auto-run succeeded: Stitched 3 tiles. (3 file(s) in {tmp_path / "stitched"})'
+    ]
 
 
 def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
@@ -301,7 +375,7 @@ def test_live_processing_register_forwards_to_imaging(harness_ctx):
     with the plugin name attached."""
     spec = _make_spec(name='live_demo')
 
-    def handler(image, ts, chunks):
+    def handler(frame):
         return None
 
     harness_ctx.plugins.live_processing.register(spec, handler)
@@ -314,13 +388,22 @@ def test_live_processing_unregister_forwards_to_imaging(harness_ctx):
     with the original handler."""
     spec = _make_spec(name='live_demo')
 
-    def handler(image, ts, chunks):
+    def handler(frame):
         return None
 
     harness_ctx.plugins.live_processing.register(spec, handler)
     harness_ctx.plugins.live_processing.unregister('live_demo')
     harness_ctx.scope.imaging.remove_frame_listener.assert_called_once_with(handler)
     assert harness_ctx.plugins.live_processing.names() == ()
+
+
+def test_a_plugin_that_unregisters_its_listener_is_no_longer_listed_as_loaded(sim_scope):
+    """After live_processing.unregister(name), the namespace's health no
+    longer lists the plugin: it is listed exactly while it is registered."""
+    registry = PluginRegistry(sim_scope)
+    registry.live_processing.register(_make_spec(name='live_demo'), lambda frame: None)
+    registry.live_processing.unregister('live_demo')
+    assert registry.live_processing.health().loaded == ()
 
 
 def test_live_processing_unregister_unknown_name_is_noop(harness_ctx):
@@ -338,15 +421,15 @@ def test_live_processing_register_duplicate_name_raises(harness_ctx):
         harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
 
 
-def test_rest_register_raises_with_design_session_message(harness_ctx):
+def test_rest_register_is_refused_with_what_the_author_can_do(harness_ctx):
+    """The words name the stub-mode opt-in, the one thing a plugin author
+    can do, and point at no document LVP does not ship."""
     spec = _make_spec(name='rest_attempt')
     with pytest.raises(PluginRegistrationError) as exc:
         harness_ctx.plugins.rest.register(spec, MagicMock(name='router'))
     msg = str(exc.value)
-    assert 'rest' in msg.lower()
-    assert 'REST design session' in msg or 'REST_API_PLAN.md' in msg
-    # error message points plugin authors to the stub-mode opt-in
     assert 'enable_stub_mode' in msg
+    assert re.search(r'\.md\b', msg) is None, msg
     outcome = outcome_of(exc.value)
     assert (outcome.kind, outcome.cause, outcome.reason) == (
         OutcomeKind.REFUSAL,
@@ -375,10 +458,7 @@ def test_rest_stub_mode_accepts_registration(harness_ctx):
 
 
 def test_rest_stub_mode_does_not_mount_route(harness_ctx):
-    """Stub-mode registration records the spec but does not mount a route.
-
-    The router object is stored for introspection but never called/mounted.
-    """
+    """Stub-mode registration records the spec but does not mount a route."""
     harness_ctx.plugins.rest.enable_stub_mode()
     spec = _make_spec(name='stubbed_no_mount')
     router = MagicMock(name='router')
@@ -386,8 +466,6 @@ def test_rest_stub_mode_does_not_mount_route(harness_ctx):
     # Router is never invoked: no .include_router / .add_api_route / etc.
     router.include_router.assert_not_called()
     router.add_api_route.assert_not_called()
-    # But it is stored, for tests/introspection.
-    assert 'stubbed_no_mount' in harness_ctx.plugins.rest._stubbed_routers
 
 
 def test_rest_stub_mode_duplicate_registration_raises(harness_ctx):
@@ -568,7 +646,8 @@ def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx,
     report.assert_called_once()
     outcome = report.call_args.args[0]
     assert isinstance(outcome, PluginNotLoadedError)
-    assert outcome.reason == reason
+    assert outcome.reason == 'plugin_not_loaded'
+    assert [(f.name, f.reason) for f in outcome.failures] == [('etaluma_engineering', reason)]
 
 
 @pytest.mark.parametrize('version', ['1.0.6', '1.1.0'])
@@ -594,6 +673,71 @@ def test_load_plugins_continues_past_register_failure(harness_ctx):
     assert 'bad' not in harness_ctx.plugins.post_processing.names()
     # Failed plugin's unregister was called for cleanup attempt
     assert len(bad._unregister_calls) == 1
+
+
+def test_a_plugin_whose_register_raises_after_registering_leaves_nothing_registered(
+    harness_ctx, sim_scope
+):
+    """A plugin reported as not loaded has nothing registered: what its
+    register() registered before it raised is not mounted, not handed a
+    run's folder, not called on a frame, and not listed as loaded."""
+    harness_ctx.scope = sim_scope
+    harness_ctx.plugins = PluginRegistry(sim_scope)
+    mod = _make_plugin_module('half_loaded')
+    frames_seen = []
+
+    def register(ctx):
+        ctx.plugins.ui.register(mod.spec, 'left_sidebar.accordion', lambda: None)
+        ctx.plugins.post_processing.register(mod.spec, _trivial_processor)
+        ctx.plugins.live_processing.register(mod.spec, frames_seen.append)
+        raise RuntimeError('half_loaded register failed after registering')
+
+    mod.register = register
+    with patch(
+        'importlib.metadata.entry_points', return_value=[_FakeEntryPoint('half_loaded', mod)]
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+
+    plugins = harness_ctx.plugins
+    assert [r.name for r in plugins.not_loaded()] == ['half_loaded']
+    assert plugins.ui.mounts() == ()
+    assert 'half_loaded' not in plugins.post_processing.names()
+    assert plugins.live_processing.names() == ()
+    for health in plugins.all_health():
+        assert 'half_loaded' not in [s.name for s in health.loaded], health.namespace
+    # Frames still flow -- a listener of the test's own sees three -- and
+    # none of them reaches the failed plugin's.
+    seen_at_load = len(frames_seen)
+    three = threading.Event()
+    control = []
+
+    def control_listener(frame):
+        control.append(frame)
+        if len(control) >= 3:
+            three.set()
+
+    sim_scope.imaging.add_frame_listener(control_listener)
+    try:
+        assert three.wait(timeout=5.0), 'the simulated camera delivered no frames'
+    finally:
+        sim_scope.imaging.remove_frame_listener(control_listener)
+    assert len(frames_seen) == seen_at_load
+    assert len(mod._unregister_calls) == 1
+
+
+def test_a_failed_register_under_a_taken_name_leaves_the_holders_registration(harness_ctx):
+    """An installed plugin that claims the built-in stitcher's name is
+    loaded first; the built-in's register then raises name_taken, and taking
+    back what the built-in registered leaves the installed one's processor."""
+    installed = _make_plugin_module('stitcher')
+    processor = _trivial_processor
+    installed.register = lambda ctx: ctx.plugins.post_processing.register(installed.spec, processor)
+    with patch(
+        'importlib.metadata.entry_points', return_value=[_FakeEntryPoint('stitcher', installed)]
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert harness_ctx.plugins.post_processing.get('stitcher') is processor
+    assert [r.name for r in harness_ctx.plugins.not_loaded()] == ['stitcher']
 
 
 def test_load_plugins_skips_module_without_spec(harness_ctx):
@@ -641,265 +785,6 @@ def test_unload_plugins_swallows_unregister_failure(harness_ctx):
     harness_ctx.plugins.unload(harness_ctx)
     assert len(bad._unregister_calls) == 1
     assert len(good._unregister_calls) == 1
-
-
-# ---------------------------------------------------------------------------
-# on_settings_changed dispatch
-# ---------------------------------------------------------------------------
-#
-# PluginSpec.subscribes_to declares dot-path settings keys; the host fires
-# on_settings_changed when one of those keys (or a key under a subscribed
-# subtree, by prefix match) changes between successive saves. Pre-F21,
-# subscribes_to was declared but no dispatcher existed, so plugins got
-# silently no settings reactivity.
-
-
-def _make_plugin_with_settings_hook(
-    name: str,
-    subscribes_to: tuple[str, ...],
-    on_change_raises: bool = False,
-):
-    """Build an in-memory plugin module with on_settings_changed wired."""
-    mod = types.ModuleType(f'fake_settings_plugin_{name}')
-    mod.__version__ = '0.1.0'
-    mod.spec = PluginSpec(
-        name=name,
-        version='0.1.0',
-        requires_lvp_version='>=4.0.0',
-        description=f'fake {name}',
-        subscribes_to=subscribes_to,
-    )
-    mod._on_change_calls = []
-
-    def _register(ctx):
-        ctx.plugins.post_processing.register(mod.spec, _trivial_processor)
-
-    def _unregister(ctx):
-        pass
-
-    def on_settings_changed(ctx, settings):
-        mod._on_change_calls.append((ctx, settings))
-        if on_change_raises:
-            raise RuntimeError(f'{name} on_settings_changed intentionally failed')
-
-    mod.register = _register
-    mod.unregister = _unregister
-    mod.on_settings_changed = on_settings_changed
-    return mod
-
-
-def test_diff_settings_keys_no_change_returns_empty():
-    from modules.plugins import _diff_settings_keys
-
-    assert _diff_settings_keys({'a': 1}, {'a': 1}) == set()
-
-
-def test_diff_settings_keys_leaf_change():
-    from modules.plugins import _diff_settings_keys
-
-    assert _diff_settings_keys({'a': 1}, {'a': 2}) == {'a'}
-
-
-def test_diff_settings_keys_nested_change_returns_dotted_path():
-    from modules.plugins import _diff_settings_keys
-
-    old = {'video': {'max_fps': 10, 'max_duration': 60}}
-    new = {'video': {'max_fps': 30, 'max_duration': 60}}
-    assert _diff_settings_keys(old, new) == {'video.max_fps'}
-
-
-def test_diff_settings_keys_added_and_removed_keys():
-    from modules.plugins import _diff_settings_keys
-
-    old = {'a': 1, 'b': 2}
-    new = {'a': 1, 'c': 3}
-    assert _diff_settings_keys(old, new) == {'b', 'c'}
-
-
-def test_diff_settings_keys_none_baseline_flattens_all_leaves():
-    from modules.plugins import _diff_settings_keys
-
-    new = {'a': {'b': 1, 'c': 2}, 'd': 3}
-    assert _diff_settings_keys(None, new) == {'a.b', 'a.c', 'd'}
-
-
-def test_any_prefix_match_exact_key():
-    from modules.plugins import _any_prefix_match
-
-    assert _any_prefix_match(('video.max_fps',), {'video.max_fps'})
-    assert not _any_prefix_match(('video.max_fps',), {'video.max_duration'})
-
-
-def test_any_prefix_match_subtree():
-    from modules.plugins import _any_prefix_match
-
-    # subscribes to 'video' subtree -> any descendant matches.
-    assert _any_prefix_match(('video',), {'video.max_fps'})
-    assert _any_prefix_match(('video',), {'video.codec.bitrate'})
-    assert _any_prefix_match(('video',), {'video'})
-
-
-def test_any_prefix_match_does_not_match_unrelated_prefix():
-    from modules.plugins import _any_prefix_match
-
-    # 'video' must not match 'video_recording.X' -- prefix is full dot-path
-    # component, not arbitrary string prefix.
-    assert not _any_prefix_match(('video',), {'video_recording.max_fps'})
-
-
-def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
-    mod = _make_plugin_with_settings_hook(
-        'video_listener',
-        subscribes_to=('video.max_fps',),
-    )
-    ep = _FakeEntryPoint('video_listener', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    settings = {'video': {'max_fps': 30}}
-    harness_ctx.plugins.notify_settings_changed(
-        harness_ctx,
-        settings,
-        {'video.max_fps'},
-    )
-    assert len(mod._on_change_calls) == 1
-    ctx_arg, settings_arg = mod._on_change_calls[0]
-    assert ctx_arg is harness_ctx
-    assert settings_arg is settings
-
-
-def test_notify_settings_changed_skips_non_subscribed(harness_ctx):
-    mod = _make_plugin_with_settings_hook(
-        'camera_listener',
-        subscribes_to=('camera.gain',),
-    )
-    ep = _FakeEntryPoint('camera_listener', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    # Change a key the plugin did NOT subscribe to.
-    harness_ctx.plugins.notify_settings_changed(
-        harness_ctx,
-        {'video': {'max_fps': 30}},
-        {'video.max_fps'},
-    )
-    assert mod._on_change_calls == []
-
-
-def test_notify_settings_changed_skips_plugin_with_empty_subscribes_to(harness_ctx):
-    mod = _make_plugin_with_settings_hook('no_subs', subscribes_to=())
-    ep = _FakeEntryPoint('no_subs', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    harness_ctx.plugins.notify_settings_changed(
-        harness_ctx,
-        {'a': 1},
-        {'a'},
-    )
-    assert mod._on_change_calls == []
-
-
-def test_notify_settings_changed_empty_changed_keys_is_noop(harness_ctx):
-    mod = _make_plugin_with_settings_hook(
-        'subscriber',
-        subscribes_to=('a',),
-    )
-    ep = _FakeEntryPoint('subscriber', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, set())
-    assert mod._on_change_calls == []
-
-
-def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
-    bad = _make_plugin_with_settings_hook(
-        'bad_handler',
-        subscribes_to=('a',),
-        on_change_raises=True,
-    )
-    good = _make_plugin_with_settings_hook(
-        'good_handler',
-        subscribes_to=('a',),
-    )
-    eps = [
-        _FakeEntryPoint('bad_handler', bad),
-        _FakeEntryPoint('good_handler', good),
-    ]
-    with patch('importlib.metadata.entry_points', return_value=eps):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    # bad raises, good must still fire, dispatcher must not propagate.
-    harness_ctx.plugins.notify_settings_changed(
-        harness_ctx,
-        {'a': 1},
-        {'a'},
-    )
-    assert len(bad._on_change_calls) == 1
-    assert len(good._on_change_calls) == 1
-    # Runtime error recorded against bad's namespace.
-    health = harness_ctx.plugins.post_processing.health()
-    errors = [e for e in health.last_runtime_errors if e.plugin_name == 'bad_handler']
-    assert len(errors) == 1
-    assert errors[0].hook == 'on_settings_changed'
-
-
-def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
-    mod = _make_plugin_with_settings_hook(
-        'subtree_listener',
-        subscribes_to=('video',),
-    )
-    ep = _FakeEntryPoint('subtree_listener', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    # Any key under the video subtree must fire the handler.
-    harness_ctx.plugins.notify_settings_changed(
-        harness_ctx,
-        {'video': {'codec': {'bitrate': 5000}}},
-        {'video.codec.bitrate'},
-    )
-    assert len(mod._on_change_calls) == 1
-
-
-def _load_settings_listener(harness_ctx, name, settings_at_load):
-    mod = _make_plugin_with_settings_hook(name, subscribes_to=('a',))
-    harness_ctx.get_settings_snapshot = lambda: settings_at_load
-    ep = _FakeEntryPoint(name, mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        harness_ctx.plugins.load(harness_ctx, '4.0.0')
-    return mod
-
-
-def test_settings_saved_tells_a_change_made_since_load(harness_ctx):
-    mod = _load_settings_listener(harness_ctx, 'since_load', {'a': 1})
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
-    assert len(mod._on_change_calls) == 1
-    _, settings_arg = mod._on_change_calls[0]
-    assert settings_arg == {'a': 2}
-
-
-def test_settings_saved_without_a_change_tells_nothing(harness_ctx):
-    mod = _load_settings_listener(harness_ctx, 'no_diff', {'a': 1})
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 1})
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 1})
-    assert mod._on_change_calls == []
-
-
-def test_settings_saved_diffs_against_the_last_save(harness_ctx):
-    mod = _load_settings_listener(harness_ctx, 'last_save', {'a': 1})
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
-    assert len(mod._on_change_calls) == 1
-
-
-def test_settings_saved_baseline_isolation_from_mutation(harness_ctx):
-    """The kept baseline must be a deep copy so subsequent in-memory
-    mutations to the settings dict do not poison the next diff."""
-    mod = _load_settings_listener(harness_ctx, 'isolation', {'a': {'b': 0}})
-    settings = {'a': {'b': 1}}
-    harness_ctx.plugins.settings_saved(harness_ctx, settings)  # told, kept
-    # Mutate the dict in place after it was kept.
-    settings['a']['b'] = 999
-    # A NEW dict with a different value -- the baseline still reflects the
-    # kept state (1), so this is told too.
-    harness_ctx.plugins.settings_saved(harness_ctx, {'a': {'b': 2}})
-    assert len(mod._on_change_calls) == 2
 
 
 class TestAttributeException:

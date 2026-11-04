@@ -2,6 +2,7 @@
 
 import traceback
 import harness
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p5')
 scope = s.scope
@@ -17,6 +18,7 @@ def step(label, fn):
 try:
     import modules.common_utils as cu
     from modules import config_helpers
+    from modules.lumascope_api.illumination import lit_other_than
 
     step('runtime_state.get_well_label()', lambda: scope.runtime_state.get_well_label())
     step(
@@ -24,22 +26,20 @@ try:
         lambda: config_helpers.get_image_capture_config_from_settings(s.get_settings_snapshot()),
     )
     step(
-        'session.get_layer_configs([Blue])',
-        lambda: sorted(s.get_layer_configs(['Blue'])['Blue'].keys()),
+        f'session.get_layer_configs([{LED0}])',
+        lambda: sorted(s.get_layer_configs([LED0])[LED0].keys()),
     )
     step(
-        'cu.resolve_channel_identity(illum, None)',
-        lambda: cu.resolve_channel_identity(scope.illumination, None),
+        'lit_other_than(illum, BF)',
+        lambda: lit_other_than(scope.illumination, 'BF'),
     )
     step(
         'cu.build_step_name(...)',
         lambda: cu.build_step_name(
-            cu.StepNameComponents(custom_prefix='A1_Blue', turret_position=None)
+            cu.StepNameComponents(custom_prefix=f'A1_{LED0}', turret_position=None)
         ),
     )
-    step(
-        'cu.get_opened_layer(<needs ctx.image_settings widget>)', lambda: cu.get_opened_layer(None)
-    )
+    step('session.shown_channel', lambda: s.shown_channel)
     # the two overlay flags
     try:
         import modules.scope_display  # noqa

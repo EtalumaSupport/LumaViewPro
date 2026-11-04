@@ -3,31 +3,17 @@
 Tech Support Report Generator for LumaViewPro.
 
 Collects comprehensive diagnostic information and bundles it into a ZIP file
-in the folder its caller names (the GUI and the command line name the
-user's Desktop) for emailing to support@etaluma.com.
+in the folder its caller names (the GUI names the user's Desktop) for
+emailing to support@etaluma.com.
 
-Two modes:
-  1. Integrated: Called from the LumaViewPro GUI "Generate Support Report"
-     button. Receives a Lumascope instance (or ScopeSession) from the running
-     application.
-  2. Standalone: ``python tech_support_report.py`` -- connects to hardware
-     directly, no LumaViewPro needed. Can also be frozen with PyInstaller
-     into a standalone .exe (see build notes at bottom of file).
+A report is made by ``ScopeSession.make_support_report``, the one way every
+client makes one: the GUI's "Generate Support Report" button, REST, the SDK
+and a script. The report is built on that session and its scope.
 
 Config file retrieval:
   - Uses MicroPython raw REPL to read files directly from the RP2040
     filesystem (similar to Thonny). No custom firmware command needed.
     Temporarily interrupts firmware, reads files, then soft-resets.
-
-Usage (standalone):
-    python tech_support_report.py
-    python tech_support_report.py --bandwidth-test
-    python tech_support_report.py --no-firmware
-
-Usage (integrated):
-    from modules.tech_support_report import TechSupportReport
-    report = TechSupportReport(scope=lumascope_instance)
-    report.generate(callback=progress_callback, output_dir=desktop_folder())
 
 Recent protocols list (reusable from GUI):
     from modules.tech_support_report import get_recent_protocols
@@ -36,7 +22,6 @@ Recent protocols list (reusable from GUI):
 
 import contextlib
 import dataclasses
-import datetime
 import enum
 import json
 import logging
@@ -52,30 +37,46 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import platformdirs
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraUsbLookupFailedError, HardwareError
+from drivers.usb_driver_binding import DeviceBinding
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
+from modules import wall_time
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
+    AxisStateUnknownError,
+    ControlSessionRefusedError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
     SUPPORT_ADDRESS,
     HomingFailedError,
+    MoveNotCompletedError,
     SupportReportNotSavedError,
 )
 from modules.lumascope_api.bring_up import CAUSE_PHRASES
 from modules.lumascope_api.diagnostics import (
-    LED_COMMANDS_V2,
+    LedCommandSet,
     NOT_CONNECTED,
     is_board_reply,
 )
-from modules.path_utils import desktop_folder, get_script_root, get_source_root
+from modules.path_utils import (
+    desktop_folder,
+    folder_to_make,
+    get_log_dir,
+    get_script_root,
+    get_source_root,
+)
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.api_surface import api, api_fields
+from modules.api_surface import ProgressCallback, api, api_fields
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.illumination import IlluminationAPI
+    from modules.lumascope_api.motion import MotionAPI
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,23 @@ def _get_user_documents():
     return pathlib.Path(platformdirs.user_documents_dir())
 
 
+# The value of an ``"api_key"`` member in a settings file, on its bytes: a
+# string -- escapes allowed, and cut off by a truncation -- or a bare value
+# up to its delimiter. Bytes, not text: a rejected file may not decode.
+_API_KEY_VALUE = re.compile(rb'("api_key"\s*:\s*)("(?:[^"\\]|\\.)*(?:"|\\?\Z)|[^,}\]\s]+)', re.S)
+
+
+def _without_api_keys(data: bytes) -> bytes:
+    """*data* with every ``"api_key"`` member's value blanked, and every byte outside a value kept.
+
+    A null stays null. Any section's key is blanked, a plugin's own among
+    them: without parsing, the bytes cannot say which section one is in.
+    """
+    return _API_KEY_VALUE.sub(
+        lambda m: m.group(1) + (b'null' if m.group(2) == b'null' else b'""'), data
+    )
+
+
 def _get_lvp_data_dir():
     """Return the LVP data/ directory (settings.json, scopes.json, etc.)."""
     data_dir = get_source_root() / 'data'
@@ -160,8 +178,8 @@ def _get_lvp_data_dir():
 
 
 def _get_lvp_logs_dir():
-    """Return the LVP logs/ directory, or None."""
-    logs_dir = get_source_root() / 'logs'
+    """Return the LVP logs/ directory, the log folder's parent, or None."""
+    logs_dir = get_log_dir().parent
     return logs_dir if logs_dir.is_dir() else None
 
 
@@ -210,7 +228,7 @@ def _get_protocol_dir():
 # ---------------------------------------------------------------------------
 
 
-def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
+def get_recent_protocols(n: int = RECENT_PROTOCOL_COUNT) -> list[dict]:
     """Return the N most recently modified protocol files.
 
     Returns list of dicts sorted by mtime descending::
@@ -235,7 +253,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
                 continue
             seen.add(real)
             try:
-                with open(proto_file) as f:
+                with open(proto_file, encoding='utf-8') as f:
                     head = f.read(2048)
             except (OSError, UnicodeDecodeError):
                 continue
@@ -254,7 +272,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
                 protocol_files.append(
                     {
                         'path': proto_file,
-                        'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
+                        'modified': wall_time.local_time(stat.st_mtime_ns),
                         'name': proto_file.stem,
                         'size': stat.st_size,
                     }
@@ -402,7 +420,7 @@ def _collect_system_info():
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
     else:
         try:
-            with open('/proc/cpuinfo') as f:
+            with open('/proc/cpuinfo', encoding='utf-8') as f:
                 info['cpu_detail'] = f.read()[:2000]
         except OSError:
             pass
@@ -423,7 +441,7 @@ def _collect_system_info():
             pass
     else:
         try:
-            with open('/proc/meminfo') as f:
+            with open('/proc/meminfo', encoding='utf-8') as f:
                 info['ram_detail'] = f.read()[:1000]
         except OSError:
             pass
@@ -825,22 +843,8 @@ class CameraBandwidthTest:
         self.scope = scope
         self.num_frames = num_frames
 
-    def run(self, progress_callback=None):
+    def run(self, progress_callback: ProgressCallback | None = None) -> dict:
         """Run test. Returns results dict."""
-        if self.scope is None:
-            return {
-                'num_frames_requested': self.num_frames,
-                'num_frames_received': 0,
-                'num_frames_none': 0,
-                'num_frames_error': 0,
-                'total_bytes': 0,
-                'elapsed_seconds': 0,
-                'mb_per_second': 0.0,
-                'fps_actual': 0.0,
-                'frame_sizes': [],
-                'errors': ['No scope available'],
-                'passed': False,
-            }
         return self.scope.diagnostics.run_camera_bandwidth_test(
             num_frames=self.num_frames,
             timeout_s=BANDWIDTH_TEST_TIMEOUT_S,
@@ -894,6 +898,14 @@ class _SkippedStep:
     consequence: str
 
 
+def _camera_reading(read: Callable[[], object]) -> object:
+    """A camera read's answer, or ``'not read: '`` and the camera's words when
+    the camera did not answer it (``FirmwareDiagnostics._what_the_hardware_said``)."""
+    answer = []
+    said = FirmwareDiagnostics._what_the_hardware_said(lambda: answer.append(read()))
+    return answer[0] if said is None else f'not read: {said}'
+
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -903,50 +915,28 @@ class FirmwareDiagnostics:
     Driver objects are NOT held on this class (LAYER-D / LV-32 / LV-40).
     """
 
-    # The command-line report builds its own scope with
-    # ``connect_standalone()``; the GUI report is handed the running one.
-
-    def __init__(self, scope=None):
+    def __init__(self, scope):
         self._scope = scope
-        # Why ``connect_standalone`` could not build a scope, or None.
-        self.build_failure: Exception | None = None
-
-    def connect_standalone(self) -> None:
-        """Build a scope for the command-line report through the API.
-
-        A scope that cannot be built (a missing or unreadable install file,
-        say) leaves ``self._scope`` None and the cause in
-        ``build_failure``, so the report can say in its own files why no
-        hardware step ran instead of reporting every board as unplugged.
-        """
-        try:
-            from modules.lumascope_api import Lumascope
-
-            self._scope = Lumascope.create_diagnostic()
-            self.build_failure = None
-        except Exception as e:
-            self._scope = None
-            self.build_failure = e
 
     @property
     def scope(self):
         return self._scope
 
     @property
-    def led_board(self):
+    def led_board(self) -> 'IlluminationAPI':
         """Backward-compat accessor returning a stable per-scope reference
         used by ``_target_str`` identity matching only. New diagnostic
         code MUST go through ``send_diagnostic_command``. Returns the
         post-Wave-7 illumination sub-API namespace (was ``scope.led``
         pre-Wave-7 -- that attribute no longer exists)."""
-        return getattr(self._scope, 'illumination', None) if self._scope else None
+        return self._scope.illumination
 
     @property
-    def motor_board(self):
+    def motor_board(self) -> 'MotionAPI':
         """Backward-compat accessor returning a stable per-scope reference
         used by ``_target_str`` identity matching only. New diagnostic
         code MUST go through ``send_diagnostic_command``."""
-        return getattr(self._scope, 'motion', None) if self._scope else None
+        return self._scope.motion
 
     def _led_ok(self) -> bool:
         """True when a real LED board is connected to this scope.
@@ -955,18 +945,14 @@ class FirmwareDiagnostics:
         ``scope.illumination`` is non-None even when only a NullLEDBoard is
         installed, so its truthiness says nothing.
         """
-        return self._scope is not None and self._scope.led_connected
+        return self._scope.led_connected
 
     def motor_board_presence(self) -> MotorBoardPresence:
         """Whether this scope's motor board is connected, missing, or never fitted.
 
         The scope's ``motion_expected`` tells a manual scope from one whose
-        board did not come up. The command-line report's scope is built
-        without a model, so it always expects a board and can only answer
-        connected or missing.
+        board did not come up.
         """
-        if self._scope is None:
-            return MotorBoardPresence.MISSING
         if self._scope.motor_connected:
             return MotorBoardPresence.CONNECTED
         if not self._scope.motion_expected:
@@ -998,7 +984,7 @@ class FirmwareDiagnostics:
         unread = self._unread_motor_board()
         if unread is not None:
             return unread
-        if self._scope.diagnostics.get_motor_info()['command_set'] is None:
+        if self._scope.diagnostics.get_motor_info().command_set is None:
             return {'not_applicable': NO_MOTOR_TEXT}
         return None
 
@@ -1024,10 +1010,10 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return {'error': 'LED board not connected'}
-        command_set = self._scope.diagnostics.get_led_info()['command_set']
+        command_set = self._scope.diagnostics.get_led_info().command_set
         if command_set is None:
             return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
-        if needs_v2 and command_set != LED_COMMANDS_V2:
+        if needs_v2 and command_set != LedCommandSet.V2:
             return {'not_applicable': 'Not supported by this LED firmware (needs v2 or later)'}
         return None
 
@@ -1045,7 +1031,7 @@ class FirmwareDiagnostics:
         except HardwareError as e:
             return str(e)
         except HardwareCommandRefusedError as e:
-            if e.reason not in HARDWARE_STATE_REASONS and e.reason != 'axis_absent':
+            if e.reason not in HARDWARE_STATE_REASONS and e.missing is None:
                 raise
             return str(e)
         return None
@@ -1093,8 +1079,6 @@ class FirmwareDiagnostics:
         target_str = self._target_str(target)
         if target_str is None:
             return NOT_CONNECTED
-        if self._scope is None:
-            return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command(
             target_str, command, timeout_s=timeout_s
         )
@@ -1103,8 +1087,6 @@ class FirmwareDiagnostics:
         """Send command and read multi-line response (for SELFTEST etc.)."""
         target_str = self._target_str(target)
         if target_str is None:
-            return NOT_CONNECTED
-        if self._scope is None:
             return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command_multiline(
             target_str, command, timeout_s=timeout_s, end_markers=end_markers
@@ -1124,8 +1106,6 @@ class FirmwareDiagnostics:
         # Post-Wave-7 the LED namespace is ``scope.illumination``; the
         # legacy ``scope.led`` attribute was retired. Motor namespace
         # remained ``scope.motion``.
-        if self._scope is None:
-            return None
         if target is getattr(self._scope, 'illumination', None):
             return 'led'
         if target is getattr(self._scope, 'motion', None):
@@ -1181,7 +1161,7 @@ class FirmwareDiagnostics:
         connect, or ``'UNKNOWN'``.
         """
         if self._no_motor_text() is not None:
-            return self._scope.diagnostics.get_motor_info()['serial_number'] or 'UNKNOWN'
+            return self._scope.diagnostics.get_motor_info().serial_number or 'UNKNOWN'
         fullinfo = self.get_motor_fullinfo()
         if not is_board_reply(fullinfo):
             return 'UNKNOWN'
@@ -1397,7 +1377,8 @@ class FirmwareDiagnostics:
         """Read every LED channel's current with the LEDs off.
 
         Passes only when every channel was read and is under the threshold:
-        a channel whose current could not be read is NOT MEASURED, and a
+        a read the board did not answer is the step's error, in the board's
+        words; a channel with no current sensing is NOT MEASURED; and a
         board that could not carry the check is ``not_applicable``, never a
         pass. Requires engineering mode (enters/exits automatically).
         """
@@ -1413,7 +1394,15 @@ class FirmwareDiagnostics:
                     ),
                     'passed': False,
                 }
-            currents = self._scope.diagnostics.read_led_currents_ma()
+            currents = {}
+            failed = self._what_the_hardware_said(
+                lambda: currents.update(self._scope.diagnostics.read_led_currents_ma())
+            )
+            if failed is not None:
+                return {
+                    'error': f'The LED board did not report its currents: {failed}',
+                    'passed': False,
+                }
         finally:
             self._exit_engineering()
         if not currents:
@@ -1457,12 +1446,13 @@ class FirmwareDiagnostics:
             'tests': [],
             'note': 'Informational only -- many units lack tachometer hardware',
         }
+        spin = fan.motor_fan_spin_times()
 
         # Test 1: Set fan to ~50% duty, read RPM
         failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(50))
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
-        time.sleep(2.0)
+        time.sleep(spin['spin_up_s'])
         rpm_50 = fan.read_motor_fan_rpm()
 
         has_tach = rpm_50 is not None and rpm_50 > 100
@@ -1478,7 +1468,7 @@ class FirmwareDiagnostics:
         failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(0))
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
-        time.sleep(3.0)
+        time.sleep(spin['spin_down_s'])
         rpm_off = fan.read_motor_fan_rpm()
 
         results['tests'].append(
@@ -1519,7 +1509,10 @@ class FirmwareDiagnostics:
         def _home(axis):
             try:
                 motion.home(axis)
-            except HomingFailedError as e:
+            except (HomingFailedError, MoveNotCompletedError, AxisStateUnknownError) as e:
+                # A move is the turret home's Z park or restore, whose outcome
+                # is the turret's result; the turret home is refused while an
+                # axis the home before it left unknown has no position.
                 return f'Error: {e}'
             except HardwareCommandRefusedError as e:
                 if e.reason not in HARDWARE_STATE_REASONS:
@@ -1542,14 +1535,17 @@ class FirmwareDiagnostics:
         if caps.has_focus:
             _record('Z', _home('Z'))
 
-        if caps.has_turret:
-            _record('T', _home('T'))
-
         # Home XY (the firmware's full home, as the raw HOME was)
         if caps.has_xy_stage:
             home_resp = _home('ALL')
             for ax in 'XY':
                 _record(ax, home_resp)
+
+        # The turret's own home last: it parks Z, a move, so it runs only
+        # once every axis has a position, which only the full home gives a
+        # scope whose home had failed.
+        if caps.has_turret:
+            _record('T', _home('T'))
 
         # Check for errors in responses
         for _ax, data in results['axes'].items():
@@ -1574,7 +1570,17 @@ class FirmwareDiagnostics:
 # ---------------------------------------------------------------------------
 
 
-_REPORT_TITLES = {'support report': 'Support Report Saved', 'logs zip': 'Logs Zip Saved'}
+class SupportReportKind(enum.StrEnum):
+    """Which ZIP a support request saved: the full support report, or the logs alone."""
+
+    SUPPORT_REPORT = 'support report'
+    LOGS_ZIP = 'logs zip'
+
+
+_REPORT_TITLES = {
+    SupportReportKind.SUPPORT_REPORT: 'Support Report Saved',
+    SupportReportKind.LOGS_ZIP: 'Logs Zip Saved',
+}
 
 
 @api_fields('path', 'report')
@@ -1584,27 +1590,30 @@ class SupportReportSaved:
 
     Attributes:
         path: The ZIP.
-        report: ``'support report'`` or ``'logs zip'``.
+        report: Which ZIP it is.
     """
 
     path: pathlib.Path
-    report: str
-
-    def __post_init__(self):
-        if self.report not in _REPORT_TITLES:
-            raise ValueError(
-                f'{self.report!r} is not a report; use one of {sorted(_REPORT_TITLES)}'
-            )
+    report: SupportReportKind
 
     @api
     @property
     def title(self) -> str:
+        """The title the saved report's notice is shown under.
+
+        Raises:
+            Nothing.
+        """
         return _REPORT_TITLES[self.report]
 
     @api
     @property
     def message(self) -> str:
-        """Where the ZIP is and where to send it; the folder is the one it was written to."""
+        """Where the ZIP is and where to send it; the folder is the one it was written to.
+
+        Raises:
+            Nothing.
+        """
         return (
             f'Saved to {self.path.parent}:\n{self.path.name}\n\n'
             f'Email this file to {SUPPORT_ADDRESS}.'
@@ -1614,7 +1623,7 @@ class SupportReportSaved:
 class TechSupportReport:
     """Generate a comprehensive diagnostic ZIP for Etaluma tech support."""
 
-    def __init__(self, scope=None, session=None):
+    def __init__(self, session):
         # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
         #
@@ -1622,35 +1631,20 @@ class TechSupportReport:
         # report takes the session's diagnostic claim around them, so a
         # run or a recording cannot start underneath a homing or a fan
         # sweep, and a report started during one skips those steps instead
-        # of driving the hardware out from under it.
+        # of driving the hardware out from under it. The report is built on
+        # its session alone, so none is made without the claim.
         self._session = session
-        if scope is not None:
-            self.scope = scope
-        elif session is not None:
-            self.scope = session.scope
-        else:
-            self.scope = None
+        self.scope = session.scope
 
         # FirmwareDiagnostics routes all serial I/O through the
-        # Lumascope API. In integrated mode it inherits the live scope; the
-        # command-line report calls ``diag.connect_standalone()`` later.
+        # Lumascope API, on the session's scope.
         self.diag = FirmwareDiagnostics(scope=self.scope)
 
         self._meta = {}
 
     def _camera_active(self) -> bool:
-        """True if a connected camera is reachable through the API.
-
-        Replaces the old ``self._camera is not None`` check. Goes through
-        the scope's diagnostic snapshot rather than reaching for the
-        driver handle directly (LAYER-D / LV-32).
-        """
-        if self.scope is None:
-            return False
-        try:
-            return bool(self.scope.diagnostics.get_camera_diagnostic_info().get('connected', False))
-        except Exception:
-            return False
+        """True when the scope's camera is connected."""
+        return self.scope.camera_connected
 
     def generate(
         self,
@@ -1662,15 +1656,21 @@ class TechSupportReport:
         """Make the full report and return the ZIP's path.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before the report starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries. A step that fails inside
-                the report is written into the report and does not raise.
+                the report is written into the report and does not raise,
+                except the data folder's copy: it is where a stored API key
+                is blanked, so a copy that went wrong is not shipped as if
+                it had not.
         """
+        output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
         try:
             return self._generate(cb, include_bandwidth_test, output_dir)
         except Exception as e:
-            raise SupportReportNotSavedError('support report', e) from e
+            raise SupportReportNotSavedError(SupportReportKind.SUPPORT_REPORT, e) from e
 
     def _generate(self, cb, include_bw, output_dir):
         cb(0, 'Starting report generation...')
@@ -1679,8 +1679,8 @@ class TechSupportReport:
         with tempfile.TemporaryDirectory(prefix='lvp_report_') as tmp:
             tmp = pathlib.Path(tmp)
 
-            # 1-9. Firmware, board, motion and camera steps  (0-41%)
-            sn = self._run_scope_steps(tmp, cb)
+            # 1-10. Firmware, board, motion and camera steps  (0-48%)
+            sn = self._run_scope_steps(tmp, cb, include_bw=include_bw)
 
             # 11. System info  (48-52%)
             cb(49, 'Collecting system information...')
@@ -1692,6 +1692,7 @@ class TechSupportReport:
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
+            self._step_camera_usb_bindings(tmp)
 
             # 13. Disk speed test  (55-60%)
             cb(56, 'Testing disk write speed...')
@@ -1717,11 +1718,6 @@ class TechSupportReport:
             cb(71, 'Collecting video recording receipts...')
             self._step_video_receipts(tmp)
 
-            # 19. Bandwidth test (optional)  (80-94%)
-            if include_bw and self._camera_active():
-                cb(81, 'Running camera bandwidth test (this takes a while)...')
-                self._step_bandwidth(tmp, cb)
-
             # 20. Metadata + ZIP  (94-100%)
             cb(95, 'Writing metadata...')
             self._step_metadata(tmp, sn)
@@ -1734,14 +1730,14 @@ class TechSupportReport:
 
     # -- Steps ---------------------------------------------------------------
 
-    def _step_firmware_info(self, tmp, refusal=None):
-        if refusal is not None:
-            return self._step_firmware_info_cached(tmp, refusal)
+    def _step_firmware_info(self, tmp, skip=None):
+        if skip is not None:
+            return self._step_firmware_info_cached(tmp, skip)
         d = tmp / 'firmware_info'
         d.mkdir()
 
         led_info = self.diag.get_led_info()
-        with open(d / 'led_info.txt', 'w') as f:
+        with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED Board INFO:\n{led_info}\n')
 
         if self._no_motor_board_on_this_model():
@@ -1752,21 +1748,21 @@ class TechSupportReport:
             motor_info = self.diag.get_motor_info()
             fullinfo = self.diag.get_motor_fullinfo()
             sn = self.diag.get_serial_number()
-            with open(d / 'motor_info.txt', 'w') as f:
+            with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'Motor Board INFO:\n{motor_info}\n\n')
                 f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
                 f.write(f'Serial Number: {sn}\n')
 
             positions = self.diag.get_motor_positions_all()
             drvstat = self.diag.get_driver_status_all()
-            with open(d / 'motor_status.txt', 'w') as f:
+            with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 _write_axis_section(f, 'Motor Positions', positions, json.dumps)
                 _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
 
         i2c = self.diag.get_i2c_scan()
         led_readings = self.diag.get_led_readings()
-        with open(d / 'peripherals.txt', 'w') as f:
+        with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\nI2C Scan: {i2c}\n\n')
             f.write(f'LED Readings (baseline, all off):\n{led_readings}\n')
 
@@ -1775,8 +1771,8 @@ class TechSupportReport:
         self._meta['motor_info'] = str(motor_info)
         return sn
 
-    def _step_firmware_info_cached(self, tmp, refusal):
-        """Step 1 while another activity holds the scope.
+    def _step_firmware_info_cached(self, tmp, skip):
+        """Step 1 while the scope is in use: another activity holds it, or a control session.
 
         The board queries go through the raw command channel, which the
         lane refuses to anyone but the holder. What the drivers cached at
@@ -1786,30 +1782,30 @@ class TechSupportReport:
         """
         d = tmp / 'firmware_info'
         d.mkdir()
-        led_info = self.scope.diagnostics.get_led_info()
+        led_info = self.scope.diagnostics.get_led_info().to_dict()
         skipped = (
-            f'SKIPPED board queries: {refusal.message}\n'
+            f'SKIPPED board queries: {skip.reason}\n'
             'The microscope was in use; these are the values cached at connect.\n'
         )
-        with open(d / 'led_info.txt', 'w') as f:
+        with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED Board (cached at connect):\n{led_info}\n\n{skipped}')
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
             sn = 'UNKNOWN'
             self._write_no_motor_board(d, sn)
         else:
-            motor_info = self.scope.diagnostics.get_motor_info()
-            sn = motor_info.get('serial_number') or 'UNKNOWN'
-            with open(d / 'motor_info.txt', 'w') as f:
+            motor_info = self.scope.diagnostics.get_motor_info().to_dict()
+            sn = motor_info['serial_number'] or 'UNKNOWN'
+            with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
                 f.write(f'Serial Number: {sn}\n\n{skipped}')
             drvstat = self.diag.get_driver_status_all()
-            with open(d / 'motor_status.txt', 'w') as f:
+            with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 f.write('Motor Positions: not read.\n')
                 f.write(skipped)
                 _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
-        with open(d / 'peripherals.txt', 'w') as f:
+        with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\n')
             f.write('I2C Scan and LED Readings: not read.\n')
             f.write(skipped)
@@ -1840,7 +1836,7 @@ class TechSupportReport:
         for board, label in boards:
             files = self.diag.read_config_files(board, label)
             if files is None:
-                with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
+                with open(d / f'{label}_config_UNAVAILABLE.txt', 'w', encoding='utf-8') as f:
                     f.write(
                         f'Could not read config files from {label} board.\n'
                         f'Board may not be connected or raw REPL entry failed.\n'
@@ -1867,7 +1863,9 @@ class TechSupportReport:
                 # Validate motorconfig.json
                 if safe_name.lower() == 'motorconfig.json':
                     validation = validate_motorconfig(content, f'{label}/{safe_name}')
-                    with open(d / f'{label}_motorconfig_validation.txt', 'w') as f:
+                    with open(
+                        d / f'{label}_motorconfig_validation.txt', 'w', encoding='utf-8'
+                    ) as f:
                         f.write(f'Motorconfig Validation ({label}/{safe_name})\n')
                         f.write(f'Valid: {validation["valid"]}\n\n')
                         if validation['errors']:
@@ -1881,51 +1879,40 @@ class TechSupportReport:
                         if not validation['errors'] and not validation['warnings']:
                             f.write('All checks passed.\n')
 
-    def _run_scope_steps(self, tmp, cb):
-        """Steps 1-9: every step that talks to the scope. Returns the serial number.
+    def _run_scope_steps(self, tmp, cb, *, include_bw):
+        """Steps 1-10: every step that talks to the scope. Returns the serial number.
 
-        Every step that sends a board command runs under the session's
-        diagnostic claim. When another activity holds the scope the claim is
-        refused, and the lanes would refuse those commands too: each such
-        step records that it was skipped and why, in the file its result
-        would have gone to, so the report says what it did not do rather
-        than leaving a gap. What does not need the lanes still goes in --
-        the identity the drivers cached at connect, the typed driver-status
-        and fan reads, and the camera temperatures.
+        Every step that sends a board command or grabs a frame runs under
+        the session's diagnostic claim. When another activity holds the
+        scope the claim is refused, and the lanes would refuse those
+        commands too: each such step records that it was skipped and why,
+        in the file its result would have gone to, so the report says what
+        it did not do rather than leaving a gap. What does not need the
+        lanes still goes in -- the identity the drivers cached at connect,
+        the typed driver-status and fan reads, and the camera temperatures.
+        ``include_bw`` adds the camera bandwidth test, step 10.
         """
         with contextlib.ExitStack() as held:
-            refusal = None
+            in_use = None
             skip = None
-            not_built = self.diag.build_failure
-            if not_built is not None:
+            # Another activity holding the scope, or a control session
+            # held by someone else: either way the microscope is in use.
+            try:
+                held.enter_context(self._session.diagnostic_claim())
+            except DiagnosticRefusedError as e:
+                in_use = e.message
+            except ControlSessionRefusedError as e:
+                in_use = str(e)
+            if in_use is not None:
                 skip = _SkippedStep(
-                    f'The scope could not be built: {type(not_built).__name__}: {not_built}',
-                    'No board or camera was reached, so this step did not run.',
+                    in_use,
+                    'The microscope was in use, so this step did not drive the hardware.',
                 )
-                self._meta['scope_not_built'] = skip.reason
-            # No session means the command-line report, which opens the
-            # boards in a process of its own; nothing in that process can
-            # contend for the scope, so there is no claim to take.
-            elif self._session is not None:
-                try:
-                    held.enter_context(self._session.diagnostic_claim())
-                except DiagnosticRefusedError as e:
-                    refusal = e
-                    skip = _SkippedStep(
-                        e.message,
-                        'The microscope was in use, so this step did not drive the hardware.',
-                    )
-                    logger.info(f'Report: hardware steps skipped -- {e.message}')
+                logger.info(f'Report: hardware steps skipped -- {in_use}')
 
             # 1. Firmware info + serial number  (0-5%)
             cb(1, 'Querying firmware...')
-            if not_built is not None:
-                self._record_skipped(
-                    tmp / 'firmware_info', 'firmware_info.txt', 'Firmware Info', skip
-                )
-                sn = 'UNKNOWN'
-            else:
-                sn = self._step_firmware_info(tmp, refusal)
+            sn = self._step_firmware_info(tmp, skip)
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
@@ -1988,17 +1975,24 @@ class TechSupportReport:
 
             # 9. Camera diagnostics (temp)  (38-41%)
             cb(39, 'Checking camera...')
-            if not_built is not None:
-                self._record_skipped(tmp / 'camera_info', 'camera_info.txt', 'Camera', skip)
-            else:
-                self._step_camera_diagnostics(tmp)
+            self._step_camera_diagnostics(tmp)
+
+            # 10. Bandwidth test (optional)  (41-48%)
+            if include_bw:
+                cb(41, 'Running camera bandwidth test (this takes a while)...')
+                if skip is not None:
+                    self._record_skipped(
+                        tmp / 'bandwidth_test', 'summary.txt', 'Camera Bandwidth Test', skip
+                    )
+                elif self._camera_active():
+                    self._step_bandwidth(tmp, cb)
         return sn
 
     @staticmethod
     def _record_skipped(directory, filename, title, skip):
         """Write a skipped step's file where its result would have gone."""
         directory.mkdir(exist_ok=True)
-        with open(directory / filename, 'w') as f:
+        with open(directory / filename, 'w', encoding='utf-8') as f:
             f.write(f'{title}\n' + '=' * 40 + '\n\n')
             f.write(f'SKIPPED: {skip.reason}\n')
             f.write(f'{skip.consequence}\n')
@@ -2010,9 +2004,9 @@ class TechSupportReport:
     def _write_no_motor_board(directory, sn):
         """The motor files of a scope built without a motor board: one statement each."""
         absent = f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n'
-        with open(directory / 'motor_info.txt', 'w') as f:
+        with open(directory / 'motor_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'{absent}\nSerial Number: {sn}\n')
-        with open(directory / 'motor_status.txt', 'w') as f:
+        with open(directory / 'motor_status.txt', 'w', encoding='utf-8') as f:
             f.write(absent)
 
     def _step_firmware_tests(self, tmp):
@@ -2020,7 +2014,7 @@ class TechSupportReport:
         d.mkdir()
 
         selftest = self.diag.run_led_selftest()
-        with open(d / 'led_selftest.txt', 'w') as f:
+        with open(d / 'led_selftest.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED SELFTEST:\n\n{selftest}\n')
 
     def _step_led_checks(self, tmp):
@@ -2030,7 +2024,7 @@ class TechSupportReport:
 
         # LED leakage
         leakage = self.diag.check_led_leakage()
-        with open(d / 'led_leakage.txt', 'w') as f:
+        with open(d / 'led_leakage.txt', 'w', encoding='utf-8') as f:
             f.write('LED Leakage Check (all LEDs off)\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in leakage:
                 f.write(f'{leakage["not_applicable"]}.\n')
@@ -2061,7 +2055,7 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         regs = self.diag.read_tmc5072_registers()
-        with open(d / 'tmc5072_registers.txt', 'w') as f:
+        with open(d / 'tmc5072_registers.txt', 'w', encoding='utf-8') as f:
             f.write('TMC5072 Register Dump\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in regs:
                 f.write(f'{regs["not_applicable"]}.\n')
@@ -2082,7 +2076,7 @@ class TechSupportReport:
                 f.write('  Bit 25: ot (overtemperature shutdown)\n')
                 f.write('  Bit 26: otpw (overtemperature pre-warning)\n')
                 f.write('  Bit 31: stst (standstill indicator)\n')
-        with open(d / 'tmc5072_registers.json', 'w') as f:
+        with open(d / 'tmc5072_registers.json', 'w', encoding='utf-8') as f:
             json.dump(regs, f, indent=2, default=str)
 
     def _step_fan_test(self, tmp):
@@ -2091,7 +2085,7 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         fan = self.diag.verify_fan_tachometer()
-        with open(d / 'fan_test.txt', 'w') as f:
+        with open(d / 'fan_test.txt', 'w', encoding='utf-8') as f:
             f.write('Fan Test (informational)\n' + '=' * 40 + '\n')
             f.write('Note: Many units in the field do not have a tachometer\n')
             f.write('wire installed. Zero RPM does not necessarily mean the\n')
@@ -2123,7 +2117,7 @@ class TechSupportReport:
             'motor', 'INFO'
         )
 
-        with open(d / 'serial_latency.txt', 'w') as f:
+        with open(d / 'serial_latency.txt', 'w', encoding='utf-8') as f:
             f.write('Serial Round-Trip Latency\n' + '=' * 40 + '\n\n')
             for label, latency in results.items():
                 f.write(f'--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
@@ -2149,7 +2143,7 @@ class TechSupportReport:
                             f'-- unstable USB connection **\n\n'
                         )
 
-        with open(d / 'serial_latency.json', 'w') as f:
+        with open(d / 'serial_latency.json', 'w', encoding='utf-8') as f:
             summary = {
                 label: {k: v for k, v in lat.items() if k != 'timings_ms'}
                 for label, lat in results.items()
@@ -2162,7 +2156,7 @@ class TechSupportReport:
         d.mkdir()
 
         homing = self.diag.run_homing_test()
-        with open(d / 'homing_test.txt', 'w') as f:
+        with open(d / 'homing_test.txt', 'w', encoding='utf-8') as f:
             f.write('Homing Test\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in homing:
                 f.write(f'{homing["not_applicable"]}.\n')
@@ -2176,7 +2170,7 @@ class TechSupportReport:
                     f.write(f'    Actual after:  {data.get("actual_after")}\n')
                     f.write(f'    Target after:  {data.get("target_after")}\n')
                     f.write(f'    Status:        {data.get("status")}\n\n')
-        with open(d / 'homing_test.json', 'w') as f:
+        with open(d / 'homing_test.json', 'w', encoding='utf-8') as f:
             json.dump(homing, f, indent=2, default=str)
 
     def _step_camera_diagnostics(self, tmp):
@@ -2188,35 +2182,37 @@ class TechSupportReport:
             (d / 'no_camera.txt').write_text('No camera available.\n')
             return
 
-        api_info = self.scope.diagnostics.get_camera_diagnostic_info()
+        camera = self.scope.camera
+        capabilities = self.scope.capabilities
+        limits = capabilities.camera_limits
 
-        # Flatten temperatures into the top-level info block so the
-        # output file format matches the historical layout (one
-        # 'Temperature_<name>' entry per sensor) downstream consumers
-        # may rely on.
-        info: dict = {}
-        for key in (
-            'model',
-            'resolution',
-            'pixel_format',
-            'gain_db',
-            'exposure_ms',
-            'max_gain_db',
-            'max_exposure_ms',
-        ):
-            if key in api_info:
-                info[key] = api_info[key]
-        temperatures = api_info.get('temperatures', {})
+        def frame_size() -> str:
+            size = camera.read_frame_size()
+            return f'{size.width}x{size.height}'
+
+        # A read the camera did not answer is written as such, and the rest
+        # still are. Temperatures are flattened into the block, one
+        # 'Temperature_<name>' entry per sensor, the layout the bundle has
+        # always had.
+        info: dict = {
+            'model': capabilities.camera_model,
+            'resolution': _camera_reading(frame_size),
+            'pixel_format': _camera_reading(camera.read_pixel_format),
+            'gain_db': _camera_reading(camera.read_gain_db),
+            'exposure_ms': _camera_reading(camera.read_exposure_ms),
+            'max_gain_db': limits.gain_max_db if limits else None,
+            'max_exposure_ms': limits.exposure_max_ms if limits else None,
+        }
+        temperatures = _camera_reading(self.scope.diagnostics.get_camera_temperatures_degc)
         if isinstance(temperatures, str):
-            # The snapshot's per-field error string: the read failed.
             info['Temperatures'] = temperatures
         else:
-            for name, temp_c in temperatures.items():
+            for name, temp_c in (temperatures or {}).items():
                 info[f'Temperature_{name}'] = temp_c
 
-        with open(d / 'camera_info.txt', 'w') as f:
+        with open(d / 'camera_info.txt', 'w', encoding='utf-8') as f:
             f.write('Camera Information\n' + '=' * 40 + '\n\n')
-            f.write(f'Camera model: {api_info.get("model", "?")}\n\n')
+            f.write(f'Camera model: {capabilities.camera_model}\n\n')
             for key, val in info.items():
                 label = key.replace('get_', '').replace('_', ' ').title()
                 f.write(f'  {label}: {val}\n')
@@ -2232,7 +2228,7 @@ class TechSupportReport:
                             f'    ** Note: sensor at {val}degC '
                             f'(elevated, may affect image noise) **\n'
                         )
-        with open(d / 'camera_info.json', 'w') as f:
+        with open(d / 'camera_info.json', 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, default=str)
 
     def _step_disk_speed(self, tmp):
@@ -2304,7 +2300,7 @@ class TechSupportReport:
             except Exception:
                 pass
 
-        with open(d / 'disk_speed.txt', 'w') as f:
+        with open(d / 'disk_speed.txt', 'w', encoding='utf-8') as f:
             f.write('Disk Speed Test\n' + '=' * 40 + '\n\n')
             f.write(f'Test directory: {results.get("test_directory")}\n')
             f.write(f'Test size:      {DISK_SPEED_TEST_MB} MB\n\n')
@@ -2329,7 +2325,7 @@ class TechSupportReport:
                         f'** Write speed below {DISK_SPEED_WARN_MBPS} MB/s -- '
                         f'video recording may drop frames **\n'
                     )
-        with open(d / 'disk_speed.json', 'w') as f:
+        with open(d / 'disk_speed.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=str)
 
     def _step_runtime_census(self, tmp):
@@ -2375,7 +2371,7 @@ class TechSupportReport:
                 lines.append('  (none)')
         except Exception as e:
             lines.append(f'  on-disk CRT listing failed: {type(e).__name__}: {e}')
-        with open(d / 'runtime_census.txt', 'w') as f:
+        with open(d / 'runtime_census.txt', 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
 
     def _step_system_info(self, tmp):
@@ -2383,10 +2379,10 @@ class TechSupportReport:
         d.mkdir()
 
         info = _collect_system_info()
-        with open(d / 'system_info.json', 'w') as f:
+        with open(d / 'system_info.json', 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, default=str)
 
-        with open(d / 'summary.txt', 'w') as f:
+        with open(d / 'summary.txt', 'w', encoding='utf-8') as f:
             f.write(f'OS:      {info.get("platform")}\n')
             f.write(f'Python:  {info.get("python_version")}\n')
             f.write(f'CPU:     {info.get("cpu")}\n')
@@ -2432,7 +2428,7 @@ class TechSupportReport:
         # Also write full pip freeze as separate file for easy diff
         pip_freeze = info.get('pip_freeze', '')
         if pip_freeze and 'Error' not in pip_freeze[:10]:
-            with open(d / 'pip_freeze.txt', 'w') as f:
+            with open(d / 'pip_freeze.txt', 'w', encoding='utf-8') as f:
                 f.write(pip_freeze)
 
     def _step_usb_devices(self, tmp):
@@ -2441,29 +2437,90 @@ class TechSupportReport:
 
         for label, content in _collect_usb_devices():
             safe = label.replace(' ', '_').replace('/', '_')
-            with open(d / f'{safe}.txt', 'w') as f:
+            with open(d / f'{safe}.txt', 'w', encoding='utf-8') as f:
                 f.write(content if isinstance(content, str) else str(content))
 
         devmgr = _collect_device_manager_full()
         if devmgr and 'Error' not in str(devmgr)[:20]:
-            with open(d / 'device_manager_full.csv', 'w') as f:
+            with open(d / 'device_manager_full.csv', 'w', encoding='utf-8') as f:
                 f.write(devmgr)
 
+    def _step_camera_usb_bindings(self, tmp):
+        """Which driver Windows has bound to each USB identity of a Lumascope Classic.
+
+        The read the camera's connect makes, so the report shows why a
+        Classic did not come up on a wrong or missing driver.
+        """
+        d = tmp / 'camera_usb_bindings'
+        d.mkdir()
+        lines = ['Lumascope Classic USB driver bindings', '=' * 40, '']
+        try:
+            bindings = self.scope.diagnostics.get_camera_usb_bindings()
+        except CameraUsbLookupFailedError as e:
+            lines.append(f'The bindings could not be read: {e}')
+            bindings = None
+        else:
+            if bindings is None:
+                lines.append('Not read: this host binds no driver to a USB device.')
+        for identity in bindings or ():
+            usable = 'usable' if identity.usable else 'NOT USABLE'
+            lines.append(
+                f'{identity.name} ({identity.hardware_id}): {usable}; '
+                f'needs one of {", ".join(identity.needs)}'
+            )
+            for device in identity.devices:
+                described = DeviceBinding(**dataclasses.asdict(device)).describe()
+                lines.append(f'  {described}')
+            if not identity.devices:
+                lines.append('  no device of this identity seen')
+        (d / 'camera_usb_bindings.txt').write_text('\n'.join(lines) + '\n')
+        if bindings is not None:
+            with open(d / 'camera_usb_bindings.json', 'w', encoding='utf-8') as f:
+                json.dump([identity.to_dict() for identity in bindings], f, indent=2)
+
     def _step_data_folder(self, tmp):
+        """Copy the data folder, every ``current.json*``'s stored ``api_key`` value blanked.
+
+        The live settings file, each one set aside as rejected and a
+        ``.saving`` a power cut left are all copied: support reads them
+        for what they hold, the corruption included, so the blank is made
+        on their bytes and every other byte is kept. A copy that fails
+        raises. A file gone between the listing and its copy -- the
+        settings saver renames its ``.saving`` over ``current.json`` -- is
+        not there to copy, and is named in ``NOT_COPIED.txt``.
+        """
         data_dir = _get_lvp_data_dir()
         if not data_dir or not data_dir.is_dir():
             return
         dest = tmp / 'data'
-        try:
-            shutil.copytree(
-                data_dir,
-                dest,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+        gone = []
+
+        def copy(src: str, dst: str) -> None:
+            try:
+                if os.path.basename(src).startswith('current.json'):
+                    with open(src, 'rb') as f:
+                        data = f.read()
+                    with open(dst, 'wb') as f:
+                        f.write(_without_api_keys(data))
+                else:
+                    shutil.copy2(src, dst)
+            except FileNotFoundError:
+                if os.path.exists(src):
+                    raise
+                gone.append(os.path.relpath(src, data_dir))
+
+        shutil.copytree(
+            data_dir,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+            copy_function=copy,
+        )
+        if gone:
+            (dest / 'NOT_COPIED.txt').write_text(
+                'Gone from the data folder between its listing and its copy:\n'
+                + ''.join(f'{name}\n' for name in gone)
             )
-        except Exception as e:
-            dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f'Copy failed: {e}\n')
 
     def _step_logs(self, tmp):
         logs_dir = _get_lvp_logs_dir()
@@ -2514,7 +2571,7 @@ class TechSupportReport:
         for i, p in enumerate(protocols, 1):
             p['bundle_name'] = f'{i:02d}_{p["name"]}{p["path"].suffix}'
 
-        with open(d / '_index.txt', 'w') as f:
+        with open(d / '_index.txt', 'w', encoding='utf-8') as f:
             f.write(f'Most Recent {len(protocols)} Protocols\n{"=" * 40}\n\n')
             for i, p in enumerate(protocols, 1):
                 f.write(f'{i:2d}. {p["bundle_name"]}\n')
@@ -2589,23 +2646,24 @@ class TechSupportReport:
         d.mkdir()
 
         def bw_cb(pct, msg):
-            cb(81 + int(pct * 0.13), f'Bandwidth: {msg}')
+            cb(41 + int(pct * 0.07), f'Bandwidth: {msg}')
 
         bw = CameraBandwidthTest(self.scope)
         results = bw.run(progress_callback=bw_cb)
 
-        with open(d / 'results.json', 'w') as f:
+        with open(d / 'results.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=str)
 
-        with open(d / 'summary.txt', 'w') as f:
+        with open(d / 'summary.txt', 'w', encoding='utf-8') as f:
             f.write('Camera Bandwidth Test\n' + '=' * 40 + '\n\n')
             f.write(f'Resolution:      {results.get("resolution", "?")}\n')
-            f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n')
-            f.write(f'Configured FPS:  {results.get("configured_fps", "?")}\n\n')
+            f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n\n')
             f.write(f'Frames requested: {results["num_frames_requested"]}\n')
             f.write(f'Frames received:  {results["num_frames_received"]}\n')
-            f.write(f'Frames None:      {results["num_frames_none"]}\n')
-            f.write(f'Frames errored:   {results["num_frames_error"]}\n\n')
+            f.write(f'Frames failed:    {results["num_frames_failed"]}\n')
+            for reason, count in sorted(results['failed_by_reason'].items()):
+                f.write(f'  {reason}: {count}\n')
+            f.write('\n')
             total_mb = results['total_bytes'] / (1024 * 1024)
             f.write(f'Total data:   {total_mb:.1f} MB\n')
             f.write(f'Elapsed:      {results["elapsed_seconds"]:.1f} s\n')
@@ -2620,14 +2678,14 @@ class TechSupportReport:
     def _step_metadata(self, tmp, sn):
         meta = {
             'report_version': REPORT_VERSION,
-            'generated_at': datetime.datetime.now().isoformat(),
+            'generated_at': wall_time.now().isoformat(),
             'serial_number': sn,
             'lvp_version': self._get_lvp_version(),
             'generator': 'tech_support_report.py',
             'contents': sorted(d.name for d in tmp.iterdir() if d.is_dir()),
         }
         meta.update(self._meta)
-        with open(tmp / 'report_metadata.json', 'w') as f:
+        with open(tmp / 'report_metadata.json', 'w', encoding='utf-8') as f:
             json.dump(meta, f, indent=2, default=str)
 
     # -- Helpers -------------------------------------------------------------
@@ -2639,7 +2697,7 @@ class TechSupportReport:
         # writer that landed in whichever log file happened to have the
         # newest mtime -- usually the camera.log firehose, never
         # reliably the main log the marker is meant for.
-        ts = datetime.datetime.now().isoformat()
+        ts = wall_time.now().isoformat()
         logger.info(LOG_DELIMITER.format(timestamp=ts))
 
     def _get_lvp_version(self):
@@ -2688,25 +2746,9 @@ class TechSupportReport:
     def _step_bring_up(self, tmp):
         """What bring-up found: each part and why it is not up, the substitutions, the settings set aside.
 
-        The session's record when there is one; the command-line report's
-        diagnostic scope's otherwise, which holds the two boards and no
-        camera and expects every board. No scope, no record: the file says
-        why there is none.
+        The session's record.
         """
-        if self._session is not None:
-            record = self._session.bring_up_record()
-        elif self.diag.scope is not None:
-            record = self.diag.scope.bring_up_record()
-        else:
-            failure = self.diag.build_failure
-            why = (
-                f'the scope could not be built: {type(failure).__name__}: {failure}'
-                if failure is not None
-                else 'the report ran without connecting to the scope'
-            )
-            body = {'record': None, 'why': why}
-            (tmp / 'bring_up.json').write_text(json.dumps(body, indent=2))
-            return
+        record = self._session.bring_up_record()
         body = dataclasses.asdict(record)
         for part in body['parts']:
             part['cause_words'] = CAUSE_PHRASES.get(part['cause']) if part['cause'] else None
@@ -2714,7 +2756,7 @@ class TechSupportReport:
 
     def _step_plugins(self, tmp):
         """The loaded plugins, the ones that did not load and why, and their runtime errors."""
-        health = self._session.plugin_health() if self._session is not None else None
+        health = self._session.plugin_health()
         if health is None:
             body = {'plugins': None, 'why': 'no plugin registry on this host'}
         else:
@@ -2738,9 +2780,12 @@ class TechSupportReport:
         the full report. Returns the ZIP's path.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before the zip starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """
+        output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
         try:
             with tempfile.TemporaryDirectory(prefix='lvp_logs_') as tmp:
@@ -2767,12 +2812,12 @@ class TechSupportReport:
                 #    path the full TSR uses, so an SN reachable via
                 #    FULLINFO surfaces here too.
                 # 3. 'logs' fallback only when both are unavailable
-                #    (standalone runs, motor not connected).
+                #    (motor not connected).
                 sn_tag = None
                 try:
                     mb = self.diag.motor_board
                     # A scope with no motor board has no motor configuration.
-                    motorconfig = getattr(mb, 'motorconfig', None) if mb is not None else None
+                    motorconfig = getattr(mb, 'motorconfig', None)
                     if motorconfig is not None:
                         sn = motorconfig.serial_number()
                         if sn and sn != 'Unknown':
@@ -2806,9 +2851,7 @@ class TechSupportReport:
                 if not sn_tag:
                     sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'
-                self._meta['report_generated_at'] = datetime.datetime.now().isoformat(
-                    timespec='seconds'
-                )
+                self._meta['report_generated_at'] = wall_time.now().isoformat(timespec='seconds')
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
 
                 cb(95, 'Creating ZIP file...')
@@ -2821,14 +2864,14 @@ class TechSupportReport:
                 cb(100, f'Done -- {zip_path.name}')
                 return zip_path
         except Exception as e:
-            raise SupportReportNotSavedError('logs zip', e) from e
+            raise SupportReportNotSavedError(SupportReportKind.LOGS_ZIP, e) from e
 
     def _create_zip(self, tmp, sn, output_dir, report_type='tsr'):
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
-        ts = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
+        ts = wall_time.now().strftime('%Y-%m-%d-%H%M%S')
         # Full tech-support reports carry a "TSR" token so support
         # engineers can visually distinguish them from logs-only user
         # dumps (`SNlogs-<ts>.zip`) that ship with manual error reports.
@@ -2861,134 +2904,3 @@ class TechSupportReport:
 
         logger.info(f'Report saved: {zip_path}')
         return zip_path
-
-
-# ---------------------------------------------------------------------------
-# Standalone CLI
-# ---------------------------------------------------------------------------
-
-
-def main() -> int:
-    """Run diagnostics from command line without LumaViewPro."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description='Etaluma LumaViewPro -- Tech Support Diagnostic Report',
-        epilog=(
-            'The command-line report does not know the scope model, so it cannot tell '
-            'a scope built without a motor board (LS560, LS620) from one whose board '
-            'is not connected: both read "Motor board not connected". The report '
-            'generated from LumaViewPro tells them apart.'
-        ),
-    )
-    parser.add_argument(
-        '--output', '-o', type=str, default=None, help='Output directory (default: Desktop)'
-    )
-    parser.add_argument(
-        '--bandwidth-test', action='store_true', help='Include camera bandwidth test (~2-5 min)'
-    )
-    parser.add_argument(
-        '--no-firmware',
-        action='store_true',
-        help='Skip firmware communication (no hardware needed)',
-    )
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    )
-
-    logger.info('')
-    logger.info('=' * 56)
-    logger.info('  Etaluma Diagnostics -- Tech Support Report Generator')
-    logger.info('=' * 56)
-    logger.info('')
-
-    report = TechSupportReport()
-
-    def connect():
-        """Build the scope and say what came up: (LED ok, motor ok, built)."""
-        report.diag.connect_standalone()
-        not_built = report.diag.build_failure
-        if not_built is not None:
-            # Not a cable or power fault: power-cycle advice would send the
-            # user after the wrong thing, and a retry fails the same way.
-            logger.error(f'  The scope could not be built: {type(not_built).__name__}: {not_built}')
-            logger.error('  The report will say so; no hardware test will run.')
-            return False, False, False
-        led_ok = report.diag._led_ok()
-        mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
-        logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
-        logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
-        return led_ok, mot_ok, True
-
-    if not args.no_firmware:
-        logger.info('Connecting to hardware...')
-        led_ok, mot_ok, built = connect()
-
-        # If neither board found, prompt for power cycle before giving up
-        if built and not led_ok and not mot_ok:
-            logger.info('')
-            logger.info('  ** No boards detected. **')
-            logger.info('  Please try the following:')
-            logger.info('    1. Check that the USB cable is connected')
-            logger.info('    2. Power-cycle the system (turn off, wait 10 seconds, turn on)')
-            logger.info('    3. Wait 30 seconds for the boards to boot')
-            try:
-                input('  Press Enter to retry (Ctrl-C to skip hardware)...')
-            except KeyboardInterrupt:
-                logger.info('  Skipping hardware.')
-                led_ok = False
-                mot_ok = False
-            else:
-                logger.info('  Retrying...')
-                led_ok, mot_ok, built = connect()
-                if built and not led_ok and not mot_ok:
-                    logger.info('')
-                    logger.info('  Still no boards found. Generating report without hardware.')
-                    logger.info(f'  Please include this report and contact {SUPPORT_ADDRESS}')
-                    logger.info('')
-
-        # Boards are owned by report.diag -- no need to copy them to report
-        if mot_ok:
-            logger.info('')
-            logger.info('  ** The stage will be homed and moved during testing.  **')
-            logger.info('  ** This process may take 5-10 minutes to complete.    **')
-            try:
-                input('  Press Enter to continue (Ctrl-C to cancel)...')
-            except KeyboardInterrupt:
-                logger.info('  Cancelled.')
-                return 1
-    else:
-        logger.info('Skipping firmware (--no-firmware)')
-
-    logger.info('')
-
-    def cli_progress(pct, msg):
-        filled = int(30 * pct / 100)
-        bar = '#' * filled + '-' * (30 - filled)
-        # Progress bar uses carriage return -- keep as print for CLI display
-        print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
-
-    try:
-        zip_path = report.generate(
-            callback=cli_progress,
-            include_bandwidth_test=args.bandwidth_test,
-            output_dir=args.output or desktop_folder(),
-        )
-    except SupportReportNotSavedError as e:
-        print('\n')  # Newline after progress bar
-        logger.error(f'  {e}', exc_info=e)
-        logger.info('')
-        return 1
-
-    print('\n')  # Newline after progress bar
-    logger.info(f'  {SupportReportSaved(zip_path, "support report").message}')
-    logger.info('')
-
-    return 0
-
-
-if __name__ == '__main__':
-    sys.exit(main())

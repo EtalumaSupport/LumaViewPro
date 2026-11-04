@@ -1,0 +1,136 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A step whose autofocus did not focus is on the run's record.
+
+An autofocus scan, and a capture protocol with autofocus steps, carry on at
+the fallback Z when a step's autofocus fails -- and ended 'completed', "The
+run finished normally.", with nothing on the outcome to say which steps
+were captured, or left, at a focus nobody found. Now the outcome lists each
+such step (``RunOutcome.focus_failures``) and the ending's words name them;
+the status stays 'completed'.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+import modules.autofocus_functions as autofocus_functions
+from modules.exceptions import AutofocusFailedError
+from modules.image_utils import read_file_record
+from modules.run_outcome import PendingRunOutcome, RunEnding
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from tests.test_a_late_write_records_its_frame import _step
+from tests.test_a_run_reports_what_it_captured import _run
+from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
+
+FLAT = str(AutofocusFailedError('flat_focus_curve'))
+
+
+@pytest.fixture
+def every_score_zero(monkeypatch):
+    """Every frame scores zero: every autofocus sweep's curve is flat."""
+    monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
+
+
+def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, every_score_zero):
+    rig = _AfRig()
+    try:
+        plan = rig.prepare_autofocus(
+            tmp_path, save_data=False, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+        )
+        outcome = rig.runner.start(plan).result(timeout=COMPLETION_TIMEOUT)
+    finally:
+        rig.close()
+
+    assert outcome.status == 'completed', outcome
+    assert outcome.message == (
+        'The scan finished; autofocus did not focus 1 step, whose focus was not updated.'
+    )
+    assert [(f.scan_index, f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
+        (0, 0, 'AF_test', FLAT)
+    ]
+
+
+def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
+    tmp_path, every_score_zero
+):
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        outcome = _run(
+            runner,
+            tmp_path / 'runs',
+            [_step('C0', 0, x=20.0, gain=1.0, autofocus=True), _step('C1', 1, x=30.0, gain=1.0)],
+        )
+
+    assert outcome.status == 'completed', outcome
+    assert (outcome.captures.asked, outcome.captures.captured) == (2, 2)
+    assert outcome.message == (
+        'The run finished; autofocus did not focus 1 step, which was captured at its '
+        'fallback focus.'
+    )
+    assert [(f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
+        (0, 'C0', FLAT)
+    ]
+
+
+def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
+    """The run's outcome names the step, but a file travels without it: the
+    file of a step captured at its fallback focus states why autofocus did
+    not focus, and a file of a step with no autofocus states nothing."""
+    runs = tmp_path / 'runs'
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        _run(
+            runner,
+            runs,
+            [_step('C0', 0, x=20.0, gain=1.0, autofocus=True), _step('C1', 1, x=30.0, gain=1.0)],
+        )
+
+    def _saved(name):
+        [path] = [p for p in runs.rglob('*.tiff') if name in p.name]
+        return read_file_record(path)
+
+    assert _saved('C0')['fallback_focus'] == FLAT
+    assert 'fallback_focus' not in _saved('C1')
+
+
+def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
+    """A video step's frames go through the still's writer, so each frame's
+    file of a step recorded at its fallback focus states why autofocus did
+    not focus, and a frame of a step with no autofocus states nothing."""
+    settings = headless_settings(tmp_path)
+    settings['video_as_frames'] = True
+    steps = [
+        _step('V0', 0, x=20.0, gain=1.0, autofocus=True),
+        _step('V1', 1, x=30.0, gain=1.0),
+    ]
+    for step in steps:
+        step['Acquire'] = 'video'
+        step['Video Config'] = {'duration': 0.4}
+    runs = tmp_path / 'runs'
+    with open_composite_session(settings) as (_session, runner):
+        _run(runner, runs, steps)
+
+    def _frames(name):
+        frames = [p for p in runs.rglob('*_Frame_*.tiff') if name in p.parent.name]
+        assert frames, f'step {name} wrote no frame files'
+        return [read_file_record(path) for path in frames]
+
+    assert {written.get('fallback_focus') for written in _frames('V0')} == {FLAT}
+    assert all('fallback_focus' not in written for written in _frames('V1'))
+
+
+def test_every_settle_path_carries_the_focus_failures():
+    from modules.run_outcome import FocusFailure
+
+    failures = (FocusFailure(scan_index=0, step_index=1, step_name='B', cause='flat'),)
+    ending = RunEnding('completed', 'completed', 'm')
+    for settle in (
+        lambda pending: pending.resolve_if_pending(ending),
+        lambda pending: pending.force_resolve('shutdown', fallback=ending),
+        lambda pending: pending.resolve(
+            pending.arm(ending), merged=False, artifact_path=None, merge_reason=''
+        ),
+    ):
+        pending = PendingRunOutcome()
+        pending.record_focus_failures(failures)
+        assert settle(pending) is True
+        assert pending.wait(timeout_s=1.0).focus_failures == failures

@@ -20,6 +20,7 @@ reach the file lane through the default-queue path.
 
 import queue
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 EXPECTED_NAME = 'TEST_WORKER'
@@ -45,7 +46,7 @@ class _NamingSpyQueue:
 
 
 def _executor_with_spy(attr: str) -> tuple[SequentialIOExecutor, _NamingSpyQueue]:
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     spy = _NamingSpyQueue(getattr(executor, attr))
     setattr(executor, attr, spy)
     return executor, spy
@@ -76,7 +77,7 @@ def test_name_is_assigned_even_when_the_enqueue_is_refused():
     rather than the queue state: a later reader moving the call back down to
     the insertion sites reintroduces the race these tests exist to stop.
     """
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     executor.protocol_start()
     task = IOTask(lambda: None)
     assert executor.put(task) is None

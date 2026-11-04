@@ -20,6 +20,8 @@ import time
 
 import pytest
 
+from modules.lumascope_api.bring_up import Part
+from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
 import modules.protocol_run_loop as protocol_run_loop
 from modules.run_events import RunEvents
@@ -101,11 +103,11 @@ class TestAShortRunWhileTheFileWorkerWaits:
             lane_queue.get = _parked_get
             try:
                 assert parked.wait(WAIT_S), 'the file worker never came back to its wait'
-                outcome = runner.run_single_scan(
+                outcome = runner.start_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                 )
-                result = outcome.wait(timeout_s=WAIT_S)
+                result = outcome.result(timeout=WAIT_S)
                 assert result is not None and result.status == 'completed', result
                 assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             finally:
@@ -113,7 +115,7 @@ class TestAShortRunWhileTheFileWorkerWaits:
 
             # The run's files are done, written or given up on; the loss
             # this pins is silent, so what is on disk then is the answer.
-            assert outcome.wait_for_files(timeout_s=WAIT_S) is not None, (
+            assert outcome.files.result(timeout=WAIT_S) is not None, (
                 'the run never finished its files'
             )
             images = _images(run_parent)
@@ -145,20 +147,20 @@ class TestAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
             assert result.reason == 'hardware_disconnected', result
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
@@ -197,20 +199,20 @@ class TestAnErrorAbort:
 
         monkeypatch.setattr(ProtocolExecutionRecord, 'complete', _recorded_complete)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert not any(e[0] == 'record_complete' for e in heard_events.events), (
@@ -232,12 +234,12 @@ class TestBackToBackRuns:
             engine = runner.sequenced_capture_runner
             for index in range(3):
                 heard_events = _Heard()
-                outcome = runner.run_single_scan(
+                outcome = runner.start_single_scan(
                     protocol=_protocol([_step(f'C{index}', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                     events=heard_events.as_events(),
                 )
-                assert outcome.wait(timeout_s=WAIT_S) is not None
+                assert outcome.result(timeout=WAIT_S) is not None
                 assert heard_events.files_done.wait(WAIT_S), (
                     f'run {index} never heard files_written'
                 )
@@ -274,25 +276,28 @@ class TestANewRunWhileTheLastRunsFilesWrite:
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             engine = runner.sequenced_capture_runner
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             # Read the moment the outcome releases its caller: an L2 script
             # waits on the outcome and then asks whether the disk has
             # settled, and must not be told it has.
-            assert session.protocol_files_draining, (
+            assert session.live_work.has(live_work.WorkKind.RUN_FILES), (
                 'the outcome released its caller before the run closed its writes'
             )
             assert engine.wait_for_run_idle(WAIT_S)
             assert started.acquire(timeout=WAIT_S)
 
-            assert session.protocol_files_draining
-            assert session.protocol_files_pending == 1
+            assert [
+                item.left
+                for item in session.live_work.work
+                if item.kind == live_work.WorkKind.RUN_FILES
+            ] == [1]
             with pytest.raises(ProtocolRunRefusedError) as refused:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                 )
@@ -300,12 +305,12 @@ class TestANewRunWhileTheLastRunsFilesWrite:
 
             release.set()
             assert heard_events.files_done.wait(WAIT_S)
-            assert not session.protocol_files_draining
-            second = runner.run_single_scan(
+            assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
+            second = runner.start_single_scan(
                 protocol=_protocol([_step('C3', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
 
 
 class TestTheRunsWritesCloseBeforeItEnds:
@@ -342,11 +347,11 @@ class TestTheRunsWritesCloseBeforeItEnds:
 
             monkeypatch.setattr(engine, '_settle_run_outcome', _settle)
             monkeypatch.setattr(engine, '_set_state', _set_state)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             assert engine.wait_for_run_idle(WAIT_S)
             assert started.acquire(timeout=WAIT_S)
             release.set()
@@ -372,7 +377,7 @@ class TestACleanupThatRaises:
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
             engine = runner.sequenced_capture_runner
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
@@ -381,11 +386,11 @@ class TestACleanupThatRaises:
             assert engine.wait_for_run_idle(WAIT_S)
             time.sleep(0.3)
             monkeypatch.undo()
-            second = runner.run_single_scan(
+            second = runner.start_single_scan(
                 protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
 
         assert [event[0] for event in heard_events.events] == ['run_ended', 'files_written']
 
@@ -416,12 +421,12 @@ class TestAStartThatFails:
                     return future
 
                 monkeypatch.setattr(engine.protocol_thread, 'run_protocol', _refused)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed_at_start', result
             assert engine.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'files_written never came'
@@ -450,28 +455,28 @@ class TestARunAfterAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             engine = runner.sequenced_capture_runner
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
             first_files = _Heard()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('A1', 0, x=20.0, gain=1.0), _step('A2', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent / 'first'),
                 events=first_files.as_events(),
             )
-            assert first.wait(timeout_s=WAIT_S).status == 'failed'
+            assert first.result(timeout=WAIT_S).status == 'failed'
             assert engine.wait_for_run_idle(WAIT_S)
             assert first_files.files_done.wait(WAIT_S)
             disconnected.clear()
 
             release, started = _hold_saves(monkeypatch)
             second_files = _Heard()
-            second = runner.run_single_scan(
+            second = runner.start_single_scan(
                 protocol=_protocol(
                     [
                         _step('B1', 0, x=20.0, gain=1.0),
@@ -483,7 +488,7 @@ class TestARunAfterAnErrorAbort:
                 events=second_files.as_events(),
             )
             assert started.acquire(timeout=WAIT_S), "the second run's first write never started"
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
             release.set()
             assert second_files.files_done.wait(WAIT_S), 'files_written never came'
 
@@ -513,13 +518,13 @@ class TestAWriteWhoseFailureReportRaises:
                 raise RuntimeError('reporting the failure failed')
 
             monkeypatch.setattr(lane, '_report_task_failure', _report_fails)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'the failed write left the batch owing it'
-            assert not session.protocol_files_draining
+            assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
         assert reports, "the save's failure was never reported"

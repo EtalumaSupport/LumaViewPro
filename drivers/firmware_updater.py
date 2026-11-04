@@ -47,10 +47,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from collections.abc import Callable
+from typing import ClassVar
 
+import serial
 import serial.tools.list_ports as list_ports
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, HardwareError
 from drivers.serialboard import SerialBoard
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,9 @@ class UpdateStage(Enum):
 
 class UpdateError(Fault, Exception):
     """Firmware update failure with stage and recoverability info."""
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'update_failed': None}
+    title = 'Firmware Update Failed'
 
     def __init__(self, message: str, stage: UpdateStage, recoverable: bool = True):
         super().__init__(message)
@@ -310,7 +316,7 @@ def _detect_bootsel_windows():
                 if info_file.exists():
                     logger.info(f'BOOTSEL drive found: {drive_path}')
                     return drive_path
-    except Exception as e:
+    except OSError as e:
         logger.warning(f'Windows BOOTSEL detection error: {e}')
     return None
 
@@ -476,9 +482,13 @@ def _send_fwupdate_command(board, board_config):
     try:
         # Try FWUPDATE command first (v3.0.4+ firmware)
         logger.info(f'Sending FWUPDATE to {board_config.label} board')
-        resp = board.exchange_command('FWUPDATE', timeout=3.0)
-
-        if resp is not None:
+        try:
+            resp = board.exchange_command('FWUPDATE', timeout=3.0)
+        except (BoardNoReplyError, BoardPortFailedError):
+            # No response, or the port dropping as the board re-enumerates:
+            # the board may have already rebooted (expected)
+            logger.info('No response from FWUPDATE -- board may have rebooted')
+        else:
             text = str(resp)
             if text.strip():
                 logger.info(f'FWUPDATE response: {text.strip()[:200]}')
@@ -488,16 +498,13 @@ def _send_fwupdate_command(board, board_config):
             if 'not recognized' in text.lower() or 'not found' in text.lower():
                 logger.info('FWUPDATE not supported -- using raw REPL fallback')
                 _bootloader_via_raw_repl(board)
-        else:
-            # No response -- board may have already rebooted (expected)
-            logger.info('No response from FWUPDATE -- board may have rebooted')
 
         board.disconnect()
 
     except UpdateError:
         board.disconnect()
         raise
-    except Exception as e:
+    except (HardwareError, serial.SerialException, OSError) as e:
         board.disconnect()
         raise UpdateError(
             f'FWUPDATE command failed: {e}',
@@ -693,10 +700,13 @@ def _run_post_update_test(board, board_config):
     """
     issues = []
 
+    # Each check records what the board did and the rest still run: a
+    # missed reply is an issue of the report, not the end of it.
     # Test 1: INFO command
-    resp = board.exchange_command('INFO', response_numlines=6, timeout=2.0)
-    if resp is None:
-        issues.append('INFO command returned no response')
+    try:
+        resp = board.exchange_command('INFO', response_numlines=6, timeout=2.0)
+    except HardwareError as e:
+        issues.append(f'INFO command got no response: {e}')
     else:
         text = '\n'.join(resp) if isinstance(resp, list) else str(resp)
         if 'Etaluma' not in text and 'EL-09' not in text and 'Firmware' not in text:
@@ -705,22 +715,28 @@ def _run_post_update_test(board, board_config):
     # Test 2: Board-specific command
     if board_config.board_type == BoardType.LED:
         # Verify LED enable/disable works
-        r = board.exchange_command('LEDS_ENT', timeout=2.0)
-        r2 = board.exchange_command('LEDS_ENF', timeout=2.0)
-        if r is None or r2 is None:
-            issues.append(f'LED enable/disable got no response: {r!r} / {r2!r}')
-        elif 'Error' in r or 'Error' in r2:
-            issues.append(f'LED enable/disable error: {r} / {r2}')
+        try:
+            r = board.exchange_command('LEDS_ENT', timeout=2.0)
+            r2 = board.exchange_command('LEDS_ENF', timeout=2.0)
+        except HardwareError as e:
+            issues.append(f'LED enable/disable got no response: {e}')
+        else:
+            if 'Error' in r or 'Error' in r2:
+                issues.append(f'LED enable/disable error: {r} / {r2}')
 
     elif board_config.board_type == BoardType.MOTOR:
         # Verify FULLINFO works
-        r = board.exchange_command('FULLINFO', response_numlines=6, timeout=2.0)
-        r_str = '\n'.join(r) if isinstance(r, list) else str(r or '')
-        if not r_str.strip():
-            issues.append('FULLINFO returned empty response')
-        elif 'not recognized' in r_str.lower():
-            # Old firmware may not have FULLINFO -- not a failure
-            logger.info('FULLINFO not recognized (old firmware format)')
+        try:
+            r = board.exchange_command('FULLINFO', response_numlines=6, timeout=2.0)
+        except HardwareError as e:
+            issues.append(f'FULLINFO got no response: {e}')
+        else:
+            r_str = '\n'.join(r) if isinstance(r, list) else str(r)
+            if not r_str.strip():
+                issues.append('FULLINFO returned empty response')
+            elif 'not recognized' in r_str.lower():
+                # Old firmware may not have FULLINFO -- not a failure
+                logger.info('FULLINFO not recognized (old firmware format)')
 
     if issues:
         detail = '; '.join(issues)
@@ -771,13 +787,13 @@ def check_update_needed(board_type, uf2_path):
 
 
 def update_firmware(
-    board_type,
-    uf2_path,
-    progress_callback=None,
-    backup_dir=None,
-    skip_config_backup=False,
-    skip_post_test=False,
-):
+    board_type: BoardType,
+    uf2_path: Path | str,
+    progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
+    backup_dir: Path | str | None = None,
+    skip_config_backup: bool = False,
+    skip_post_test: bool = False,
+) -> UpdateResult:
     """Execute the complete firmware update sequence.
 
     This is the main entry point. See module docstring for the full
@@ -800,9 +816,7 @@ def update_firmware(
     result = UpdateResult(success=False, board_type=board_type)
 
     if backup_dir is None:
-        import datetime
-
-        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        ts = time.strftime('%Y%m%d_%H%M%S')
         backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
 
     backup_dir = Path(backup_dir)
@@ -1236,13 +1250,13 @@ def nuke_board(
 
 
 def deploy_firmware_file(
-    board_type,
-    firmware_path,
-    progress_callback=None,
-    backup_dir=None,
-    skip_config_backup=False,
-    skip_post_test=False,
-):
+    board_type: BoardType,
+    firmware_path: Path | str,
+    progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
+    backup_dir: Path | str | None = None,
+    skip_config_backup: bool = False,
+    skip_post_test: bool = False,
+) -> UpdateResult:
     """Deploy main.py to a board via raw REPL (no UF2, no BOOTSEL).
 
     This is the primary update method for LED boards (UART-only, no USB
@@ -1276,9 +1290,7 @@ def deploy_firmware_file(
     result = UpdateResult(success=False, board_type=board_type)
 
     if backup_dir is None:
-        import datetime
-
-        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        ts = time.strftime('%Y%m%d_%H%M%S')
         backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
 
     backup_dir = Path(backup_dir)

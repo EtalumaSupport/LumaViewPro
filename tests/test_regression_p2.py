@@ -6,74 +6,19 @@ Tests that the following bugs stay fixed:
 - #563: Autofocus race condition -- protocol_end() must come AFTER final move
 - #568: Duration precision -- sub-second protocols must round-trip through save/load
 - #424: Video bit-depth -- 16-bit frames must be converted to 8-bit before codec write
-- #539: Serial error rate limiting -- repeated errors must not spam the log
 """
 
 import datetime
-import time
-from types import SimpleNamespace
-import threading
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-import serial
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
 
-import drivers.serialboard as serialboard
-from drivers.serialboard import SerialBoard
 from modules.protocol import Protocol
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_mock_serial(**overrides):
-    mock = MagicMock(spec=serial.Serial)
-    mock.readline.return_value = b'OK\r\n'
-    mock.write.return_value = None
-    mock.close.return_value = None
-    mock.in_waiting = 0
-    mock.read.return_value = b''
-    for k, v in overrides.items():
-        setattr(mock, k, v)
-    return mock
-
-
-def _make_serial_board():
-    """Create a SerialBoard with a mock serial driver."""
-    board = SerialBoard.__new__(SerialBoard)
-    board.found = False
-    board._lock = threading.RLock()
-    board._label = '[TEST]'
-    board.port = '/dev/fake'
-    board.baudrate = 115200
-    board.bytesize = serial.EIGHTBITS
-    board.parity = serial.PARITY_NONE
-    board.stopbits = serial.STOPBITS_ONE
-    board.timeout = 0.1
-    board.write_timeout = 0.1
-    board._last_error_log_time = 0.0
-    board._error_log_interval = 2.0
-    board.firmware_version = None
-    board.driver = _make_mock_serial()
-    return board
-
-
-def _make_tiling_configs(tmp_path):
-    """Create minimal tiling configs file for Protocol.
-
-    Must satisfy modules.tiling_config.TilingConfig._validate_tiling: a
-    dict with a 'data' key (which itself must be a dict).
-    """
-    configs_file = tmp_path / 'tiling_configs.json'
-    configs_file.write_text('{"metadata": {}, "data": {}}')
-    return configs_file
+from tests.protocol_fixtures import protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -82,21 +27,20 @@ def _make_tiling_configs(tmp_path):
 
 
 class TestAFRaceCondition:
-    """Verify the AF "done" signal is not raised until the final move is in.
+    """Verify the AF "done" signal is not raised until the final moves are issued.
 
     The original bug: AFE.protocol_end() (the legacy "done" signal) fired
     between the two final moves, so the protocol executor stopped processing
-    while the second move was still pending. The synchronous AutofocusThread
-    contract makes this structurally impossible -- AFE.run() returns to its
-    worker thread only AFTER the inline move_absolute calls
-    complete, and the Future resolves AFTER AFE.run() returns. The
-    protocol thread polls p._af_future.done(), so it cannot see "done"
-    before the final move is finished.
+    while the second move was still pending. Now AFE.run() issues both final
+    moves before it returns to its worker thread, and the Future resolves
+    AFTER AFE.run() returns. The moves are started, not waited: the step
+    runner, which polls p._af_future.done(), then holds its capture while
+    the stage reports motion (``modules/protocol_step_runner.py``).
     """
 
-    def test_final_moves_complete_before_run_returns(self, monkeypatch):
+    def test_final_moves_are_issued_before_run_returns(self, sim_scope, monkeypatch):
         """The fine pass must issue both final moves (approach-from-below,
-        then best) inline, so they are already on the driver when run()
+        then best) inline, so they are already on the motion API when run()
         returns and the AutofocusThread Future resolves.
 
         AFE.run() is synchronous; protect against a future refactor that
@@ -104,23 +48,17 @@ class TestAFRaceCondition:
         re-introduces the race that the AutofocusThread + Future contract
         currently prevents.
         """
-        from unittest.mock import call
+        from tests.af_drives import AF_OBJECTIVE, af_runner_on, sweep, z_asked
 
-        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+        runner = af_runner_on(sim_scope)
+        asked = z_asked(sim_scope, monkeypatch)
 
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        result = drive_af(runner)
-        assert result == AF_CENTER_Z, 'the drive must complete with the pinned best focus'
-        moves = scope.motion.start_move_absolute.call_args_list
-        fine_resolution = runner._params['resolution']
-        assert moves[-2:] == [
-            call('Z', AF_CENTER_Z - fine_resolution),
-            call('Z', AF_CENTER_Z),
-        ], (
+        result = sweep(runner, sim_scope)
+
+        fine_resolution = sim_scope.objectives[AF_OBJECTIVE].autofocus_step_min_um
+        assert asked[-2:] == [pytest.approx(result - fine_resolution), result], (
             'the last pass must issue the approach-from-below move and the '
-            'final best-focus move inline before run() returns; '
-            f'recorded moves: {moves}'
+            f'final best-focus move inline before run() returns; asked: {asked}'
         )
 
 
@@ -165,8 +103,7 @@ class TestDurationPrecision:
 
     def test_save_writes_nonzero_duration(self, tmp_path):
         """Saved protocol file must contain a non-zero duration for short protocols."""
-        tiling_file = _make_tiling_configs(tmp_path)
-        protocol = Protocol(tiling_configs_file_loc=tiling_file)
+        protocol = protocol_of()
 
         # Configure a minimal protocol with 10-second duration
         protocol._config = {
@@ -226,156 +163,3 @@ class TestVideoBitDepth:
         assert result[0, 1] == 0  # 256/65535*255 = 0.996 -> 0
         assert result[0, 2] == 1  # 512/65535*255 = 1.992 -> 1
         assert result[0, 3] == 255  # 65535 -> full white
-
-
-# ---------------------------------------------------------------------------
-# #539: Serial error rate limiting -- repeated errors must not spam the log
-# ---------------------------------------------------------------------------
-
-
-class TestSerialErrorRateLimiting:
-    """Verify that serial errors are rate-limited to prevent log spam.
-
-    Bug #539: When the USB cable is disconnected, every polling command
-    triggers a log.error, flooding the log file with thousands of
-    identical messages per minute.
-
-    Uses patch.object on serialboard.logger to avoid shared mock state
-    leaking between test files.
-    """
-
-    def test_first_error_is_logged(self):
-        """First serial error should always be logged.
-
-        H-17: SerialTimeoutException now logs at WARNING level (not ERROR),
-        because timeouts are transient and the driver stays open.
-        """
-        mock_log = MagicMock()
-        board = _make_serial_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-
-        with patch.object(serialboard, '_serial_log', mock_log):
-            board.exchange_command('TEST')
-
-        mock_log.warning.assert_called()
-
-    def test_rapid_errors_are_suppressed(self):
-        """Errors within the rate-limit window should be suppressed.
-
-        H-17: Timeouts log at WARNING level and driver stays open.
-        """
-        mock_log = MagicMock()
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        with patch.object(serialboard, '_serial_log', mock_log):
-            # First call -- should log warning
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST1')
-            assert mock_log.warning.call_count == 1
-
-            # Second call immediately after -- should be suppressed
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST2')
-            assert mock_log.warning.call_count == 1, (
-                'Second error within rate-limit window should be suppressed (bug #539)'
-            )
-
-    def test_error_logged_after_interval(self):
-        """Errors after the rate-limit interval should be logged again.
-
-        H-17: Timeouts log at WARNING level and driver stays open.
-        """
-        mock_log = MagicMock()
-        mock_time = MagicMock()
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        with (
-            patch.object(serialboard, '_serial_log', mock_log),
-            patch.object(
-                serialboard, 'time', SimpleNamespace(monotonic=mock_time, sleep=time.sleep)
-            ),
-        ):
-            # First error at t=0
-            mock_time.return_value = 100.0
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST1')
-            assert mock_log.warning.call_count == 1
-
-            # Second error at t=3 (past 2s interval) -- should be logged
-            mock_time.return_value = 103.0
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST2')
-            assert mock_log.warning.call_count == 2, (
-                'Error after rate-limit interval should be logged'
-            )
-
-    def test_write_fast_errors_also_rate_limited(self):
-        """_write_command_fast errors should also be rate-limited."""
-        mock_log = MagicMock()
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        with patch.object(serialboard, 'logger', mock_log):
-            # First call -- should log
-            board.driver.write.side_effect = Exception('write failed')
-            board._write_command_fast('TEST1')
-            assert mock_log.error.call_count == 1
-
-            # Second call immediately -- should be suppressed
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception('write failed')
-            board._write_command_fast('TEST2')
-            assert mock_log.error.call_count == 1, (
-                '_write_command_fast errors should also be rate-limited (bug #539)'
-            )
-
-    def test_generic_exception_also_rate_limited(self):
-        """Generic exceptions (not just timeout) should be rate-limited."""
-        mock_log = MagicMock()
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        with patch.object(serialboard, '_serial_log', mock_log):
-            # First generic error
-            board.driver.write.side_effect = Exception('USB disconnected')
-            board.exchange_command('TEST1')
-            assert mock_log.error.call_count == 1
-
-            # Second generic error immediately
-            board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception('USB disconnected')
-            board.exchange_command('TEST2')
-            assert mock_log.error.call_count == 1
-
-    def test_driver_stays_open_on_timeout(self):
-        """H-17: Timeout is transient -- driver stays open for retry.
-
-        Only fatal exceptions (IOError, OSError, generic Exception) close
-        the driver. SerialTimeoutException keeps it open.
-        """
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        # Timeout -- driver stays open
-        mock_driver1 = board.driver
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board.exchange_command('TEST1')
-        mock_driver1.close.assert_not_called()
-        assert board.driver is not None
-
-    def test_driver_closed_on_fatal_exception(self):
-        """Fatal exceptions (generic Exception) still close the driver."""
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        mock_driver1 = board.driver
-        board.driver.write.side_effect = Exception('USB disconnected')
-        board.exchange_command('TEST1')
-        mock_driver1.close.assert_called()
-        assert board.driver is None

@@ -20,6 +20,7 @@ from drivers.motorboard import MotorBoard
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from tests import ratchets as _ratchets
 from tests.ast_seams import iter_package_modules
 
 
@@ -96,14 +97,24 @@ _BOARD_PAIRS = (
 #
 # What the current entries cover: timing-mode controls and TIMING_*
 # constants (test-harness affordances, on every simulator),
-# `load_specimen` plus the camera's virtual-specimen focus modeling
+# the camera's virtual-specimen focus modeling, the
+# camera's sensor pipeline depth and clock (`SENSOR_PIPELINE_FRAMES`,
+# `TIMESTAMP_TICK_HZ`, `camera_clock_ticks`, which the Pylon driver gains
+# as a latch of its body's clock), the camera's reference LED current
+# (`REFERENCE_ILLUMINATION_MA`, the current a lit field renders at), the
+# camera's host backlog and exposure records behind the doors
+# `delay_delivery` and `exposed_under` (with `EXPOSURE_RECORDS_KEPT`),
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
-# move that is provably travelling), the fault doors `scope.simulation`
+# move that is provably travelling), the motor's `report_model` (the model
+# it names behind the door `answer_model`), the fault doors `scope.simulation`
 # drives (the motor's `unplug`, `replug`, `drop_replies`, `stop_dropping`;
 # the camera's `leave_bus`, `refuse_write`, `allow_write`, `release_frames`
-# and the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`),
+# the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`, and
+# `answers_for`, the answers each node's write gives; and the read door's
+# `refuse_read`, `allow_read`, `FAILED_READS`, the nodes a read can be
+# failed on with each node's failed-read answer, and `FAILED_READ_ANSWERS`),
 # and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
@@ -112,8 +123,12 @@ _BOARD_PAIRS = (
 # point.
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
-    'MotorBoard': 17,
-    'Camera': 19,
+    'MotorBoard': 18,
+    # 34: SENSOR_APPLY_DELAY_US, the simulated sensor's own delay, and
+    # set_stage_xy and set_illumination, which tell a camera built with no
+    # scope around it its stage and light. 36: withhold_chunk and the CHUNKS
+    # it takes, the fault of a frame that arrives without one chunk.
+    'Camera': 36,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -138,19 +153,29 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
 # simulated type. Keyed by (file, name).
 _SIMULATION = 'modules/lumascope_api/simulation.py'
 _SIM_ONLY_CALL_ALLOWLIST = {
-    ('modules/lumascope_api/_lumascope.py', 'load_specimen'),
     (_SIMULATION, 'unplug'),
     (_SIMULATION, 'replug'),
     (_SIMULATION, 'drop_replies'),
     (_SIMULATION, 'stop_dropping'),
     (_SIMULATION, 'hold_travel'),
+    (_SIMULATION, 'report_model'),
     (_SIMULATION, 'leave_bus'),
     (_SIMULATION, 'refuse_write'),
     (_SIMULATION, 'allow_write'),
     (_SIMULATION, 'hold_frames'),
     (_SIMULATION, 'release_frames'),
+    (_SIMULATION, 'delay_delivery'),
+    (_SIMULATION, 'exposed_under'),
+    (_SIMULATION, 'EXPOSURE_RECORDS_KEPT'),
     (_SIMULATION, 'WRITABLE_NODES'),
     (_SIMULATION, 'REFUSED_WRITE_ANSWERS'),
+    (_SIMULATION, 'answers_for'),
+    (_SIMULATION, 'refuse_read'),
+    (_SIMULATION, 'allow_read'),
+    (_SIMULATION, 'FAILED_READS'),
+    (_SIMULATION, 'FAILED_READ_ANSWERS'),
+    (_SIMULATION, 'withhold_chunk'),
+    (_SIMULATION, 'CHUNKS'),
 }
 
 
@@ -206,8 +231,7 @@ def test_no_production_code_calls_simulator_only_names(label, real, sim):
     works in every test and fails on hardware.
 
     Tests are excluded on purpose. Driving simulator-only affordances is
-    what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`
-    and `load_specimen`.
+    what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`.
     """
     sim_only = _sim_only_names(real, sim)
 
@@ -288,21 +312,11 @@ def test_simulator_only_surface_does_not_grow(label, real, sim):
     """
     sim_only = _sim_only_names(real, sim)
     budget = _SIM_ONLY_NAME_BUDGET[label]
+    _ratchets.observe(f'simulators: sim-only public names on {label}', len(sim_only), budget)
     assert len(sim_only) <= budget, (
         f'{sim.__name__} now has {len(sim_only)} public names absent from '
         f'{label}, over the recorded {budget}: {sorted(sim_only)}\n\n'
         f'If the addition is deliberate, raise _SIM_ONLY_NAME_BUDGET '
         f"['{label}'] in this commit and say why in the message. If it is "
         f'not, the name probably belongs on {label} too.'
-    )
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-for _label, _real, _sim in _BOARD_PAIRS:
-    _ratchets.register(
-        f'simulators: sim-only public names on {_label}',
-        (lambda real=_real, sim=_sim: len(_sim_only_names(real, sim))),
-        _SIM_ONLY_NAME_BUDGET[_label],
     )

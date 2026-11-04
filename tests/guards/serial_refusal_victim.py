@@ -8,12 +8,20 @@ import serial
 import serial.tools.list_ports as list_ports
 
 
-def test_the_diagnostic_path_swallows_the_refusal_into_null_boards():
-    """Passes on its own terms: create_diagnostic hands back null boards when
-    the real constructors find no port. The guard must fail it anyway."""
-    from modules.lumascope_api import Lumascope
+def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
+    """Passes on its own terms: a real scope's board registries hand back null
+    boards when the real constructors find no port. The guard must fail it anyway."""
+    from drivers.registry import DriverFallback, NoLiveDriverError
+    from modules.lumascope_api import Lumascope, _lumascope
+    from tests.settings_fixtures import installation_of_its_own
 
-    instance = Lumascope.create_diagnostic()
+    def no_camera(name='auto', **kwargs):
+        # A stand-in by design: the subject is the boards' serial ports, and
+        # a real camera search would reach the host's camera SDKs.
+        raise NoLiveDriverError('camera', DriverFallback('not_detected', ()))
+
+    monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
+    instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
     try:
         assert instance._motion_driver is not None
     finally:

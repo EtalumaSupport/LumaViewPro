@@ -19,7 +19,13 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 
 import faulthandler
 import functools
+import gc
+import json
+import logging
 import os
+import platform
+import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -30,6 +36,8 @@ from unittest.mock import MagicMock, patch
 
 import psutil
 import pytest
+
+from drivers import host_clock
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
 # sets these in lumaviewpro.py + lvp_logger.py, but pytest may import Kivy
@@ -45,7 +53,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
+from tests import usb_stub as _usb_stub
+from tests.bench_results import bench_results_dir
 from tests.scope_fakes import build_scope
+from drivers.sim_wire.backend import runtime_platform
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +92,21 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
     if _flag_in_argv(_flag):
         _skip_mocks.update(_mods)
 
+# A run with any hardware flag is a bench run. It runs on the real logger, as
+# it runs on the real SDK, so every log it writes, its driver log and its
+# results file go to the one log folder, which the support zip carries. Any
+# other run is the simulator suite, whose writes stay in temporary folders.
+_BENCH_FLAGS = (
+    '--run-hardware',
+    '--run-ids-hardware',
+    '--run-pylon-hardware',
+    '--run-fx2-hardware',
+    '--run-tmcm6110-hardware',
+)
+BENCH_RUN = any(_flag_in_argv(f) for f in _BENCH_FLAGS)
+if BENCH_RUN:
+    _skip_mocks.add('lvp_logger')
+
 
 # ---------------------------------------------------------------------------
 # Centralized mock installation
@@ -103,10 +129,25 @@ def install_mock_deps():
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
     """
-    mock_logger = MagicMock()
     mock_lvp_logger = MagicMock()
-    mock_lvp_logger.logger = mock_logger
+    # The module stays a stand-in, since importing it opens a rotating file
+    # in the source tree's log folder; its loggers are the real ones under
+    # their production names, so what production writes reaches the test's
+    # captured log and a red says why. Unlike production, the camera,
+    # protocol and metrics loggers propagate, or the run's strike line
+    # would not reach caplog; a line production writes to both the main
+    # and the camera log is therefore captured twice, and a test counting
+    # lines filters by record.name.
+    mock_lvp_logger.logger = logging.getLogger('lvp_logger')
+    mock_lvp_logger.camera_logger = logging.getLogger('LVP.camera')
+    mock_lvp_logger.protocol_logger = logging.getLogger('LVP.protocol')
+    mock_lvp_logger.metrics_logger = logging.getLogger('LVP.metrics')
     mock_lvp_logger.version = 'test'
+    # The build identity as the real module answers it for a source tree with
+    # no commit to name: a record that writes it into JSON gets a string or
+    # None, never a MagicMock that cannot be serialized.
+    mock_lvp_logger.build_timestamp = ''
+    mock_lvp_logger.git_revision = MagicMock(return_value=None)
     # Real writable path: production code (e.g. diagnostics probes) now reads
     # log_dir to place output under the log folder. Without this it would be an
     # auto-MagicMock, and Path(mock) -> Path('MagicMock/mock.log_dir/<id>'),
@@ -130,11 +171,13 @@ def install_mock_deps():
         # or, gated the other way, mark every headless popup pre-mainloop.
         'kivy.base': MagicMock(EventLoop=MagicMock(status='started')),
         'kivy.app': MagicMock(),
-        # FX2 / libusb -- skipped when --run-fx2-hardware is set.
-        'usb': MagicMock(),
-        'usb.core': MagicMock(),
-        'usb.util': MagicMock(),
-        'usb1': MagicMock(),
+        # FX2 / libusb -- skipped when --run-fx2-hardware is set. A typed
+        # stub: the driver tells a timeout from a removal by these
+        # libraries' exception classes.
+        'usb': _usb_stub.usb,
+        'usb.core': _usb_stub.core,
+        'usb.util': _usb_stub.util,
+        'usb1': _usb_stub.usb1,
         # Camera SDKs -- skipped when their --run-*-hardware flag is set.
         # pypylon gets a typed stub (real subclassable handler bases +
         # exception types) instead of a blanket MagicMock so the driver's
@@ -243,11 +286,12 @@ install_mock_deps()
 def _install_host_absent_production_modules():
     """A production module this host cannot import gets an importable shell.
 
-    ``drivers/winusb_iso.py`` imports ``ctypes.windll`` at module scope, so on
+    ``drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
     macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
-    only on Windows. A test of the WinUSB transport patches the one class the
-    transport asks for, ``WinUsbIsoReader``, on the module, the same call on
-    every host; here the module exists to be patched. The guard
+    only on Windows. A test of the WinUSB transport patches what the
+    transport asks for, ``WinUsbIsoReader`` and ``device_bindings``, on the
+    module, the same call on every host; here the module exists to be
+    patched. The guard
     ``tests/guards/test_no_test_installs_a_module_stand_in.py`` keeps this
     the one place.
     """
@@ -258,6 +302,7 @@ def _install_host_absent_production_modules():
 
         shell = ModuleType('drivers.winusb_iso')
         shell.WinUsbIsoReader = None
+        shell.device_bindings = None
         sys.modules.setdefault('drivers.winusb_iso', shell)
         # The dotted form of monkeypatch.setattr walks the package's attributes.
         drivers.winusb_iso = sys.modules['drivers.winusb_iso']
@@ -277,9 +322,9 @@ _install_host_absent_production_modules()
 # path when none is, so the suite behaved differently by what was plugged
 # in. Unless --run-hardware is set, enumeration finds nothing and the open
 # raises, and the TOUCH fails the test at its end: the driver registry's
-# auto mode and create_diagnostic both swallow a failed constructor into a
-# null driver, so an exception alone would let the test go green on a null
-# board, which is the quiet pass again.
+# auto mode swallows a failed constructor into a null driver, so an
+# exception alone would let the test go green on a null board, which is
+# the quiet pass again.
 SERIAL_REFUSAL_BANNER = 'REAL SERIAL PORT REACHED'
 _serial_touches: list[tuple[str, str]] = []
 
@@ -296,8 +341,9 @@ def _install_serial_refusers():
 
     class RefusedSerial(real_serial):
         # A subclass, so a Mock(spec=serial.Serial) keeps the real methods;
-        # only the open is intercepted.
-        def __init__(self, *args, **kwargs):
+        # only the open is intercepted. Refused in __new__, before an instance
+        # exists, since pyserial's __del__ closes a half-built one and raises.
+        def __new__(cls, *args, **kwargs):
             port = kwargs.get('port') or (args[0] if args else '?')
             _serial_touches.append(('open', str(port)))
             raise serial.SerialException(f'{SERIAL_REFUSAL_BANNER}: {port} (no --run-hardware)')
@@ -310,22 +356,229 @@ if not _flag_in_argv('--run-hardware'):
     _install_serial_refusers()
 
 
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
+# A real scope takes its installation's instance lock, on the port that
+# installation's settings name. One built on the checkout's installation, or
+# on a copy of its data/, takes the port a LumaViewPro, a REST server or a
+# bench script on this machine holds: the shipped template's, or the
+# checkout's own current.json's. The test then fails whenever one runs and
+# passes when none does. Unless --run-hardware is set, such a take fails the
+# test at its end, by name, whether or not the port was free; a test's real
+# scope is built on `installation_of_its_own()`, whose port is 0.
+SHIPPED_LOCK_BANNER = 'SHIPPED INSTANCE-LOCK PORT TAKEN'
+_shipped_lock_takes: list[int] = []
+
+
+def _install_shipped_lock_recorder():
+    import modules.lumascope_api._lumascope as lumascope_module
+    from modules.app_config import get_lvp_lock_port
+    from modules.path_utils import get_source_root
+
+    checkout = get_source_root()
+    shipped = json.loads((checkout / 'data' / 'settings.json').read_text(encoding='utf-8'))
+    template = shipped['lvp_lock_port']
+    held_here = {template, get_lvp_lock_port(checkout)} - {0}
+    real_take = lumascope_module.take_scope_lock
+
+    @functools.wraps(real_take)
+    def recorded_take(source_path):
+        port = get_lvp_lock_port(source_path)
+        if port in held_here:
+            _shipped_lock_takes.append(port)
+        return real_take(source_path)
+
+    lumascope_module.take_scope_lock = recorded_take
+
+
+if not _flag_in_argv('--run-hardware'):
+    _install_shipped_lock_recorder()
+
+
+def _shipped_lock_failure(item, call) -> str | None:
+    if not _shipped_lock_takes:
+        return None
+    ports = sorted(set(_shipped_lock_takes))
+    _shipped_lock_takes.clear()
+    return (
+        f'{SHIPPED_LOCK_BANNER}: {item.nodeid} built a real scope on port(s) {ports} during '
+        f'{call.when}, the port a LumaViewPro or a bench session on this machine holds, so '
+        'it fails whenever one runs. Build it on '
+        'tests.settings_fixtures.installation_of_its_own(), whose port is 0.'
+    )
+
+
+def _serial_failure(item, call) -> str | None:
     if not _serial_touches:
-        return
+        return None
     touches = list(_serial_touches)
     _serial_touches.clear()
     kind, detail = touches[0]
-    report = outcome.get_result()
-    report.outcome = 'failed'
-    report.longrepr = (
+    return (
         f'{SERIAL_REFUSAL_BANNER}: {item.nodeid} reached the real serial layer during '
         f'{call.when} ({len(touches)} touch(es); first: {kind} {detail}). Build the scope '
         'with simulate=True or a simulated driver, or give a bare SerialBoard a port; '
         'a real port is opened only under --run-hardware.'
     )
+
+
+# The checkout's data/ is an installation a person runs LumaViewPro from: its
+# current.json is their live configuration. A test that writes there leaves
+# the next launch on the test's settings, a live folder in a temporary
+# directory pytest deletes among them. Every write into it, an open for
+# writing or a rename onto it, fails the test that made it, by name; a test
+# that needs an installation builds `installation_of_its_own()`. Subprocesses
+# are not watched.
+CHECKOUT_WRITE_BANNER = 'CHECKOUT INSTALLATION WRITTEN'
+_checkout_writes: list[str] = []
+
+
+def _install_checkout_write_recorder():
+    from modules.path_utils import get_source_root
+
+    data = os.path.realpath(get_source_root() / 'data') + os.sep
+
+    def recorded(event, args):
+        if event == 'open':
+            path, mode = args[0], args[1]
+            if not isinstance(mode, str) or not set(mode) & set('wax+'):
+                return
+        elif event == 'os.rename':
+            path = args[1]
+        else:
+            return
+        if isinstance(path, int):
+            return
+        if os.path.realpath(os.fsdecode(path)).startswith(data):
+            _checkout_writes.append(f'{event} {os.fsdecode(path)}')
+
+    sys.addaudithook(recorded)
+
+
+_install_checkout_write_recorder()
+
+
+def _checkout_write_failure(item, call) -> str | None:
+    if not _checkout_writes:
+        return None
+    writes = sorted(set(_checkout_writes))
+    _checkout_writes.clear()
+    return (
+        f"{CHECKOUT_WRITE_BANNER}: {item.nodeid} wrote into the checkout's data/ during "
+        f'{call.when}: {writes}. That folder is the installation a person runs LumaViewPro '
+        'from; build one for the test with tests.settings_fixtures.installation_of_its_own().'
+    )
+
+
+# The full (generation-2) collections run since the current test started,
+# each (start, end) on the scope's steady clock, the clock a capture's
+# give-up line states its wait on: a failed test's report lists them, so a
+# red that waited on the simulator shows whether a collection paused the
+# feed inside its wait. Cleared at each test's start.
+GC_SECTION = 'full garbage collections'
+_gen2_collections: list[tuple[int, int]] = []
+_gen2_started = {'at_ns': None}
+
+
+def _record_gen2(phase, info):
+    if info['generation'] != 2:
+        return
+    if phase == 'start':
+        _gen2_started['at_ns'] = host_clock.steady_ns()
+    elif _gen2_started['at_ns'] is not None:
+        _gen2_collections.append((_gen2_started['at_ns'], host_clock.steady_ns()))
+        _gen2_started['at_ns'] = None
+
+
+gc.callbacks.append(_record_gen2)
+
+
+def _gen2_section() -> str:
+    if not _gen2_collections:
+        return 'none during this test'
+    return '\n'.join(
+        f'at steady {start / 1e9:.3f}s, {(end - start) / 1e6:.1f} ms'
+        for start, end in _gen2_collections
+    )
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    failures = [
+        f
+        for f in (
+            _serial_failure(item, call),
+            _shipped_lock_failure(item, call),
+            _checkout_write_failure(item, call),
+        )
+        if f
+    ]
+    if failures:
+        report.outcome = 'failed'
+        report.longrepr = '\n\n'.join(failures)
+    if report.failed:
+        report.sections.append((GC_SECTION, _gen2_section()))
+        _write_failure_file(item, report, call)
+
+
+# Every failed test phase leaves one file holding its whole report -- the
+# failure, every log line production wrote during the test (pyproject's
+# log_level keeps DEBUG), stdout and stderr -- whatever --tb or -q the run
+# printed, so a red that passes on its rerun is read from what it left
+# instead of chased. One folder per run, named by the controller and handed
+# to each xdist worker; CI uploads it.
+FAILURE_FILES_BANNER = 'failure files'
+
+
+def _failure_run(config) -> tuple[Path, str]:
+    """The run's failure folder and the commit it ran, the controller's on a worker."""
+    workerinput = getattr(config, 'workerinput', None)
+    if workerinput is not None and 'lvp_failure_dir' in workerinput:
+        return Path(workerinput['lvp_failure_dir']), workerinput['lvp_failure_commit']
+    return config._failure_run_dir, config._failure_commit
+
+
+def _write_failure_file(item, report, call) -> None:
+    """The whole traceback from the test's own file down, whatever the run's
+    --tb, else the report's own words for a failure this conftest made of a
+    passing phase."""
+    config = item.config
+    folder, commit = _failure_run(config)
+    if call.excinfo is not None:
+        excinfo = pytest.ExceptionInfo.from_exception(call.excinfo.value)
+        excinfo.traceback = excinfo.traceback.cut(path=item.path)
+        failure = str(excinfo.getrepr(style='long'))
+    else:
+        failure = report.longreprtext
+    folder.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r'[^A-Za-z0-9_.-]+', '_', report.nodeid)[:180]
+    worker = getattr(config, 'workerinput', {}).get('workerid', 'main')
+    parts = [
+        f'{report.nodeid} failed in {report.when}',
+        f'worker {worker}, {report.duration:.3f} s, commit {commit}',
+        '',
+        failure,
+    ]
+    parts += [f'\n----- {title} -----\n{content}' for title, content in report.sections]
+    (folder / f'{name}__{report.when}.txt').write_text('\n'.join(parts), encoding='utf-8')
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """The controller hands each xdist worker the run's failure folder.
+
+    An xdist hook: optional, so a run without xdist loads this conftest.
+    """
+    node.workerinput['lvp_failure_dir'] = str(node.config._failure_run_dir)
+    node.workerinput['lvp_failure_commit'] = node.config._failure_commit
+
+
+def _head_commit(root: Path) -> str:
+    """The checkout's HEAD, or what kept it unread: the files name the run they came from."""
+    answer = subprocess.run(
+        ['git', 'rev-parse', '--short', 'HEAD'], cwd=root, capture_output=True, text=True
+    )
+    return answer.stdout.strip() if answer.returncode == 0 else f'unread ({answer.stderr.strip()})'
 
 
 @pytest.fixture(autouse=True)
@@ -386,6 +639,15 @@ def centre_posts():
 
 
 @pytest.fixture
+def post_processing():
+    """The session's builds on a real lane of their own, for a test with no Session."""
+    from tests.post_processing_lane import a_post_processing_api
+
+    with a_post_processing_api() as api:
+        yield api
+
+
+@pytest.fixture
 def unattended_run():
     """The real centre judges the test's posts as an unattended run's, closed at teardown."""
     from modules.notification_center import notifications
@@ -426,14 +688,56 @@ def _no_settings_replacement_outlives_its_test():
 
 
 @pytest.fixture(autouse=True)
+def _no_log_setting_outlives_its_test():
+    """Each test ends with the log levels and the autofocus score log as it found them.
+
+    A session puts its settings' level on the 'LVP' and 'lvp_logger'
+    loggers and turns the score log on or off, process-wide; left in place,
+    what a red's captured log holds would depend on what ran before it on
+    the worker.
+    """
+    loggers = [logging.getLogger(name) for name in ('LVP', 'lvp_logger')]
+    levels = [lg.level for lg in loggers]
+    autofocus = sys.modules.get('modules.autofocus_functions')
+    score_log = autofocus._enable_af_score_logging if autofocus is not None else False
+    yield
+    for lg, level in zip(loggers, levels, strict=True):
+        lg.setLevel(level)
+    autofocus = sys.modules.get('modules.autofocus_functions')
+    if autofocus is not None:
+        autofocus.enable_af_score_logging(enable=score_log)
+
+
+@pytest.fixture(autouse=True)
 def _disconnect_the_scopes_a_test_built():
     """Each scope a test built through `build_scope` is disconnected when the test ends.
 
     A scope runs threads of its own until it is disconnected, so a suite of
     tests that each leave one behind accumulates them in every worker; the
     lanes `give_stub_lanes` gave a stub are shut the same way. A
-    module-scoped fixture's scope was built before this mark and is left to
-    the fixture.
+    module-scoped fixture's scope was built before this mark and is stopped
+    at the module's end (`_stop_what_a_module_built`), when the test asks for
+    it as an argument: fetched inside the test with `request.getfixturevalue`,
+    it is built after the mark, and this test's end shuts it down under the
+    module's later tests.
+    """
+    from tests.scope_fakes import tear_down_since, teardown_mark
+
+    mark = teardown_mark()
+    yield
+    tear_down_since(mark)
+
+
+@pytest.fixture(scope='module', autouse=True)
+def _stop_what_a_module_built():
+    """What a module-scoped fixture built is stopped, and let go of, when the module ends.
+
+    A test's own mark is taken after its module's fixtures are built, so the
+    test's end leaves their scopes and sessions queued. Each queued stop
+    holds what it stops, so a queue nobody ran kept every module fixture's
+    session alive for the rest of the worker's run. This fixture is torn
+    down after the module's own fixtures, so a fixture that stopped its
+    scope sees a second stop, a no-op, and one that did not has it stopped.
     """
     from tests.scope_fakes import tear_down_since, teardown_mark
 
@@ -449,8 +753,8 @@ def _every_simulated_camera_is_disconnected_by_its_test():
     A grabbing simulated camera free-runs on its own thread until it is
     disconnected. Hundreds of tests construct one directly, so the teardown
     is attached to the construction itself rather than to each site; a
-    camera built by a module-scoped fixture before the test began is left to
-    that fixture, as a scope is.
+    camera built by a module-scoped fixture before the test began is
+    disconnected at the module's end, as a scope is.
     """
     from drivers.simulated_camera import SimulatedCamera
     from tests.scope_fakes import disconnect_when_the_test_ends
@@ -488,7 +792,8 @@ def _every_session_is_shut_down_by_its_test():
 
     See `tests.scope_fakes.shut_down_when_the_test_ends`. Attached to the
     construction for the reason the simulated camera's is; a session built by
-    a module-scoped fixture before the test began is left to that fixture.
+    a module-scoped fixture before the test began is shut down at the
+    module's end.
     """
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import shut_down_when_the_test_ends
@@ -522,29 +827,44 @@ def _no_test_leaves_the_popups_muted():
 
 
 @pytest.fixture
-def diagnostic_scope():
-    """Lumascope.create_diagnostic() with each board connect answered by its
-    null driver, as on a machine with no scope. The diagnostic path's own
-    wiring is what a test reads; the real boards are unreachable from a test."""
+def no_hardware(monkeypatch):
+    """The registries answer as a machine with no scope does: null boards, no camera."""
     from drivers.null_ledboard import NullLEDBoard
     from drivers.null_motorboard import NullMotionBoard
-    from drivers.registry import DriverFallback
+    from drivers.registry import DriverFallback, NoLiveDriverError
     from modules.lumascope_api import _lumascope
 
     absent = DriverFallback('not_detected', ())
-    with (
-        patch.object(
-            _lumascope.led_registry,
-            'create_with_fallback',
-            lambda name='auto', **kw: (NullLEDBoard(), absent),
-        ),
-        patch.object(
-            _lumascope.motor_registry,
-            'create_with_fallback',
-            lambda name='auto', **kw: (NullMotionBoard(), absent),
-        ),
-    ):
-        instance = _lumascope.Lumascope.create_diagnostic()
+    monkeypatch.setattr(
+        _lumascope.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullLEDBoard(), absent),
+    )
+    monkeypatch.setattr(
+        _lumascope.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullMotionBoard(), absent),
+    )
+
+    def no_camera(name='auto', **kw):
+        if kw.get('simulate'):
+            return real_create(name, **kw)
+        raise NoLiveDriverError('camera', absent)
+
+    real_create = _lumascope.camera_registry.create
+    monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
+
+
+@pytest.fixture
+def no_hardware_scope(no_hardware):
+    """A real scope on a machine with no scope: null boards, no camera, no session's settings.
+
+    On an installation of its own, since a real scope takes its installation's lock.
+    """
+    from modules.lumascope_api import Lumascope
+    from tests.settings_fixtures import installation_of_its_own
+
+    instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
     try:
         yield instance
     finally:
@@ -588,7 +908,7 @@ def _memcap_fail(rss, cap_bytes, report_dir, capman):
     )
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f'memcap_{os.getpid()}.txt'
-    with open(path, 'w') as fh:
+    with open(path, 'w', encoding='utf-8') as fh:
         fh.write(line + '\n\n')
         faulthandler.dump_traceback(file=fh, all_threads=True)
     # pytest's fd capture owns stderr during a test; the write goes to the
@@ -614,6 +934,7 @@ def _memcap_reports_since(report_dir, started):
 def pytest_runtest_logstart(nodeid, location):
     _memcap_running['nodeid'] = nodeid
     _serial_touches.clear()
+    _gen2_collections.clear()
 
 
 def pytest_runtest_logfinish(nodeid, location):
@@ -723,9 +1044,21 @@ def pytest_configure(config):
         'needs_display: opens a real Kivy window (skipped on a Linux host '
         'with no display, such as the GitHub runner)',
     )
+    config.addinivalue_line(
+        'markers',
+        'firmware_tier: runs the firmware-backed simulator (skipped on a '
+        'platform with no MicroPython runtime)',
+    )
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
+
+    if getattr(config, 'workerinput', None) is None:
+        started = time.strftime('%Y%m%d-%H%M%S')
+        config._failure_run_dir = (
+            Path(config.rootpath) / 'build' / 'test_failures' / f'{started}-{os.getpid()}'
+        )
+        config._failure_commit = _head_commit(Path(config.rootpath))
 
     config._memcap_started = time.time()
     config._memcap_report_dir = Path(config.rootpath) / 'build'
@@ -741,49 +1074,42 @@ def pytest_configure(config):
     ).start()
 
 
-def _enable_driver_logging(config):
-    """Point the mocked lvp_logger's `logger`/`camera_logger` at a REAL DEBUG
-    logger writing to a timestamped file + stdout.
+# The loggers the drivers write to (lib/log_helpers) and the protocol lane's.
+_DRIVER_LOG_NAMES = ('lvp_logger', 'LVP.camera', 'LVP.protocol')
 
-    The suite mocks lvp_logger, so every driver `logger.*` / `_cam_log.*` call is
-    normally swallowed by the MagicMock -- worthless when a --run-ids-hardware
-    bench test fails and the driver's internal narrative is exactly what's
-    needed. Runs in pytest_configure, before collection imports the drivers, so
-    their module-level `from lvp_logger import logger` binds to the real logger.
-    Off by default (flag-gated), so the normal mocked suite is unchanged.
+
+def _enable_driver_logging(config):
+    """Write the drivers' loggers, at DEBUG, to a timestamped file + stdout.
+
+    The suite's loggers go to each test's captured log, at the level the
+    test's session set; a --run-ids-hardware bench test needs the driver's
+    whole narrative at DEBUG, in a file kept with the run. A logger is found
+    by its name, so the handlers go on the named loggers the drivers write to
+    (lib/log_helpers: 'lvp_logger', 'LVP.camera') and the protocol lane's
+    ('LVP.protocol'), whoever imported them first. The bench tests that read
+    this build a driver, not a session, so no session's level lowers them.
+    Off by default (flag-gated).
     """
-    import logging
     import time
 
-    real = logging.getLogger('lvp_driver_test')
-    real.setLevel(logging.DEBUG)
-    real.propagate = False
-    real.handlers.clear()
+    from modules.log_stamp import make_formatter
 
-    # Under logs/, which is gitignored -- writing to the repo root left these
-    # sitting beside the source tree, one per --driver-log run, forever.
-    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
+    # In the one log folder, beside the bench run's results file, so the
+    # support zip carries the driver's narrative with the run it explains.
+    log_path = str(bench_results_dir() / f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-    real.addHandler(file_handler)
+    file_handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(logging.Formatter('[driver] %(message)s'))
-    real.addHandler(stream_handler)
-
-    lvp = sys.modules.get('lvp_logger')
-    if lvp is not None:
-        lvp.logger = real
-        lvp.camera_logger = real
-        # Without this, modules bound to the protocol lane
-        # (protocol_image_writer) log into the swallowing MagicMock and
-        # their narrative vanishes from --driver-log bench captures.
-        lvp.protocol_logger = real
+    loggers = [logging.getLogger(name) for name in _DRIVER_LOG_NAMES]
+    for driver_logger in loggers:
+        driver_logger.setLevel(logging.DEBUG)
+        driver_logger.addHandler(file_handler)
+        driver_logger.addHandler(stream_handler)
 
     config._driver_log_path = log_path
     config._driver_log_handlers = (file_handler, stream_handler)
-    config._driver_logger = real
+    config._driver_loggers = loggers
     print(f'\n[--driver-log] driver logging -> {log_path}')
 
 
@@ -792,21 +1118,107 @@ def pytest_unconfigure(config):
     handlers = getattr(config, '_driver_log_handlers', None)
     if not handlers:
         return
-    logger = config._driver_logger
     for handler in handlers:
         handler.close()
-        logger.removeHandler(handler)
+        for driver_logger in config._driver_loggers:
+            driver_logger.removeHandler(handler)
     print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Announce every registered ratchet's current count beside its pin.
+_bench_reports = []
 
-    The ratchet tests fail on a wrong count; this prints the numbers
-    whether or not they failed, so every pytest log carries the progress
-    of each migration. Registry: tests/ratchets.py.
+
+def pytest_runtest_logreport(report):
+    """A bench run keeps each test's outcome and what it printed, for its results file."""
+    if not BENCH_RUN:
+        return
+    if report.when != 'call' and report.passed:
+        return
+    _bench_reports.append(
+        {
+            'test': report.nodeid,
+            'phase': report.when,
+            'outcome': report.outcome,
+            'seconds': round(report.duration, 3),
+            'failure': str(report.longrepr) if report.failed else None,
+            'stdout': report.capstdout,
+            'stderr': report.capstderr,
+        }
+    )
+
+
+def _write_bench_results(exitstatus):
+    """One file per bench run in the log folder: what ran, on which build, and each result.
+
+    Output printed with ``-s`` goes to the console, not here: a bench run
+    is run without it so its figures reach the file.
+    """
+    import datetime
+    import json
+
+    import lvp_logger
+
+    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
+    path = bench_results_dir() / f'pytest_{stamp}_results.json'
+    path.write_text(
+        json.dumps(
+            {
+                'command': sys.argv,
+                'exit_status': int(exitstatus),
+                'lvp_version': lvp_logger.version,
+                'lvp_commit': lvp_logger.git_revision(),
+                'log_folder': lvp_logger.log_dir,
+                'results': _bench_reports,
+            },
+            indent=2,
+        )
+    )
+    print(f'\nBENCH RESULTS: {path}', flush=True)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """A worker ships its ratchet observations to the controller (tests/ratchets.py);
+    a bench run leaves its results file in the log folder."""
+    workeroutput = getattr(session.config, 'workeroutput', None)
+    if workeroutput is not None:
+        from tests import ratchets
+
+        workeroutput['ratchets'] = ratchets.ship()
+    elif BENCH_RUN:
+        _write_bench_results(exitstatus)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    """The controller takes each worker's ratchet observations as the worker leaves.
+
+    An xdist hook: optional, so a run without xdist loads this conftest.
     """
     from tests import ratchets
+
+    ratchets.take(getattr(node, 'workeroutput', {}).get('ratchets', ()))
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Name the interpreter the run used, and announce every ratchet count a
+    test observed, beside its pin.
+
+    A test can pass on one supported Python and fail on the other, and
+    `-q` drops pytest's own platform header, so the log states it here.
+    The ratchet tests fail on a wrong count; this prints the numbers
+    whether or not they failed, so every pytest log carries the progress
+    of each migration. Observations: tests/ratchets.py.
+    """
+    from tests import ratchets
+
+    terminalreporter.line(f'interpreter: Python {platform.python_version()} at {sys.executable}')
+
+    failures = config._failure_run_dir
+    if failures.is_dir():
+        terminalreporter.section(FAILURE_FILES_BANNER, sep='!', red=True)
+        terminalreporter.line(
+            f'{len(list(failures.glob("*.txt")))} failed phase(s), each with its whole log: {failures}'
+        )
 
     # A worker the cap killed is reported by xdist as a crash; this names the
     # cap and the test so the log cannot read as an ordinary failure.
@@ -814,7 +1226,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if reports:
         terminalreporter.section(MEMORY_CAP_BANNER, sep='!', red=True)
         for path in reports:
-            with open(path) as fh:
+            with open(path, encoding='utf-8') as fh:
                 terminalreporter.line(fh.readline().rstrip())
             terminalreporter.line(f'thread stacks: {path}')
 
@@ -827,8 +1239,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip hardware-marked tests unless the matching opt-in flag is set, and
-    window tests on a host with no display."""
+    """Skip hardware-marked tests unless the matching opt-in flag is set,
+    window tests on a host with no display, and firmware-tier tests on a
+    platform the simulator's runtime is not built for."""
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
@@ -848,6 +1261,13 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if 'needs_display' in item.keywords:
                 item.add_marker(skip)
+    if runtime_platform() is None:
+        skip = pytest.mark.skip(
+            reason=f'no simulator runtime for {sys.platform}/{platform.machine()}'
+        )
+        for item in items:
+            if 'firmware_tier' in item.keywords:
+                item.add_marker(skip)
 
 
 # ---------------------------------------------------------------------------
@@ -866,18 +1286,85 @@ def sim_scope():
     own plate or objective with ``bind_settings_like_a_session``.
     """
 
-    from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+    from tests.scope_fakes import bind_settings_like_a_session
 
-    s = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+    s = build_scope(simulate=True, sim_model='LS850')
     bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.load_specimen()
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
-    s.imaging.stop_streaming()
+    s.imaging.disable_streaming()
     s.disconnect()
+
+
+@pytest.fixture
+def pacific_time(monkeypatch):
+    """The host's local zone set to one with a fall-back hour, then restored.
+
+    Los Angeles: 2026-11-01 01:00 to 02:00 happens twice, daylight time
+    (-07:00) and then standard time (-08:00).
+    """
+    if not hasattr(time, 'tzset'):
+        # Windows sets no process zone from TZ; the code these tests pin has
+        # no platform branch, so the POSIX hosts pin it for every host.
+        pytest.skip('the local zone cannot be set in-process on this platform')
+    monkeypatch.setenv('TZ', 'America/Los_Angeles')
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.fixture
+def sim_camera(sim_scope):
+    """(the camera API, the simulated camera under it) of ``sim_scope``.
+
+    For a test that reads the camera's own state or wraps one of its
+    members; a fault the camera meets is injected through
+    ``sim_scope.simulation``.
+    """
+    return sim_scope.camera, sim_scope._camera_driver
+
+
+@pytest.fixture
+def sim_session(request, tmp_path):
+    """A session on the simulator over the shipped template, its live folder temporary.
+
+    Unhomed, as a scope comes up. A test names other settings by
+    parametrizing it indirectly with their overrides
+    (``@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)``);
+    ``gui_ctx`` takes the same session.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    overrides = getattr(request, 'param', {})
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), **overrides), simulate=True
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
+def gui_ctx(sim_session, monkeypatch):
+    """The GUI's app context over ``sim_session``, built as the GUI host builds it.
+
+    The widget fields start empty: the Kivy tree never runs here, so a test
+    hands in the panels its subject reads (``gui_ctx.motion_settings = ...``).
+    The main widget answers the scope, as the host's does.
+    """
+    from types import SimpleNamespace
+
+    import modules.app_context as app_context
+
+    ctx = app_context.AppContext.over_session(
+        sim_session, lumaview=SimpleNamespace(scope=sim_session.scope)
+    )
+    monkeypatch.setattr(app_context, 'ctx', ctx)
+    return ctx
 
 
 @pytest.fixture(scope='module')
@@ -916,8 +1403,12 @@ def scale_capabilities():
     hands in optics that report one. The values match Etaluma's Classic optics
     so geometry assertions written against the previous default stay valid.
     The LED cap is the EL-0940 firmware's, because a Protocol built from
-    capabilities carries it into validate_steps.
+    capabilities carries it into validate_steps. The axes are a stage
+    scope's, since a protocol built from capabilities records a position
+    only on the axes the scope has.
     """
     from types import SimpleNamespace
 
-    return SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000)
+    return SimpleNamespace(
+        pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000, axes=('X', 'Y', 'Z')
+    )

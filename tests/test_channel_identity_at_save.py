@@ -10,11 +10,11 @@ one that reached durable storage was the one nobody passed: it defaulted to
 'BF', so every manual capture stamped itself brightfield regardless of the
 channel its LED had just lit. Quick Enhance then read that back and declined to
 false-color a green frame, because the file said brightfield. The filename beside
-it said Green.
+it named the fluorescence channel.
 
 A second carrier hid underneath. Channel.Modality was derived from the render
 color, which collapses to 'BF' whenever false color is off -- so one file could
-carry Channel.Name = Green and Channel.Modality = BF, disagreeing with itself,
+carry Channel.Name = the LED 1 key and Channel.Modality = BF, disagreeing with itself,
 with the second field tracking a checkbox.
 
 These tests assert the invariant directly rather than the symptom: identity is
@@ -23,19 +23,19 @@ independent of rendering, at every seam and in every identity field.
 
 import ast
 import inspect
-import json
 
 import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_save
-from tests.ast_seams import find_def
-from tests.frame_records import frame_record, plate
+from modules import image_save, image_utils
+from tests.frame_records import frame_record, plate, write_recorded
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
-LAYER = 'Green'
+LAYER = LED1
 PLATE = '24 well microplate'
 
 
@@ -76,7 +76,7 @@ def _read_identity(path) -> dict:
                 'mode': imagej.get('mode'),
                 'photometric': photometric,
             }
-        description = json.loads(handle.pages[0].description)
+        description = handle.shaped_metadata[0]
         return {
             'Name': description['Channel']['Name'][0],
             'Modality': None,
@@ -114,17 +114,22 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
     )
     settings[LAYER].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100})
     capture = ManualCaptureController(
-        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
+        scope=scope,
+        settings_snapshot=lambda: settings,
+        shown_layer=lambda: LAYER,
+        # No layer is put on this camera, so the still's hold writes nothing.
+        layer_camera_request=lambda layer: None,
+        engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
-    capture.capture(
-        layer=LAYER, false_color_on=false_color_active, crosshairs=use_crosshairs
-    ).result(timeout=30)
+    capture.capture(false_color_on=false_color_active, crosshairs=use_crosshairs).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').glob('*.tiff'))
 
 
 @pytest.mark.parametrize('false_color_active', [True, False], ids=['fc_on', 'fc_off'])
 @pytest.mark.parametrize('use_crosshairs', [False, True], ids=['plain', 'crosshairs'])
+@pytest.mark.slow
 def test_manual_capture_stamps_the_acquiring_layer(
     identity_scope, tmp_path, false_color_active, use_crosshairs
 ):
@@ -154,6 +159,7 @@ def test_manual_capture_stamps_the_acquiring_layer(
         assert LAYER in path.name, f'{path.name} lost the layer token'
 
 
+@pytest.mark.slow
 def test_manual_capture_records_the_real_drive_current(identity_scope, tmp_path):
     """Metadata looks up the LED current for the channel it is told. Asking for
     brightfield's current while a fluorescence LED was lit recorded 0 mA on
@@ -199,6 +205,9 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
     protocol = image_save.save_image(
         identity_scope,
@@ -216,6 +225,9 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
 
     assert _read_channel(manual) == _read_channel(protocol) == LAYER, (
@@ -278,6 +290,9 @@ def test_save_image_rejects_a_missing_channel(identity_scope):
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
+            white_bits=None,
+            fallback_focus=None,
         )
 
 
@@ -295,6 +310,7 @@ def test_metadata_rejects_a_channel_outside_the_vocabulary(identity_scope):
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
 
@@ -323,6 +339,9 @@ def test_composite_export_stamps_composite(identity_scope, tmp_path):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
     assert _read_identity(path)['Name'] == 'Composite', (
         'a multi-channel composite must record Composite, not brightfield'
@@ -347,6 +366,9 @@ def test_single_channel_composite_export_stamps_that_channel(identity_scope, tmp
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
     assert _read_identity(path)['Name'] == LAYER, (
         'a single-channel composite export records the channel it holds'
@@ -363,7 +385,7 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
     channel, whichever way the toggle is set -- while the rendering fields do
     differ, so the test cannot be satisfied by disabling false color outright.
 
-    Pre-fix the toggle-off file carried Channel.Name = Green with
+    Pre-fix the toggle-off file carried Channel.Name = the LED 1 key with
     Channel.Modality = BF: two identity fields in one file, disagreeing, the
     second tracking a checkbox.
     """
@@ -386,6 +408,9 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
+            white_bits=None,
+            fallback_focus=None,
         )
 
     on = _read_identity(_save(True, 'on_'))
@@ -406,57 +431,27 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
 
 
 # ---------------------------------------------------------------------------
-# T6 -- the video seam, where nothing structural stops the collapse
+# T6 -- a recorded frame states its channel whatever the toggle
 # ---------------------------------------------------------------------------
 
 
-def test_video_frame_render_colour_cannot_reach_an_identity_field():
-    """Video frames record no channel today, so there is no behaviour to
-    observe here -- the absence of an observable is exactly the risk. The
-    names carry the invariant instead: the acquiring channel arrives as
-    `channel`, and the value collapsed from the toggle is named for the
-    rendering job it does.
+def test_video_frame_render_colour_cannot_reach_an_identity_field(sim_scope, tmp_path):
+    """A recorded frame is named for its channel whatever the false-color
+    toggle: the toggle colours how the frame is shown, and the file states
+    the same channel, display name and modality with it on or off."""
+    stated = {}
+    for false_color_on in (False, True):
+        path = tmp_path / f'frame_{false_color_on}.tiff'
+        write_recorded(
+            sim_scope,
+            np.full((8, 8), 200, dtype=np.uint16),
+            path,
+            channel=LED1,
+            false_color_on=false_color_on,
+            save_encoding='right_aligned',
+        )
+        written = image_utils.read_file_record(path)
+        stated[false_color_on] = (written['channel'], written.get('channel_display'))
 
-    Asserted over the AST rather than the source text, so it survives any
-    reformatting of the seam it guards.
-    """
-    node = find_def('modules/image_save.py', 'write_video_frame')
-    assert node is not None, 'write_video_frame not found'
-
-    params = {a.arg for a in (*node.args.args, *node.args.kwonlyargs)}
-    assert 'channel' in params and 'layer_color' not in params, (
-        'write_video_frame must take `channel`: `layer_color` is the name that '
-        'invites the next author to treat the collapsed render value as an '
-        'identity, and only an unrelated early return stops it reaching one'
-    )
-
-    assigned = {
-        target.id
-        for stmt in ast.walk(node)
-        if isinstance(stmt, ast.Assign)
-        for target in stmt.targets
-        if isinstance(target, ast.Name)
-    }
-    assert 'save_color' not in assigned, (
-        'save_color reads like the value a save records; the collapsed value '
-        'must be named for the rendering job it does'
-    )
-    assert 'render_color' in assigned, (
-        'the value collapsed from false_color_on must carry its role in its name'
-    )
-
-    collapse = next(
-        stmt
-        for stmt in ast.walk(node)
-        if isinstance(stmt, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == 'render_color' for t in stmt.targets)
-    )
-    assert isinstance(collapse.value, ast.IfExp), (
-        'render_color must still be the toggle-conditional collapse'
-    )
-    assert isinstance(collapse.value.test, ast.Name), 'expected a bare flag test'
-    assert collapse.value.test.id == 'false_color_on', (
-        f'render_color must be derived from false_color_on, not {ast.dump(collapse.value.test)}'
-    )
-    assert isinstance(collapse.value.body, ast.Name), 'expected the channel name'
-    assert collapse.value.body.id == 'channel', 'the false-color arm renders the acquiring channel'
+    assert stated[True] == stated[False]
+    assert stated[True][0] == LED1

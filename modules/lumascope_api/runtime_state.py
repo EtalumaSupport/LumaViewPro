@@ -1,30 +1,21 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""RuntimeState -- runtime-mutable scope state, split from ScopeCapabilities.
+"""RuntimeState -- the configuration the scope acts on, split from ScopeCapabilities.
 
-Design doc sec 2.5 splits the capabilities surface into TWO:
+The scope answers for itself on TWO surfaces:
 
 - `scope.capabilities`: IMMUTABLE per Lumascope instance. Reconnect =
   new Lumascope = new capabilities.
-- `scope.runtime_state`: MUTABLE, refreshed on driver events (reflash,
-  reconnect, etc.). Also answers for the configuration the scope acts
-  on: labware, objective, turret config, stage offset, and the
-  coordinate transformer that operates on those values. It holds none of
-  them: the session's settings are their one store, read through the
-  scope's ``read_setting`` on every answer. The objective catalogue is
+- `scope.runtime_state`: answers for the configuration the scope acts
+  on, which changes while the scope is up: labware, objective, turret
+  config, stage offset, and the coordinate transformer that operates on
+  those values. It holds none of them: the session's settings are their
+  one store, read through the scope's ``read_setting`` on every answer. The objective catalogue is
   the scope's own (`scope.objective_helper`), read at each use.
-
-The split exists because firmware version legitimately mutates mid-
-session when boards are reflashed; a single frozen surface would lie
-post-flash. Sub-APIs read from BOTH surfaces as needed -- capability-
-probe gates use the immutable surface, recovery / version gates use
-the runtime surface.
 
 The answers for labware / objective / turret / stage live here because
 they are user configuration that callers adjust during a session;
 capabilities is hardware-identity state that doesn't change without a
 reconnect.
-
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.5 and sec 10.
 """
 
 from __future__ import annotations
@@ -33,40 +24,30 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
-from lvp_logger import logger
-from modules.exceptions import (
-    ArgumentRefusedError,
-    ConfigurationDefectError,
-    ObjectiveUnknownError,
-)
+from modules.exceptions import ObjectiveUnknownError
 from modules.api_surface import api
+from modules.scope_capabilities import FieldOfView
 
 if TYPE_CHECKING:
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.lumascope_api._lumascope import Lumascope
+    from modules.objectives_loader import Objective
 
 
-# The axes a plate coordinate is defined for: the plate lies in X and Y.
-_PLATE_AXES = ('X', 'Y')
+def slots_holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
+    """The turret slots ``turret_config`` assigns ``objective_id``, ascending."""
+    return tuple(sorted(slot for slot, held in turret_config.items() if held == objective_id))
 
 
 class RuntimeState:
-    """Mutable runtime state on a Lumascope, and the answers for the user
-    configuration the scope acts on (labware / objective / turret / stage),
-    read from the session's settings.
-
-    Fields land per design doc sec 2.5 as the underlying firmware +
-    driver hooks ship.
+    """The answers for the user configuration a Lumascope acts on
+    (labware / objective / turret / stage), read from the session's settings.
     """
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
-        # Set once at bring-up from the session's one has-a-turret answer.
-        # None until then: a scope nobody has configured does not know where
-        # its objective comes from, and a False here would let a turret scope
-        # answer with a stored objective.
-        self._turreted: bool | None = None
         # The objective whose optics were last recorded, so the record is
         # written once per change of the active objective, not per read.
         self._logged_objective_id: str | None = None
@@ -74,8 +55,7 @@ class RuntimeState:
 
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-    @api
-    def get_labware(self) -> WellPlate:
+    def get_labware(self) -> Labware:
         """The selected labware (well plate).
 
         Built from the catalogue for the plate the settings name, on every
@@ -83,123 +63,87 @@ class RuntimeState:
         (``ScopeSession.select_labware`` changes it).
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         return self._scope.wellplate_loader.get_plate(
-            plate_key=self._scope.read_setting('protocol.labware')
+            labware_id=self._scope.read_setting('protocol.labware')
         )
 
-    def set_turreted(self, turreted: bool) -> None:
-        """Record whether this scope has a turret, once, at bring-up.
+    @api(reads=True)
+    def resolve_current_objective(self) -> tuple[str, Objective]:
+        """The active objective's id and record, or why it is unknown.
 
-        This method is not part of the L2 API surface: bring-up sets it from
-        the session's one has-a-turret answer (the board when it is talking,
-        the declared model when it is not), so a turreted scope whose board
-        is dead still derives its objective -- and, with no known slot,
-        answers unknown -- rather than falling back to a stored one.
-        """
-        self._turreted = turreted
-
-    @api
-    def is_turreted(self) -> bool:
-        """Whether this scope derives its objective from the turret slot.
-
-        The answer bring-up recorded; every objective question asks this
-        one, so selection and derivation cannot disagree about the turret.
-
-        Raises:
-            ConfigError: Bring-up has not recorded the answer
-                (``Lumascope.initialize`` has not run).
-        """
-        if self._turreted is None:
-            raise ConfigurationDefectError(
-                'scope_not_initialized',
-                'whether this scope has a turret is not known: the scope has not been '
-                'configured -- run initialize() (a ScopeSession does this at bring-up)',
-            )
-        return self._turreted
-
-    @api
-    def resolve_current_objective(self) -> tuple[str, dict]:
-        """The active objective's id and metadata, or why it is unknown.
-
-        On a turreted scope, the objective assigned to the slot in the light
-        path (``motion.get_turret_slot``), read fresh every time; with no
-        turret, the selected one.
+        On a turreted scope (``capabilities.has_turret``), the objective
+        assigned to the slot in the light path (``motion.turret_status``),
+        read fresh every time; with no turret, the selected one.
 
         Returns:
-            tuple[str, dict]: The objective id and its catalogue entry.
+            tuple[str, Objective]: The objective id and its catalogue record.
 
         Raises:
-            ObjectiveUnknownError: On a turreted scope, the slot is unknown,
-                it has no assignment, or its assignment is not in the
-                catalogue; with no turret, nothing was selected; on any
-                scope, bring-up has not said whether it has a turret.
+            ObjectiveUnknownError: On a turreted scope, the slot is unknown
+                (``'slot_unknown'``), it has no assignment
+                (``'slot_unassigned'``), or its assignment is not in the
+                catalogue (``'not_in_catalogue'``); with no turret, nothing was
+                selected (``'none_selected'``).
         """
-        objective_id, info, unknown = self._derive_current_objective()
+        objective_id, objective, unknown = self._derive_current_objective()
         if unknown is not None:
             raise unknown
-        return objective_id, info
+        return objective_id, objective
 
     def _derive_current_objective(
         self,
-    ) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
-        """The one derivation: (id, info, None), or (None, None, why).
+    ) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
+        """The one derivation: (id, objective, None), or (None, None, why).
 
         Records the optics whenever the answer is a different objective
         from the last one recorded -- after a turret move, an assignment
         or a selection -- so the scale every later capture used is in the
         log however the objective changed.
         """
-        objective_id, info, unknown = self._derive()
+        objective_id, objective, unknown = self._derive()
         if unknown is None:
-            self._record_optics_on_change(objective_id, info)
-        return objective_id, info, unknown
+            self._record_optics_on_change(objective_id, objective)
+        return objective_id, objective, unknown
 
-    def _record_optics_on_change(self, objective_id: str, info: dict) -> None:
+    def _record_optics_on_change(self, objective_id: str, objective: Objective) -> None:
         with self._optics_lock:
             if objective_id == self._logged_objective_id:
                 return
             self._logged_objective_id = objective_id
-        # A record that cannot be written must not fail the read that
-        # triggered it: the objective is still known and still correct.
-        try:
-            import modules.config_helpers as config_helpers
+        import modules.config_helpers as config_helpers
 
-            config_helpers.log_resolved_optics(
-                objective_id,
-                info['focal_length'],
-                self._scope.imaging.get_binning_size(),
-                capabilities=self._scope.capabilities,
-            )
-        except Exception:
-            logger.warning(
-                f'[LVP API  ] could not record the optics for objective {objective_id!r}',
-                exc_info=True,
-            )
+        # The binning the camera last reported, not a fresh read: an
+        # objective read asks the camera nothing, and an unknown binning is
+        # recorded as the scale it leaves unknown.
+        config_helpers.log_resolved_optics(
+            objective_id,
+            objective.focal_length_mm,
+            self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
 
-    def _derive(self) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
-        if self._turreted is None:
-            return None, None, ObjectiveUnknownError('turret_undecided')
-        if not self._turreted:
+    def _derive(self) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
+        if not self._scope.capabilities.has_turret:
             # The selected objective, from the settings; bring-up refused a
             # stored id the catalogue does not hold, and the one writer
             # (ScopeSession.select_objective) refuses one too.
             objective_id = self._scope.read_setting('objective_id')
             if objective_id is None:
                 return None, None, ObjectiveUnknownError('none_selected')
-            info = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-            return objective_id, info, None
-        slot = self._scope.motion.get_turret_slot()
+            objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
+            return objective_id, objective, None
+        slot = self._scope.motion.turret_status().slot
         if slot is None:
             return None, None, ObjectiveUnknownError('slot_unknown')
         objective_id = self.get_turret_config().get(slot)
         if objective_id is None:
             return None, None, ObjectiveUnknownError('slot_unassigned', slot)
-        if objective_id not in self._scope.objective_helper.get_objectives_list():
+        if objective_id not in self._scope.objectives:
             return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
-        info = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-        return objective_id, info, None
+        return objective_id, self._scope.objectives[objective_id], None
 
     def get_current_objective_id(self) -> str | None:
         """Get the ID of the currently active objective.
@@ -210,157 +154,244 @@ class RuntimeState:
         """
         return self._derive_current_objective()[0]
 
-    @api
-    def get_objective_info(self, objective_id: str | None) -> dict:
-        """Get objective metadata by ID.
-
-        Args:
-            objective_id: Objective identifier (e.g. "4x Oly", "10x Oly").
+    def get_current_objective(self) -> Objective | None:
+        """The active objective's record.
 
         Returns:
-            dict: Objective info including focal_length, magnification, etc.
-
-        Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, the
-                catalogue holds no such id -- what a protocol saved against
-                another catalogue names.
-            ObjectiveUnknownError: ``'none_selected'``, the id is null, which
-                is what a fresh or half-configured scope stores.
-
-        Refused by name rather than answered with None: nearly every caller
-        subscripts the answer, so a None reached the user as a bare
-        attribute error naming nothing they could act on.
-        """
-        return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-
-    @api
-    def get_available_objectives(self) -> list[str]:
-        """Get list of all available objective IDs.
-
-        Returns:
-            list[str]: Objective identifiers (e.g. ["4x", "10x Oly", "20x Oly"]).
-        """
-        return self._scope.objective_helper.get_objectives_list()
-
-    def get_current_objective(self) -> dict | None:
-        """Get the currently active objective info.
-
-        Returns:
-            dict | None: Active objective metadata, or None when it is not
+            Objective | None: The active objective, or None when it is not
                 known (``resolve_current_objective`` says why).
         """
         return self._derive_current_objective()[1]
 
-    @api
-    def get_turret_config(self) -> dict:
-        """The turret's objective assignments, from the settings.
+    @api(reads=True)
+    def get_pixel_size_um(self) -> float | None:
+        """The effective pixel size: micrometres per pixel at the current
+        objective and the camera's binning, the scale a saved image carries.
 
         Returns:
-            dict: Turret position (1-4) to objective ID, None for an
-                unassigned slot. A copy: changing it changes no assignment
+            float | None: None when it cannot be known: no objective is
+                known (``resolve_current_objective`` says why), there is no
+                camera, the camera has not reported its binning, or the
+                scope cannot report its optics.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+        """
+        objective = self.get_current_objective()
+        if objective is None:
+            return None
+        return common_utils.get_pixel_size(
+            objective.focal_length_mm,
+            self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
+
+    @api(reads=True)
+    def get_field_of_view(self) -> FieldOfView | None:
+        """The area the camera's frame covers on the sample, at the current
+        objective and the camera's binning.
+
+        Returns:
+            FieldOfView | None: Width and height in micrometres; None when
+                the pixel size cannot be known (``get_pixel_size_um``) or the
+                camera has not reported its frame.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+        """
+        objective = self.get_current_objective()
+        frame = self._scope.camera.frame_size
+        if objective is None or frame is None:
+            return None
+        extent = common_utils.get_field_of_view(
+            focal_length=objective.focal_length_mm,
+            frame_size={'width': frame.width, 'height': frame.height},
+            binning_size=self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
+        if extent is None:
+            return None
+        return FieldOfView(width_um=extent['width'], height_um=extent['height'])
+
+    @api(reads=True)
+    def get_turret_config(self) -> dict[int, str | None]:
+        """The turret's objective assignments, from the settings.
+
+        The map ``ScopeSession.turret_objective`` reads one slot of: on a
+        scope with no turret (``capabilities.has_turret``) it is empty, as
+        that read refuses every slot there.
+
+        Returns:
+            Turret position (1-4) to objective ID, None for an
+                unassigned slot; empty on a scope with no turret. A copy:
+                changing it changes no assignment
                 (``ScopeSession.assign_turret_objective`` does).
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
-        return self._scope.read_setting('turret_objectives')
+        # Read before the scope fact is asked, so a scope no session has
+        # bound refuses this read as it does every other.
+        assignments = self._scope.read_setting('turret_objectives')
+        if not self._scope.capabilities.has_turret:
+            # The stored slots are a turret's assignments only on a scope
+            # that has one; elsewhere they are kept for a change of model.
+            return {}
+        return assignments
 
-    @api
-    def get_stage_offset(self) -> dict:
+    @api(reads=True)
+    def get_stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
 
         Returns:
-            dict: The offset per axis, in um. A copy: changing it changes
-                no setting.
+            Where the plate is mounted on the stage, in um.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
-        return self._scope.read_setting('stage_offset')
+        stored = self._scope.read_setting('stage_offset')
+        return coord_transformations.StageOffset(x_um=float(stored['x']), y_um=float(stored['y']))
 
-    @api
-    def stage_to_plate(self, sx: float, sy: float) -> tuple[float, float]:
-        """Convert a stage position (um) to plate coordinates (mm).
+    def _frame(
+        self,
+        labware_id: str | None,
+        stage_offset: coord_transformations.StageOffset | None,
+    ) -> tuple[Labware, coord_transformations.StageOffset]:
+        """The plate and offset a conversion is stated in: the ones given, else the selected plate and the live offset."""
+        labware = (
+            self.get_labware()
+            if labware_id is None
+            else self._scope.wellplate_loader.get_plate(labware_id=labware_id)
+        )
+        return labware, self.get_stage_offset() if stage_offset is None else stage_offset
 
-        Uses the selected labware and stage offset -- the same
-        transform ``get_well_label`` performs before its label lookup,
-        exposed for consumers that need the coordinates themselves
-        (e.g. image metadata).
+    @api(reads=True)
+    def stage_to_plate(
+        self,
+        x_um: float,
+        y_um: float,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> coord_transformations.PlatePosition:
+        """Convert a stage position (um) to a plate position (mm).
+
+        ``plate_to_stage`` inverts it.
 
         Args:
-            sx: Stage X position in um.
-            sy: Stage Y position in um.
-
-        Returns:
-            (px, py): Plate position in mm.
+            x_um: The stage X, in um.
+            y_um: The stage Y, in um.
+            labware_id: The plate the position is stated on; None for the
+                selected plate. A protocol's positions are on the plate it
+                stores.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the live offset. A run keeps the offset it started
+                with.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
+                offset axis is not a finite number.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
         """
+        labware, offset = self._frame(labware_id, stage_offset)
         return self._coordinate_transformer.stage_to_plate(
-            labware=self.get_labware(),
-            stage_offset=self.get_stage_offset(),
-            sx=sx,
-            sy=sy,
+            labware=labware, stage_offset=offset, x_um=x_um, y_um=y_um
         )
 
-    @api(in_process=True)
-    def plate_transform(self) -> Callable[[float, float], tuple[float, float]]:
-        """The stage-to-plate transform bound to the labware and offset selected now.
+    @api(reads=True)
+    def plate_to_stage(
+        self,
+        x_mm: float,
+        y_mm: float,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> coord_transformations.StagePosition:
+        """Convert a plate position (mm) to a stage position (um), as ``stage_to_plate`` inverted.
 
-        ``stage_to_plate`` reads the selected labware and stage offset on
-        every call, so a caller converting many positions over time -- a
-        recording writing one per frame -- would record its later frames
-        against a labware or offset changed mid-way. The transform returned
-        here is bound to copies of both taken at the moment of the call, so
-        every position it converts is stated in one frame of reference, a
-        later change moves none of them, and it cannot raise.
+        Not bounded: a position off the stage's travel converts, and the
+        move to it is refused.
 
-        Returns:
-            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``.
+        Args:
+            x_mm: The plate X, in mm.
+            y_mm: The plate Y, in mm.
+            labware_id: The plate the position is stated on; None for the
+                selected plate. A protocol's positions are on the plate it
+                stores.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the live offset. A run keeps the offset it started
+                with.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
+                offset axis is not a finite number.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
         """
-        labware = self.get_labware()
-        stage_offset = self.get_stage_offset()
-        transformer = self._coordinate_transformer
+        labware, offset = self._frame(labware_id, stage_offset)
+        return self._coordinate_transformer.plate_to_stage(
+            labware=labware, stage_offset=offset, x_mm=x_mm, y_mm=y_mm
+        )
 
-        def to_plate(sx: float, sy: float) -> tuple[float, float]:
+    @api(in_process=True, reads=True)
+    def plate_transform(
+        self,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> Callable[[float, float], coord_transformations.PlatePosition]:
+        """``stage_to_plate`` bound to one plate and offset, taken when this is called.
+
+        ``stage_to_plate`` reads the selected plate and live offset on every
+        call, so a caller converting many positions over time -- a recording
+        writing one per frame, a run, a redraw -- would state its later ones
+        against a plate or offset changed mid-way. The function returned is
+        bound to the plate and offset of this call, so every position it
+        converts is stated in one frame of reference and a later change moves
+        none of them.
+
+        Args:
+            labware_id: The plate the positions are stated on; None for the
+                plate selected when this is called.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the offset live when this is called.
+
+        Returns:
+            A function of ``(x_um, y_um)`` answering their ``PlatePosition``;
+            it raises only as the transform refuses a non-finite coordinate.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, an offset axis is not a
+                finite number; asked here, so the function does not.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
+        """
+        labware, offset = self._frame(labware_id, stage_offset)
+        transformer = self._coordinate_transformer
+        coord_transformations.offset_axes(offset)
+
+        def to_plate(x_um: float, y_um: float) -> coord_transformations.PlatePosition:
             return transformer.stage_to_plate(
-                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+                labware=labware, stage_offset=offset, x_um=x_um, y_um=y_um
             )
 
         return to_plate
 
-    @api
-    def plate_to_stage_axis(self, axis: str, plate_mm: float) -> float:
-        """Convert one axis of a plate coordinate (mm) to a stage target (um).
-
-        The completing half of ``stage_to_plate``. Per-axis because the
-        callers that need it are commanding a single axis, and because
-        each stage coordinate depends only on its own plate coordinate --
-        so the unused argument below is inert, not a placeholder standing
-        in for a value the caller should have supplied.
-
-        Raises:
-            ArgumentRefusedError: ``'plate_frame_axis'``, ``axis`` is not
-                'X' or 'Y'.
-        """
-        if axis not in _PLATE_AXES:
-            raise ArgumentRefusedError(
-                'plate_frame_axis', argument='axis', value=axis, offered=_PLATE_AXES
-            )
-
-        sx, sy = self._coordinate_transformer.plate_to_stage(
-            labware=self.get_labware(),
-            stage_offset=self.get_stage_offset(),
-            px=plate_mm if axis == 'X' else 0,
-            py=plate_mm if axis == 'Y' else 0,
-        )
-        return sx if axis == 'X' else sy
-
-    @api
+    @api(reads=True)
     def get_well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 
@@ -380,8 +411,10 @@ class RuntimeState:
             say which it was.
 
         Raises:
-            Exception: Re-raises any error encountered reading target
-                position; logged before re-raise.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+            CatalogueNameRefusedError: ``'labware_unknown'``, the selected
+                labware is not in the catalogue.
         """
         unknown = self._scope.motion.axes_without_position()
         if 'X' in unknown or 'Y' in unknown:
@@ -389,16 +422,11 @@ class RuntimeState:
 
         labware = self.get_labware()
 
-        # The all-axes read carries only the axes the scope has; a
-        # single-axis read of an absent axis answers 0, which names a well.
-        try:
-            targets = self._scope.motion.get_target_position()
-        except Exception:
-            logger.exception('[LVP API  ] Error getting target position.')
-            raise
+        # The all-axes read carries only the axes the scope has.
+        targets = self._scope.motion.get_target_positions()
         if 'X' not in targets or 'Y' not in targets:
             return None
 
-        x_target, y_target = self.stage_to_plate(sx=targets['X'], sy=targets['Y'])
+        target = self.stage_to_plate(targets['X'], targets['Y'])
 
-        return labware.get_well_label(x=x_target, y=y_target)
+        return labware.get_well_label(x=target.x_mm, y=target.y_mm)

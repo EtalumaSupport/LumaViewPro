@@ -37,11 +37,14 @@ _paused_threads = threading.local()
 # import cannot reach back into it.
 from modules.path_utils import (
     app_runtime,
+    get_log_dir,
     get_script_root,
     get_source_root,
     launch_root,
     read_version,
 )
+
+from modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, make_formatter
 
 version, build_timestamp = read_version()
 
@@ -51,17 +54,8 @@ lvp_appdata = str(get_source_root())
 
 from modules.settings_init import load_debug_setting
 
-try:
-    debug = load_debug_setting(lvp_appdata)
-except Exception as e:
-    print(
-        f'[lvp_logger] WARNING: Failed to load debug setting, defaulting to False: {e}',
-        file=sys.stderr,
-    )
-    debug = False
 
-
-log_dir = os.path.join(lvp_appdata, 'logs', 'LVP_Log')
+log_dir = str(get_log_dir())
 os.makedirs(log_dir, exist_ok=True)
 
 # files to which messages are logged
@@ -78,22 +72,30 @@ GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 
+_MB = 1024 * 1024
 
-# CustomFormatter class enables change in log format depending on log level
-class CustomFormatter(logging.Formatter):
-    # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
-    def __init__(
-        self,
-        fmt='[%(levelname)s] [%(threadName)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s',
-        datefmt='%m/%d/%Y %H:%M:%S',
-    ):
-        logging.Formatter.__init__(self, fmt, datefmt)
+# Each log's cap -- its file size and how many backups it keeps -- has this
+# one row, and every rotating handler is made from it by _rotating_handler.
+# A support bundle carries the whole log folder and must stay small enough
+# to email, under 25 MB zipped. Measured over 34 field bundles, these logs
+# zip between 5:1 (autofocus) and 37:1 (errors), so the table at every cap
+# is about 13 MB zipped, leaving room for three installs' installer logs.
+LOG_CAPS = {
+    'lumaviewpro.log': (10 * _MB, 3),
+    'serial.log': (5 * _MB, 2),
+    'camera.log': (5 * _MB, 2),
+    'api.log': (5 * _MB, 2),
+    'lumaviewpro_errors.log': (5 * _MB, 2),
+    'lumaviewpro_rest_api.log': (5 * _MB, 1),
+    'protocol.log': (5 * _MB, 1),
+    'autofocus.log': (5 * _MB, 1),
+    'gui_interactions.log': (2 * _MB, 2),
+    'metrics.log': (2 * _MB, 1),
+}
 
-    def format(self, record):
-        # if record.levelno == logging.INFO:
-        #     # if INFO level, only log the message
-        #     return record.getMessage()
-        return logging.Formatter.format(self, record)
+# The table's sum, every log at its cap with all its backups. A cap raised
+# past it fails the budget test, so the bundle's size is revisited with it.
+LOG_BUDGET_BYTES = 140 * _MB
 
 
 def minimize_logger_window() -> None:
@@ -134,8 +136,8 @@ class ThreadPauseFilter(logging.Filter):
 
 
 # Log traceback if we have a crash to tell us more info on what happened.
-# The tuple form `exc_info=(type, value, tb)` does not render through
-# CustomFormatter, which silently dropped tracebacks in the field. Embed
+# The tuple form `exc_info=(type, value, tb)` did not render through the
+# log formatter, which silently dropped tracebacks in the field. Embed
 # the formatted traceback directly in the message string so it renders
 # regardless of stdlib exc_info handling.
 import traceback as _traceback
@@ -151,26 +153,11 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
     logger.critical(f'Logger ] CRASH - Uncaught Exception:\n{tb_text}')
 
 
-# ensures logger is specific to the file importing lvp_logger
-logger = logging.getLogger(__name__)
-
-# The verbosity floor until a session is created: DEBUG when debug_mode is on
-# (the installation's switch for a detailed log, so startup is in it too),
-# INFO otherwise. After that the session applies the same rule -- DEBUG under
-# debug_mode, else logging.default.level -- to both logger trees that write to
-# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
-# [PERF] line) and lvp_logger's own logger, on every host
-# (scope_session._apply_logging). Loggers that want a fixed floor
-# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
-# firehose).
-# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
-# logger's own level (it was silently starving camera.log of DEBUG) and split
-# the toggle into two gates. The per-logger level is the canonical mechanism.
-_log_level = logging.DEBUG if debug else logging.INFO
+# The main and camera loggers are named in lib/log_helpers, where the drivers
+# and lib/ take them without importing this module; this module configures them.
+from lib.log_helpers import camera_logger, logger
 
 _lvp_parent = logging.getLogger('LVP')
-_lvp_parent.setLevel(_log_level)
-logger.setLevel(_log_level)
 
 # The root logger is the single owner of the bundle file handlers (set up
 # below); every logger reaches the bundle by propagating to root, and no logger
@@ -197,32 +184,54 @@ def rotated_log_name(name: str) -> str:
     return os.path.join(folder, f'{stem}.{index}.log')
 
 
+def _remove_backups_past(path: str, backups: int) -> None:
+    """Remove ``<stem>.<n>.log`` for every n above ``backups``.
+
+    Rotation only ever renames up to the handler's backup count, so a
+    backup left from a larger count is never touched again: without this,
+    lowering a cap shrinks nothing in a folder that already holds logs.
+    A backup already gone is the state this wants -- another LVP process
+    sharing the folder may rotate it away between the listing and the
+    removal -- and any other failure is raised.
+    """
+    folder, file_name = os.path.split(path)
+    prefix = file_name.removesuffix('.log') + '.'
+    for name in os.listdir(folder):
+        index = name.removeprefix(prefix).removesuffix('.log')
+        if not (name.startswith(prefix) and name.endswith('.log') and index.isdigit()):
+            continue
+        if int(index) > backups:
+            try:
+                os.remove(os.path.join(folder, name))
+            except FileNotFoundError:
+                pass
+
+
+def _rotating_handler(path: str, *, layout: str, delay: bool):
+    """The one maker of a rotating log handler: its cap from LOG_CAPS, its
+    every line starting with the one stamp, every file UTF-8."""
+    max_bytes, backups = LOG_CAPS[os.path.basename(path)]
+    _remove_backups_past(path, backups)
+    handler = RotatingFileHandler(
+        path,
+        mode='a',
+        maxBytes=max_bytes,
+        backupCount=backups,
+        encoding='utf-8',
+        delay=delay,
+    )
+    handler.namer = rotated_log_name
+    handler.setFormatter(make_formatter(layout))
+    return handler
+
+
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
-file_handler = RotatingFileHandler(
-    LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-file_handler.namer = rotated_log_name
-file_handler.setFormatter(CustomFormatter())
+file_handler = _rotating_handler(LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 file_handler.addFilter(ThreadPauseFilter())
 
 # Additional rotating file handler for errors and critical logs only
-error_file_handler = RotatingFileHandler(
-    ERRORS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-# keep the same filename pattern for rotations
-error_file_handler.namer = rotated_log_name
-error_file_handler.setFormatter(CustomFormatter())
+error_file_handler = _rotating_handler(ERRORS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 error_file_handler.addFilter(ThreadPauseFilter())
 
 # Accept all levels on the handler but filter to ERROR+ or forced records
@@ -249,16 +258,8 @@ class ErrorOrForcedFilter(logging.Filter):
 error_file_handler.addFilter(ErrorOrForcedFilter())
 
 # REST API log handler -- captures records marked with extra={'api_request': True}
-rest_api_handler = RotatingFileHandler(
-    REST_API_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=True,  # Don't create file until first REST API log message
-)
-rest_api_handler.namer = rotated_log_name
-rest_api_handler.setFormatter(CustomFormatter())
+# Don't create the file until the first REST API log message.
+rest_api_handler = _rotating_handler(REST_API_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
 rest_api_handler.addFilter(ThreadPauseFilter())
 
 
@@ -278,31 +279,11 @@ serial_logger = logging.getLogger('LVP.serial')
 serial_logger.setLevel(logging.INFO)
 serial_logger.propagate = False  # Keep serial traffic out of the main log
 
-
-class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp [thread] board command -> response (timing)."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
 # Firehose trace logs (serial, camera, protocol, api) stay fully verbose
-# through the beta, but their rotation footprint is capped at 5MB x 3 files
-# so a long-soak support bundle stays small. Revisit the verbosity itself
-# (demote routine per-command traffic to DEBUG) at the 4.0.0 GA release.
-serial_file_handler = RotatingFileHandler(
-    SERIAL_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=False,
-)
-serial_file_handler.namer = rotated_log_name
-serial_file_handler.setFormatter(SerialFormatter())
+# through the beta, their footprint held by LOG_CAPS so a long-soak support
+# bundle stays small. Revisit the verbosity itself (demote routine
+# per-command traffic to DEBUG) at the 4.0.0 GA release.
+serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
@@ -316,7 +297,6 @@ serial_logger.addHandler(error_file_handler)
 # pylon_callback_trace.csv when profile_trace_enabled is set in
 # settings.json. Always-on (not engineering-gated) to match serial.log
 # behavior.
-camera_logger = logging.getLogger('LVP.camera')
 # DEBUG level (was INFO): camera.log is the firehose for camera debugging.
 # Every per-frame check, every SDK-call return value, every state
 # transition lands here. Main log stays uncluttered via propagate=False;
@@ -325,27 +305,7 @@ camera_logger = logging.getLogger('LVP.camera')
 camera_logger.setLevel(logging.DEBUG)
 camera_logger.propagate = False  # Keep camera traffic out of the main log
 
-
-class CameraFormatter(logging.Formatter):
-    """Compact format for camera log: timestamp [thread] message."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
-camera_file_handler = RotatingFileHandler(
-    CAMERA_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=False,
-)
-camera_file_handler.namer = rotated_log_name
-camera_file_handler.setFormatter(CameraFormatter())
+camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
 # Also send camera errors/warnings to the errors log
@@ -361,22 +321,12 @@ from lib.log_helpers import log_to  # noqa: F401  intentional re-export so calle
 # Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
 # percentiles). Routed here instead of errors.log so errors.log stays
-# signal-only. Uses standard CustomFormatter so existing log-parsing
-# scripts continue to work against this file.
+# signal-only. Written in the main log's layout.
 metrics_logger = logging.getLogger('LVP.metrics')
 metrics_logger.setLevel(logging.INFO)
 metrics_logger.propagate = False  # Keep metrics out of the main log
 
-metrics_file_handler = RotatingFileHandler(
-    METRICS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-metrics_file_handler.namer = rotated_log_name
-metrics_file_handler.setFormatter(CustomFormatter())
+metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
@@ -395,110 +345,39 @@ protocol_logger = logging.getLogger('LVP.protocol')
 protocol_logger.setLevel(logging.INFO)
 protocol_logger.propagate = False  # Keep protocol detail out of the main log
 
-protocol_file_handler = RotatingFileHandler(
-    PROTOCOL_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=True,  # Don't create file until first write -- absence means no stills protocol ran
-)
-protocol_file_handler.namer = rotated_log_name
-protocol_file_handler.setFormatter(CustomFormatter())
+# Don't create the file until the first write -- absence means no stills protocol ran.
+protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
 protocol_file_handler.addFilter(ThreadPauseFilter())
 protocol_logger.addHandler(protocol_file_handler)
 # Protocol errors/warnings still hit the errors log
 protocol_logger.addHandler(error_file_handler)
 
 # Autofocus log -- dedicated file for AF sweep data, scores, timing.
-# Engineering mode only -- handler attached via enable_engineering_logs().
+# Always-on, attached at import like camera.log, so every host writes it.
 af_logger = logging.getLogger('LVP.autofocus')
 af_logger.setLevel(logging.INFO)
 af_logger.propagate = False  # Keep AF data out of the main log
 # Always send AF errors to the errors log
 af_logger.addHandler(error_file_handler)
 
-
-class AFFormatter(logging.Formatter):
-    """Compact format for autofocus log."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
-_af_file_handler = RotatingFileHandler(
-    AUTOFOCUS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=True,  # Don't create file until first write
-)
-_af_file_handler.namer = rotated_log_name
-_af_file_handler.setFormatter(AFFormatter())
+# Don't create the file until the first write.
+_af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, layout='%(message)s', delay=True)
 _af_file_handler.addFilter(ThreadPauseFilter())
+af_logger.addHandler(_af_file_handler)
 
 # API log -- internal Lumascope API calls (state-changing operations).
-# Engineering mode only -- handler attached via enable_engineering_logs().
+# Always-on, attached at import like camera.log: every host -- the GUI, the
+# REST server, a script -- writes it from the first call of bring-up.
 api_logger = logging.getLogger('LVP.api')
 api_logger.setLevel(logging.INFO)
 api_logger.propagate = False  # Keep API traffic out of the main log
 # Always send API errors to the errors log
 api_logger.addHandler(error_file_handler)
 
-
-class APIFormatter(logging.Formatter):
-    """Compact format for API log: timestamp [thread] message."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
-_api_file_handler = RotatingFileHandler(
-    API_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=True,  # Don't create file until first write
-)
-_api_file_handler.namer = rotated_log_name
-_api_file_handler.setFormatter(APIFormatter())
+# Don't create the file until the first write.
+_api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
 _api_file_handler.addFilter(ThreadPauseFilter())
-
-
-def enable_engineering_logs(enabled: bool):
-    """Attach/detach file handlers for engineering-mode-only logs.
-
-    Called once after engineering mode is determined. When disabled,
-    the loggers exist but have no file handler -- logging calls are
-    essentially free (no I/O).
-
-    WORKAROUND: During beta releases, always enable engineering logs
-    for maximum debugging visibility. Remove this override after
-    beta stabilization and gate behind engineering mode again.
-    """
-    # WORKAROUND: Force-enable during beta for field debugging
-    if 'beta' in version.lower():
-        enabled = True
-
-    if enabled:
-        if _af_file_handler not in af_logger.handlers:
-            af_logger.addHandler(_af_file_handler)
-        if _api_file_handler not in api_logger.handlers:
-            api_logger.addHandler(_api_file_handler)
-        logger.info('[Logger  ] Engineering logs enabled (autofocus.log, api.log)')
-    else:
-        if _af_file_handler in af_logger.handlers:
-            af_logger.removeHandler(_af_file_handler)
-        if _api_file_handler in api_logger.handlers:
-            api_logger.removeHandler(_api_file_handler)
+api_logger.addHandler(_api_file_handler)
 
 
 # Only the REST sink is logger-specific; the bundle file handlers live on root
@@ -507,11 +386,7 @@ logger.addHandler(rest_api_handler)
 
 # GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
-gui_handler = RotatingFileHandler(
-    GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
-)
-gui_handler.namer = rotated_log_name
-gui_handler.setFormatter(CustomFormatter())
+gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
 gui_logger.addHandler(gui_handler)
@@ -556,7 +431,7 @@ class _MainLogFloor(logging.Filter):
     """LVP's records at the level its loggers allow; anyone else's from INFO up."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', __name__)
+        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', logger.name)
 
 
 file_handler.addFilter(_MainLogFloor())
@@ -564,15 +439,44 @@ _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
+
+# debug_mode is read once the log files are open. A shipped settings file
+# that cannot answer stops the launch (InstallationFileError, naming the
+# file), and the main log records it once as the crash it is: the crash hook
+# is not installed until after this import, and a debug flag read as off
+# would hide the broken installation behind a quieter log.
+try:
+    debug = load_debug_setting(lvp_appdata)
+except Exception:
+    custom_except_hook(*sys.exc_info())
+    raise
+
+# The verbosity floor until a session is created: DEBUG when debug_mode is on
+# (the installation's switch for a detailed log, so startup is in it too),
+# INFO otherwise. After that the session applies the same rule -- DEBUG under
+# debug_mode, else logging.default.level -- to both logger trees that write to
+# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
+# [PERF] line) and lvp_logger's own logger, on every host
+# (scope_session._apply_logging). Loggers that want a fixed floor
+# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
+# firehose).
+# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
+# logger's own level (it was silently starving camera.log of DEBUG) and split
+# the toggle into two gates. The per-logger level is the canonical mechanism.
+_log_level = logging.DEBUG if debug else logging.INFO
+_lvp_parent.setLevel(_log_level)
+logger.setLevel(_log_level)
+
 if debug and sys.__stderr__ is not None:
     _root_console = logging.StreamHandler(sys.__stderr__)
     _root_console.addFilter(_MainLogFloor())
-    _root_console.setFormatter(CustomFormatter())
+    _root_console.setFormatter(make_formatter(MAIN_LAYOUT))
     _root_logger.addHandler(_root_console)
 
 # Every process that imports this module shares the log, so each one's first
 # record says what it is: the GUI, the REST server, a headless script and a
-# test runner alike. Only the GUI writes the banner.
+# test runner alike. A process that brings up a scope then writes the banner
+# (log_environment_banner), from its first session's creation.
 logger.info(
     f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
     f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
@@ -636,7 +540,7 @@ def git_revision() -> str | None:
     # Built + CommitGUID for triage.
     _git_hash = None
     try:
-        with open(os.path.join(root, '.git_archival.txt')) as _af:
+        with open(os.path.join(root, '.git_archival.txt'), encoding='utf-8') as _af:
             for _line in _af:
                 if _line.startswith('node: ') and not _line.startswith('node: $Format'):
                     _git_hash = _line.split(': ', 1)[1].strip()[:12]
@@ -662,6 +566,13 @@ def git_revision() -> str | None:
     return _git_hash
 
 
+# Whether this process has written its banner: a process may build many
+# sessions (a script that reconnects, the test suite) and the banner costs a
+# git call and a package scan each time.
+_banner_written = False
+_banner_lock = threading.Lock()
+
+
 def log_environment_banner(
     install_path: str, version_str: str, camera_sdk_lines: list[str]
 ) -> None:
@@ -684,10 +595,19 @@ def log_environment_banner(
     its process: every process that imports this module writes to the same
     log, and the CPU profiler finds the build it profiles by it.
 
-    Only the GUI writes it (``LumaViewProApp.build``); every process that
-    imports this module, the GUI included, first writes its one ``[Process]``
-    line: version, runtime, launch folder, data root and PID.
+    Written once per process, by ``ScopeSession.create``, the one bring-up
+    every host makes, so a log from the REST server, a script or a probe
+    names its environment as the GUI's does; a later call writes nothing,
+    because the banner describes the process, not a session. Every process
+    that imports this module first writes its one ``[Process]`` line:
+    version, runtime, launch folder, data root and PID.
     """
+    global _banner_written
+    with _banner_lock:
+        if _banner_written:
+            return
+        _banner_written = True
+
     import sys as _sys
 
     logger.info('[LVP Main  ] -----------------------------------------')
@@ -767,11 +687,16 @@ def log_environment_banner(
     # support bundle alone answers "was debug on, and where is it set?" --
     # the live value is read from current.json once that exists, so editing
     # settings.json has no effect on an established install.
+    # This is the level the log started at, read from the installation's
+    # file when this module was imported; a session then puts its own
+    # settings' level on the log, which a host that hands in its settings
+    # can set otherwise, and states it in its "[Session  ] Log level" line.
     from modules import settings_init as _si
 
     logger.info(
-        f'[LVP Main  ] Debug:     debug_mode={debug} '
-        f'(from {_si.debug_setting_source or "default -- settings file unread"})'
+        f"[LVP Main  ] Debug:     debug_mode={debug} at the log's start "
+        f'(from {_si.debug_setting_source or "default -- settings file unread"}); '
+        f'each session states its own level'
     )
 
     # Host + OS + Python + key library versions.
@@ -784,12 +709,14 @@ def log_environment_banner(
     except Exception as e:
         logger.info(f'[LVP Main  ] OS: unavailable ({e})')
     logger.info(f'[LVP Main  ] Python: {_sys.version.split()[0]} ({_sys.executable})')
-    try:
-        import kivy as _kivy
-
-        logger.info(f'[LVP Main  ] Kivy: {_kivy.__version__}')
-    except Exception as e:
-        logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
+    # Kivy's version is read from a Kivy this process already runs, never
+    # imported for the line: every host writes this banner, and a REST
+    # server, a script or a probe drives the scope without the UI.
+    _kivy = _sys.modules.get('kivy')
+    if _kivy is None:
+        logger.info('[LVP Main  ] Kivy: not loaded by this process')
+    else:
+        logger.info(f'[LVP Main  ] Kivy: {getattr(_kivy, "__version__", "unknown")}')
 
     # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.

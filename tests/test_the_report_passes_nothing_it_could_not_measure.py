@@ -5,25 +5,21 @@ The report's LED leakage check parsed a raw LEDREADS dump and marked a
 channel PASS when its line could not be parsed; its serial-latency step
 timed the channel's own "Board not connected" as a round trip; its LED
 selftest, I2C scan and readings asked every LED board for text commands an
-FX2 scope's LED peripheral cannot carry; and a command-line report whose
-scope could not be built came out with every hardware file blaming a cable.
+FX2 scope's LED peripheral cannot carry.
 
 Now a check that was not possible says so, a channel that was not read is
-NOT MEASURED, only a board's reply is timed, the LED board's command set
-(none, legacy INFO, v2) decides what is asked, and a scope that could not
-be built is named, with its cause, in every hardware file.
+NOT MEASURED, only a board's reply is timed, and the LED board's command set
+(none, legacy INFO, v2) decides what is asked.
 """
 
 import pytest
 
 from drivers import fx2driver
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
 from drivers.simulated_fx2 import SimulatedFX2
-from modules.lumascope_api import Lumascope
 from modules.lumascope_api.diagnostics import (
     ERROR_PREFIX,
-    LED_COMMANDS_LEGACY,
-    LED_COMMANDS_V2,
+    LedCommandSet,
     NO_REPLY,
     NO_RESPONSE,
     NOT_CONNECTED,
@@ -62,12 +58,12 @@ def test_the_channels_stand_ins_are_not_replies():
 
 
 def test_a_v2_board_carries_every_led_command(session):
-    assert session.scope.diagnostics.get_led_info()['command_set'] == LED_COMMANDS_V2
+    assert session.scope.diagnostics.get_led_info().command_set == LedCommandSet.V2
 
 
 def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monkeypatch):
     monkeypatch.setattr(session.scope._led_driver, 'firmware_version', '1.4')
-    assert session.scope.diagnostics.get_led_info()['command_set'] == LED_COMMANDS_LEGACY
+    assert session.scope.diagnostics.get_led_info().command_set == LedCommandSet.LEGACY
 
     diag = FirmwareDiagnostics(scope=session.scope)
     info = diag.get_led_info()
@@ -81,7 +77,7 @@ def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monke
 def test_an_fx2_led_board_is_not_asked_for_text_commands(session, monkeypatch, fx2_led, tmp_path):
     monkeypatch.setattr(session.scope, '_led_driver', fx2_led)
     try:
-        assert session.scope.diagnostics.get_led_info()['command_set'] is None
+        assert session.scope.diagnostics.get_led_info().command_set is None
         diag = FirmwareDiagnostics(scope=session.scope)
         for answer in (
             diag.get_led_info(),
@@ -94,7 +90,7 @@ def test_an_fx2_led_board_is_not_asked_for_text_commands(session, monkeypatch, f
         assert leakage['passed'] is False
         assert leakage['not_applicable'].startswith(NOT_ON_THIS_BOARD)
 
-        report = TechSupportReport(scope=session.scope)
+        report = TechSupportReport(session)
         report._step_serial_latency(tmp_path)
         latency = (tmp_path / 'hardware_checks' / 'serial_latency.txt').read_text()
         led_block = latency.split('--- LED Board')[1].split('--- Motor Board')[0]
@@ -108,7 +104,7 @@ def test_an_fx2_led_boards_config_is_not_read_over_a_repl_it_does_not_have(
 ):
     monkeypatch.setattr(session.scope, '_led_driver', fx2_led)
     try:
-        TechSupportReport(scope=session.scope)._step_configbackup(tmp_path)
+        TechSupportReport(session)._step_configbackup(tmp_path)
         configs = tmp_path / 'firmware_configs'
         assert not (configs / 'led_config_UNAVAILABLE.txt').exists()
         assert (configs / 'led_config.txt').read_text().startswith(NOT_ON_THIS_BOARD)
@@ -117,7 +113,7 @@ def test_an_fx2_led_boards_config_is_not_read_over_a_repl_it_does_not_have(
 
 
 def test_every_channel_read_and_dark_is_a_pass(session, tmp_path):
-    TechSupportReport(scope=session.scope)._step_led_checks(tmp_path)
+    TechSupportReport(session)._step_led_checks(tmp_path)
     text = (tmp_path / 'hardware_checks' / 'led_leakage.txt').read_text()
     assert 'Overall: PASS' in text, text
 
@@ -131,9 +127,30 @@ def test_a_channel_that_was_not_read_is_not_a_pass(session, monkeypatch, tmp_pat
 
     assert leakage['passed'] is False
     assert leakage['channels']['CH2'] == {'i_sens_mA': None, 'status': 'NOT MEASURED'}
-    TechSupportReport(scope=session.scope)._step_led_checks(tmp_path)
+    TechSupportReport(session)._step_led_checks(tmp_path)
     text = (tmp_path / 'hardware_checks' / 'led_leakage.txt').read_text()
     assert 'CH2: not measured' in text and 'Overall: INCOMPLETE' in text, text
+
+
+def test_a_channel_the_board_did_not_report_is_the_check_s_error_in_its_words(session, monkeypatch):
+    driver = session.scope._led_driver
+    real = driver.read_led_current
+
+    def read(ch):
+        # a stand-in by design: the fast simulated LED board has no link to
+        # drop a reply on (drop_replies refuses it 'not_injectable_on_board')
+        if ch == 2:
+            raise BoardNoReplyError('LEDREAD2: no reply from the board')
+        return real(ch)
+
+    monkeypatch.setattr(driver, 'read_led_current', read)
+
+    leakage = FirmwareDiagnostics(scope=session.scope).check_led_leakage()
+
+    assert leakage == {
+        'error': 'The LED board did not report its currents: LEDREAD2: no reply from the board',
+        'passed': False,
+    }
 
 
 def test_a_leaking_channel_warns(session, monkeypatch):
@@ -158,54 +175,9 @@ def test_a_fullinfo_that_timed_out_is_not_a_serial_number():
     assert FirmwareDiagnostics(scope=scope).get_serial_number() == 'UNKNOWN'
 
 
-CAUSE = 'data/motorconfig_defaults.json is missing'
-
-
-def _cannot_build(cls):
-    raise RuntimeError(CAUSE)
-
-
-def test_a_scope_that_cannot_be_built_is_named_in_every_hardware_file(monkeypatch, tmp_path):
-    monkeypatch.setattr(Lumascope, 'create_diagnostic', classmethod(_cannot_build))
-    report = TechSupportReport()
-    report.diag.connect_standalone()
-
-    sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
-
-    assert sn == 'UNKNOWN'
-    for rel in (
-        'firmware_info/firmware_info.txt',
-        'firmware_configs/config_backup.txt',
-        'firmware_tests/led_selftest.txt',
-        'hardware_checks/led_leakage.txt',
-        'hardware_checks/serial_latency.txt',
-        'motion_tests/homing_test.txt',
-        'camera_info/camera_info.txt',
-    ):
-        text = (tmp_path / rel).read_text()
-        assert 'could not be built' in text and CAUSE in text, (rel, text)
-
-
-def test_the_command_line_says_why_and_does_not_send_the_user_to_the_cable(monkeypatch, caplog):
-    from modules import tech_support_report
-
-    monkeypatch.setattr(Lumascope, 'create_diagnostic', classmethod(_cannot_build))
-    prompts = []
-    monkeypatch.setattr('builtins.input', prompts.append)
-    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', _not_saved)
-    monkeypatch.setattr('sys.argv', ['tech_support_report'])
-
-    with caplog.at_level('INFO', logger=tech_support_report.logger.name):
-        tech_support_report.main()
-
-    assert CAUSE in caplog.text
-    assert prompts == [], 'the power-cycle prompt was shown for a scope that could not be built'
-    assert 'USB cable' not in caplog.text
-
-
 def test_a_board_that_does_not_enter_engineering_mode_is_not_measured(session, monkeypatch):
     def no_prompt(timeout_s=5):
-        raise HardwareError('enter_engineering_mode(): no Y/N prompt seen')
+        raise BoardReportedError('enter_engineering_mode(): no Y/N prompt seen')
 
     monkeypatch.setattr(session.scope.diagnostics, 'enter_led_engineering_mode', no_prompt)
     diag = FirmwareDiagnostics(scope=session.scope)
@@ -220,33 +192,7 @@ def test_with_no_led_board_the_api_reads_nothing_and_names_no_command_set(sessio
     monkeypatch.setattr(type(session.scope), 'led_connected', property(lambda self: False))
     monkeypatch.setattr(session.scope._led_driver, 'is_connected', lambda: False)
     assert session.scope.diagnostics.read_led_currents_ma() == {}
-    info = session.scope.diagnostics.get_led_info()
-    assert info['connected'] is False and info['command_set'] is None
-
-
-def test_a_retry_that_builds_the_scope_clears_the_failure(monkeypatch):
-    built = object()
-    answers = iter([RuntimeError(CAUSE), built])
-
-    def create(cls):
-        answer = next(answers)
-        if isinstance(answer, Exception):
-            raise answer
-        return answer
-
-    monkeypatch.setattr(Lumascope, 'create_diagnostic', classmethod(create))
-    diag = FirmwareDiagnostics()
-    diag.connect_standalone()
-    assert diag.build_failure is not None and diag.scope is None
-    diag.connect_standalone()
-    assert diag.build_failure is None and diag.scope is built
-
-
-def _not_saved(*args, **kwargs):
-    # The report itself is not under test: it stands in as one that was not saved.
-    from modules.exceptions import SupportReportNotSavedError
-
-    raise SupportReportNotSavedError('support report', OSError('not made in this test'))
+    assert session.scope.diagnostics.get_led_info().command_set is None
 
 
 def _raising(error):
@@ -260,7 +206,9 @@ def test_an_exit_that_fails_after_a_good_read_keeps_the_read(session, monkeypatc
     monkeypatch.setattr(
         session.scope.diagnostics,
         'exit_led_engineering_mode',
-        _raising(HardwareError('Q failed and the soft reset did not bring the firmware back')),
+        _raising(
+            LedFirmwareWedgedError('Q failed and the soft reset did not bring the firmware back')
+        ),
     )
     diag = FirmwareDiagnostics(scope=session.scope)
 
@@ -303,10 +251,10 @@ def test_a_controller_without_fan_control_reads_unsupported_in_its_words(session
 
 
 def test_with_every_led_and_fan_call_raising_the_steps_still_write(session, monkeypatch, tmp_path):
-    fault = HardwareError('the board did not answer')
+    fault = BoardNoReplyError('the board did not answer')
     for member in ('enter_led_engineering_mode', 'exit_led_engineering_mode', 'set_motor_fan_duty'):
         monkeypatch.setattr(session.scope.diagnostics, member, _raising(fault))
-    report = TechSupportReport(scope=session.scope)
+    report = TechSupportReport(session)
 
     report._step_firmware_tests(tmp_path)
     report._step_led_checks(tmp_path)
@@ -318,3 +266,23 @@ def test_with_every_led_and_fan_call_raising_the_steps_still_write(session, monk
         'hardware_checks/fan_test.txt',
     ):
         assert 'the board did not answer' in (tmp_path / rel).read_text(), rel
+
+
+def test_the_bandwidth_summary_states_only_what_the_test_measured(session, monkeypatch, tmp_path):
+    # It printed a configured frame rate that no camera and no API path ever
+    # filled, so every summary said "Configured FPS: ?".
+    # A stand-in by design: the subject is the summary, and the report's
+    # 5,000 frames take minutes on the simulator; three come from the same
+    # API test.
+    monkeypatch.setattr(
+        tech_support_report.CameraBandwidthTest,
+        'run',
+        lambda self, progress_callback=None: session.scope.diagnostics.run_camera_bandwidth_test(
+            num_frames=3
+        ),
+    )
+    report = TechSupportReport(session)
+    report._step_bandwidth(tmp_path, lambda *_: None)
+    summary = (tmp_path / 'bandwidth_test' / 'summary.txt').read_text()
+    assert '?' not in summary, summary
+    assert 'Configured FPS' not in summary, summary

@@ -12,13 +12,11 @@ Driven through the Session on the simulator: an LS820 (Z only) against an
 LS850 (X, Y and Z) as the control.
 """
 
-import json
-
 import tifffile
 
 from modules.notification_center import Severity
 from tests.test_manual_capture_member import (
-    _capture,
+    _files,
     _open_session,
     _settings,
     over_the_first_well,
@@ -37,7 +35,7 @@ def _warnings(centre_posts):
 
 def _description(path):
     with tifffile.TiffFile(str(path)) as tf:
-        return json.loads(tf.pages[0].tags['ImageDescription'].value)
+        return tf.shaped_metadata[0]
 
 
 class TestAZOnlyScope:
@@ -48,10 +46,12 @@ class TestAZOnlyScope:
 
     def test_a_still_is_saved_without_a_well_and_says_nothing(self, tmp_path, centre_posts):
         with _session(tmp_path, 'LS820') as session:
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         assert path.name == 'live_BF_000001.tiff'
-        assert _description(path)['Plate']['WellLabel'] == ''
+        # No well is stated, not an empty one: a stand-in label in a file
+        # reads downstream as the instrument's own report.
+        assert 'WellLabel' not in _description(path)['Plate']
         assert _warnings(centre_posts) == []
 
 
@@ -60,7 +60,7 @@ class TestAnXYScope:
         with _session(tmp_path, 'LS850') as session:
             assert session.scope.capabilities.has_xy_stage
             label = over_the_first_well(session)
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         assert path.name == f'live_{label}_BF_000001.tiff'
         assert _description(path)['Plate']['WellLabel'] == label

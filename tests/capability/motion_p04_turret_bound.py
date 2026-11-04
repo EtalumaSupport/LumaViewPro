@@ -12,12 +12,12 @@ try:
     print('T axis limits:', m.get_axis_limits('T'), flush=True)
     m.move_turret(1)
     # Z sits off its floor so a refusal that parked Z first would show.
-    m.move_absolute('Z', 1000.0)
+    m.move_z(1000.0)
     z_before = m.get_current_position('Z')
     for bad in (0, 5, 99, -3):
         try:
             m.move_turret(bad)
-            landed = m.get_current_position('T')
+            landed = m.turret_status().slot
             check(f'move_turret({bad}) refused', False, f'accepted, T landed at {landed}')
         except PositionOutOfRangeError as e:
             z_after = m.get_current_position('Z')

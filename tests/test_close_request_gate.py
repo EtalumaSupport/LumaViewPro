@@ -147,10 +147,45 @@ def test_the_window_close_runs_the_sessions_close_on_its_own_thread():
         if kw.arg == 'target' and isinstance(kw.value, ast.Attribute)
     ]
 
-    assert targets == ['_shut_the_session_down'], (
-        f'_close_the_session must start one thread running _shut_the_session_down: {targets}'
+    assert targets == ['_end_the_session'], (
+        f'_close_the_session must start one thread running _end_the_session: {targets}'
     )
     assert 'shutdown' in _attrs(_method(_app_class(_module_tree()), '_shut_the_session_down'))
+
+
+def _called(method_node) -> list[str]:
+    """Each call's callee, in source order."""
+    calls = sorted(
+        (node for node in ast.walk(method_node) if isinstance(node, ast.Call)),
+        key=lambda node: (node.lineno, node.col_offset),
+    )
+    return [ast.unparse(node.func) for node in calls]
+
+
+def test_every_close_ends_the_session_through_the_served_rest_server():
+    """With REST served beside the GUI, the session closes inside the server's close.
+
+    So its clients are answered and its stream carries the close; with no
+    server serving, the GUI shuts the session down itself. The close thread
+    and on_stop both end the session this one way.
+    """
+    class_node = _app_class(_module_tree())
+    end = _called(_method(class_node, '_end_the_session'))
+
+    assert 'server.close' in end and 'self._shut_the_session_down' in end, end
+    assert 'self._end_the_session' in _called(_method(class_node, 'on_stop'))
+    assert 'self._shut_the_session_down' not in _called(_method(class_node, 'on_stop'))
+
+
+def test_the_close_refuses_rest_calls_before_it_takes_control_back():
+    """A client's take_control landing after the take-back would hold the scope
+    against the close, and refuse the close popup's Discard; the server stops
+    admitting calls first."""
+    calls = _called(_method(_app_class(_module_tree()), '_prepare_the_close'))
+
+    refused = calls.index('self._rest_server.refuse_calls')
+    taken_back = next(i for i, c in enumerate(calls) if c == 'run_unasked')
+    assert refused < taken_back, calls
 
 
 def test_the_close_asks_from_the_sessions_live_work_and_discards_through_it():
@@ -213,3 +248,60 @@ def test_the_apps_stop_ends_the_loop_and_leaves_on_stop_to_run():
         'run() dispatches it when the loop returns, and a second dispatch repeats '
         'the whole shutdown.'
     )
+
+
+def test_the_close_stops_the_window_listening_before_the_scope_goes():
+    """The window's listeners and position redraws end in _prepare_the_close,
+    on the Kivy thread before the session's close, not in on_stop: a crash
+    skips on_stop, and a redraw that runs while the scope is torn down reads
+    a scope that is going (the LS850T close crash, 2026-10-15)."""
+    class_node = _app_class(_module_tree())
+    prepare = _method(class_node, '_prepare_the_close')
+    calls = [node for node in ast.walk(prepare) if isinstance(node, ast.Call)]
+    called = {ast.unparse(node.func) for node in calls}
+    unscheduled = {
+        ast.unparse(node.args[0])
+        for node in calls
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'unschedule' and node.args
+    }
+
+    assert 'ctx.ui_listener_bridge.unregister_all' in called
+    assert {'ctx.stage.draw_labware', 'ctx.motion_settings.update_xy_stage_control_gui'} <= (
+        unscheduled
+    ), unscheduled
+
+    def listener_handed_to(method, member):
+        handed = [
+            ast.unparse(node.args[0])
+            for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == member
+            and node.args
+        ]
+        assert len(handed) == 1, f'{method.name} calls {member} {len(handed)} times'
+        return handed[0]
+
+    assert listener_handed_to(prepare, 'remove_run_state_listener') == listener_handed_to(
+        _method(class_node, 'on_start'), 'add_run_state_listener'
+    ), 'the close removes a different run-state listener from the one the window added'
+
+
+def test_the_close_names_each_piece_of_live_work_with_its_progress():
+    """Each line the close's popups show is the item's name, with its percent
+    when it reports one, else its count left. Run on the Session's own
+    WorkItem, so a renamed field fails here rather than at the user's close."""
+    from modules.live_work import WorkItem, WorkKind
+    from ui.ui_helpers import work_item_text
+
+    work = (
+        WorkItem(WorkKind.POST_PROCESSING, 'A stack of run1', progress_pct=42.4),
+        WorkItem(WorkKind.RUN_FILES, "A run's images", left=3),
+        WorkItem(WorkKind.PROTOCOL, 'A protocol run'),
+    )
+
+    assert [work_item_text(item) for item in work] == [
+        'A stack of run1 (42%)',
+        "A run's images (3 left)",
+        'A protocol run',
+    ]

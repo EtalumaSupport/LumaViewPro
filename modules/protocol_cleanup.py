@@ -12,21 +12,29 @@ from __future__ import annotations
 
 import pathlib
 import threading
-from concurrent.futures import CancelledError
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
+from modules.coord_transformations import PlateLocation
+from modules.exceptions import (
+    RecordingSavedLateNotice,
+    RunCleanupFailedError,
+    SlowFileWritesNotice,
+)
+from modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S
 from modules.lumascope_api.illumination import (
+    LedEndPolicy,
+    LedReading,
     LedTransition,
     LedTransitionCtx,
     resolve_end_state,
 )
+from modules.operation import settling
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents, deliver
-from modules.run_outcome import RunEnding
+from modules.run_outcome import STOP_REASONS, FilesOutcome, RunEnding, RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -35,13 +43,13 @@ if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
     from modules.protocol_image_writer import RunWriteBatch
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.sequenced_capture_runner import EngineRun
 
 
 def send_run_ended(
-    events: RunEvents, run: RunHandle, *, protocol: Protocol, run_dir: pathlib.Path | None
+    events: RunEvents, run: EngineRun, *, protocol: Protocol, run_dir: pathlib.Path | None
 ) -> None:
-    """Send the run's one ``run_ended`` once its outcome settles; mark *run* told after it.
+    """Send the run's one ``run_ended`` once its outcome settles; settle *run*'s operation after it.
 
     Called once the run has let go of the scope, on every path, a cleanup
     that raised included, and before the run's files are handed their
@@ -50,36 +58,38 @@ def send_run_ended(
     the merge's thread: before or after its ``files_written``, whichever the
     merge and the last write reach first. The values are captured here, while the run's
     fields are still its own: a successor started after the release
-    replaces them.
+    replaces them. The delivery is the run's operation's settling: inside
+    the handler its ``result()`` answers at once, and every other observer
+    sees the run done once the handler has returned.
     """
 
     def _send(outcome) -> None:
         deliver(
-            events.run_ended,
+            events,
             'run_ended',
             outcome,
             run_dir,
             protocol,
-            delivery=run._delivering(run._run_told),
+            delivery=settling(run.operation, result=outcome),
         )
 
     run._pending.when_settled(_send)
 
 
 def send_files_written(
-    events: RunEvents, run: RunHandle, *, run_dir: pathlib.Path | None, files: str
+    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, files: FilesOutcome
 ) -> None:
-    """Send the run's one ``files_written``; mark *run* files told after it.
+    """Send the run's one ``files_written``; one of *run*'s files events once it has run.
 
-    ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
+    ``files`` is the run's write outcome: ``WRITTEN``, or ``INCOMPLETE``
     when some of its images are not on disk.
     """
     deliver(
-        events.files_written,
+        events,
         'files_written',
         run_dir,
         files,
-        delivery=run._delivering(run._files_told),
+        delivery=run.files_told(),
     )
 
 
@@ -105,10 +115,13 @@ def run_cleanup(
     # decision cannot flip mid-cleanup.
     forced_dark: bool,
     # Saved original states
-    leds_state_at_end: str,
-    original_led_states: dict,
+    led_end_policy: LedEndPolicy,
+    original_led_states: tuple[LedReading, ...] | None,
     saved_camera_state: dict,
-    return_to_position: dict | None,
+    # Shows the layer shown before the run at its stored settings, once the
+    # camera is restored; None when no session composes the run.
+    show_pre_run_layer_fn: Callable[[], None] | None,
+    return_to_position: PlateLocation | None,
     # Dependencies
     scope: Lumascope,
     # Executor functions
@@ -127,6 +140,15 @@ def run_cleanup(
     # Where the run's outcome takes the names of the steps that failed to
     # put the scope back; called once, with none when every step finished.
     record_cleanup_failures: Callable[[tuple[str, ...]], None],
+    # The steps the run took before this was called that did not finish,
+    # (name, what happened) each: told in the same summary.
+    failed_before: tuple[tuple[str, str], ...],
+    # How long the run's end waited for its video steps' saving, when every
+    # step finished having written every frame it kept; None otherwise, and
+    # when there was nothing to wait for (wait_for_video_drains).
+    video_save_wait_s: float | None,
+    # Whether the run saved its videos as frames, for the words of the wait.
+    video_as_frames: bool,
 ) -> bool:
     """Core cleanup logic -- restores state, ends executors.
 
@@ -159,7 +181,7 @@ def run_cleanup(
     # the next step (fault tolerance -- every step must run regardless of
     # any one failing); total silence at the end was the bug. One
     # summary popup, not one per step.
-    cleanup_errors: list[tuple[str, str]] = []
+    cleanup_errors: list[tuple[str, str]] = list(failed_before)
 
     try:
         cancel_scheduled_events_fn()
@@ -181,10 +203,10 @@ def run_cleanup(
     # AF future here belongs to SOMEONE ELSE -- most likely the very holder
     # whose lease refusal failed this run. Aborting it would steal the
     # operation the refusal deferred to.
-    if autofocus_thread is not None and ending.status != 'failed_at_start':
+    if autofocus_thread is not None and ending.status != RunStatus.FAILED_AT_START:
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
-            autofocus_thread.abort()
+            autofocus_thread.abort(stay_put=ending.reason in STOP_REASONS)
             try:
                 # Returns the run's exception (normally AutofocusAborted)
                 # without raising it; raises TimeoutError on the bound.
@@ -241,39 +263,23 @@ def run_cleanup(
             # wins). Asserting OFF -- not skipping the restore -- is the point: a
             # skipped restore would leave a raced re-light on forever. User Stop
             # keeps the configured policy.
-            end_policy, snapshot_lit = resolve_end_state(
-                'off' if forced_dark else leds_state_at_end,
-                original_led_states,
-                scope.illumination.state_color2ch,
+            end_policy = LedEndPolicy.OFF if forced_dark else led_end_policy
+            snapshot_lit = resolve_end_state(end_policy, original_led_states)
+            apply_led_transition_fn(
+                LedTransition.RUN_END,
+                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
             )
-            if end_policy is None:
-                logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
-            else:
-                apply_led_transition_fn(
-                    LedTransition.RUN_END,
-                    LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
-                )
-                led_end_state_applied = True
-        except CancelledError:
-            # The protocol queue was cleared and this restore task cancelled
-            # before it ran. A superseding run/abort cycle is one canceller --
-            # but so are executor shutdown, an unwedge/quarantine, and the
-            # end-of-protocol-mode drain, and none of those re-asserts LED
-            # state. So the end-state stays undecided and the caller darkens;
-            # a superseding run re-lights per step, costing at most a
-            # transient dark blip during rapid run cycling. Not surfaced as a
-            # failure -- doing so produced a popup per cycle when the run
-            # button was clicked rapidly.
+            led_end_state_applied = True
             logger.info(
-                f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
+                f'[{logger_name}] Cleanup: LED end state applied ({end_policy.name.lower()})'
             )
         except Exception as ex:
+            # The end state stays undecided, so the caller darkens.
             cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
-    logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
-    # --- Restore camera gain and exposure ---
+    # --- Restore the camera settings ---
     # Before the return moves and the executors' end: live preview after the
-    # stop must not briefly run at the run's gain and exposure. The restore
+    # stop must not briefly run at the run's camera settings. The restore
     # dispatches onto the camera lane; cleanup acts under the run's taking,
     # so it goes through the run's door while the lane is still in protocol
     # mode.
@@ -281,30 +287,34 @@ def run_cleanup(
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
             logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
-            scope.imaging.restore_camera_state(saved_camera_state)
+            scope.camera.restore_camera_state(saved_camera_state)
     except Exception as ex:
-        cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
+        cleanup_errors.append(('Restore camera settings', f'{type(ex).__name__}: {ex}'))
+
+    # --- Show the layer shown before the run ---
+    # The run's steps moved the shown channel to the last step's layer while
+    # the restore put the camera back to the pre-run state: a still after the
+    # run would be named for one and taken at the other.
+    try:
+        if show_pre_run_layer_fn is not None:
+            show_pre_run_layer_fn()
+    except Exception as ex:
+        cleanup_errors.append(('Show the layer shown before the run', f'{type(ex).__name__}: {ex}'))
 
     # --- Return to position ---
     try:
         if return_to_position is not None:
             logger.info(
                 f'[{logger_name}] Cleanup: returning to position '
-                f'x={return_to_position["x"]}, y={return_to_position["y"]}, z={return_to_position["z"]}'
+                f'x={return_to_position.x_mm}, y={return_to_position.y_mm}, '
+                f'z={return_to_position.z_um}'
             )
             default_move_fn(
-                px=return_to_position['x'],
-                py=return_to_position['y'],
-                z=return_to_position['z'],
+                px=return_to_position.x_mm,
+                py=return_to_position.y_mm,
+                z=return_to_position.z_um,
             )
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
-    except CancelledError:
-        # Same hand-off as the LED restore above: a superseding run/abort
-        # cycle cancelled the queued move; the new cycle owns stage position.
-        logger.info(
-            f'[{logger_name}] Cleanup: return-to-position superseded by an '
-            'overlapping run/abort cycle'
-        )
     except Exception as ex:
         cleanup_errors.append(('Return to position', f'{type(ex).__name__}: {ex}'))
 
@@ -364,6 +374,20 @@ def run_cleanup(
         from modules.notification_center import notifications
 
         notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
+
+    # Saving that ran on long after the run's recordings ended, told once at
+    # the run's end beside the slow-writes notice; a person who left the run
+    # unattended reads it when they come back.
+    if video_save_wait_s is not None and video_save_wait_s > RECORDING_SAVE_WAIT_NOTICE_S:
+        from modules.notification_center import notifications
+
+        notifications.report_outcome(
+            RecordingSavedLateNotice(
+                save_wait_s=video_save_wait_s, as_frames=video_as_frames, protocol_run=True
+            ),
+            solicited=False,
+            category='Protocol',
+        )
 
     # run_ended and files_written are the run's to send, once it has let go
     # of the scope.

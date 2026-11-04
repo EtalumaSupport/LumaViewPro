@@ -98,3 +98,53 @@ def test_an_unreadable_catalogue_path_names_the_file(tmp_path, loader, name):
         loader(source_path=tmp_path)
 
     assert failure.value.file_path == tmp_path / 'data' / name
+
+
+def _objectives_with(change) -> str:
+    catalogue = _shipped('objectives.json')
+    change(catalogue['4x Oly'])
+    return json.dumps(catalogue)
+
+
+@pytest.mark.parametrize(
+    ('change', 'words'),
+    [
+        (lambda entry: entry.update(AF_rnge=50.0), "the undeclared key 'AF_rnge'"),
+        (lambda entry: entry.pop('focal_length'), "no 'focal_length'"),
+        (lambda entry: entry.update(DOF='5.8'), "a 'DOF' that is not a number"),
+    ],
+    ids=['undeclared-key', 'missing-field', 'not-a-number'],
+)
+def test_an_objective_entry_off_its_declared_shape_names_the_objective_and_key(
+    tmp_path, change, words
+):
+    """Every declared key is required and no other is taken: a misspelt key
+    would leave its field at a value nobody wrote."""
+    root = _install(tmp_path, 'objectives.json', _objectives_with(change))
+
+    with pytest.raises(InstallationFileError, match=f"objective '4x Oly' {words}"):
+        ObjectiveLoader(source_path=root)
+
+
+def _labware_with(change) -> str:
+    catalogue = _shipped('labware.json')
+    change(catalogue['Wellplate']['96 well microplate'])
+    return json.dumps(catalogue)
+
+
+@pytest.mark.parametrize(
+    ('change', 'words'),
+    [
+        (lambda entry: entry['spacing'].pop('x'), "no 'spacing.x'"),
+        (lambda entry: entry.update(rows='8'), "no whole-number 'rows'"),
+        (lambda entry: entry['offset'].update(y=None), "a 'offset.y' that is not a number"),
+    ],
+    ids=['missing-key', 'rows-not-whole', 'not-a-number'],
+)
+def test_a_plate_entry_the_record_cannot_be_built_from_names_the_plate_and_key(
+    tmp_path, change, words
+):
+    root = _install(tmp_path, 'labware.json', _labware_with(change))
+
+    with pytest.raises(InstallationFileError, match=f"plate '96 well microplate' {words}"):
+        WellPlateLoader(source_path=root)

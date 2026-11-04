@@ -30,8 +30,11 @@ from modules.common_utils import (
     build_step_name,
     parse_legacy_step_name,
 )
+from modules.layer_record import release_catalogue
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED1, LED2
 
-_KNOWN_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
+_KNOWN_LAYERS = list(release_catalogue())
 _KNOWN_OBJECTIVES = ['10x', '4x', '20x']
 
 
@@ -42,8 +45,8 @@ _KNOWN_OBJECTIVES = ['10x', '4x', '20x']
 # token order or format breaks one of these.
 _CANONICAL_CASES = [
     (StepNameComponents(well='A2', channel='BF'), 'A2_BF'),
-    (StepNameComponents(well='A1', channel='Green'), 'A1_Green'),
-    (StepNameComponents(well='H12', channel='Red', tile='A1'), 'H12_Red_TA1'),
+    (StepNameComponents(well='A1', channel=LED1), f'A1_{LED1}'),
+    (StepNameComponents(well='H12', channel=LED2, tile='A1'), f'H12_{LED2}_TA1'),
     (StepNameComponents(well='A1', channel='BF', objective='10x'), 'A1_BF_10x'),
     (StepNameComponents(well='A1', channel='BF', turret_position=2), 'A1_BF_Turret2'),
     (StepNameComponents(well='A1', channel='BF', z_index=5), 'A1_BF_Z5'),
@@ -57,8 +60,8 @@ _CANONICAL_CASES = [
     ),
     (StepNameComponents(custom_prefix='custom0001', channel='BF'), 'custom0001_BF'),
     (
-        StepNameComponents(custom_prefix='custom0042', channel='Red', tile='C3'),
-        'custom0042_Red_TC3',
+        StepNameComponents(custom_prefix='custom0042', channel=LED2, tile='C3'),
+        f'custom0042_{LED2}_TC3',
     ),
     (StepNameComponents(well='A1', channel='BF', post=('stitched',)), 'A1_BF_stitched'),
     (
@@ -94,24 +97,27 @@ class TestCanonicalOutput:
 
 
 class TestRoundTrip:
-    @pytest.mark.parametrize('c', _FRESH_CASES)
-    def test_build_parse_build_is_identity(self, c):
-        name = build_step_name(c)
-        reparsed = parse_legacy_step_name(
-            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
-        )
-        assert build_step_name(reparsed) == name, (
-            f'round-trip changed {name!r} -> {build_step_name(reparsed)!r}'
-        )
+    def test_build_parse_build_is_identity(self):
+        def check(c):
+            name = build_step_name(c)
+            reparsed = parse_legacy_step_name(
+                name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+            )
+            assert build_step_name(reparsed) == name, (
+                f'round-trip changed {name!r} -> {build_step_name(reparsed)!r}'
+            )
+
+        failed = failing_cases(_FRESH_CASES, check)
+        assert not failed, failed
 
     def test_parse_classifies_a_full_name(self):
         c = parse_legacy_step_name(
-            'A1_Green_TB2_10x_Z3_0005',
+            f'A1_{LED1}_TB2_10x_Z3_0005',
             known_layers=_KNOWN_LAYERS,
             known_objectives=_KNOWN_OBJECTIVES,
         )
         assert c.well == 'A1'
-        assert c.channel == 'Green'
+        assert c.channel == LED1
         assert c.tile == 'B2'
         assert c.objective == '10x'
         assert c.z_index == 3
@@ -131,32 +137,32 @@ class TestRoundTrip:
         assert c.channel == 'BF'
 
     def test_parse_strips_parent_folder(self):
-        c = parse_legacy_step_name('Green/A1_Green_TB2', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name(f'{LED1}/A1_{LED1}_TB2', known_layers=_KNOWN_LAYERS)
         assert c.well == 'A1'
-        assert c.channel == 'Green'
+        assert c.channel == LED1
         assert c.tile == 'B2'
 
 
 class TestIdempotentChannelChange:
     """The channel-change corruption: feeding a built name back as the seed and
-    appending the new channel left the old one in place (A2_BF -> A2_BF_Green).
+    appending the new channel left the old one in place (A2_BF -> A2_BF_<LED 1's key>).
     Rebuilding from components must yield exactly one channel token."""
 
     def test_well_step_channel_change(self):
         c = parse_legacy_step_name('A2_BF', known_layers=_KNOWN_LAYERS)
-        c = dataclasses.replace(c, channel='Green')
-        assert build_step_name(c) == 'A2_Green'
+        c = dataclasses.replace(c, channel=LED1)
+        assert build_step_name(c) == f'A2_{LED1}'
 
     def test_custom_step_channel_change(self):
         # The custom step took the same corruption via the Well != '' gate.
         c = parse_legacy_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
-        c = dataclasses.replace(c, channel='Red')
-        assert build_step_name(c) == 'custom0001_Red'
+        c = dataclasses.replace(c, channel=LED2)
+        assert build_step_name(c) == f'custom0001_{LED2}'
 
     def test_channel_change_preserves_other_tokens(self):
         c = parse_legacy_step_name('A1_BF_TB2_Z3', known_layers=_KNOWN_LAYERS)
-        c = dataclasses.replace(c, channel='Green')
-        assert build_step_name(c) == 'A1_Green_TB2_Z3'
+        c = dataclasses.replace(c, channel=LED1)
+        assert build_step_name(c) == f'A1_{LED1}_TB2_Z3'
 
 
 class TestTileOmittedNotStripped:
@@ -171,7 +177,7 @@ class TestTileOmittedNotStripped:
         assert build_step_name(c) == 'A1_BF_stitched'
 
     def test_composite_collapses_channel_and_tile(self):
-        c = parse_legacy_step_name('A1_Green_TA1', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name(f'A1_{LED1}_TA1', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, channel='Composite', tile=None, post=('stitched',))
         assert build_step_name(c) == 'A1_Composite_stitched'
 
@@ -225,7 +231,7 @@ class TestTurretToken:
         name = build_step_name(
             StepNameComponents(
                 well='A1',
-                channel='Green',
+                channel=LED1,
                 tile='C3',
                 objective='20x',
                 turret_position=2,

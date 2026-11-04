@@ -24,12 +24,14 @@ will plug into.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
 
 from modules.image_save import _apply_save_orientation
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_colors
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -65,20 +67,18 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         'illumination_ma': 0,
         'pixel_size_um': 1.0,
         'channel': 'BF',
-        'datetime': '2026:06:12 00:00:00',
+        'datetime': datetime.datetime(2026, 6, 12, 0, 0, 0),
     }
     monkeypatch.setattr(
         image_save,
         'generate_image_metadata',
-        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label: (
+        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label, fallback_focus: (
             dict(stub_metadata)
         ),
     )
     from types import SimpleNamespace
 
-    scope = SimpleNamespace(
-        imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
-    )
+    scope = SimpleNamespace(imaging=SimpleNamespace())
     tiff_path = image_save.save_image(
         scope,
         arr.copy(),
@@ -95,6 +95,9 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
     jpg_path = image_save.save_image(
         scope,
@@ -113,6 +116,9 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
     tiff_px = tifffile.imread(tiff_path)
     jpg_px = cv2.imdecode(

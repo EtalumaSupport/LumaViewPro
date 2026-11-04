@@ -18,6 +18,7 @@ API run configured for a 12-bit mode silently saved 8-bit / right-aligned
    re-read to regress back to.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import ast
 import dataclasses
 import pathlib
@@ -44,12 +45,14 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
 )
 from modules.run_events import RunEvents
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 COMPLETION_TIMEOUT = 20  # seconds
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
@@ -62,6 +65,8 @@ FILES_WAIT_S = 60
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _make_step(color='BF'):
@@ -86,11 +91,14 @@ def _make_step(color='BF'):
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1.0, 'fps': 5},
+        'Video Config': {'duration': 1.0},
         'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': True,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
@@ -99,8 +107,7 @@ def _build_protocol():
 
     import pandas as pd
 
-    return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_make_step()]),
@@ -124,7 +131,7 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
     # lane would be refused once the test's own lanes are shut.
@@ -136,10 +143,10 @@ def executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='SSOT_IO'),
-        'file_io': SequentialIOExecutor(name='SSOT_FILE'),
-        'camera': SequentialIOExecutor(name='SSOT_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='SSOT_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='SSOT_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='SSOT_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='SSOT_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='SSOT_AF'),
     }
     for e in execs.values():
         e.start()
@@ -172,10 +179,9 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
-    mock_transformer = MagicMock()
-    mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._coordinate_transformer = mock_transformer
     return exc
 
 
@@ -199,7 +205,6 @@ def _run_one_still(executor, tmp_path, config):
 
     plan = executor.prepare(
         protocol=_build_protocol(),
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='encoding_ssot',
         image_capture_config=config,
@@ -211,7 +216,7 @@ def _run_one_still(executor, tmp_path, config):
     handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
     # The save runs on the file lane, after the run lets go of the scope.
-    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
+    assert handle.files.result(timeout=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
 def _saves(recorded):
@@ -275,6 +280,7 @@ class TestOneRunOneEncoding:
             aborted=threading.Event(),
             write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,
+            end_run_fatally=lambda reason, message: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),
             execution_record=None,
@@ -283,11 +289,13 @@ class TestOneRunOneEncoding:
             image_capture_config=config,
             timestamp_overlay=True,
             video_max_fps=0,
+            video_sizing_fps=None,
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
             to_plate=None,
             captures_asked=1,
+            channel_colors=release_colors(),
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
@@ -307,13 +315,17 @@ class TestOneRunOneEncoding:
 
         step = {'Name': 'A1_BF', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16),
-                significant_bits=12,
+                still=CapturedStill(
+                    image=np.zeros((4, 4), dtype=np.uint16),
+                    record=frame_record(frame_significant_bits=12),
+                ),
                 objective_id='4x Oly',
-                record=frame_record(),
                 position=unpositioned(),
+                fallback_focus=None,
             ),
             step=step,
             name='A1_BF',
@@ -347,7 +359,7 @@ class TestOneRunOneEncoding:
             'Auto_Gain': False,
             'Gain': 0,
             'Exposure': 10.0,
-            'Video Config': {'fps': 5, 'duration': 1},
+            'Video Config': {'duration': 1},
             'Well': 'A1',
             'Objective': 'obj',
             'Tile': '',

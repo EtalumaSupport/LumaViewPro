@@ -3,10 +3,10 @@
 the camera log (not the parent lvp_logger).
 
 Background -- `drivers/pyloncamera.py`, `drivers/camera.py`, and
-`drivers/idscamera.py` all `from lvp_logger import logger`. That bare
-`logger` resolves to the lvp_logger module logger, whose handlers
+`drivers/idscamera.py` all `from lib.log_helpers import logger`. That bare
+`logger` is the main logger (name `lvp_logger`), whose handlers
 include the main log + errors log but NOT `camera_file_handler`. The
-dedicated `_cam_log` alias (`lvp_logger.camera_logger`, name
+dedicated `_cam_log` alias (`lib.log_helpers.camera_logger`, name
 `LVP.camera`) propagates to camera.log + errors.log.
 
 Before this fix, ~180 `logger.warning/error/exception` call sites in
@@ -48,7 +48,7 @@ def _find_banned_logger_calls(source: str) -> list[tuple[int, str]]:
 
     Bare means the receiver identifier is exactly `logger` (not
     `self.logger`, not `something_logger`). Matches the actual
-    `from lvp_logger import logger` import shape.
+    `from lib.log_helpers import logger` import shape.
     """
     tree = ast.parse(source)
     hits: list[tuple[int, str]] = []
@@ -92,46 +92,4 @@ def test_camera_driver_modules_define_cam_log_alias():
         assert getattr(module, '_cam_log', None) is not None, (
             f'{module_name} is missing the _cam_log alias but contains '
             f'_cam_log.* call sites. Add the alias to keep the routing intact.'
-        )
-
-
-def test_camera_cam_log_import_fallback_binds_logger_not_none():
-    """camera.py's module-level `try: import camera_logger / except ImportError`
-    must fall back to the general `logger`, never None.
-
-    The `_cam_log.warning|error|exception` call sites in camera.py are
-    UNGUARDED (no `if _cam_log is not None`), so a None fallback turns every
-    one into an AttributeError the moment the dedicated camera logger is
-    unavailable. Source-based (not a module reload) so it stays deterministic
-    and free of reload side-effects on the shared Camera class.
-    """
-    source = (REPO_ROOT / 'drivers' / 'camera.py').read_text()
-    tree = ast.parse(source)
-
-    fallback_values = []
-    for node in tree.body:  # module scope only -- ignore the guarded local re-import
-        if not isinstance(node, ast.Try):
-            continue
-        imports_cam_log = any(
-            isinstance(stmt, ast.ImportFrom)
-            and any(alias.asname == '_cam_log' for alias in stmt.names)
-            for stmt in node.body
-        )
-        if not imports_cam_log:
-            continue
-        for handler in node.handlers:
-            for stmt in handler.body:
-                if isinstance(stmt, ast.Assign) and any(
-                    isinstance(t, ast.Name) and t.id == '_cam_log' for t in stmt.targets
-                ):
-                    fallback_values.append(stmt.value)
-
-    assert fallback_values, 'no module-level `_cam_log` ImportError fallback found in camera.py'
-    for value in fallback_values:
-        assert not (isinstance(value, ast.Constant) and value.value is None), (
-            'camera.py binds `_cam_log = None` on ImportError; the unguarded '
-            'call sites would raise AttributeError. Fall back to `logger`.'
-        )
-        assert isinstance(value, ast.Name) and value.id == 'logger', (
-            'the `_cam_log` ImportError fallback must bind the general `logger`'
         )

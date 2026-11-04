@@ -30,8 +30,9 @@ import modules.image_save as image_save
 import modules.image_utils as image_utils
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
 
-POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
+POSITION_KEYS = ('plate_pos_mm', 'z_pos_um')
 
 
 @pytest.fixture
@@ -61,10 +62,13 @@ def _save(scope, folder, **position) -> str:
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        white_bits=None,
         **position,
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        fallback_focus=None,
+        channel_colors=release_colors(),
     )
 
 
@@ -82,6 +86,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         present = [k for k in POSITION_KEYS if k in metadata]
@@ -103,6 +108,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['channel'] == 'BF'
@@ -123,6 +129,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(4950.0)
@@ -147,7 +154,7 @@ class TestAFileWithNoPositionIsStillReadable:
         pixel size of 1.0 -- a scale, measured off the derived output forever."""
         path = _save(positioned_scope, tmp_path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
 
         assert recovered is not None, (
             'a file that honestly states no position was discarded entirely'
@@ -163,7 +170,7 @@ class TestAFileWithNoPositionIsStillReadable:
             positioned_scope, tmp_path, plate_x_mm=15.38, plate_y_mm=11.24, stage_z_um=4950.0
         )
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
 
         assert recovered['plate_pos_mm']['x'] == pytest.approx(15.38)
         assert recovered['plate_pos_mm']['y'] == pytest.approx(11.24)
@@ -172,9 +179,7 @@ class TestAFileWithNoPositionIsStillReadable:
 
 def _read_plane(path) -> dict:
     """The Plane block a consumer reads back out of a written TIFF."""
-    import json
-
     import tifffile
 
     with tifffile.TiffFile(str(path)) as tf:
-        return json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+        return tf.shaped_metadata[0]['Plane']

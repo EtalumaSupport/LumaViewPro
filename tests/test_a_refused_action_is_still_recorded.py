@@ -20,7 +20,6 @@ through their real handlers.
 
 from __future__ import annotations
 
-import datetime
 import logging
 from types import SimpleNamespace
 
@@ -58,6 +57,11 @@ class _Microscope(ms.MicroscopeSettings):
             'frame_width_id': SimpleNamespace(text='', focus=False),
             'frame_height_id': SimpleNamespace(text='', focus=False),
         }
+        self.redrawn = 0
+
+    def _redraw_framing(self):
+        # a stand-in by design: the redraw draws the widget tree Kivy's stub cannot hold
+        self.redrawn += 1
 
 
 class _Protocols(ps.ProtocolSettings):
@@ -68,10 +72,11 @@ class _Protocols(ps.ProtocolSettings):
         self.ids = {
             'tiling_size_spinner': SimpleNamespace(text='1x1'),
             'acquire_zstack_id': SimpleNamespace(active=False),
+            'step_name_input': SimpleNamespace(text=''),
         }
         self._protocol = SimpleNamespace(
-            period=lambda: datetime.timedelta(minutes=20),
-            duration=lambda: datetime.timedelta(hours=48),
+            period_s=lambda: 20 * 60.0,
+            duration_s=lambda: 48 * 3600.0,
         )
 
     def update_step_ui(self):
@@ -79,24 +84,20 @@ class _Protocols(ps.ProtocolSettings):
 
 
 def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, caplog):
-    """A binning this camera does not offer is refused by the Session; the
-    pick that asked for it is in the record all the same."""
-    raised = []
+    """A binning this camera does not offer is refused by the Session's
+    preview, reported once, and no apply is sent; the pick that asked for it
+    is in the record all the same."""
+    from modules.notification_center import notifications
 
-    def _on_the_lane(call, redraw, label, *, lane=None):
-        # The camera lane, run here: the Session's answer is what is asked
-        # for, and the lane is not the subject.
-        try:
-            call()
-        except Exception as error:
-            raised.append(error)
-
-    monkeypatch.setattr(ms, 'submit_reported', _on_the_lane)
+    reported = []
+    submitted = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc))
+    monkeypatch.setattr(ms, 'submit_reported', lambda *args, **kwargs: submitted.append(args))
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
         SimpleNamespace(
-            session=session,
+            scope=session.scope,
             settings=session.settings,
             initializing=False,
             camera_executor=None,
@@ -104,11 +105,21 @@ def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, c
     )
     offered = session.scope.capabilities.camera_binning_sizes
     unoffered = max(offered) + 1
+    microscope = _Microscope(f'{unoffered}x{unoffered}')
 
+    from ui.pick_spinner import PickSpinner
+
+    spinner = microscope.ids['binning_spinner']
+    # a stand-in by design: Kivy is stubbed in the test process; the pick's
+    # own path records, then the text it shows runs the handler as on_text does
+    spinner.log_name, spinner.text_follows_pick, spinner.is_open = 'BINNING', True, True
+    spinner.dispatch = lambda event, value: None
     with caplog.at_level(logging.INFO, logger=_GUI_LOG):
-        _Microscope(f'{unoffered}x{unoffered}').select_binning_size()
+        PickSpinner._on_dropdown_select(spinner, None, f'{unoffered}x{unoffered}')
+        microscope.select_binning_size()
 
-    assert [getattr(e, 'reason', e) for e in raised] == ['binning_unsupported']
+    assert [getattr(e, 'reason', e) for e in reported] == ['binning_unsupported']
+    assert submitted == [] and microscope.redrawn == 1
     assert f'SELECT BINNING {unoffered}x{unoffered}' in _recorded(caplog)
 
 
@@ -129,6 +140,34 @@ def test_a_new_protocol_the_session_refuses_is_still_recorded(session, monkeypat
     assert not [line for line in recorded if line.startswith('PROTOCOL NEW')], recorded
 
 
+def test_change_on_an_empty_protocol_is_recorded_and_refused_by_the_session(
+    session, monkeypatch, caplog
+):
+    """Change on an empty protocol returned in the panel before its record,
+    so the press left no line and no reason, where Delete was refused "No Such
+    Step" by the Session."""
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc))
+    # a stand-in by design: the stage map is a Kivy widget the redraw after the refusal draws on
+    stage = SimpleNamespace(set_protocol_steps=lambda protocol: None)
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session, stage=stage))
+    panel = _Protocols()
+    panel._protocol = session.create_empty_protocol()
+    panel.curr_step = -1
+
+    with caplog.at_level(logging.INFO, logger=_GUI_LOG):
+        panel.modify_step()
+
+    assert any(line.startswith('PROTOCOL MODIFY_STEP') for line in _recorded(caplog)), _recorded(
+        caplog
+    )
+    assert [(type(e).__name__, e.title) for e in reported] == [
+        ('StepNotFoundError', 'No Such Step')
+    ]
+
+
 @pytest.mark.parametrize(
     ('handler', 'box', 'record'),
     (
@@ -141,8 +180,9 @@ def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_ba
 ):
     """What the kv float filter lets through but is not a number moves
     nothing. The refusal leaves a line saying so -- the name alone would read
-    as a successful move -- and then the box shows the target again, and
-    that is recorded too. One entry: which entries are not numbers ('',
+    as a successful move -- and then the box is redrawn (where the stage
+    is, tests/test_the_xy_boxes_show_the_known_position.py), and what it
+    shows is recorded too. One entry: which entries are not numbers ('',
     '-', '.', '-.') is typed_number's to decide, pinned in
     test_a_typed_non_number_puts_its_box_back.py; here every one reaches the
     same branch."""
@@ -155,7 +195,7 @@ def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_ba
     monkeypatch.setattr(gui_logger, 'button', lambda name, detail='': lines.append((name, detail)))
     monkeypatch.setattr(gui_logger, 'text_input', lambda name, value: lines.append((name, value)))
     moves = []
-    monkeypatch.setattr(motion, 'move_absolute', lambda *a, **k: moves.append((a, k)))
+    monkeypatch.setattr(motion, 'move_to_plate', lambda *a, **k: moves.append((a, k)))
     monkeypatch.setattr(
         _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
     )

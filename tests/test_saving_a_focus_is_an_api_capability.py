@@ -24,13 +24,14 @@ from modules.lumascope_api import AxisState
 from modules.scope_session import SavedFocus, ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 LAYER_FOCUS = 7000.0
 
 
 def _session(tmp_path, microscope):
     settings = complete_settings(live_folder=str(tmp_path), microscope=microscope)
-    for layer in ('BF', 'Blue'):
+    for layer in ('BF', LED0):
         settings[layer]['acquire'] = 'image'
         settings[layer]['focus'] = LAYER_FOCUS
     return ScopeSession.create(settings, simulate=True)
@@ -52,27 +53,31 @@ def session(tmp_path):
 
 
 def _protocol_bf_bf_blue(session):
-    """Three steps, all at the layer focus: BF, BF, Blue."""
+    """Three steps, all at the layer focus: BF, BF, LED0.
+
+    Add takes the live Z, so the stage is put at the layer focus first.
+    """
     protocol = session.create_empty_protocol()
+    _go_to_z(session, LAYER_FOCUS)
     for x_um in (10000, 20000):
-        session.scope.motion.move_absolute('X', x_um)
-        session.set_layer_acquire('Blue', None)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
-    session.set_layer_acquire('Blue', 'image')
-    session.set_layer_acquire('BF', None)
-    session.add_step(protocol, after_step=protocol.num_steps() - 1)
-    session.set_layer_acquire('BF', 'image')
-    assert [protocol.step(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
-    assert [protocol.step(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
+        session.scope.motion.move_xy(x_um=x_um)
+        session.set_channel_acquire(LED0, None)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+    session.set_channel_acquire(LED0, 'image')
+    session.set_channel_acquire('BF', None)
+    session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+    session.set_channel_acquire('BF', 'image')
+    assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', LED0]
+    assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
     return protocol
 
 
 def _go_to_z(session, z):
-    session.scope.motion.move_absolute('Z', z)
+    session.scope.motion.move_z(z)
 
 
 def _zs(protocol):
-    return [protocol.step(i)['Z'] for i in range(protocol.num_steps())]
+    return [protocol.step_row(i)['Z'] for i in range(protocol.num_steps())]
 
 
 class TestSaveFocus:
@@ -80,19 +85,19 @@ class TestSaveFocus:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        saved = session.save_focus(protocol, 'BF', step_idx=1)
+        saved = session.save_focus(protocol, 'BF', step_index=1)
 
-        assert saved == SavedFocus(z=5000.0, step_idx=1)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=1)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS, 5000.0, LAYER_FOCUS]
 
     def test_three_saves_on_three_steps_stay_three_values(self, session):
         # #734: saving step after step collapsed every step to the last save.
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
-        session.save_focus(protocol, 'BF', step_idx=0)
+        session.save_focus(protocol, 'BF', step_index=0)
         _go_to_z(session, 6000)
-        session.save_focus(protocol, 'BF', step_idx=1)
+        session.save_focus(protocol, 'BF', step_index=1)
 
         assert _zs(protocol) == [5000.0, 6000.0, LAYER_FOCUS]
 
@@ -100,10 +105,10 @@ class TestSaveFocus:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        saved = session.save_focus(protocol, 'BF', step_idx=2)
+        saved = session.save_focus(protocol, 'BF', step_index=2)
 
-        assert saved == SavedFocus(z=5000.0, step_idx=None)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=None)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_no_step_saves_the_layer_focus_only(self, session):
@@ -112,8 +117,8 @@ class TestSaveFocus:
 
         saved = session.save_focus(protocol, 'BF')
 
-        assert saved == SavedFocus(z=5000.0, step_idx=None)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=None)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_a_step_the_protocol_lacks_is_refused_and_nothing_is_written(self, session):
@@ -121,9 +126,9 @@ class TestSaveFocus:
         _go_to_z(session, 5000)
 
         with pytest.raises(ProtocolError):
-            session.save_focus(protocol, 'BF', step_idx=3)
+            session.save_focus(protocol, 'BF', step_index=3)
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_a_z_that_does_not_know_its_position_saves_nothing(self, session):
@@ -131,9 +136,9 @@ class TestSaveFocus:
         session.scope.motion._axis_state['Z'] = AxisState.UNKNOWN
 
         with pytest.raises(AxisStateUnknownError):
-            session.save_focus(protocol, 'BF', step_idx=0)
+            session.save_focus(protocol, 'BF', step_index=0)
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
@@ -142,10 +147,10 @@ class TestApplyFocusToLayerSteps:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        updated = session.apply_focus_to_layer_steps(protocol, 'BF')
+        updated = session.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert updated == 2
-        assert session.saved_focus('BF') == 5000.0
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [5000.0, 5000.0, LAYER_FOCUS]
 
     def test_a_z_that_does_not_know_its_position_applies_nothing(self, session):
@@ -153,16 +158,16 @@ class TestApplyFocusToLayerSteps:
         session.scope.motion._axis_state['Z'] = AxisState.UNKNOWN
 
         with pytest.raises(AxisStateUnknownError):
-            session.apply_focus_to_layer_steps(protocol, 'BF')
+            session.apply_focus_to_channel_steps(protocol, 'BF')
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
 # A name that is no layer is the request's; a layer this scope lacks is absent hardware.
 NOT_ON_THIS_SCOPE = [
-    ('Purple', ArgumentRefusedError, 'layer_unknown'),
-    ('Lumi', HardwareCommandRefusedError, 'axis_absent'),
+    ('Purple', ArgumentRefusedError, 'channel_unknown'),
+    ('Lumi', HardwareCommandRefusedError, 'not_on_this_scope'),
 ]
 
 
@@ -175,7 +180,7 @@ class TestALayerThisScopeLacks:
         before = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
 
         with pytest.raises(refused) as raised:
-            session.save_focus(protocol, layer, step_idx=0)
+            session.save_focus(protocol, layer, step_index=0)
         assert raised.value.reason == reason
 
         after = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
@@ -187,7 +192,7 @@ class TestALayerThisScopeLacks:
         protocol = _protocol_bf_bf_blue(session)
 
         with pytest.raises(refused) as raised:
-            session.apply_focus_to_layer_steps(protocol, layer)
+            session.apply_focus_to_channel_steps(protocol, layer)
         assert raised.value.reason == reason
 
         assert _zs(protocol) == [LAYER_FOCUS] * 3
@@ -210,13 +215,13 @@ class TestAScopeWithNoZ:
             no_z.save_focus(protocol, 'BF')
 
         assert refused.value.reason == 'positions_unreachable'
-        assert no_z.saved_focus('BF') == LAYER_FOCUS
+        assert no_z.saved_focus_z_um('BF') == LAYER_FOCUS
 
     def test_apply_focus_is_refused_and_the_focus_is_kept(self, no_z):
         protocol = no_z.create_empty_protocol()
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
-            no_z.apply_focus_to_layer_steps(protocol, 'BF')
+            no_z.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert refused.value.reason == 'positions_unreachable'
-        assert no_z.saved_focus('BF') == LAYER_FOCUS
+        assert no_z.saved_focus_z_um('BF') == LAYER_FOCUS

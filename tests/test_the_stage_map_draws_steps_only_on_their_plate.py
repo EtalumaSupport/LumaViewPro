@@ -17,7 +17,6 @@ import pandas as pd
 import pytest
 
 import modules.app_context as _app_ctx
-import ui.stage as stage_module
 from ui.stage import Stage
 
 
@@ -26,13 +25,13 @@ CACHED = object()
 
 def _protocol(plate):
     steps = pd.DataFrame({'X': [10.0, 20.0], 'Y': [5.0, 5.0], 'Z': [0.0, 0.0]})
-    return types.SimpleNamespace(steps=lambda: steps, labware=lambda: plate)
+    return types.SimpleNamespace(steps=lambda: steps, labware_id=lambda: plate)
 
 
 @pytest.fixture
-def stage(monkeypatch):
-    monkeypatch.setattr(stage_module, 'get_selected_labware', lambda: ('96 well microplate', None))
-    monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(coordinate_transformer=None))
+def stage(sim_scope, monkeypatch):
+    # The template's plate, 96 well, is the scope's.
+    monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(scope=sim_scope))
     built = Stage.__new__(Stage)
     built._protocol_step_locations_show = True
     return built

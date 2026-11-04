@@ -34,7 +34,15 @@ _LED_QUERY_TIMEOUT_S = 2.0
 _LED_QUERY_LINES = {'INFO': 6}
 _LED_READ_LINES = 3
 
-_TARGET = re.compile(r'move_absolute\((\w), ([-\d.]+)\)')
+# A move's record names its axis and target. A record taken before the plugin
+# asked for a move by what it moves says move_absolute(X, 123.000); one taken
+# after says move_xy(x_um=123.000) or move_z(123.000). A recorded session is
+# what that bench did, so both are read.
+_TARGETS = (
+    re.compile(r'move_absolute\((?P<axis>\w), (?P<target>[-\d.]+)\)'),
+    re.compile(r'move_xy\((?P<axis>[xy])_um=(?P<target>[-\d.]+)\)'),
+    re.compile(r'move_(?P<axis>z)\((?P<target>[-\d.]+)\)'),
+)
 _AXIS_ARG = re.compile(r'\((\w+)\)')
 _LED_ON = re.compile(r'led_on\((\d+), ([\d.]+)\)')
 
@@ -54,13 +62,33 @@ def _homed(motion, axis) -> bool:
     return True
 
 
+def _target(command) -> tuple[str, float]:
+    """The axis and target a move's record names, in either record's words."""
+    for pattern in _TARGETS:
+        found = pattern.fullmatch(command)
+        if found:
+            return found['axis'].upper(), float(found['target'])
+    raise AssertionError(f'no move in the record {command!r}')
+
+
+def _moved(motion, axis, target) -> None:
+    """The recorded move, waited, through the member that moves ``axis``."""
+    if axis == 'Z':
+        motion.move_z(target, overshoot_enabled=False)
+    else:
+        motion.move_xy(**{f'{axis.lower()}_um': target})
+
+
 def _started(motion, axis, target) -> None:
     """The recorded reply of a move started and not waited on: None.
 
-    The record was taken when an unwaited ``move_absolute`` returned None.
-    The start now returns the started move, which the record never held.
+    The record was taken when an unwaited move returned None. The start now
+    returns the started move, which the record never held.
     """
-    motion.start_move_absolute(axis, target, overshoot_enabled=False)
+    if axis == 'Z':
+        motion.start_move_z(target, overshoot_enabled=False)
+    else:
+        motion.start_move_xy(**{f'{axis.lower()}_um': target})
 
 
 def _settled(motion) -> bool:
@@ -89,11 +117,9 @@ def _call(scope, record):
     if kind == 'home':
         return functools.partial(_homed, motion, _AXIS_ARG.search(command).group(1))
     if kind == 'stop_move_start':
-        axis, target = _TARGET.fullmatch(command).groups()
-        return functools.partial(_started, motion, axis, float(target))
+        return functools.partial(_started, motion, *_target(command))
     if kind in ('position', 'move'):
-        axis, target = _TARGET.fullmatch(command).groups()
-        return functools.partial(motion.move_absolute, axis, float(target), overshoot_enabled=False)
+        return functools.partial(_moved, motion, *_target(command))
     if kind == 'turret':
         return functools.partial(motion.move_turret, record['slot'])
     if kind == 'stop':
@@ -106,9 +132,9 @@ def _call(scope, record):
 
 
 def led_on_args(record) -> tuple[int, float]:
-    """The channel and current an `led_on` record lit."""
-    channel, ma = _LED_ON.fullmatch(record['command']).groups()
-    return int(channel), float(ma)
+    """The board address and current an `led_on` record lit."""
+    address, ma = _LED_ON.fullmatch(record['command']).groups()
+    return int(address), float(ma)
 
 
 def _led_call(scope, record):
@@ -127,9 +153,9 @@ def _led_call(scope, record):
             diag.send_diagnostic_command, 'led', command, timeout_s=_LED_QUERY_TIMEOUT_S
         )
     if kind == 'led_on':
-        return functools.partial(illumination.led_on, *led_on_args(record))
+        return functools.partial(illumination.led_on_by_address, *led_on_args(record))
     if kind == 'led_off':
-        return functools.partial(illumination.led_off, record['channel'])
+        return functools.partial(illumination.led_off_by_address, record['channel'])
     if kind == 'leds_off':
         return illumination.leds_off
     raise AssertionError(f'no replay for an LED {kind!r} record')

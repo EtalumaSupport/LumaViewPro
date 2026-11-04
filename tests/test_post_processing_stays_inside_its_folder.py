@@ -11,13 +11,17 @@ outside the folder. Each is refused, and a refused build writes no output.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 import pytest
 
 from modules import image_utils
 from modules.exceptions import PostProcessingRefusedError
 from modules.zprojector import ZProjector
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from modules.zproject_method import ZProjectMethod
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -42,22 +46,20 @@ def _write_tiff(path):
         metadata={
             'pixel_size_um': 0.5,
             'channel': 'BF',
-            'objective': '20x',
+            'objective': {'id': '20x'},
             'exposure_time_ms': 2.0,
             'gain_db': 1.0,
             'illumination_ma': 5.0,
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': 14.38, 'y': 11.24},
-            'datetime': '2026:10:07 12:00:00',
-            'camera_make': 'Test',
-            'microscope': 'TestScope',
-            'well_label': 'A1',
+            'datetime': datetime.datetime(2026, 10, 7, 12, 0, 0),
             'significant_bits': 8,
         },
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 
@@ -88,7 +90,10 @@ def _run_folder(tmp_path, *, well='A1', protocol_file='run.tsv'):
 
 def _project(folder):
     return ZProjector(has_turret=False).load_folder(
-        path=folder, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0]
+        path=folder,
+        tiling_grids=shipped_grids(),
+        method=ZProjectMethod.Min,
+        channel_colors=release_colors(),
     )
 
 

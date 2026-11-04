@@ -41,20 +41,107 @@ This module also holds the run's ENDING: the status a run finished in,
 and the reason, title and message for it, recorded by whatever ended the
 run at the site that knows why. The ending is first-wins -- a run dies
 once, and the first thing that killed it is the cause; everything after
-it is consequence. Cleanup reads the record once, after the lanes it
+it is consequence. Cleanup closes the record once, after the lanes it
 waits on have drained, so a fault that lands during the drain is still
-the ending rather than a word chosen before the last fact arrived.
+the ending rather than a word chosen before the last fact arrived, and a
+fault that lands after it is not told as the run's ending.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import enum
 import pathlib
 import threading
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
+from drivers.exceptions import CameraReadFailedError
 from modules.api_surface import api, api_fields
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.bring_up import Part
+
+
+class RunStatus(enum.StrEnum):
+    """How a run ended, in five words.
+
+    ``INCOMPLETE`` is a run that reached its end without every capture it
+    was asked for; ``ABORTED`` is an ending someone asked for (a Stop, or
+    the application tearing the run down); ``FAILED`` is one the
+    instrument imposed, including the strike ceiling for scans that kept
+    failing; ``FAILED_AT_START`` is a run that could not begin after it
+    committed.
+    """
+
+    COMPLETED = 'completed'
+    INCOMPLETE = 'incomplete'
+    ABORTED = 'aborted'
+    FAILED = 'failed'
+    FAILED_AT_START = 'failed_at_start'
+
+
+class FilesOutcome(enum.StrEnum):
+    """What became of a run's images once its writes are done.
+
+    ``WRITTEN`` when every image the run captured is on disk;
+    ``INCOMPLETE`` when some are not -- a write that failed, or writes
+    given up on by a writer recovery or a shutdown.
+    """
+
+    WRITTEN = 'written'
+    INCOMPLETE = 'incomplete'
+
+
+class EndingKind(enum.StrEnum):
+    """Whether a run that ended completed, was stopped, or failed."""
+
+    COMPLETION = 'completion'
+    STOP = 'stop'
+    FAILURE = 'failure'
+
+
+# Each way a run can end, by the ending's reason: its heading and its kind.
+# The one place an ending is titled, so the popup, the run's outcome and the
+# failure raised to a caller title one ending one way wherever it was
+# recorded; and the one place it is a failure, so the run's faults carry the
+# failures and nothing else.
+ENDINGS: dict[str, tuple[str, EndingKind]] = {
+    'completed': ('Protocol Complete', EndingKind.COMPLETION),
+    'stopped': ('Protocol Stopped', EndingKind.STOP),
+    'stage_stopped': ('Protocol Stopped', EndingKind.STOP),
+    'shutdown': ('Protocol Stopped', EndingKind.STOP),
+    'captures_failed': ('Run Incomplete', EndingKind.FAILURE),
+    'start_failed': ('Run failed to start', EndingKind.FAILURE),
+    'dispatch_refused': ('Run failed to start', EndingKind.FAILURE),
+    'capture_location_failed': ('Run failed to start', EndingKind.FAILURE),
+    'run_dir_init_failed': ('Run failed to start', EndingKind.FAILURE),
+    'camera_lane_stalled': ('Camera Busy', EndingKind.FAILURE),
+    'camera_read_failed': (CameraReadFailedError.title, EndingKind.FAILURE),
+    'run_loop_crashed': ('Protocol Crashed', EndingKind.FAILURE),
+    'hardware_disconnected': ('Protocol Aborted', EndingKind.FAILURE),
+    'consecutive_scan_failures': ('Protocol Aborted', EndingKind.FAILURE),
+    'interlock': ('Protocol Aborted -- Stage Interlock', EndingKind.FAILURE),
+    'position_lost': ('Protocol Aborted -- Position Lost', EndingKind.FAILURE),
+    'disk_space_critical': ('Disk Space Critical', EndingKind.FAILURE),
+    'file_writer_stalled': ('File Writer Stalled', EndingKind.FAILURE),
+    'video_writer_died': ('Recording Failed', EndingKind.FAILURE),
+    'led_channel_unavailable': ('Channel not available', EndingKind.FAILURE),
+    'camera_failure': ('Camera Failure', EndingKind.FAILURE),
+    'autofocus_failed': ('Autofocus Failed', EndingKind.FAILURE),
+    'autofocus_not_started': ('Autofocus Not Started', EndingKind.FAILURE),
+}
+ENDING_TITLES: dict[str, str] = {reason: title for reason, (title, _) in ENDINGS.items()}
+# The endings a run's faults carry, in the table's order.
+FAILURE_REASONS: tuple[str, ...] = tuple(
+    reason for reason, (_, kind) in ENDINGS.items() if kind == EndingKind.FAILURE
+)
+
+
+# The endings a person's stop makes: the run's own Stop, and STOP pressed
+# while it ran. A stop leaves the stage where it stopped it.
+STOP_REASONS = frozenset({'stopped', 'stage_stopped'})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,25 +149,65 @@ class RunEnding:
     """How a run ended, and why, in the shape a refusal already uses.
 
     Attributes:
-        status: One of 'completed', 'incomplete', 'aborted', 'failed',
-            'failed_at_start'. 'incomplete' is a run that reached its
-            end without every capture it was asked for; 'aborted' is an
-            ending someone asked for (a Stop, or the application tearing
-            the run down); 'failed' is one the instrument imposed,
-            including the strike ceiling for scans that kept failing.
+        status: How the run ended; a plain string of the set is taken as
+            its member, and any other word fails where the ending is made.
         reason: Machine-readable cause, stable enough for a caller to
-            branch on ('motion_timeout', 'disk_space_critical',
-            'stopped', ...).
-        title: Short human sentence, suitable as a popup heading.
+            branch on ('position_lost', 'disk_space_critical',
+            'stopped', ...); one of ``ENDING_TITLES``' keys, or the
+            ending fails where it is made.
+        title: Short human sentence, suitable as a popup heading: the
+            reason's, from ``ENDING_TITLES``.
         message: The sentence a user reads. Never a raw exception
             string -- those go to the log, not into a field a remote
             caller serialises.
     """
 
-    status: str
+    status: RunStatus
     reason: str
-    title: str
     message: str
+
+    def __post_init__(self):
+        # Judged where the ending is made: the outcome built from it is
+        # built inside cleanup's resolvers, which never raise.
+        object.__setattr__(self, 'status', RunStatus(self.status))
+        if self.reason not in ENDING_TITLES:
+            raise TypeError(f'a run cannot end with the reason {self.reason!r}: it has no title')
+
+    @property
+    def title(self) -> str:
+        """The reason's heading."""
+        return ENDING_TITLES[self.reason]
+
+
+def hardware_disconnected_ending(parts: tuple[Part, ...]) -> RunEnding:
+    """The ending of a run whose hardware left it, in one set of words.
+
+    Whichever site finds it -- the run loop's connection check, or a step
+    whose camera was removed -- the run ends in these words, naming each
+    part gone by its noun.
+    """
+    gone = ' and '.join(part.noun for part in parts)
+    return RunEnding(
+        RunStatus.FAILED,
+        'hardware_disconnected',
+        f'The {gone} disconnected during the run. Check the USB cable and power '
+        'connections, save the protocol, then restart LumaViewPro and the protocol.',
+    )
+
+
+def hardware_disconnected_at_start_ending(parts: tuple[Part, ...]) -> RunEnding:
+    """The ending of a run whose hardware left before it began.
+
+    The run start's counterpart of ``hardware_disconnected_ending``: the
+    same reason and the same nouns, for a run that never took a step.
+    """
+    gone = ' and '.join(part.noun for part in parts)
+    return RunEnding(
+        RunStatus.FAILED_AT_START,
+        'hardware_disconnected',
+        f'The {gone} disconnected, so the run did not start. Check the USB cable and '
+        'power connections, then restart LumaViewPro and the protocol.',
+    )
 
 
 # Endings whose own popup already told the person the run's files were not
@@ -88,6 +215,19 @@ class RunEnding:
 # died. The images not saved and the record rows missing after one of them
 # are that same cause, so they are logged and not shown again.
 FILES_LOST_ENDINGS = frozenset({'disk_space_critical', 'file_writer_stalled', 'video_writer_died'})
+
+
+class FatalTold(enum.Enum):
+    """What the fatal funnel does with a fault, as the run's latch answers it."""
+
+    # The first fatal fact of a run still running: shown.
+    SHOW = 'show'
+    # Another fatal fact behind the one shown: logged once.
+    LOG = 'log'
+    # A fact already told, met again (a floor met by each queued write).
+    TOLD = 'told'
+    # The run settled before this fact: its files report tells it.
+    SETTLED = 'settled'
 
 
 class EndingLatch:
@@ -99,6 +239,15 @@ class EndingLatch:
     the consequence and lose the cause, so the first record sticks and
     every later one is dropped.
 
+    Cleanup closes the latch when it reads it: from then the ending is
+    final, and a fault met later -- a still-image write meeting the disk
+    floor after the run let go of the scope -- is not the run's ending.
+
+    It also records which fatal faults the person has been told of, under
+    the same lock as the ending, so two faults racing each other are told
+    once each: the first shown, a different one logged, the same one
+    again neither.
+
     Held per run, never per runner: a drained writer from a previous run
     that fires late lands on a latch nothing reads any more.
     """
@@ -106,6 +255,9 @@ class EndingLatch:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._ending: RunEnding | None = None
+        self._closed = False
+        self._told: set[str] = set()
+        self._shown: str | None = None
 
     def set_if_unset(self, ending: RunEnding) -> bool:
         """Record the ending; True when this caller's ending is the one kept."""
@@ -120,34 +272,117 @@ class EndingLatch:
         with self._lock:
             return self._ending
 
+    def close(self, ending: RunEnding) -> RunEnding:
+        """Keep ``ending`` if nothing has ended the run, close the latch, return the ending kept.
 
-@api_fields('scan', 'step_index', 'step_name', 'cause')
+        Cleanup's one read: the ending it returns is the run's, and nothing
+        recorded after it is. Asking again returns the same ending.
+        """
+        with self._lock:
+            if self._ending is None:
+                self._ending = ending
+            self._closed = True
+            return self._ending
+
+    def record_fatal(self, ending: RunEnding) -> FatalTold:
+        """Record a fatal fault, and say what the person is told of it.
+
+        Kept as the run's ending when nothing has ended the run. Shown when
+        it is the run's first fatal fault, whether it ended the run or came
+        after a Stop or a shutdown; logged when another fatal fault was
+        shown first; neither when this fault was told already or the run
+        had settled.
+        """
+        with self._lock:
+            if self._closed:
+                return FatalTold.SETTLED
+            if ending.reason in self._told:
+                return FatalTold.TOLD
+            if self._ending is None:
+                self._ending = ending
+            first = not self._told
+            self._told.add(ending.reason)
+            if first:
+                self._shown = ending.reason
+                return FatalTold.SHOW
+            return FatalTold.LOG
+
+    @property
+    def shown_fatal(self) -> str | None:
+        """The reason of the fatal fault the person was shown, or None."""
+        with self._lock:
+            return self._shown
+
+
+@api_fields('scan_index', 'step_index', 'step_name', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FailedCapture:
     """One capture a run was asked for that produced no image.
 
     Attributes:
-        scan: The scan it belonged to, counting from 0.
+        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
         cause: Why no image came, in the words the log records.
     """
 
-    scan: int
+    scan_index: int
     step_index: int
     step_name: str
     cause: str
 
 
-@api_fields('asked', 'captured', 'failed')
+@api_fields('scan_index', 'step_index', 'step_name', 'blown', 'dark')
+@dataclasses.dataclass(frozen=True)
+class TakenCapture:
+    """One capture a run was asked for that produced an image, and what its frame was.
+
+    Attributes:
+        scan_index: The scan it belonged to, counting from 0.
+        step_index: The step's row in the protocol, counting from 0.
+        step_name: The step's name, as the protocol has it.
+        blown: Whether the frame's record found it blown
+            (``FrameRecord.blown``); None when nothing judged it: a video
+            step, which has no one frame.
+        dark: Whether the frame's record found it dark (``FrameRecord.dark``);
+            None when nothing judged it: no LED on, or a video step.
+    """
+
+    scan_index: int
+    step_index: int
+    step_name: str
+    blown: bool | None
+    dark: bool | None
+
+
+@api_fields('scan_index', 'step_index', 'step_name', 'cause')
+@dataclasses.dataclass(frozen=True)
+class FocusFailure:
+    """One step whose autofocus did not focus; the run went on at its fallback Z.
+
+    Attributes:
+        scan_index: The scan it belonged to, counting from 0.
+        step_index: The step's row in the protocol, counting from 0.
+        step_name: The step's name, as the protocol has it.
+        cause: Why it did not focus, in the autofocus failure's words.
+    """
+
+    scan_index: int
+    step_index: int
+    step_name: str
+    cause: str
+
+
+@api_fields('asked', 'captured', 'failed', 'saturated', 'dark')
 @dataclasses.dataclass(frozen=True)
 class CaptureTally:
     """The captures a run was asked for, and what became of each.
 
     Counted once per (scan, step): a scan that is run again after a
     transient failure re-captures its earlier steps into the same slots,
-    so a retry never counts a capture twice. A dark frame is captured --
-    the camera delivered it -- and its row says it was dark.
+    so a retry never counts a capture twice. A blown or a dark frame is
+    captured -- the camera delivered it -- and is counted again among
+    ``saturated`` or ``dark``.
 
     Attributes:
         asked: Captures the run was asked for: scans times steps for a run
@@ -156,16 +391,25 @@ class CaptureTally:
         captured: Captures that produced an image.
         failed: Captures that produced none, in the order they failed.
             ``asked - captured - len(failed)`` were never reached.
+        saturated: The captures whose frame was blown, in the order their
+            (scan, step) was first taken.
+        dark: The captures whose frame was dark, in the same order.
     """
 
     asked: int
     captured: int
     failed: tuple[FailedCapture, ...]
+    saturated: tuple[TakenCapture, ...]
+    dark: tuple[TakenCapture, ...]
 
     @api
     @property
     def missing(self) -> int:
-        """Captures asked for that produced no image, failed or never reached."""
+        """Captures asked for that produced no image, failed or never reached.
+
+        Raises:
+            Nothing.
+        """
         return self.asked - self.captured
 
 
@@ -176,6 +420,7 @@ class CaptureTally:
     'artifact_path',
     'captures',
     'cleanup_failures',
+    'focus_failures',
     'focus_written',
     'merge_reason',
     'merged',
@@ -183,6 +428,7 @@ class CaptureTally:
     'reason',
     'status',
     'title',
+    'video_save_wait_s',
 )
 @dataclasses.dataclass(frozen=True)
 class RunOutcome:
@@ -192,16 +438,17 @@ class RunOutcome:
     RunEnding whatever ended the run recorded; the next three describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
-    did not finish, and last whether a scan's focus was written into the
-    caller's protocol. A non-composite run carries merged=False and an empty
-    merge_reason under whatever status it ended in, and a run that saved
+    did not finish, whether a scan's focus was written into the caller's
+    protocol, which steps' autofocus did not focus, and last how long the
+    run's end waited for its videos to save. A
+    non-composite run carries merged=False and an empty merge_reason
+    under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
 
     Attributes:
-        status: One of 'completed', 'incomplete', 'aborted', 'failed',
-            'failed_at_start'.
-        reason: Why the RUN ended ('stopped', 'motion_timeout',
+        status: How the run ended.
+        reason: Why the RUN ended ('stopped', 'position_lost',
             'captures_failed', ...).
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
@@ -224,10 +471,11 @@ class RunOutcome:
         af_focus_z_um: The Z a standalone autofocus run chose as focus,
             where it left the stage; None when it chose none (a degenerate
             curve, an abort, an error), in which case the stage is back
-            where the run found it. A run that gave up still ends
-            'completed' -- a step's autofocus failing is not a run failure
-            -- so this, not the status, is how a caller tells "focused"
-            from "gave up". Set only by a standalone autofocus run: a run
+            where the run found it. A standalone autofocus run that chose
+            none ends 'failed' ('autofocus_failed', or
+            'autofocus_not_started' when its first window reached past Z's
+            travel), unless its restore lost Z ('position_lost'); a Stop
+            is a stop. Set only by a standalone autofocus run: a run
             that autofocuses at several steps has no one focus to report,
             and reads None.
         captures: What the run captured of what it was asked for. None
@@ -246,9 +494,19 @@ class RunOutcome:
             the scan did not complete, or the protocol's steps changed
             during it (reported once, as 'Focus Not Saved') -- and the
             protocol is unchanged.
+        focus_failures: Each step whose autofocus did not focus, a flat
+            curve included, in the order they failed: a capture protocol
+            captured it at its fallback focus, an autofocus scan left its
+            focus as it was. Counted once per scan and step, so a scan run
+            again that focuses the step clears it. Empty when every
+            autofocus focused, and for a run with none.
+        video_save_wait_s: Seconds the run's end waited for its video steps
+            to finish saving, when every step finished having written every
+            frame it kept; None when nothing was waited for, or when a step
+            did not finish, was discarded or lost a frame.
     """
 
-    status: str
+    status: RunStatus
     reason: str
     title: str
     message: str
@@ -261,6 +519,8 @@ class RunOutcome:
     captures: CaptureTally | None
     cleanup_failures: tuple[str, ...] | None
     focus_written: bool | None
+    focus_failures: tuple[FocusFailure, ...]
+    video_save_wait_s: float | None
 
     @classmethod
     def from_ending(
@@ -275,6 +535,8 @@ class RunOutcome:
         af_data_path: pathlib.Path | None = None,
         af_focus_z_um: float | None = None,
         focus_written: bool | None = None,
+        focus_failures: tuple[FocusFailure, ...] = (),
+        video_save_wait_s: float | None = None,
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
@@ -302,6 +564,8 @@ class RunOutcome:
             captures=captures,
             cleanup_failures=cleanup_failures,
             focus_written=focus_written,
+            focus_failures=focus_failures,
+            video_save_wait_s=video_save_wait_s,
         )
 
 
@@ -324,6 +588,8 @@ class PendingRunOutcome:
         self._captures: CaptureTally | None = None
         self._cleanup_failures: tuple[str, ...] | None = None
         self._focus_written: bool | None = None
+        self._focus_failures: tuple[FocusFailure, ...] = ()
+        self._video_save_wait_s: float | None = None
         self._settled = threading.Event()
         # Told once the outcome settles, on the thread that settles it.
         self._on_settled: list[Callable[[RunOutcome], None]] = []
@@ -382,6 +648,16 @@ class PendingRunOutcome:
         with self._lock:
             self._cleanup_failures = steps
 
+    def record_video_save_wait(self, waited_s: float | None) -> None:
+        """Record how long the run's end waited for its videos to save.
+
+        Held here for the reason the captures are; recorded by cleanup
+        before the outcome settles, None when there is no wait to state
+        (``RunOutcome.video_save_wait_s``).
+        """
+        with self._lock:
+            self._video_save_wait_s = waited_s
+
     def record_focus_written(self, written: bool) -> None:
         """Record whether a scan's focus was written into the caller's protocol.
 
@@ -391,6 +667,15 @@ class PendingRunOutcome:
         """
         with self._lock:
             self._focus_written = written
+
+    def record_focus_failures(self, failures: tuple[FocusFailure, ...]) -> None:
+        """Record which steps' autofocus did not focus.
+
+        Held here for the reason the captures are, and recorded beside them
+        where cleanup decides the ending.
+        """
+        with self._lock:
+            self._focus_failures = failures
 
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
@@ -432,6 +717,8 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -469,6 +756,8 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -507,6 +796,8 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []

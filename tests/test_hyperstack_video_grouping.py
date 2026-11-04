@@ -19,13 +19,13 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
-from modules import image_utils
-from modules import recording_frames
-from modules.common_utils import PostFunction
+from modules import post_derivation
+from modules import recording_frames, wall_time
+from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.stack_builder import StackBuilder
-from modules.recording_frames import FrameFact
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
+from tests.stock_channels import LED1, LED2
 
 
 def _frame_path(well, color, scan, n):
@@ -63,13 +63,12 @@ def _stack_df(rows):
             'Tile': [''] * n,
             'Tile Group ID': [''] * n,
             'Custom Step': [False] * n,
+            'Channel Group ID': [0] * n,
             'Timestamp': [''] * n,
             'Raw': [True] * n,
         }
     )
-    for column in PostFunction.list_values():
-        data[column] = [False] * n
-    return pd.DataFrame(data)
+    return pd.DataFrame(data).assign(**post_derivation.raw_columns())
 
 
 def _write_frames(tmp_path, df):
@@ -132,7 +131,9 @@ class TestVideoWellGrouping:
 
         builder = StackBuilder(has_turret=False)
         names = {
-            builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+            builder._generate_filename(
+                df=group.reset_index(drop=True), post=('hyperstack',), capture_root=None
+            )
             for _, group in StackBuilder._get_groups(df)
         }
 
@@ -157,6 +158,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         assert result.status, f'video-well stack build failed: {result.error}'
@@ -166,7 +168,7 @@ class TestVideoWellStackBuild:
             'T axis must follow frame order within the recording'
         )
 
-    def test_video_stack_planes_carry_delta_t_from_frame_timestamps(self, tmp_path):
+    def test_video_stack_planes_carry_delta_t_from_frame_timestamps(self, sim_scope, tmp_path):
         # PR-6 timing honesty: the recording's real per-frame capture
         # times land as per-plane DeltaT (seconds from the earliest
         # plane), so a variable-rate recording reads back with true
@@ -179,23 +181,18 @@ class TestVideoWellStackBuild:
             rows.append((path, 0, 'BF', 0))
             loc = tmp_path / path
             loc.parent.mkdir(parents=True, exist_ok=True)
-            metadata, _ = recording_frames.tiff_frame_metadata(
-                timestamp_s=base_s + n * 0.5,
+            write_recorded(
+                sim_scope,
+                np.full((4, 4), n, dtype=np.uint8),
+                loc,
+                record=recorded_record(
+                    captured_at=FrameTime(
+                        at=wall_time.local_time(round((base_s + n * 0.5) * 1e9)),
+                        source=TimestampSource.HOST_ARRIVAL,
+                    ),
+                    frame_significant_bits=8,
+                ),
                 frame_number=n,
-                chunks=None,
-                tick_freq_hz=None,
-                pixel_size_um=None,
-                fact=_FACT,
-            )
-            image_utils.write_tiff(
-                data=np.full((4, 4), n, dtype=np.uint8),
-                file_loc=loc,
-                metadata=metadata,
-                ome=False,
-                color='BF',
-                significant_bits=8,
-                save_encoding='8bit',
-                video_frame=True,
             )
         df = _stack_df(rows)
 
@@ -206,6 +203,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -231,6 +229,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -242,8 +241,8 @@ class TestVideoWellStackBuild:
         # Behavior-preservation guard (refuses before and after): two
         # channels of one (well, scan) with unequal frame counts cannot
         # form a rectangular T x Z x C grid; refuse loudly, never pad.
-        rows = [(_frame_path('A1', 'Green', 0, n), 0, 'Green', 0) for n in range(3)]
-        rows += [(_frame_path('A1', 'Red', 0, n), 0, 'Red', 0) for n in range(2)]
+        rows = [(_frame_path('A1', LED1, 0, n), 0, LED1, 0) for n in range(3)]
+        rows += [(_frame_path('A1', LED2, 0, n), 0, LED2, 0) for n in range(2)]
         df = _stack_df(rows)
         _write_frames(tmp_path, df)
 
@@ -254,6 +253,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         assert not result.status

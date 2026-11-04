@@ -14,10 +14,9 @@ is made (the run's claim is still needed by the setup after it) and just
 before the lanes enter run mode (the setup after it re-enters run mode).
 """
 
+import logging
 import threading
 import time
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,6 +32,7 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executors,
     scope,
 )
+from tests.log_capture import records_of
 
 
 def _start_run(executor, tmp_path):
@@ -40,7 +40,6 @@ def _start_run(executor, tmp_path):
     waiting for it to be live: a run stopped during setup never is."""
     plan = executor.prepare(
         protocol=_make_multi_step_protocol(_make_tile_grid_steps(rows=6, cols=8)),
-        run_trigger_source='scan',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='stop_during_start',
         image_capture_config=_make_image_capture_config(),
@@ -52,7 +51,7 @@ def _start_run(executor, tmp_path):
 
 
 def _stop_the_run_being_started(executor):
-    executor._reset(executor._last_run())
+    executor._last_run().operation.stop()
 
 
 def _inject_at_setup_run_dir(executor, monkeypatch):
@@ -82,12 +81,8 @@ def _inject_before_the_lanes_enter_run_mode(executor, monkeypatch):
     ids=['at_setup_run_dir', 'before_the_lanes_enter_run_mode'],
 )
 def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
-    executor, tmp_path, monkeypatch, centre_posts, inject
+    executor, tmp_path, monkeypatch, centre_posts, inject, caplog
 ):
-    # The test environment's logger is a mock, so its calls are read
-    # directly; caplog would see nothing.
-    engine_log = MagicMock()
-    monkeypatch.setattr(sequenced_capture_runner, 'logger', engine_log)
     loop_entries = []
     run_loop = executor._run_loop_executor.run_loop
 
@@ -99,7 +94,7 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     inject(executor, monkeypatch)
 
     run = _start_run(executor, tmp_path)
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the stopped run never went idle'
     deadline = time.monotonic() + COMPLETION_TIMEOUT
     while executor.protocol_thread.is_running:
@@ -112,7 +107,11 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     assert not executor.camera_executor.is_protocol_running(), 'the camera lane is left in run mode'
     assert not executor._io_executor.is_protocol_running(), 'the IO lane is left in run mode'
     assert executor._activity_claim.holder is None, 'the scope is still held'
-    errors = [str(call) for call in engine_log.error.call_args_list]
+    errors = [
+        r.getMessage()
+        for r in records_of(caplog, sequenced_capture_runner)
+        if r.levelno == logging.ERROR
+    ]
     assert errors == [], f'a Stop during setup logged an error: {errors}'
     told = [n.title for n in centre_posts if n.title == 'Run failed to start']
     assert told == [], 'a person who pressed Stop was told the run failed to start'
@@ -127,7 +126,7 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     the loop it finds must be this run's (none yet), never the previous
     run's finished one, or the shutdown tears the run down mid-setup."""
     first = _start_run(executor, tmp_path / 'first')
-    assert first.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert first.result(timeout=COMPLETION_TIMEOUT) is not None
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
     assert executor.write_batch().wait_complete(COMPLETION_TIMEOUT)
 
@@ -149,7 +148,7 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     monkeypatch.setattr(lane, 'protocol_start', shutdown_then_protocol_start)
 
     second = _start_run(executor, tmp_path / 'second')
-    outcome = second.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = second.result(timeout=COMPLETION_TIMEOUT)
 
     assert outcome is not None
     assert (outcome.status, outcome.reason) == ('aborted', 'shutdown')

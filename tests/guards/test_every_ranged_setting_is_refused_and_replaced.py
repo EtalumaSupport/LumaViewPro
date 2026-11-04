@@ -3,8 +3,8 @@
 
 ``settings_paths._RANGES`` is the one place a setting's range lives. Its two
 halves are a write through ``ScopeSession.update_settings``, which refuses a
-value outside the range with ``SettingRefusedError`` (``out_of_range``) and
-writes nothing, and the load, which replaces a stored value outside it with
+value outside the range with ``SettingRefusedError`` (``out_of_range``, or
+``not_offered`` for a setting that holds a closed set) and writes nothing, and the load, which replaces a stored value outside it with
 the shipped value for that key alone and tells it once. The load tests and the
 writer tests each pin the cases they were written for; this guard is the
 completeness check: the table below holds one out-of-range sample per range,
@@ -22,19 +22,22 @@ from modules import settings_init, settings_paths
 from modules.exceptions import SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, shipped_template
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED0
 
 TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
 # One value outside each range. The keys are asserted equal to ``_RANGES``'s:
 # the table mirrors the owner on purpose, and that assertion is what keeps
-# the mirror from drifting. ``*`` is any layer; the tests walk it as Blue, the
+# the mirror from drifting. ``*`` is any layer; the tests walk it as LED0, the
 # layer the template gives every block (a stimulation config among them).
 _OUT_OF_RANGE = {
     'binning.size': '2x4',
     'simulator_tier': 'warp',
     'zstack.position': 'Current Position at Middle',
     'image_mode': '16bit',
+    'objective_confirmed': 'sideways',
     'logging.default.level': 'loud',
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,
@@ -43,9 +46,15 @@ _OUT_OF_RANGE = {
     'image_output_format.live': 'BMP',
     'image_output_format.sequenced': 'BMP',
     'video.max_fps': settings_paths.VIDEO_MAX_FPS_LIMIT + 1,
-    'video.max_duration_seconds': 0,
+    'video.max_duration_s': 0,
     'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
     'live_view_fps': -3,
+    'zstack.step_size': -1,
+    'zstack.range': -0.5,
+    'protocol.autogain.target_brightness': 1.5,
+    'protocol.autogain.min_gain_db': -1.0,
+    'protocol.autogain.max_gain_db': -2,
+    'profiling.metrics_interval_s': 0,
     'ag_ae_max_exposure_ms.transmitted': 0.0,
     'ag_ae_max_exposure_ms.fluorescence': -5.0,
     'ag_ae_max_exposure_ms.luminescence': -1,
@@ -54,17 +63,32 @@ _OUT_OF_RANGE = {
     '*.gain_db': -3.0,
     '*.illumination_ma': -1.0,
     '*.sum': 0,
-    '*.video_config.fps': 0,
     '*.video_config.duration': settings_paths.VIDEO_STEP_DURATION_S_MAX + 1,
     '*.composite_brightness_threshold': 101.0,
     '*.stim_config.frequency': settings_paths.STIM_FREQUENCY_HZ_RANGE[1] + 1,
     '*.stim_config.pulse_width': settings_paths.STIM_PULSE_WIDTH_MS_RANGE[0] - 1,
     '*.stim_config.pulse_count': settings_paths.STIM_PULSE_COUNT_RANGE[1] + 1,
     '*.stim_config.illumination_ma': -1,
+    '*.display_color': '#800080',
+}
+
+# The settings that hold a closed set, whose write refuses a value outside it
+# ``not_offered``, the set's one word, not ``out_of_range``.
+_CLOSED_SETS = frozenset(
+    {'zstack.position', 'image_output_format.live', 'image_output_format.sequenced'}
+)
+
+# A whole-number setting's fraction, inside its bounds: the board and the
+# encoder each take a whole number, so a fraction is outside the range too.
+_A_FRACTION = {
+    'motion.acceleration_max_pct': 62.5,
+    'jpg_quality': 85.5,
 }
 
 _CASES = sorted(
-    (pattern.replace('*', 'Blue', 1), value) for pattern, value in _OUT_OF_RANGE.items()
+    (pattern.replace('*', LED0, 1), value)
+    for table in (_OUT_OF_RANGE, _A_FRACTION)
+    for pattern, value in table.items()
 )
 
 
@@ -81,30 +105,41 @@ def session(tmp_path_factory):
     s.shutdown()
 
 
-@pytest.mark.parametrize(('path', 'value'), _CASES)
-def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session, path, value):
-    before = session.get_settings_snapshot()
-    if settings_paths.member_for(path) is not None:
-        # A ranged setting with its own member is refused for the member
-        # first; its range is the load's half only.
-        with pytest.raises(SettingRefusedError) as refused:
-            session.update_settings(path, value)
-        assert refused.value.reason == 'has_member'
-    else:
-        with pytest.raises(SettingRefusedError) as refused:
-            session.update_settings(path, value)
-        assert refused.value.reason == 'out_of_range'
-        assert refused.value.path == path
-    assert session.get_settings_snapshot() == before
+def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
+    def check(path, value):
+        before = session.get_settings_snapshot()
+        if settings_paths.member_for(path) is not None:
+            # A ranged setting with its own member is refused for the member
+            # first; its range is the load's half only.
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            assert refused.value.reason == 'has_member'
+        elif settings_paths.is_installation_only(path):
+            # No write reaches it at all; its range is the load's half and a
+            # handed dict's.
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            assert refused.value.reason == 'installation_only'
+        else:
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            expected = 'not_offered' if path in _CLOSED_SETS else 'out_of_range'
+            assert refused.value.reason == expected
+            assert refused.value.path == path
+        assert session.get_settings_snapshot() == before
+
+    failed = failing_cases(_CASES, check)
+    assert not failed, failed
 
 
+# parametrize-justified: each case writes its own data folder and runs its own load
 @pytest.mark.parametrize(('path', 'value'), _CASES)
 def test_a_stored_value_outside_the_range_is_replaced_at_load_and_told_once(tmp_path, path, value):
     data_dir = tmp_path / 'data'
     data_dir.mkdir()
     shutil.copy(TEMPLATE, data_dir / 'settings.json')
-    shipped = json.loads(TEMPLATE.read_text())
-    current = json.loads(TEMPLATE.read_text())
+    shipped = shipped_template()
+    current = shipped_template()
     *blocks, leaf = path.split('.')
     holder, shipped_holder = current, shipped
     for block in blocks:

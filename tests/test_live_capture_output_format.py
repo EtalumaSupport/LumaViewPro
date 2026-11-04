@@ -54,5 +54,7 @@ def test_no_bare_image_output_format_dict_passed_as_format():
 def test_live_format_is_the_output_format():
     text = SRC.read_text()
     keyed = re.findall(r'output_format=capture_config\.output_format_live', text)
-    # The unmarked file and its overlay copy.
-    assert len(keyed) == 2, f'expected both saves to take the live format; found {len(keyed)}'
+    # The unmarked file, its overlay copy, and the record that names the format.
+    assert len(keyed) == 3, (
+        f'expected both saves and the record to take the live format; found {len(keyed)}'
+    )

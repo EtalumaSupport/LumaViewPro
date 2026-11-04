@@ -6,7 +6,7 @@ Distinct from the z-stack Acquire button (one field, one layer, run now).
 
 from harness import make_session, banner
 
-ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'Current Position at Center'}
+ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'center'}
 session, live = make_session('applyzs', home=True, zstack=dict(ZS))
 try:
     import modules.config_helpers as config_helpers
@@ -14,9 +14,9 @@ try:
     settings = session.settings
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )

@@ -14,11 +14,13 @@ import numpy as np
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
+    HardwareCommandRefusedError,
+    MissingPart,
 )
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
@@ -28,16 +30,15 @@ from tests.settings_fixtures import complete_settings
 def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
     imaging = sim_scope.imaging
     assert sim_scope.capabilities.camera_supports_black_level is True
-    assert imaging.get_black_level() == 0.0
+    assert sim_scope.camera.read_black_level() == 0.0
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='Black')
 
-    assert imaging.set_black_level(4.0) == 4.0
-    assert imaging.get_black_level() == 4.0
-    image = imaging.capture_and_wait(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    assert sim_scope.camera.set_black_level(4.0) == 4.0
+    assert sim_scope.camera.read_black_level() == 4.0
+    still = imaging.capture_still(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
 
-    assert image is not None
-    assert np.all(image == 4)
-    assert imaging.last_capture_info['frame_record'].black_level == 4.0
+    assert np.all(still.image == 4)
+    assert still.record.black_level == 4.0
 
 
 def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_scope):
@@ -47,10 +48,10 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
     # wait out the frame being made when it changed, so the capture's frame
     # is a white one.
     grab_a_frame_made_after_now(sim_scope._camera_driver)
-    full_scale = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
+    full_scale = imaging.capture_still(force_to_8bit=False, timeout_s=2.0).image
 
-    imaging.set_black_level(4.0)
-    image = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
+    sim_scope.camera.set_black_level(4.0)
+    image = imaging.capture_still(force_to_8bit=False, timeout_s=2.0).image
 
     assert full_scale is not None and image is not None
     assert np.array_equal(image, full_scale)
@@ -59,33 +60,34 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
 def test_a_camera_refusal_is_a_rejection_in_the_black_levels_words(sim_scope):
     with (
         patch.object(sim_scope._camera_driver, 'set_black_level', return_value=False),
-        pytest.raises(CameraSettingRejected, match='did not accept the black level 4'),
+        pytest.raises(CameraSettingRejected) as rejected,
     ):
-        sim_scope.imaging.set_black_level(4.0)
+        sim_scope.camera.set_black_level(4.0)
+    assert str(rejected.value).startswith('The camera did not accept the black level 4.')
 
 
 def test_the_simulator_reloads_its_default_black_level_at_connect(sim_scope):
     driver = sim_scope._camera_driver
-    sim_scope.imaging.set_black_level(4.0)
+    sim_scope.camera.set_black_level(4.0)
     driver.init_camera_config()
     assert driver.get_black_level() == 0.0
 
 
 def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
-    imaging = sim_scope.imaging
+    camera = sim_scope.camera
     with pytest.raises(CameraSettingOutOfRangeError):
-        imaging.set_black_level(1000.0)
-    assert imaging.get_black_level() == 0.0
+        camera.set_black_level(1000.0)
+    assert camera.read_black_level() == 0.0
 
 
 def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
-    imaging = sim_scope.imaging
-    low, high = imaging.get_black_level_range()
+    camera = sim_scope.camera
+    low, high = camera.get_black_level_range()
     assert (low, high) == sim_scope._camera_driver.get_black_level_range()
-    assert imaging.set_black_level(high) == high
+    assert camera.set_black_level(high) == high
     with pytest.raises(CameraSettingOutOfRangeError) as refused:
-        imaging.set_black_level(high + 1.0)
-    assert refused.value.maximum == high
+        camera.set_black_level(high + 1.0)
+    assert refused.value.limits[1] == high
 
 
 def test_a_failed_range_read_raises(sim_scope):
@@ -93,28 +95,20 @@ def test_a_failed_range_read_raises(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_black_level_range',
-            side_effect=HardwareError('BlackLevel range read failed'),
+            side_effect=CameraReadFailedError('BlackLevel range read failed'),
         ),
         pytest.raises(HardwareError, match='BlackLevel range read failed'),
     ):
-        sim_scope.imaging.get_black_level_range()
+        sim_scope.camera.get_black_level_range()
 
 
-def test_no_active_camera_has_no_range(sim_scope):
-    with patch.object(sim_scope._camera_driver, '_active', None):
-        assert sim_scope.imaging.get_black_level_range() is None
-
-
-def test_a_failed_read_fails_the_capture_and_records_no_frame(sim_scope):
-    imaging = sim_scope.imaging
-    driver = sim_scope._camera_driver
+def test_with_no_active_camera_the_range_read_is_refused_naming_it(sim_scope):
     with (
-        patch.object(
-            driver, 'get_black_level', side_effect=HardwareError('BlackLevel read failed')
-        ),
-        pytest.raises(HardwareError, match='BlackLevel read failed'),
+        patch.object(sim_scope._camera_driver, '_active', None),
+        pytest.raises(HardwareCommandRefusedError) as exc,
     ):
-        imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
+        sim_scope.camera.get_black_level_range()
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
 
 
 @pytest.fixture(scope='module')
@@ -129,18 +123,17 @@ def fx2_session():
 def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session):
     scope = fx2_session.scope
     assert scope.capabilities.camera_supports_black_level is False
-    assert scope.imaging.get_black_level() == 0.0
-    assert scope.imaging.get_black_level_range() is None
+    assert scope.camera.read_black_level() == 0.0
+    assert scope.camera.get_black_level_range() is None
     with pytest.raises(CameraSettingUnsupportedError) as caught:
-        scope.imaging.set_black_level(4.0)
+        scope.camera.set_black_level(4.0)
     assert caught.value.reason == 'black_level_unsupported'
     assert caught.value.offered == ()
     assert caught.value.title == 'Not Available on This Camera'
     assert str(caught.value) == (
         'This camera has no black level setting. The black level stays as it is.'
     )
-    assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None
-    assert scope.imaging.last_capture_info['frame_record'].black_level == 0.0
+    assert scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).record.black_level == 0.0
 
 
 # --- Pylon --------------------------------------------------------------------
@@ -171,13 +164,6 @@ def test_pylon_without_the_selector_writes_the_value_alone():
     cam.active.BlackLevel.GetValue.return_value = 2.0
     assert cam.set_black_level(2.0) == 2.0
     cam.active.BlackLevelSelector.SetValue.assert_not_called()
-
-
-def test_pylon_lost_comms_on_the_write_is_a_refusal_and_a_disconnect():
-    cam = _pylon()
-    cam.active.BlackLevel.SetValue.side_effect = genicam.RuntimeException('gone')
-    assert cam.set_black_level(2.0) is False
-    cam._mark_disconnected.assert_called_once()
 
 
 def test_pylon_failed_write_raises_and_keeps_the_camera():

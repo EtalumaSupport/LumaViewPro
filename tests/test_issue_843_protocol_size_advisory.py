@@ -29,6 +29,7 @@ from modules.common_utils import (
     estimate_step_write_mb,
     format_disk_size_mb,
 )
+from modules.scope_session import ControlsLock
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from ui.protocol_settings import ProtocolSettings
 
@@ -43,12 +44,12 @@ def _mixed_steps():
         _make_step(
             name='A3_VID',
             acquire='video',
-            video_config={'duration': 1, 'fps': 30},
+            video_config={'duration': 1},
         ),
         _make_step(
             name='A4_VID',
             acquire='video',
-            video_config={'duration': 600, 'fps': 30},
+            video_config={'duration': 600},
         ),
         # Malformed Video Config and a malformed frame value: the per-step
         # estimator sizes both to the single-image estimate rather than
@@ -58,12 +59,17 @@ def _mixed_steps():
     ]
 
 
-def _per_step_sum(protocol, *, video_as_frames, global_max_fps):
+# The rate a video step is sized at; any known rate, since the sum and the
+# total are asked at the same one.
+VIDEO_FPS = 40.0
+
+
+def _per_step_sum(protocol, *, video_as_frames, video_fps):
     return sum(
         estimate_step_write_mb(
-            protocol.step(idx=i),
+            protocol.step_row(step_index=i),
             video_as_frames=video_as_frames,
-            global_max_fps=global_max_fps,
+            video_fps=video_fps,
         )
         for i in range(protocol.num_steps())
     )
@@ -77,12 +83,11 @@ class TestTheWholeProtocolEstimateHasOneOwner:
     """
 
     @pytest.mark.parametrize('video_as_frames', [False, True])
-    @pytest.mark.parametrize('global_max_fps', [0, 10])
-    def test_total_equals_the_sum_of_its_steps(self, video_as_frames, global_max_fps):
+    def test_total_equals_the_sum_of_its_steps(self, video_as_frames):
         protocol = _build_protocol(_mixed_steps())
         assert protocol.estimate_write_mb(
-            video_as_frames=video_as_frames, global_max_fps=global_max_fps
-        ) == _per_step_sum(protocol, video_as_frames=video_as_frames, global_max_fps=global_max_fps)
+            video_as_frames=video_as_frames, video_fps=VIDEO_FPS
+        ) == _per_step_sum(protocol, video_as_frames=video_as_frames, video_fps=VIDEO_FPS)
 
 
 class TestTheThresholdBoundary:
@@ -98,7 +103,7 @@ class TestTheThresholdBoundary:
     )
     def test_advisory_only_above_the_threshold(self, n_steps, expect_advisory):
         protocol = _build_protocol([_make_step(name=f'S{i}') for i in range(n_steps)])
-        advisory = protocol.size_advisory(global_max_fps=0)
+        advisory = protocol.size_advisory(video_fps=None)
         assert (advisory is not None) is expect_advisory
 
 
@@ -108,11 +113,30 @@ class TestTheMessageNamesBothNumbers:
     def test_the_message_names_the_count_and_the_size(self):
         n_steps = PROTOCOL_SIZE_ADVISORY_STEPS + 1
         protocol = _build_protocol([_make_step(name=f'S{i}') for i in range(n_steps)])
-        advisory = protocol.size_advisory(global_max_fps=0)
+        advisory = protocol.size_advisory(video_fps=None)
 
         assert advisory.num_steps == n_steps
         assert f'{n_steps:,}' in advisory.message
         assert format_disk_size_mb(advisory.projected_mb) in advisory.message
+
+    def test_video_steps_unsized_while_the_camera_delivers_nothing_are_named(self):
+        # No limit set and nothing delivered: the rate a video step records
+        # at is not known. The advisory sizes the still steps and says the
+        # video steps are not sized, never sizing them at a rate of 0.
+        n_steps = PROTOCOL_SIZE_ADVISORY_STEPS + 2
+        steps = [_make_step(name=f'S{i}') for i in range(n_steps - 2)]
+        steps += [
+            _make_step(name=f'V{i}', acquire='video', video_config={'duration': 600})
+            for i in range(2)
+        ]
+        protocol = _build_protocol(steps)
+
+        advisory = protocol.size_advisory(video_fps=None)
+
+        assert advisory.projected_mb == (n_steps - 2) * estimate_step_write_mb(None, video_fps=None)
+        assert 'Its 2 video steps are not sized while the camera is not delivering frames.' in (
+            advisory.message
+        )
 
     def test_the_reported_disk_figure_is_binary(self):
         # The literal the issue's protocol produces. Pinned so the acceptance
@@ -145,7 +169,11 @@ class TestTheGuiRendersAndDecidesNothing:
 
         return SimpleNamespace(
             session=SimpleNamespace(
-                run_lockout=run_lockout,
+                controls_lock=ControlsLock(
+                    run_named='A protocol run is in progress.' if run_lockout else None,
+                    control_named=None,
+                    recording=False,
+                ),
                 protocol_size_advisory=protocol_size_advisory,
             )
         )
@@ -228,35 +256,43 @@ class TestTheGuiRendersAndDecidesNothing:
         ProtocolSettings._update_protocol_size_advisory(fake)
 
 
-class TestTheEstimateIsTotal:
-    """T6: it runs inside the run loop's broad except, so it must never raise.
+class TestTheEstimateSizesEveryShape:
+    """T6: every protocol shape a run can hold is sized, and a video step
+    with no rate to size it at is refused rather than sized at none.
 
-    A raise there does not surface -- it silently disables the free-space
-    guard and the run proceeds onto a full disk.
+    The run's disk check sizes the protocol outside any catch, so a raise
+    ends the run where it happens rather than switching the guard off.
     """
 
     def test_an_all_video_protocol_estimates(self):
         protocol = _build_protocol(
             [
-                _make_step(name=f'V{i}', acquire='video', video_config={'duration': 5, 'fps': 30})
+                _make_step(name=f'V{i}', acquire='video', video_config={'duration': 5})
                 for i in range(3)
             ]
         )
-        assert protocol.estimate_write_mb(global_max_fps=0) > 0
+        assert protocol.estimate_write_mb(video_fps=VIDEO_FPS) > 0
+
+    def test_a_video_step_with_no_rate_is_refused_not_sized(self):
+        protocol = _build_protocol(
+            [_make_step(name='V0', acquire='video', video_config={'duration': 5})]
+        )
+        with pytest.raises(ValueError, match='without the rate it records at'):
+            protocol.estimate_write_mb(video_fps=None)
 
     def test_an_empty_protocol_estimates_zero(self):
         protocol = _build_protocol([_make_step(name='A1_BF')])
         protocol.delete_step(0)
-        assert protocol.estimate_write_mb(global_max_fps=0) == 0.0
+        assert protocol.estimate_write_mb(video_fps=None) == 0.0
 
     def test_an_execution_copy_estimates(self):
         # copy_for_execution's object is what the run loop actually holds, and
         # it is the shape a cached total broke: an __init__-only attribute is
-        # absent there, raising into the swallowing except.
+        # absent there.
         protocol = _build_protocol(_mixed_steps())
         assert protocol.copy_for_execution().estimate_write_mb(
-            global_max_fps=0
-        ) == protocol.estimate_write_mb(global_max_fps=0)
+            video_fps=VIDEO_FPS
+        ) == protocol.estimate_write_mb(video_fps=VIDEO_FPS)
 
 
 class TestTheEstimateTracksAnInPlaceEdit:
@@ -271,14 +307,14 @@ class TestTheEstimateTracksAnInPlaceEdit:
 
     def test_flipping_a_step_to_video_moves_the_estimate(self):
         protocol = _build_protocol([_make_step(name='A1_BF'), _make_step(name='A2_BF')])
-        before = protocol.estimate_write_mb(global_max_fps=0)
+        before = protocol.estimate_write_mb(video_fps=VIDEO_FPS)
 
         # The stored frame, edited in place as an in-place writer edits it.
         steps = protocol._config['steps']
         steps.at[1, 'Acquire'] = 'video'
-        steps.at[1, 'Video Config'] = {'duration': 600, 'fps': 30}
+        steps.at[1, 'Video Config'] = {'duration': 600}
 
-        after = protocol.estimate_write_mb(global_max_fps=0)
+        after = protocol.estimate_write_mb(video_fps=VIDEO_FPS)
         assert after > before
         assert protocol.num_steps() == 2, 'the step count is unchanged; only the size moved'
 
@@ -289,8 +325,8 @@ class TestTheAbortMessageNamesTheRealStepCount:
     The step count is bound inside the memoization branch and read outside it,
     in the abort message. Dropping that binding while moving the guard onto
     the shared estimator would make the refusal read "for 0 steps"; removing
-    its initialiser instead makes it a NameError swallowed by the same broad
-    except, so the abort never fires and the run proceeds onto a full disk.
+    its initialiser instead makes the abort a NameError, so the run ends as a
+    crash rather than as the disk refusal.
 
     Locked as source rather than by driving the loop: the guard sits inside
     the scan loop and reaching it needs a full fake run. Named here so the

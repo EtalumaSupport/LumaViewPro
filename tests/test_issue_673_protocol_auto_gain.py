@@ -10,23 +10,24 @@ Before the fix at LVP `<commit>` (commit message references #673), the
 
 Combined with the gate at `ui/layer_control.py::apply_settings`
 (`if not protocol_running_global.is_set():`) which short-circuits the
-only other call site for `apply_layer_camera_settings`, no code path
+only other call site for `camera.apply`, no code path
 ever fired `set_auto_gain(state=True, ...)` during a protocol scan.
 The result: every Auto_Gain protocol step inherited the previous
 step's / live-mode's gain + exposure (frequently overexposed).
 
 Fix: the `else` branch now routes through
-`apply_layer_camera_settings(auto_gain=True, auto_gain_settings=...)`,
+`camera.apply(auto_gain=True, auto_gain_settings=...)`,
 which is the same path live-mode AE/AG uses. The runner's existing
 `_auto_gain_deadline` loop in `scan_iterate` handles convergence wait.
 
 This test runs a single-step protocol with `Auto_Gain=True` on the
 simulator and asserts that the api-log captures the
-`apply_layer_camera_settings ... auto_gain=True` event within the
+`camera.apply ... auto_gain=True` event within the
 protocol's `save_camera_state -> restore_camera_state` window.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
 import logging
@@ -45,8 +46,12 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.layer_record import release_colors
+from tests.protocol_fixtures import protocol_of
 
 
 def _build_single_step_ag_protocol(color='BF', auto_gain=True):
@@ -56,9 +61,6 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
     coordinate transformer accepts the position.
     """
     import pandas as pd
-    import pathlib
-
-    tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
     step = {
         'Name': f'A1_{color}_AG',
@@ -81,10 +83,13 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Tile Group ID': -1,
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
-        'Video Config': {'duration': 5, 'fps': 30},
+        'Video Config': {'duration': 5},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': f'A1_{color}_AG',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
 
@@ -98,7 +103,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=tiling_path, config=config)
+    return protocol_of(config=config)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +122,7 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
     # lane would be refused once the test's own lanes are shut.
@@ -129,10 +134,10 @@ def executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='TEST_IO'),
-        'file_io': SequentialIOExecutor(name='TEST_FILE'),
-        'camera': SequentialIOExecutor(name='TEST_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='TEST_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='TEST_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_AF'),
     }
     for e in execs.values():
         e.start()
@@ -169,6 +174,8 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -196,7 +203,6 @@ def _run_protocol(executor, protocol, tmp_path):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_673_repro',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -204,7 +210,6 @@ def _run_protocol(executor, protocol, tmp_path):
             'target_brightness': 0.3,
             'min_gain_db': 0.0,
             'max_gain_db': 20.0,
-            'max_duration': datetime.timedelta(seconds=1),
         },
         parent_dir=tmp_path / 'output',
         max_scans=1,
@@ -223,7 +228,7 @@ def _run_protocol(executor, protocol, tmp_path):
 
 class TestProtocolAutoGainFires:
     """When a protocol step has Auto_Gain=True, the capture path must
-    fire `set_auto_gain(state=True, ...)` (via apply_layer_camera_settings).
+    fire `set_auto_gain(state=True, ...)` (via camera.apply).
     The pre-fix codebase silently SKIPPED the camera settings on the
     Auto_Gain branch, leaving the camera at inherited gain/exposure.
     """
@@ -246,7 +251,7 @@ class TestProtocolAutoGainFires:
 
         # Find save_camera_state(protocol) and restore_camera_state(protocol);
         # the protocol's execution window lives between them. Within that
-        # window we expect at least one `apply_layer_camera_settings ...
+        # window we expect at least one `camera.apply ...
         # auto_gain=True` event for the single Auto_Gain step.
         save_idx = None
         restore_idx = None
@@ -269,13 +274,13 @@ class TestProtocolAutoGainFires:
         auto_gain_true_events = [
             i
             for i in range(save_idx, restore_idx)
-            if 'apply_layer_camera_settings' in capture.records[i][1]
+            if 'camera.apply ' in capture.records[i][1]
             and 'auto_gain=True' in capture.records[i][1]
         ]
 
         assert len(auto_gain_true_events) >= 1, (
             f'#673 reproduced: protocol step with Auto_Gain=True did NOT '
-            f'fire `apply_layer_camera_settings ... auto_gain=True` '
+            f'fire `camera.apply ... auto_gain=True` '
             f'within the protocol window (save_idx={save_idx}, '
             f'restore_idx={restore_idx}). This means set_auto_gain '
             f'never fired and the camera held inherited gain/exposure.\n'
@@ -288,7 +293,7 @@ class TestProtocolAutoGainFires:
         settles against the lit scene rather than a dark frame (the #673 root
         cause: arming AG dark rails gain/exposure on noise). Within the
         protocol window the led_on event must precede the
-        apply_layer_camera_settings ... auto_gain=True event.
+        apply ... auto_gain=True event.
         """
         protocol = _build_single_step_ag_protocol(color='BF', auto_gain=True)
 
@@ -323,7 +328,7 @@ class TestProtocolAutoGainFires:
             (
                 i
                 for i in range(save_idx, restore_idx)
-                if 'apply_layer_camera_settings' in capture.records[i][1]
+                if 'camera.apply ' in capture.records[i][1]
                 and 'auto_gain=True' in capture.records[i][1]
             ),
             None,
@@ -366,12 +371,12 @@ class TestProtocolAutoGainFires:
 
         assert save_idx is not None and restore_idx is not None
 
-        # Within the protocol window, no apply_layer_camera_settings with
+        # Within the protocol window, no camera.apply with
         # auto_gain=True should fire.
         bad_events = [
             capture.records[i][1]
             for i in range(save_idx, restore_idx)
-            if 'apply_layer_camera_settings' in capture.records[i][1]
+            if 'camera.apply ' in capture.records[i][1]
             and 'auto_gain=True' in capture.records[i][1]
         ]
         assert not bad_events, (

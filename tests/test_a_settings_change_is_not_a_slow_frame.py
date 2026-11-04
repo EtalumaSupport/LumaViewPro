@@ -16,12 +16,14 @@ baseline is rebuilt from a few frames at the new setting. These tests drive
 the real method through the frame sequences the logs showed.
 """
 
+import functools
 import logging
 from collections import deque
 from types import SimpleNamespace
 
 
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import Counter, FrameRule, FrameValidity, Rule
+from modules.lumascope_api.imaging import ImagingAPI
 from ui.scope_display import (
     FRAME_SPIKE_MIN_SAMPLES,
     FRAME_SPIKE_WINDOW,
@@ -181,7 +183,53 @@ def test_a_baseline_cached_before_the_change_is_not_used_after_it():
 
 
 def _imaging(validity):
-    return SimpleNamespace(frames_until_valid=validity.frames_until_valid)
+    """An imaging whose ``changes_in_force`` is the real member over ``validity``.
+
+    A stand-in by design: the subject is the display's read, and its
+    collaborator is the real ``ImagingAPI.changes_in_force`` on a self that
+    holds only the one store it reads.
+    """
+    owner = SimpleNamespace(frame_validity=validity)
+    return SimpleNamespace(changes_in_force=functools.partial(ImagingAPI.changes_in_force, owner))
+
+
+_PROVENANCE = {
+    'run_id': 'run-1',
+    'host': 'bench-pc',
+    'os': 'Windows 11',
+    'lvp_version': '4.0.0',
+    'plugin_version': '1.0.90',
+    'measured_date': '2026-10-20',
+}
+
+
+def _exposure_on_the_clock_rule(delay_us: float) -> FrameValidity:
+    """A frame validity whose exposure changes run the clock rule at ``delay_us``."""
+    delivered = {'n': 0}
+    validity = FrameValidity(lambda: delivered['n'])
+    rules = dict(validity.credit_rules())
+    rules['exposure'] = FrameRule(
+        rule=Rule.CLOCK, count=rules['exposure'].count, delay_us=delay_us, provenance=_PROVENANCE
+    )
+    validity.use_rules(rules)
+    validity.invalidate('exposure', began_ns=None)
+    for _ in range(rules['exposure'].count):
+        delivered['n'] += 1
+        validity.count_frame(delivered['n'], by=Counter.PREVIEW)
+    return validity
+
+
+def test_a_change_whose_delay_still_runs_has_not_settled():
+    """Under the clock rule a change is in force once its delay has run,
+    whatever frames were counted: the slow-frame check judges no frame
+    inside it. Its count is met here and its instant a minute ahead."""
+    validity = _exposure_on_the_clock_rule(delay_us=60e6)
+    assert ScopeDisplay._camera_settled(_imaging(validity)) is False
+
+
+def test_a_change_whose_delay_has_run_has_settled():
+    validity = _exposure_on_the_clock_rule(delay_us=0.0)
+    assert ScopeDisplay._camera_settled(_imaging(validity)) is True
 
 
 def test_the_live_view_asks_validity_with_stage_motion_left_out():
@@ -189,19 +237,19 @@ def test_the_live_view_asks_validity_with_stage_motion_left_out():
     judging while the stage moves; a pending exposure stops it."""
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)  # the stage is still moving
-    validity.invalidate('xy_move')
-    validity.invalidate('z_move')
-    validity.invalidate('turret')
+    validity.invalidate('xy_move', began_ns=None)
+    validity.invalidate('z_move', began_ns=None)
+    validity.invalidate('turret', began_ns=None)
     assert ScopeDisplay._camera_settled(_imaging(validity)) is True
 
-    validity.invalidate('exposure')
+    validity.invalidate('exposure', began_ns=None)
     assert ScopeDisplay._camera_settled(_imaging(validity)) is False
 
 
 def test_a_stall_while_the_stage_moves_is_reported():
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)
-    validity.invalidate('xy_move')
+    validity.invalidate('xy_move', began_ns=None)
     moving = ScopeDisplay._camera_settled(_imaging(validity))
 
     stand, warnings, done = _rig()

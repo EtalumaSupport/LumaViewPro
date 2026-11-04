@@ -171,7 +171,7 @@ def _selected_chip():
 def _the_board():
     global _board, _oracle, _chip_select
     if _board is None:
-        with open('sim_board.json') as f:
+        with open('sim_board.json', encoding='utf-8') as f:
             sim = json.load(f)
         model = __import__(sim['model'])
         _board = model.build(sim, time.ticks_us, time.ticks_diff)

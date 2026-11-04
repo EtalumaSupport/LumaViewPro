@@ -12,26 +12,25 @@ output.
 
 from __future__ import annotations
 
+import datetime
 import re
 
 import numpy as np
 import pytest
 
 from modules import image_utils
+from modules.layer_record import release_color
 
 _METADATA = {
     'pixel_size_um': 0.5,
     'channel': 'BF',
-    'objective': '10x',
+    'objective': {'id': '10x'},
     'exposure_time_ms': 50.0,
     'gain_db': 0.0,
     'illumination_ma': 100.0,
     'z_pos_um': 1000.0,
     'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-    'datetime': '2026:06:18 12:00:00',
-    'camera_make': 'Test',
-    'microscope': 'TestScope',
-    'well_label': 'A1',
+    'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
 }
 
 
@@ -43,9 +42,10 @@ def _saved_12bit_tiff(path):
         path,
         {**_METADATA, 'significant_bits': 12},
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return path.read_bytes()
 
@@ -84,7 +84,7 @@ _READERS = [
     image_utils.load_pixels,
     image_utils.load_pixels_with_timestamp,
     image_utils.read_tiff_significant_bits,
-    image_utils.read_tiff_depth_and_timestamp,
+    image_utils.read_tiff_depth_and_record,
     image_utils.read_image_geometry,
 ]
 
@@ -98,7 +98,7 @@ def test_an_undecodable_tiff_is_a_value_error_naming_the_file(tmp_path, reader, 
 
     header_only = reader in (
         image_utils.read_tiff_significant_bits,
-        image_utils.read_tiff_depth_and_timestamp,
+        image_utils.read_tiff_depth_and_record,
         image_utils.read_image_geometry,
     )
     if header_only and state is _compressed_pixels_cut_short:
@@ -113,6 +113,6 @@ def test_an_undecodable_tiff_is_a_value_error_naming_the_file(tmp_path, reader, 
 def test_a_whole_file_still_loads(tmp_path):
     path = tmp_path / 'A1_BF_0000.tif'
     _saved_12bit_tiff(path)
-    image, significant_bits = image_utils.load_pixels(path)
+    image, significant_bits, _ = image_utils.load_pixels(path)
     assert image.shape == (256, 256)
     assert significant_bits == 12

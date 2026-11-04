@@ -11,18 +11,19 @@ into the running scope. A reader that does not know the installation
 """
 
 import logging
-import pathlib
 
 import pytest
 
 from modules import labware_loader
 from modules.exceptions import ConfigError
-from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol import ProtocolFormatError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED0, LED1, LED2
+from tests.protocol_fixtures import protocol_from_file
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 CATALOGUE = labware_loader.WellPlateLoader(source_path='.')
 
 # Both spellings the catalogue's own history has retired, and their keys.
@@ -41,10 +42,10 @@ _STEP_HEADER = (
 _STEP_ROW = (
     's0\t0\t0\t0\tFalse\tBF\tFalse\t100.0\t0.0\tFalse\t40.0\t1\t'
     "20x Oly\t\t\t-1\tTrue\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t"
-    "{'Blue': {'enabled': False, 'illumination': 100, 'frequency': 1, "
-    "'pulse_width': 10, 'pulse_count': 1}, 'Green': {'enabled': False, "
+    f"{{'{LED0}': {{'enabled': False, 'illumination': 100, 'frequency': 1, "
+    f"'pulse_width': 10, 'pulse_count': 1}}, '{LED1}': {{'enabled': False, "
     "'illumination': 100, 'frequency': 1, 'pulse_width': 10, "
-    "'pulse_count': 1}, 'Red': {'enabled': False, 'illumination': 100, "
+    f"'pulse_count': 1}}, '{LED2}': {{'enabled': False, 'illumination': 100, "
     "'frequency': 1, 'pulse_width': 10, 'pulse_count': 1}}\t0\n"
 )
 
@@ -66,9 +67,12 @@ def _protocol_file(tmp_path, labware):
 class TestTheFold:
     """One alias table, read through one function, usable without the catalogue."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_folds_to_its_key(self, old_name, key):
-        assert labware_loader.canonical_plate_name(old_name) == key
+    def test_a_retired_spelling_folds_to_its_key(self):
+        def check(old_name, key):
+            assert labware_loader.canonical_plate_name(old_name) == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_a_key_folds_to_itself(self):
         for key in CATALOGUE.get_plate_list():
@@ -87,9 +91,12 @@ class TestTheFold:
 class TestTheResolver:
     """The catalogue key, or a refusal that names the plate and the plates there are."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_resolves_to_its_key(self, old_name, key):
-        assert CATALOGUE.resolve_plate_key(old_name) == key
+    def test_a_retired_spelling_resolves_to_its_key(self):
+        def check(old_name, key):
+            assert CATALOGUE.resolve_plate_key(old_name) == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_an_unknown_plate_is_refused_by_name_with_the_choices(self):
         with pytest.raises(ConfigError, match=UNKNOWN_PLATE) as refusal:
@@ -99,30 +106,31 @@ class TestTheResolver:
     def test_the_membership_test_and_the_lookup_agree_with_the_resolver(self):
         for old_name, key in RENAMED.items():
             assert CATALOGUE.is_known_plate(old_name)
-            resolved = CATALOGUE.get_plate(plate_key=old_name)
-            canonical = CATALOGUE.get_plate(plate_key=key)
-            assert resolved.config == canonical.config
+            resolved = CATALOGUE.get_plate(labware_id=old_name)
+            canonical = CATALOGUE.get_plate(labware_id=key)
+            assert resolved == canonical
         assert not CATALOGUE.is_known_plate(UNKNOWN_PLATE)
 
 
 class TestTheReader:
     """The TSV reader canonicalizes always and judges only when handed the catalogue."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_loads_as_its_key(self, tmp_path, old_name, key):
-        proto = Protocol.from_file(
-            file_path=_protocol_file(tmp_path, old_name),
-            tiling_configs_file_loc=TILING_CONFIGS,
-        )
-        assert proto.labware() == key
+    def test_a_retired_spelling_loads_as_its_key(self, tmp_path):
+        def check(old_name, key):
+            proto = protocol_from_file(
+                file_path=_protocol_file(tmp_path, old_name),
+            )
+            assert proto.labware_id() == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_with_the_catalogue_an_unknown_plate_is_refused_before_any_object_exists(
         self, tmp_path
     ):
         with pytest.raises(ProtocolFormatError, match=UNKNOWN_PLATE):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-                tiling_configs_file_loc=TILING_CONFIGS,
                 wellplate_loader=CATALOGUE,
             )
 
@@ -130,16 +138,14 @@ class TestTheReader:
         """Post-processing re-reads a run's protocol on whatever install it is
         on, and never uses the plate. A reader that does not know the
         installation has no standing to refuse for it."""
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-            tiling_configs_file_loc=TILING_CONFIGS,
         )
-        assert proto.labware() == UNKNOWN_PLATE
+        assert proto.labware_id() == UNKNOWN_PLATE
 
     def test_a_reloaded_legacy_file_is_saved_under_the_key(self, tmp_path):
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=_protocol_file(tmp_path, 'Center Dish'),
-            tiling_configs_file_loc=TILING_CONFIGS,
         )
         saved = tmp_path / 'resaved.tsv'
         proto.to_file(file_path=saved)
@@ -168,4 +174,4 @@ class TestTheApiLoad:
         proto = session.scope.protocols.load_protocol(
             file_path=_protocol_file(tmp_path, 'Center Dish')
         )
-        assert proto.labware() == 'Center Plate'
+        assert proto.labware_id() == 'Center Plate'

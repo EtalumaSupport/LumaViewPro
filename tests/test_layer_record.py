@@ -4,42 +4,68 @@
 
 Pins the resolution contract: wholesale block-or-model (never a field
 merge), motor-first model precedence with the configured model only
-where hardware reports none, the explicit override, per-row loud skip
-(scope survives), catalogue-positional ids, and the source tags that
+where hardware reports none, the explicit override, a board block's
+per-row loud skip (scope survives), a model row the catalogue cannot
+read refused, catalogue-positional ids, and the source tags that
 make degraded states visible instead of silent.
 """
 
 import json
+import logging
 
 import pytest
 
-from lvp_logger import logger as _mock_logger
-
+import modules.common_utils as common_utils
 from modules.layer_record import (
     UNRESOLVED,
-    LayerIdentity,
-    LayerRecord,
+    ChannelIdentity,
+    ChannelRecord,
+    GREY,
+    Background,
+    IdentitySource,
+    LedBoardFamily,
+    Modality,
+    format_display_color,
     load_layer_catalogue,
+    output_color,
+    read_scope_models,
+    parse_display_color,
+    release_color,
     resolve_layer_identity,
+    shown_color,
 )
-from modules.exceptions import InstallationFileError
-from modules.path_utils import read_installation_file
+from modules.exceptions import ArgumentRefusedError, InstallationFileError
+from modules.path_utils import read_installation_file, resolve_data_file
+from modules.layer_record import release_colors
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED0, LED1, LED2
 
-CATALOGUE = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+# The shipped catalogue's records, as scopes.json states them.
+CATALOGUE = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder']
 
 
 def row(key, display=None, channel=None, nm=None, **extra):
-    d = {
-        'key_name': key,
-        'display_name': display if display is not None else key,
-        'led_channel': channel,
-        'excitation_nm': nm,
-    }
+    """A model's layer row; a fluorescence row states no display_name."""
+    d = {'key_name': key, 'led_channel': channel, 'excitation_nm': nm}
+    if display is not None:
+        d['display_name'] = display
     d.update(extra)
     return d
 
 
+# What every model entry states besides its layers: a motorized EL-0940 model.
+MODEL_KEYS = {
+    'Focus': True,
+    'XYStage': True,
+    'Turret': False,
+    'LEDBoard': 'EL-0940',
+    'MotorBoard': 'EL-0940',
+}
+
+
 def write_scopes(tmp_path, models, catalogue=CATALOGUE):
+    """A scopes.json holding ``models``, each entry completed with ``MODEL_KEYS``."""
+    models = {name: {**MODEL_KEYS, **entry} for name, entry in models.items()}
     data = {'LayerOrder': catalogue, 'Models': models}
     path = tmp_path / 'scopes_fixture.json'
     path.write_text(json.dumps(data), encoding='utf-8')
@@ -50,28 +76,45 @@ LS850T_ROWS = [
     row('BF', 'BF', 3),
     row('PC', 'PC', 4),
     row('DF', 'DF', 5),
-    row('Blue', 'Blue', 0, 405),
-    row('Green', 'Green', 1, 488),
-    row('Red', 'Red', 2, 589),
+    row(LED0, None, 0, 405),
+    row(LED1, None, 1, 488),
+    row(LED2, None, 2, 589),
     row('Lumi', 'Lumi', None),
+]
+
+LS620_ROWS = [
+    row('BF', 'BF-Phase', 3),
+    row(LED0, None, 0, 405),
+    row(LED1, None, 1, 488),
+    row(LED2, None, 2, 589),
 ]
 
 LS560_ROWS = [
     row('BF', 'PC-BF', 3),
-    row('Green', 'Green', 1, 488),
+    row(LED1, None, 1, 488),
 ]
 
 
-def errors_logged():
-    return ' | '.join(str(c) for c in _mock_logger.error.call_args_list)
+def _logged(caplog, level):
+    return ' | '.join(
+        r.getMessage() for r in caplog.records if r.name == 'lvp_logger' and r.levelno == level
+    )
 
 
-def warnings_logged():
-    return ' | '.join(str(c) for c in _mock_logger.warning.call_args_list)
+def errors_logged(caplog):
+    return _logged(caplog, logging.ERROR)
+
+
+def warnings_logged(caplog):
+    return _logged(caplog, logging.WARNING)
+
+
+REPORTED = []
 
 
 def resolve(data_file, **kwargs):
-    _mock_logger.reset_mock()
+    """The identity resolved from ``data_file``; what it reported is in ``REPORTED``."""
+    REPORTED.clear()
     defaults = {
         'board_block': None,
         'board_config_read_ok': True,
@@ -80,29 +123,33 @@ def resolve(data_file, **kwargs):
     }
     defaults.update(kwargs)
     data = read_installation_file(data_file)
+    catalogue = load_layer_catalogue(data, data_file)
     return resolve_layer_identity(
-        models=data['Models'], catalogue=load_layer_catalogue(data, data_file), **defaults
+        models=read_scope_models(data, data_file, catalogue, old_names=()),
+        catalogue=catalogue,
+        report=REPORTED.append,
+        **defaults,
     )
+
+
+def channels(rows):
+    """A board's Channels block holding ``rows``, each keyed by its key name."""
+    return {r['key_name']: {k: v for k, v in r.items() if k != 'key_name'} for r in rows}
 
 
 class TestCatalogue:
     def test_ids_are_catalogue_positions(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
         identity = resolve(path, motor_model='LS850T')
-        assert [(r.key_name, r.id) for r in identity.layers] == [
-            ('BF', 0),
-            ('PC', 1),
-            ('DF', 2),
-            ('Blue', 3),
-            ('Green', 4),
-            ('Red', 5),
-            ('Lumi', 6),
+        position = {layer['key']: index for index, layer in enumerate(CATALOGUE)}
+        assert [(r.key_name, r.id) for r in identity.channels] == [
+            (key, position[key]) for key in ('BF', 'PC', 'DF', LED0, LED1, LED2, 'Lumi')
         ]
 
     def test_layers_sort_by_id_whatever_the_row_order(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': list(reversed(LS850T_ROWS))}})
         identity = resolve(path, motor_model='M')
-        assert [r.id for r in identity.layers] == sorted(r.id for r in identity.layers)
+        assert [r.id for r in identity.channels] == sorted(r.id for r in identity.channels)
 
     def test_missing_layer_order_refuses_naming_the_file(self, tmp_path):
         path = tmp_path / 'scopes_fixture.json'
@@ -111,23 +158,139 @@ class TestCatalogue:
             load_layer_catalogue(read_installation_file(path), path)
         assert refused.value.file_path == path
 
+    def test_the_shipped_catalogue_answers_each_channel_set(self):
+        """Every channel set the program uses, read from the shipped catalogue.
+
+        Each set is what a consumer is handed (the composite's transmitted
+        base, the false-colour layers, the LED layers, the layers a scale bar
+        is drawn dark on), so the release's nine answer these whatever shape
+        the catalogue's entries take: the stock seven, and the two
+        fluorescence keys only a non-stock unit carries. DF is transmitted
+        with a dark background.
+        """
+        fluorescence = [LED0, LED1, 'Ex550', LED2, 'Ex640']
+        assert common_utils.get_layers() == ['BF', 'PC', 'DF', *fluorescence, 'Lumi']
+        assert common_utils.get_transmitted_layers() == ['BF', 'PC', 'DF']
+        assert common_utils.get_fluorescence_layers() == fluorescence
+        assert common_utils.get_luminescence_layers() == ['Lumi']
+        assert common_utils.get_image_layers() == [*fluorescence, 'Lumi']
+        assert common_utils.get_layers_with_led() == ['BF', 'PC', 'DF', *fluorescence]
+
+
+def _refuses(colour):
+    try:
+        parse_display_color(colour)
+    except ValueError:
+        return True
+    return False
+
+
+class TestCatalogueRecords:
+    """Each catalogue record is whole, or the file is refused naming it."""
+
+    @staticmethod
+    def _refused(tmp_path, catalogue):
+        path = tmp_path / 'scopes_fixture.json'
+        path.write_text(json.dumps({'LayerOrder': catalogue, 'Models': {}}), encoding='utf-8')
+        with pytest.raises(InstallationFileError) as refused:
+            load_layer_catalogue(read_installation_file(path), path)
+        assert refused.value.file_path == path
+        return str(refused.value)
+
+    def test_a_record_missing_its_modality_is_refused(self, tmp_path):
+        bf = {k: v for k, v in CATALOGUE[0].items() if k != 'modality'}
+        assert "missing ['modality']" in self._refused(tmp_path, [bf])
+
+    def test_a_record_of_the_wrong_kind_is_refused_naming_the_field(self, tmp_path):
+        cases = {
+            'modality': {'modality': 'phase'},
+            'background': {'background': 'grey'},
+            'manual_max_exposure_ms': {'manual_max_exposure_ms': 0},
+            'manual_max_illumination_ma': {'manual_max_illumination_ma': 50.5},
+            'display_color': {'display_color': [1, 0, 1]},
+            'step_order': {'step_order': 1.5},
+            'sim_light_magnification_power': {'sim_light_magnification_power': 'square'},
+        }
+        wrong = {
+            field: self._refused(tmp_path, [{**CATALOGUE[0], **change}])
+            for field, change in cases.items()
+        }
+        assert [field for field, why in wrong.items() if field not in why] == []
+
+    def test_a_magnification_power_on_a_layer_with_no_light_is_refused(self, tmp_path):
+        unlit = {**CATALOGUE[0], 'sim_light_per_ma_s': None}
+        assert 'sim_light_magnification_power' in self._refused(tmp_path, [unlit])
+
+    def test_a_colour_is_its_red_green_and_blue_weights(self):
+        assert parse_display_color('#ff8000') == (1.0, 128 / 255, 0.0)
+        refused = [c for c in ('#FF8000', 'ff8000', '#ff800', [1, 0, 1]) if _refuses(c)]
+        assert refused == ['#FF8000', 'ff8000', '#ff800', [1, 0, 1]]
+
+    def test_a_colour_not_at_full_brightness_is_refused(self):
+        # A baked plane is read back by its brightest plane, which holds the
+        # mono whole only when that component is full.
+        refused = [c for c in ('#800080', '#7f0001', '#000000', '#fe0000') if _refuses(c)]
+        assert refused == ['#800080', '#7f0001', '#000000', '#fe0000']
+
+    def test_a_colour_is_written_as_the_text_it_was_read_from(self):
+        texts = ('#ff8000', '#ffffff', '#00ff00', '#0080ff', '#ff00ff')
+        assert [format_display_color(parse_display_color(t)) for t in texts] == list(texts)
+
+    def test_a_repeated_key_or_step_order_is_refused(self, tmp_path):
+        assert 'key' in self._refused(tmp_path, [CATALOGUE[0], CATALOGUE[0]])
+        moved = {**CATALOGUE[1], 'step_order': CATALOGUE[0]['step_order']}
+        assert 'step_order' in self._refused(tmp_path, [CATALOGUE[0], moved])
+
+    def test_a_name_is_no_longer_a_record(self, tmp_path):
+        assert 'not an object' in self._refused(tmp_path, ['BF', 'PC'])
+
+
+class TestTheColourRead:
+    """A layer's colour, the colour an image named for it is written in, and
+    the colour it is shown in, each read from the release catalogue."""
+
+    def test_a_layer_reads_its_release_colour(self):
+        assert release_color(LED1) == (0.0, 1.0, 0.0)
+        assert release_color('BF') == GREY
+
+    def test_a_composite_is_written_grey_and_a_layer_in_its_colour(self):
+        assert output_color('Composite', colors=release_colors()) == GREY
+        assert output_color(LED2, colors=release_colors()) == (1.0, 0.0, 0.0)
+
+    def test_false_colour_off_shows_grey(self):
+        assert shown_color(LED0, True, colors=release_colors()) == (0.0, 0.0, 1.0)
+        assert shown_color(LED0, False, colors=release_colors()) == GREY
+
+    def test_a_name_that_is_no_layer_has_no_colour(self):
+        refused = []
+        for read in (
+            release_color,
+            lambda name: output_color(name, colors=release_colors()),
+            lambda name: shown_color(name, False, colors=release_colors()),
+        ):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                read('FarRed')
+            refused.append(raised.value.reason)
+        assert refused == ['channel_unknown'] * 3
+
 
 class TestPrecedence:
     def test_block_present_wins_wholesale(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
-        block = {'Layers': LS560_ROWS, 'Filterset': 'Custom-X'}
+        block = {'Channels': channels(LS560_ROWS), 'Filterset': 'Custom-X'}
         identity = resolve(path, board_block=block, motor_model='LS850T')
-        assert identity.source == 'motorconfig'
+        assert identity.source == IdentitySource.MOTORCONFIG
+        assert type(identity.source) is IdentitySource
         assert identity.filterset == 'Custom-X'
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
-        assert identity.find('Red') is None
+        assert [r.key_name for r in identity.channels] == ['BF', LED1]
+        assert identity.find(LED2) is None
 
     def test_no_block_resolves_the_motor_model(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
         identity = resolve(path, motor_model='LS850T')
         assert identity.source == 'scopes'
         assert identity.filterset == 'Stock'
-        assert len(identity.layers) == 7
+        assert len(identity.channels) == 7
 
     def test_motor_model_outranks_configured(self, tmp_path):
         path = write_scopes(
@@ -135,122 +298,414 @@ class TestPrecedence:
             {'LS850T': {'Layers': LS850T_ROWS}, 'LS560': {'Layers': LS560_ROWS}},
         )
         identity = resolve(path, motor_model='LS850T', configured_model='LS560')
-        assert len(identity.layers) == 7
+        assert len(identity.channels) == 7
 
     def test_configured_model_serves_hardware_that_reports_none(self, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, configured_model='LS560')
         assert identity.source == 'scopes'
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
+        assert [r.key_name for r in identity.channels] == ['BF', LED1]
 
-    def test_motor_model_without_entry_goes_unresolved_not_configured(self, tmp_path):
+    def test_motor_model_without_entry_goes_unresolved_not_configured(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
         assert identity.source == 'unresolved'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged()
+        assert 'LS9999' in errors_logged(caplog)
 
     def test_nothing_resolvable_is_the_unresolved_snapshot(self, tmp_path):
         path = write_scopes(tmp_path, {})
         identity = resolve(path)
         assert identity == UNRESOLVED
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.source == 'unresolved'
 
-    def test_failed_board_read_is_loud_then_resolves_the_model(self, tmp_path):
+    def test_failed_board_read_is_loud_then_resolves_the_model(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, board_config_read_ok=False, motor_model='LS850T')
         assert identity.source == 'scopes'
-        assert len(identity.layers) == 7
-        assert 'could not be read' in errors_logged()
+        assert len(identity.channels) == 7
+        assert 'could not be read' in errors_logged(caplog)
 
-    def test_absent_block_with_clean_read_is_quiet(self, tmp_path):
+    def test_absent_block_with_clean_read_is_quiet(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         resolve(path, motor_model='LS850T')
-        assert 'could not be read' not in errors_logged()
+        assert 'could not be read' not in errors_logged(caplog)
 
 
 class TestOverride:
-    def test_override_beats_block_and_motor_model(self, tmp_path):
+    def test_override_beats_block_and_motor_model(self, caplog, tmp_path):
         path = write_scopes(
             tmp_path,
             {'LS850T': {'Layers': LS850T_ROWS}, 'LS560': {'Layers': LS560_ROWS}},
         )
-        block = {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}
+        block = {'Channels': channels(LS850T_ROWS), 'Filterset': 'Stock'}
         identity = resolve(path, board_block=block, motor_model='LS850T', override_model='LS560')
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
-        assert 'override' in warnings_logged()
+        assert [r.key_name for r in identity.channels] == ['BF', LED1]
+        assert 'override' in warnings_logged(caplog)
 
-    def test_override_of_unknown_model_is_loud_and_unresolved(self, tmp_path):
+    def test_override_of_unknown_model_is_loud_and_unresolved(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T', override_model='LS9999')
         assert identity.source == 'unresolved'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged()
+        assert 'LS9999' in errors_logged(caplog)
+
+
+def _without(key):
+    return lambda entry: entry.pop(key)
+
+
+def _with(key, value):
+    return lambda entry: entry.update({key: value})
+
+
+def _rows(*rows):
+    return _with('Layers', list(rows))
 
 
 class TestRowParsing:
-    def test_multi_channel_row_is_skipped_loudly_and_scope_survives(self, tmp_path):
-        rows = [row('BF', 'BF', 3), dict(row('Green', 'Green'), led_channel=[1, 2])]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'multiple' in errors_logged()
+    def test_a_model_entry_it_cannot_read_refuses_the_catalogue_naming_the_model_and_the_key(
+        self, tmp_path
+    ):
+        # The catalogue ships with the release: a row it cannot read is the
+        # release's defect, refused whole rather than read in part.
+        cases = [
+            pytest.param(_without('Turret'), "'Turret'", id='a missing flag'),
+            pytest.param(_with('Focus', 'yes'), "'Focus'", id='a flag that is not a bool'),
+            pytest.param(_with('Turet', True), "'Turet'", id='an undeclared key'),
+            pytest.param(_without('LEDBoard'), "'LEDBoard'", id='no LED board'),
+            pytest.param(
+                _with('LEDBoard', 'LS-9000'), "'LEDBoard' 'LS-9000'", id='an unknown LED board'
+            ),
+            pytest.param(
+                _with('MotorBoard', 'MB-9000'),
+                "'MotorBoard' 'MB-9000'",
+                id='an unknown motor board',
+            ),
+            pytest.param(_with('Filterset', 405), "'Filterset'", id='a filterset not a name'),
+            pytest.param(
+                _with('Optics', {'PixelSize': '2.2'}), "'PixelSize'", id='optics not a number'
+            ),
+            pytest.param(_with('Optics', {'Zoom': 2.0}), "'Optics'", id='an undeclared optic'),
+            pytest.param(_with('MaxFrame', {'width': 1700}), "'MaxFrame'", id='half a frame'),
+            pytest.param(_with('Layers', {}), "'Layers'", id='layers not a list'),
+            pytest.param(
+                _rows(row('BF', 'BF', 3), dict(row(LED1, nm=488), led_channel=[1, 2])),
+                'multiple',
+                id='a multi-channel row',
+            ),
+            pytest.param(
+                _rows(row('Skylight', 'Skylight', 6)), "'Skylight'", id='an unknown layer'
+            ),
+            pytest.param(_rows(row([LED1], None, 1, 488)), f"['{LED1}']", id='a key not a name'),
+            pytest.param(
+                _rows({'key_name': LED1, 'excitation_nm': 488}),
+                "'led_channel'",
+                id='a row missing a field',
+            ),
+            pytest.param(
+                _rows(row('BF', 'BF', 3, None, future_field='anything')),
+                "'future_field'",
+                id='a row with an undeclared key',
+            ),
+            pytest.param(_rows(row(LED1, None, 1, None)), 'no excitation_nm', id='no excitation'),
+            pytest.param(
+                _rows(row('BF', 'BF', 3), row('PC', 'PC', 3)),
+                'BF and PC both name LED address 3',
+                id='two rows on one LED address',
+            ),
+        ]
 
-    def test_uncatalogued_key_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), row('Skylight', 'Skylight', 6)]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'Skylight' in errors_logged()
+        def check(mutate, words):
+            entry = {**MODEL_KEYS, 'Layers': [row('BF', 'BF', 3)]}
+            mutate(entry)
+            data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
+            catalogue = load_layer_catalogue(data, 'scopes.json')
+            with pytest.raises(InstallationFileError) as refused:
+                read_scope_models(data, 'scopes.json', catalogue, old_names=())
+            assert "model 'M'" in str(refused.value) and words in str(refused.value)
 
-    def test_missing_field_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), {'key_name': 'Green', 'display_name': 'Green'}]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'missing' in errors_logged()
+        failed = failing_cases(cases, check)
+        assert not failed, failed
+
+    def test_a_model_states_what_it_is_built_with(self):
+        entry = {
+            'Focus': False,
+            'XYStage': False,
+            'Turret': False,
+            'LEDBoard': 'FX2',
+            'Layers': LS560_ROWS,
+            'Optics': {'PixelSize': 2.2, 'LensFocalLength': 32.3},
+            'MaxFrame': {'width': 1700, 'height': 1700},
+        }
+        data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
+        catalogue = load_layer_catalogue(data, 'scopes.json')
+        model = read_scope_models(data, 'scopes.json', catalogue, old_names=())['M']
+        assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
+        assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
+        assert type(model.led_board) is LedBoardFamily
+        assert (model.pixel_size_um, model.lens_focal_length_mm) == (2.2, 32.3)
+        assert (model.max_frame.width, model.max_frame.height) == (1700, 1700)
+        assert [layer.key_name for layer in model.channels] == ['BF', LED1]
 
     def test_every_row_unusable_is_a_zero_layer_identity_not_a_fallback(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
-        block = {'Layers': [dict(row('BF', 'BF'), led_channel=[1, 2])], 'Filterset': 'Broken'}
+        block = {
+            'Channels': channels([dict(row('BF', 'BF'), led_channel=[1, 2])]),
+            'Filterset': 'Broken',
+        }
         identity = resolve(path, board_block=block, motor_model='LS850T')
         assert identity.source == 'motorconfig'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.filterset == 'Broken'
-
-    def test_extra_fields_are_tolerated(self, tmp_path):
-        rows = [row('BF', 'BF', 3, None, future_field='anything')]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert identity.find('BF') is not None
 
     def test_ledless_layer_is_a_valid_record(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Lumi', 'Lumi', None)]}})
         identity = resolve(path, motor_model='M')
         lumi = identity.find('Lumi')
         assert lumi is not None
-        assert lumi.led_channel == ()
+        assert lumi.led_addresses == ()
         assert lumi.excitation_nm is None
 
+    def test_a_fluorescence_layer_is_labelled_by_its_excitation(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS620': {'Layers': LS620_ROWS}})
+        identity = resolve(path, motor_model='LS620')
+        assert [r.label for r in identity.channels] == ['BF-Phase', '405 nm', '488 nm', '589 nm']
+
+    def test_a_record_carries_its_catalogue_fields(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        identity = resolve(path, motor_model='LS850T')
+        assert [
+            (r.key_name, r.modality, r.background, r.display_color) for r in identity.channels
+        ] == [
+            (layer['key'], layer['modality'], layer['background'], layer['display_color'])
+            for layer in CATALOGUE
+            if layer['key'] in {r['key_name'] for r in LS850T_ROWS}
+        ]
+        assert {(type(r.modality), type(r.background)) for r in identity.channels} == {
+            (Modality, Background)
+        }
+
+    def test_a_record_of_a_modality_outside_the_set_is_refused(self):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ChannelRecord(
+                id=0,
+                key_name='BF',
+                display_name='BF',
+                led_addresses=(3,),
+                excitation_nm=None,
+                modality='phase',
+                background='bright',
+                display_color='#ffffff',
+                label='BF',
+            )
+        assert (refused.value.reason, refused.value.argument) == (
+            'not_offered',
+            'ChannelRecord.modality',
+        )
+
+    def test_a_model_row_whose_excitation_key_names_another_excitation_refuses_the_catalogue(
+        self,
+    ):
+        # A key named for its excitation states the excitation twice; a model
+        # row whose two disagree is the release's defect, refused whole.
+        entry = {**MODEL_KEYS, 'Layers': [row('Ex550', None, 1, 561)]}
+        data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
+        catalogue = load_layer_catalogue(data, 'scopes.json')
+        with pytest.raises(InstallationFileError) as refused:
+            read_scope_models(data, 'scopes.json', catalogue, old_names=())
+        assert "model 'M'" in str(refused.value)
+        assert 'excitation_nm 561' in str(refused.value) and 'Ex550' in str(refused.value)
+
+    def test_a_model_row_states_a_name_only_for_a_channel_its_excitation_does_not_label(self):
+        # A fluorescence channel is labelled by its excitation, so its row
+        # stores no name to publish beside the label; any other channel is
+        # labelled by its name, so its row must state one.
+        cases = [
+            (row(LED0, 'Blue', 0, 405), "undeclared key 'display_name'"),
+            ({'key_name': 'BF', 'led_channel': 3, 'excitation_nm': None}, "no 'display_name'"),
+        ]
+
+        def check(layer, words):
+            data = {'LayerOrder': CATALOGUE, 'Models': {'M': {**MODEL_KEYS, 'Layers': [layer]}}}
+            catalogue = load_layer_catalogue(data, 'scopes.json')
+            with pytest.raises(InstallationFileError) as refused:
+                read_scope_models(data, 'scopes.json', catalogue, old_names=())
+            assert words in str(refused.value)
+
+        failed = failing_cases(cases, check)
+        assert not failed, failed
+
     def test_single_channel_and_excitation_normalise(self, tmp_path):
-        path = write_scopes(tmp_path, {'M': {'Layers': [row('Green', 'Green', 1, 488)]}})
-        green = resolve(path, motor_model='M').find('Green')
-        assert green.led_channel == (1,)
+        path = write_scopes(tmp_path, {'M': {'Layers': [row(LED1, None, 1, 488)]}})
+        green = resolve(path, motor_model='M').find(LED1)
+        assert green.led_addresses == (1,)
         assert green.excitation_nm == pytest.approx(488.0)
         assert isinstance(green.excitation_nm, float)
 
 
+class TestTheBoardsChannelBlock:
+    """A board's Channels block is the unit's channels, read as the model's rows are."""
+
+    def test_a_fluorescence_channel_is_its_excitation_and_any_other_its_name(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
+        block = {
+            'Channels': {
+                'BF': {'led_channel': 3, 'display_name': 'Brightfield'},
+                'Ex640': {'led_channel': 6, 'excitation_nm': 640},
+            },
+            'Filterset': 'Custom-640',
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert (identity.source, identity.filterset) == ('motorconfig', 'Custom-640')
+        assert [
+            (r.key_name, r.label, r.display_name, r.led_addresses) for r in identity.channels
+        ] == [
+            ('BF', 'Brightfield', 'Brightfield', (3,)),
+            ('Ex640', '640 nm', None, (6,)),
+        ]
+        assert REPORTED == []
+
+    def test_a_rows_colour_is_the_units_and_without_one_the_releases(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        block = {
+            'Channels': {
+                LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'},
+                LED1: {'led_channel': 1, 'excitation_nm': 488},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert identity.find(LED0).display_color == '#00ffff'
+        assert identity.find(LED1).display_color == format_display_color(release_color(LED1))
+
+    def test_the_rows_it_cannot_read_are_left_out_and_reported_in_one_notice(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        block = {
+            'Channels': {
+                'BF': {'led_channel': 3, 'display_name': 'BF'},
+                'Skylight': {'led_channel': 7, 'display_name': 'Skylight'},
+                LED1: {'led_channel': 1},
+                LED2: {'led_channel': 2, 'excitation_nm': 589, 'display_color': '#800000'},
+                'PC': {'led_channel': 4},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert [r.key_name for r in identity.channels] == ['BF']
+        assert [n.reason for n in REPORTED] == ['channel_rows_skipped']
+        assert set(REPORTED[0].skipped) == {'Skylight', LED1, LED2, 'PC'}
+
+    def test_a_row_whose_excitation_key_names_another_excitation_is_left_out_and_reported(
+        self, tmp_path
+    ):
+        catalogue = CATALOGUE
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}}, catalogue)
+        block = {
+            'Channels': {
+                'Ex550': {'led_channel': 1, 'excitation_nm': 561},
+                'Ex640': {'led_channel': 2, 'excitation_nm': 640},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert [r.key_name for r in identity.channels] == ['Ex640']
+        assert [n.reason for n in REPORTED] == ['channel_rows_skipped']
+        assert list(REPORTED[0].skipped) == ['Ex550']
+        assert 'excitation_nm 561' in REPORTED[0].skipped['Ex550']
+
+    def test_a_fluorescence_key_not_named_for_its_excitation_is_left_out_and_reported(
+        self, tmp_path
+    ):
+        # Every fluorescence key is Ex<nm>: a colour word names no excitation
+        # for its row's excitation_nm to agree with.
+        catalogue = [
+            {**layer, 'key': 'Violet'} if layer['key'] == LED0 else layer for layer in CATALOGUE
+        ]
+        transmitted = [r for r in LS850T_ROWS if r['key_name'] in ('BF', 'PC', 'DF')]
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': transmitted}}, catalogue)
+        block = {
+            'Channels': {
+                'Violet': {'led_channel': 0, 'excitation_nm': 405},
+                LED1: {'led_channel': 1, 'excitation_nm': 488},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert [r.key_name for r in identity.channels] == [LED1]
+        assert list(REPORTED[0].skipped) == ['Violet']
+        assert 'not the excitation its key names' in REPORTED[0].skipped['Violet']
+
+    def test_two_channels_on_one_led_address_leave_the_unit_no_channels(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        block = {
+            'Channels': {
+                'BF': {'led_channel': 3, 'display_name': 'BF'},
+                LED0: {'led_channel': 3, 'excitation_nm': 405},
+                LED1: {'led_channel': 1, 'excitation_nm': 488},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert (identity.source, identity.channels) == ('motorconfig', ())
+        assert [n.reason for n in REPORTED] == ['channel_block_unusable']
+        assert f'BF and {LED0}' in str(REPORTED[0])
+
+    def test_a_block_that_is_not_a_mapping_leaves_the_unit_no_channels(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        identity = resolve(path, board_block={'Channels': LS850T_ROWS}, motor_model='LS850T')
+        assert identity.channels == ()
+        assert [n.reason for n in REPORTED] == ['channel_block_unusable']
+
+    @pytest.mark.parametrize(
+        'block',
+        [{'Layers': LS560_ROWS, 'Filterset': 'Custom-X'}, {'Filterset': 'Custom-X'}],
+        ids=['old Layers block', 'Filterset alone'],
+    )
+    def test_a_board_without_a_channels_block_takes_its_models_and_says_so(self, tmp_path, block):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert (identity.source, identity.filterset, len(identity.channels)) == (
+            'scopes',
+            'Stock',
+            7,
+        )
+        assert [n.reason for n in REPORTED] == ['channel_block_superseded']
+
+    def test_a_scope_whose_board_has_the_old_block_tells_its_outcome_listener(self, tmp_path):
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(
+            complete_settings(microscope='LS850'), simulate=True, warn_pre_release=False
+        )
+        heard = []
+        session.add_outcome_listener(heard.append)
+        try:
+            session.scope._motion_driver.motorconfig.update_from_board(
+                {'Layers': LS560_ROWS, 'Filterset': 'Custom-X'}
+            )
+            identity = session.scope.refresh_layer_identity()
+        finally:
+            session.shutdown()
+        assert (identity.source, identity.model) == ('scopes', 'LS850')
+        assert [getattr(n, 'reason', None) for n in heard] == ['channel_block_superseded']
+
+
 class TestSnapshotSemantics:
     def test_records_are_immutable(self):
-        record = LayerRecord(
-            id=0, key_name='BF', display_name='BF', led_channel=(3,), excitation_nm=None
+        record = ChannelRecord(
+            id=0,
+            key_name='BF',
+            display_name='BF',
+            led_addresses=(3,),
+            excitation_nm=None,
+            modality='transmitted',
+            background='bright',
+            display_color='#ffffff',
+            label='BF',
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'
-        identity = LayerIdentity(layers=(record,), filterset='', source='scopes', model=None)
+        identity = ChannelIdentity(channels=(record,), filterset='', source='scopes', model=None)
         with pytest.raises(AttributeError):
             identity.filterset = 'X'
 

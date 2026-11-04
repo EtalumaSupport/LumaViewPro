@@ -39,16 +39,16 @@ def test_the_index_is_plain_ints(plate):
 
 @pytest.mark.parametrize('fraction', [0.0, 0.25, 0.49])
 def test_within_half_a_pitch_of_an_edge_well_names_it(plate, fraction):
-    columns = plate.config['columns']
+    columns = plate.columns
     x, y = _centre(plate, columns - 1, 0)
-    x += fraction * plate.config['spacing']['x']
+    x += fraction * plate.spacing_x_mm
     assert plate.get_well_index(x, y) == (columns - 1, 0)
 
 
 @pytest.mark.parametrize('axis', ['x', 'y'])
 def test_more_than_half_a_pitch_beyond_the_outer_centres_names_none(plate, axis):
     x, y = _centre(plate, 0, 0)
-    pitch = plate.config['spacing'][axis]
+    pitch = plate.spacing_x_mm if axis == 'x' else plate.spacing_y_mm
     if axis == 'x':
         x -= 0.51 * pitch
     else:

@@ -166,9 +166,9 @@ class TestNullMotionBoardNoOps:
         result = board.spi_read('Z', 0x4B)
         assert result == '0'
 
-    def test_exchange_command(self, board):
-        result = board.exchange_command('STATUS')
-        assert result is None
+    def test_it_takes_no_text_commands(self, board):
+        assert board.takes_text_commands is False
+        assert not hasattr(board, 'exchange_command')
 
     def test_enter_raw_repl(self, board):
         assert board.enter_raw_repl() is False

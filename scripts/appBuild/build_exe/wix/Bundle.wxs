@@ -29,8 +29,7 @@
 		  Manufacturer="$(var.Manufacturer)"
 		  Version="$(var.ProductVersion)"
 		  UpgradeCode="c483d86a-624f-4279-8a06-b6b4039a6fff"
-		  IconSourceFile="$(var.InstallerAssetsDir)\data\icons\icon.ico"
-		  SplashScreenSourceFile="$(var.InstallerAssetsDir)\data\icons\icon.ico">
+		  IconSourceFile="$(var.InstallerAssetsDir)\data\icons\icon.ico">
 	  
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication 

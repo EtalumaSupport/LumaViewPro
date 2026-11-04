@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
-import modules.derived_output_encoding as derived_output_encoding
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -15,11 +17,15 @@ from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.zprojection as zprojection
+from modules.zproject_method import ZProjectMethod
 
 from lvp_logger import logger
 
 
 class ZProjector(ProtocolPostProcessor):
+    _PLACE = 'slice'
+    _ONE_PER_ADD = ' Steps Added together make one projection.'
+
     def __init__(
         self,
         *args,
@@ -44,13 +50,35 @@ class ZProjector(ProtocolPostProcessor):
                 'Y',
                 'Tile',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(
+        self, group: pd.DataFrame, output_format: image_mode.OutputFormat, **kwargs
+    ) -> post_derivation.Step:
+        return post_derivation.Step(
+            PostFunction.ZPROJECT,
+            (
+                ('method', kwargs['method'].lower()),
+                *post_derivation.format_settings(output_format),
+            ),
+        )
+
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # By the slice's Z, not its index: an inserted step's index is -1.
+        return group['Z']
+
+    def _generate_filename(
+        self,
+        df: pd.DataFrame,
+        post: tuple[str, ...],
+        output_format: image_mode.OutputFormat,
+        **kwargs,
+    ) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -59,10 +87,6 @@ class ZProjector(ProtocolPostProcessor):
         # A z-projection collapses every z-slice into one image, so the z token
         # is omitted (z_index=None) -- a single slice index would mislabel the
         # projection. channel and tile are kept (per-channel, per-tile output).
-        # Post-output suffixes chain: a z-projection of an already-stitched
-        # output carries both ('stitched', 'zproj_<method>').
-        post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, f'zproj_{kwargs["method"].lower()}')
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
@@ -73,8 +97,8 @@ class ZProjector(ProtocolPostProcessor):
             )
         )
 
-        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
-        return outfile
+        prefix = self._prepend_capture_root(name, kwargs)
+        return f'{prefix}{image_utils.derived_file_suffix(output_format)}'
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -105,6 +129,7 @@ class ZProjector(ProtocolPostProcessor):
                 df=df[['Filepath', 'Color']],
                 method=kwargs['method'],
                 output_file_loc=kwargs['output_file_loc'],
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -134,15 +159,12 @@ class ZProjector(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
         )
 
-    @staticmethod
-    def methods() -> list[str]:
-        return zprojection.ZProjectMethod.list()
-
     def _zproject_for_multi_channel(
-        self, images_data: list[np.ndarray], method: zprojection.ZProjectMethod
+        self, images_data: list[np.ndarray], method: ZProjectMethod
     ) -> np.ndarray | None:
         sample_image = images_data[0]
         used_color_planes = image_utils.get_used_color_planes(image=sample_image)
@@ -179,7 +201,7 @@ class ZProjector(ProtocolPostProcessor):
         }
 
     def _zproject_for_single_channel(
-        self, images_data: list[np.ndarray], method: str
+        self, images_data: list[np.ndarray], method: ZProjectMethod
     ) -> np.ndarray | None:
         project_result = zprojection.zproject(images_data=images_data, method=method)
 
@@ -202,28 +224,34 @@ class ZProjector(ProtocolPostProcessor):
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        method: str,
+        method: ZProjectMethod,
         output_file_loc: pathlib.Path,
+        channel_colors: layer_record.ChannelColors,
     ):
-        method = zprojection.ZProjectMethod[method]
+        method = ZProjectMethod(method)
 
         first_slice_row = df.iloc[0]
-        first_slice_path = path / first_slice_row['Filepath']
 
         orig_images = []
         input_depths = []
+        input_scales = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            image, significant_bits = image_utils.load_pixels(
+            image, significant_bits, white_bits = image_utils.load_pixels(
                 image_filepath, collapse_legacy_false_color=False
             )
             orig_images.append(image)
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         input_depth = image_utils.resolve_output_depth(input_depths)
+        # Every method is shown against its slices' white: a Sum is a sum, shown
+        # against one slice's white as a captured sum is against one frame's,
+        # and every other method keeps its values within its slices' range.
+        output_white = image_utils.resolve_output_white(input_scales)
         # A Sum reaches past its inputs' range and is tagged with the bits it
         # can reach, by the rule a summed capture is tagged with; every other
         # method keeps its values within the inputs' range.
-        if method == zprojection.ZProjectMethod.Sum:
+        if method == ZProjectMethod.Sum:
             output_depth = image_utils.summed_significant_bits(len(input_depths), input_depth)
         else:
             output_depth = input_depth
@@ -246,25 +274,31 @@ class ZProjector(ProtocolPostProcessor):
             return result
 
         # Route through write_tiff so the projected output carries the
-        # layer's PALETTE colormap plus the source acquisition context
-        # forwarded from the first slice. Z position is inherited from
-        # the first slice as a representative value -- the projection
-        # collapses Z, so any single value is approximate.
+        # layer's PALETTE colormap plus the acquisition context its slices
+        # agree on. The projection collapses Z, so slices at different Z
+        # state none.
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         metadata = image_utils.build_postproc_output_metadata(
-            input_path=first_slice_path,
+            input_records=[image_utils.read_file_record(path / name) for name in df['Filepath']],
             channel=first_slice_row['Color'],
             significant_bits=output_depth,
+            # A slice's frame count says how many exposures each of its pixels
+            # integrates; a Sum adds the slices, so beside the per-frame exposure
+            # it would state a fraction of the output's integration. Every other
+            # method keeps each pixel one slice's value or a statistic of them.
+            adds_frames=method == ZProjectMethod.Sum,
         )
         image_utils.write_tiff(
             data=result['image'],
             file_loc=output_file_loc_abs,
             metadata=metadata,
-            ome=False,
-            color=first_slice_row['Color'],
+            # The format its name states, the one its slices share.
+            ome=image_utils.is_ome_tiff(output_file_loc),
+            color=layer_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
-            save_encoding=derived_output_encoding.resolve_output_save_encoding(result['image']),
+            save_encoding=image_mode.encoding_for_array(result['image']),
+            white_bits=output_white,
         )
 
         del result['image']

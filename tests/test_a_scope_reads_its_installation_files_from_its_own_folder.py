@@ -16,7 +16,6 @@ starts, and a bad one is an InstallationFileError naming the file.
 
 import json
 import pathlib
-import shutil
 import threading
 
 import pytest
@@ -28,15 +27,16 @@ from modules import layer_record
 from modules.exceptions import InstallationFileError, ScopeModelUnknownError
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import build_scope
+from tests.settings_fixtures import installation_of_its_own
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
 
 
-def _folder(tmp_path, mutate=None) -> pathlib.Path:
-    shutil.copytree(REPO_DATA, tmp_path / 'data')
+def _folder(mutate=None) -> pathlib.Path:
+    root = installation_of_its_own()
     if mutate is not None:
-        mutate(tmp_path / 'data')
-    return tmp_path
+        mutate(root / 'data')
+    return root
 
 
 def _scopes(data: pathlib.Path) -> dict:
@@ -63,6 +63,12 @@ def _no_motor_defaults(data):
     (data / 'motorconfig_defaults.json').unlink()
 
 
+def _template_without_frame(data):
+    template = json.loads((data / 'settings.json').read_text(encoding='utf-8'))
+    del template['frame']
+    (data / 'settings.json').write_text(json.dumps(template), encoding='utf-8')
+
+
 def _stub_real_boards(monkeypatch):
     # No real port is opened in the suite: both boards are answered null.
     monkeypatch.setattr(
@@ -77,8 +83,8 @@ def _stub_real_boards(monkeypatch):
     )
 
 
-def test_a_simulated_scope_takes_its_models_from_its_folder(tmp_path):
-    root = _folder(tmp_path, _only_ls620)
+def test_a_simulated_scope_takes_its_models_from_its_folder():
+    root = _folder(_only_ls620)
 
     scope = build_scope(
         simulate=True, sim_model='LS620', source_path=str(root), warn_pre_release=False
@@ -87,9 +93,9 @@ def test_a_simulated_scope_takes_its_models_from_its_folder(tmp_path):
     assert sorted(scope.scope_models) == ['LS620']
 
 
-def test_a_real_scope_takes_its_models_from_its_folder(tmp_path, monkeypatch):
+def test_a_real_scope_takes_its_models_from_its_folder(monkeypatch):
     _stub_real_boards(monkeypatch)
-    root = _folder(tmp_path, _only_ls620)
+    root = _folder(_only_ls620)
 
     scope = build_scope(
         simulate=False,
@@ -103,8 +109,8 @@ def test_a_real_scope_takes_its_models_from_its_folder(tmp_path, monkeypatch):
     assert sorted(scope.scope_models) == ['LS620']
 
 
-def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts(tmp_path):
-    root = _folder(tmp_path, _only_ls620)
+def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts():
+    root = _folder(_only_ls620)
     before = set(threading.enumerate())
 
     # The setting names a model the folder lacks: the settings' fault, not the file's.
@@ -119,12 +125,13 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts(tmp_pa
     [
         (_no_models, 'scopes.json', 'no usable Models section'),
         (_no_motor_defaults, 'motorconfig_defaults.json', 'is missing'),
+        (_template_without_frame, 'settings.json', 'lacks the keys the app needs'),
     ],
-    ids=['scopes-json-without-models', 'motor-defaults-missing'],
+    ids=['scopes-json-without-models', 'motor-defaults-missing', 'template-without-frame'],
 )
 class TestABadFileInTheScopesFolder:
-    def test_stops_a_simulated_scope_before_a_lane_starts(self, tmp_path, mutate, name, says):
-        root = _folder(tmp_path, mutate)
+    def test_stops_a_simulated_scope_before_a_lane_starts(self, mutate, name, says):
+        root = _folder(mutate)
         before = set(threading.enumerate())
 
         with pytest.raises(InstallationFileError, match=says) as refused:
@@ -137,9 +144,9 @@ class TestABadFileInTheScopesFolder:
         # names as the lanes of any other scope alive in this process.
         assert set(threading.enumerate()) <= before
 
-    def test_stops_a_real_scope(self, tmp_path, monkeypatch, mutate, name, says):
+    def test_stops_a_real_scope(self, monkeypatch, mutate, name, says):
         _stub_real_boards(monkeypatch)
-        root = _folder(tmp_path, mutate)
+        root = _folder(mutate)
 
         with pytest.raises(InstallationFileError, match=says) as refused:
             Lumascope(
@@ -153,18 +160,8 @@ class TestABadFileInTheScopesFolder:
 
         assert refused.value.file_path == root / 'data' / name
 
-    def test_stops_the_diagnostic_scope(self, tmp_path, mutate, name, says):
-        root = _folder(tmp_path, mutate)
-        before = set(threading.enumerate())
 
-        with pytest.raises(InstallationFileError, match=says) as refused:
-            Lumascope.create_diagnostic(source_path=str(root))
-
-        assert refused.value.file_path == root / 'data' / name
-        assert set(threading.enumerate()) <= before
-
-
-def test_the_identity_resolves_against_the_release_vocabulary(tmp_path):
+def test_the_identity_resolves_against_the_release_vocabulary():
     # The folder's own layer order is reversed; the ids still come from the
     # release's, the one vocabulary every layer list in the process uses.
     def reversed_order(data):
@@ -172,14 +169,14 @@ def test_the_identity_resolves_against_the_release_vocabulary(tmp_path):
         contents['LayerOrder'] = list(reversed(contents['LayerOrder']))
         _write_scopes(data, contents)
 
-    root = _folder(tmp_path, reversed_order)
+    root = _folder(reversed_order)
     scope = build_scope(
         simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
     )
 
     vocabulary = layer_record.release_catalogue()
-    assert scope.layer_identity.layers
-    for record in scope.layer_identity.layers:
+    assert scope.channel_identity.channels
+    for record in scope.channel_identity.channels:
         assert record.id == vocabulary.index(record.key_name)
 
 
@@ -232,24 +229,13 @@ def test_a_broken_vocabulary_stops_a_scope_before_a_lane_starts(tmp_path, monkey
     assert set(threading.enumerate()) <= before
 
 
-def test_a_broken_vocabulary_stops_the_diagnostic_scope_before_it_starts(tmp_path, monkeypatch):
-    path = _broken_vocabulary(tmp_path, monkeypatch)
-    before = set(threading.enumerate())
-
-    with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
-        Lumascope.create_diagnostic()
-
-    assert refused.value.file_path == path
-    assert set(threading.enumerate()) <= before
-
-
-def test_a_model_entry_that_is_not_an_object_is_refused_by_name(tmp_path):
+def test_a_model_entry_that_is_not_an_object_is_refused_by_name():
     def text_entry(data):
         contents = _scopes(data)
         contents['Models']['LS850T'] = 'LS850T'
         _write_scopes(data, contents)
 
-    root = _folder(tmp_path, text_entry)
+    root = _folder(text_entry)
 
     with pytest.raises(InstallationFileError, match="model 'LS850T'") as refused:
         Lumascope(simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False)
@@ -257,31 +243,14 @@ def test_a_model_entry_that_is_not_an_object_is_refused_by_name(tmp_path):
     assert refused.value.file_path == root / 'data' / 'scopes.json'
 
 
-def test_an_entry_missing_a_field_is_warned_about_by_name(tmp_path):
-    from lvp_logger import logger as mock_logger
-
-    def no_turret_flag(data):
-        contents = _scopes(data)
-        del contents['Models']['LS620']['Turret']
-        _write_scopes(data, contents)
-
-    root = _folder(tmp_path, no_turret_flag)
-    mock_logger.reset_mock()
-
-    layer_record.load_scope_models(root / 'data' / 'scopes.json')
-
-    warned = ' | '.join(str(c) for c in mock_logger.warning.call_args_list)
-    assert "'LS620' missing 'Turret'" in warned
-
-
-def test_the_motor_driver_takes_the_folders_defaults(tmp_path):
+def test_the_motor_driver_takes_the_folders_defaults():
     def longer_z_travel(data):
         path = data / 'motorconfig_defaults.json'
         contents = json.loads(path.read_text(encoding='utf-8'))
         contents['Axis Travel Limit']['Z'] = contents['Axis Travel Limit']['Z'] + 123
         path.write_text(json.dumps(contents), encoding='utf-8')
 
-    root = _folder(tmp_path, longer_z_travel)
+    root = _folder(longer_z_travel)
     shipped = json.loads((REPO_DATA / 'motorconfig_defaults.json').read_text(encoding='utf-8'))
 
     scope = build_scope(

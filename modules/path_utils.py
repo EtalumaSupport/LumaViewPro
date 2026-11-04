@@ -8,8 +8,16 @@ import os
 import pathlib
 import sys
 from enum import StrEnum
+from typing import ClassVar
 
-from modules.exceptions import InstallationFileError, Refusal, RefusalCause
+from modules.exceptions import (
+    InstallationFileError,
+    LiveFolderPathRefusedError,
+    ProtocolRunRefusedError,
+    RecordingRefusedError,
+    Refusal,
+    RefusalCause,
+)
 
 
 MAX_COLLISION_SUFFIX = 999
@@ -29,8 +37,15 @@ class CaptureLocationError(Refusal, Exception):
             are taken.
     """
 
-    cause = RefusalCause.STATE
-    title = 'Save Location Unusable'
+    title = ProtocolRunRefusedError._TITLES['capture_location_unusable']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'capture_location_unusable': RefusalCause.STATE,
+        'names_exhausted': RefusalCause.STATE,
+    }
+    same_fact_as = (
+        LiveFolderPathRefusedError,
+        RecordingRefusedError,
+    )
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)
@@ -63,6 +78,140 @@ def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
     if not folder.is_dir():
         raise _inaccessible(folder)
     return folder
+
+
+def existing_file(path: str | os.PathLike, *, given: str | None = None) -> pathlib.Path:
+    """``path`` as a path, if a file is there to read.
+
+    Args:
+        given: The name the caller gave, when it is not ``path`` itself (a
+            wire caller's name under the live folder); the refusal names it.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
+            ``'not_a_file'``, a folder is.
+    """
+    path = pathlib.Path(path)
+    name = str(path) if given is None else given
+    if path.is_file():
+        return path
+    if path.is_dir():
+        raise LiveFolderPathRefusedError(
+            'not_a_file', name, f'{name} is a folder, not a file. Give the path of a file.'
+        )
+    raise LiveFolderPathRefusedError(
+        'path_not_found', name, f'There is nothing at {name}. Give the path of a file that exists.'
+    )
+
+
+def existing_folder(path: str | os.PathLike, *, given: str | None = None) -> pathlib.Path:
+    """``path`` as a path, if a folder is there to read.
+
+    Args:
+        given: The name the caller gave, when it is not ``path`` itself (a
+            wire caller's name under the live folder); the refusal names it.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
+            ``'not_a_folder'``, a file is.
+    """
+    path = pathlib.Path(path)
+    name = str(path) if given is None else given
+    if path.is_dir():
+        return path
+    if path.exists():
+        raise LiveFolderPathRefusedError(
+            'not_a_folder', name, f'{name} is a file, not a folder. Give the path of a folder.'
+        )
+    raise LiveFolderPathRefusedError(
+        'path_not_found',
+        name,
+        f'There is nothing at {name}. Give the path of a folder that exists.',
+    )
+
+
+def folder_to_make(path: str | os.PathLike) -> pathlib.Path:
+    """``path`` as a path, if it is a folder or can be made one.
+
+    Nothing is made here: the writer makes the folder where it writes, so a
+    disk that refuses it is that writer's failure to save.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+            ``path`` or at a folder above it.
+    """
+    path = pathlib.Path(path)
+    for level in (path, *path.parents):
+        if level.exists():
+            if not level.is_dir():
+                raise LiveFolderPathRefusedError(
+                    'not_a_folder',
+                    str(path),
+                    f'{level} is a file, so the folder {path} cannot be made. '
+                    'Give the path of a folder.',
+                )
+            break
+    return path
+
+
+def file_to_write(path: str | os.PathLike, *, extension: str) -> pathlib.Path:
+    """``path`` as a path, if a file of the kind ``extension`` names can be written there.
+
+    The name is written as given: a name that does not end in ``extension``
+    (in any case) is refused, never given it. A Save As dialog checks the
+    name it returns for a file to replace, so a name changed after it would
+    replace a file nobody was asked about.
+
+    Its folder is not made here, as ``folder_to_make`` says.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+            ``path``; ``'wrong_extension'``, the name does not end in
+            ``extension``; ``'not_a_folder'``, a file is where its folder
+            would be.
+    """
+    path = pathlib.Path(path)
+    if path.is_dir():
+        raise LiveFolderPathRefusedError(
+            'not_a_file', str(path), f'{path} is a folder, not a file. Give the path of a file.'
+        )
+    if not path.name.lower().endswith(extension.lower()):
+        raise LiveFolderPathRefusedError(
+            'wrong_extension',
+            str(path),
+            f'{path.name} does not end in {extension}. Name the file with it, '
+            f'as {path.name}{extension}.',
+        )
+    folder_to_make(path.parent)
+    return path
+
+
+def write_new_file(path: pathlib.Path, data: bytes) -> None:
+    """Write ``data`` as a new file at ``path``, its folders made first.
+
+    Opened exclusively, so a file already there -- one a capture wrote, or
+    one made between any check and this write -- is never replaced. A write
+    that fails partway leaves no file behind.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'file_exists'``, a file is at
+            ``path``; ``'not_a_folder'``, a file is where one of its folders
+            would be.
+        OSError: The folder or the file could not be written.
+    """
+    folder_to_make(path.parent).mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, 'xb') as written:
+            written.write(data)
+    except FileExistsError as e:
+        raise LiveFolderPathRefusedError(
+            'file_exists',
+            str(path),
+            f'{path.name} is already there; an upload never replaces a file. Give a new name.',
+        ) from e
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:
@@ -118,7 +267,7 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
         except OSError as exc:
             raise CaptureLocationError(
                 'capture_location_unusable',
-                f'Could not create {candidate} in the capture location: {exc}',
+                f'Could not create {candidate} in the capture location ({exc.strerror}).',
             ) from exc
         return candidate
     raise CaptureLocationError(
@@ -221,7 +370,7 @@ class AppRuntime(StrEnum):
     @property
     def frozen(self) -> bool:
         """Whether the process is a PyInstaller build, installed or not."""
-        return self is not AppRuntime.SOURCE
+        return self != AppRuntime.SOURCE
 
 
 def launch_root() -> pathlib.Path:
@@ -312,7 +461,7 @@ def get_source_root(
     if source_path is not None:
         return pathlib.Path(source_path)
 
-    if app_runtime() is not AppRuntime.INSTALLED:
+    if app_runtime() != AppRuntime.INSTALLED:
         return launch_root()
 
     version, _build_timestamp = read_version()
@@ -325,12 +474,22 @@ def get_source_root(
     return documents_dir / data_folder_name(version)
 
 
+def get_log_dir(source_path: str | pathlib.Path | None = None) -> pathlib.Path:
+    """The one log folder: ``logs/LVP_Log`` under the data root.
+
+    Every log the app writes goes here, and so does every bench result
+    (a probe's verdict, a hardware test's record), so the support zip
+    carries them together.
+    """
+    return get_source_root(source_path) / 'logs' / 'LVP_Log'
+
+
 def desktop_folder() -> pathlib.Path:
     """The user's Desktop, where a person expects a support ZIP; the home folder when there is none.
 
     Through platformdirs, so a localized Desktop ("Schreibtisch" on German
     Windows) is the one found. The one Desktop for every caller that names
-    it: the GUI's support report and logs zip, and the command-line report.
+    it: the GUI's support report and logs zip.
     """
     import platformdirs
 

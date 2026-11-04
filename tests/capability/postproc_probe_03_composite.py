@@ -12,16 +12,17 @@ import sys
 
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
+from tests.stock_channels import LED0
 
 
 def main() -> int:
     live = probe_dir('composite')
-    with headless_session(live, acquiring=('BF', 'Blue')) as (session, runner):
+    with headless_session(live, acquiring=('BF', LED0)) as (session, runner):
         # A real plate coordinate from the API, so the probe cannot invent
         # one outside the stage's travel.
-        session.scope.motion.move_absolute('X', 40000.0)
-        session.scope.motion.move_absolute('Y', 30000.0)
-        session.scope.motion.move_absolute('Z', 1000.0)
+        session.scope.motion.move_xy(x_um=40000.0)
+        session.scope.motion.move_xy(y_um=30000.0)
+        session.scope.motion.move_z(1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
         here = session.get_current_plate_position()
         print('plate position:', here)
@@ -30,7 +31,7 @@ def main() -> int:
             session,
             runner,
             sequence_name='probe_composite',
-            positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
+            positions=[{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}],
         )
         print('run outcome:', outcome)
         print('folder:', folder)
@@ -47,7 +48,7 @@ def main() -> int:
             print('composite outcome:', type(e).__name__, e)
             # Composite groups by the run's record, not by the files on
             # disk: the rows it read are the evidence for a failed merge.
-            print('files still draining at the merge:', session.protocol_files_draining)
+            print('live work at the merge:', session.live_work)
             print('protocol_record.tsv:')
             print((folder / 'protocol_record.tsv').read_text())
             print('PROBE RESULT: FAIL')

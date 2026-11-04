@@ -33,7 +33,7 @@ class TestPylonPixelFormatCache:
     def test_setter_refreshes_cache(self):
         cam = bare_pylon_camera()
         cam._pixel_format_cache = None
-        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
         assert cam.set_pixel_format('Mono12') is True
         assert cam._pixel_format_cache == 'Mono12'

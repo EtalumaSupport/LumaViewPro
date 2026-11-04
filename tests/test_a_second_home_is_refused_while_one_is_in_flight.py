@@ -18,9 +18,9 @@ import threading
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
-from tests.scope_fakes import build_scope, record_turret_answer
+from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0
@@ -42,7 +42,7 @@ def scope(request, tmp_path):
         warn_pre_release=False,
     )
     try:
-        yield record_turret_answer(session.scope)
+        yield session.scope
     finally:
         session.shutdown()
 
@@ -111,7 +111,7 @@ class TestTheClaimEndsWithItsHome:
         real = scope._motion_driver.home
 
         def fails():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         monkeypatch.setattr(scope._motion_driver, 'home', fails)
         with pytest.raises(HomingFailedError):
@@ -175,8 +175,8 @@ class TestTheLaneNamesTheHome:
     def test_the_body_carries_its_homes_name(self, axis):
         s = build_scope(simulate=True, sim_model='LS850T', source_path='.', register_atexit=False)
         try:
-            impl, _ = s.motion._home_body(axis)
-            body, release_if_unrun, _taking = s.motion.claim_home(impl)
+            impl = s.motion._home_body(axis)
+            body, release_if_unrun, _stop, _taking = s.motion.claim_home(impl)
             release_if_unrun()
             assert body.__name__ == impl.__name__
         finally:

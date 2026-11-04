@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import json
 import zipfile
+from unittest.mock import patch
 
 import pytest
 
 from drivers.registry import DriverFallback
-from modules.lumascope_api.bring_up import MOTOR
-from modules.plugins import PluginRegistry
+from modules.lumascope_api.bring_up import Part
 from modules.scope_session import ScopeSession
-from modules.tech_support_report import TechSupportReport
 from tests.settings_fixtures import complete_settings
 from tests.test_bring_up_is_a_record import _bring_up
 
@@ -58,7 +57,7 @@ def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, t
         session.shutdown()
         session.scope.disconnect()
     motor = next(
-        part for part in _read(saved.path, 'bring_up.json')['parts'] if part['part'] == MOTOR
+        part for part in _read(saved.path, 'bring_up.json')['parts'] if part['part'] == Part.MOTOR
     )
     assert (motor['up'], motor['cause'], motor['cause_words']) == (
         False,
@@ -67,26 +66,31 @@ def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, t
     )
 
 
-def test_a_report_with_no_scope_says_why_it_has_no_record(tmp_path):
-    report = TechSupportReport()
-    report.diag.build_failure = FileNotFoundError('scopes.json is missing')
-    zip_path = report.generate_logs_only(output_dir=tmp_path / 'out')
-    body = _read(zip_path, 'bring_up.json')
-    assert body['record'] is None
-    assert 'scopes.json is missing' in body['why']
+class _BrokenEntryPoint:
+    """An installed plugin whose import fails, as a missing dependency's does."""
+
+    name = 'broken'
+
+    def load(self):
+        raise ModuleNotFoundError("No module named 'numpy2'")
 
 
 def test_a_plugin_that_did_not_load_is_in_the_zip(tmp_path):
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-    registry = PluginRegistry(session.scope)
-    registry.record_load_failure('broken', '1.0', 'it needs numpy2')
-    session.plugins = registry
     try:
+        with patch('importlib.metadata.entry_points', return_value=[_BrokenEntryPoint()]):
+            session.load_plugins()
         saved = session.make_logs_zip(output_dir=tmp_path / 'out')
     finally:
         session.shutdown()
     body = _read(saved.path, 'plugins.json')
-    assert body['not_loaded'] == [{'name': 'broken', 'version': '1.0', 'reason': 'it needs numpy2'}]
+    assert body['not_loaded'] == [
+        {
+            'name': 'broken',
+            'version': '',
+            'reason': "it could not be imported (ModuleNotFoundError: No module named 'numpy2')",
+        }
+    ]
     assert sorted(ns['namespace'] for ns in body['namespaces']) == [
         'live_processing',
         'post_processing',

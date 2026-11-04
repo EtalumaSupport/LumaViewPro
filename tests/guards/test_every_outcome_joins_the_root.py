@@ -23,6 +23,7 @@ import ast
 import builtins
 import importlib
 import inspect
+import textwrap
 
 import pytest
 
@@ -36,7 +37,7 @@ from modules.exceptions import (
     Refusal,
     _Umbrella,
 )
-from tests.ast_seams import REPO_ROOT, module_name
+from tests.ast_seams import REPO_ROOT, MemberNames, module_name
 
 KINDS = (Refusal, Notice, Quiet, Fault)
 _BUILTIN_EXCEPTIONS = {
@@ -137,6 +138,7 @@ def test_no_umbrella_can_be_raised():
         'AutofocusAborted',
         'MoveNotCompletedError',
         'HomingFailedError',
+        'HardwareError',
     } <= {cls.__name__ for cls in UMBRELLAS}, 'the umbrella discovery drifted'
     constructed = []
     for umbrella in UMBRELLAS:
@@ -158,11 +160,32 @@ def test_no_umbrella_can_be_raised():
     assert constructed == [], f'these umbrellas can be raised themselves: {constructed}'
 
 
+def _constructions(names):
+    """``path:line`` of every call in production code to a class in ``names``, by its name."""
+    paths = [REPO_ROOT / 'lumaviewpro.py']
+    for layer in ('modules', 'drivers', 'rest', 'ui', 'lib', 'tools'):
+        paths.extend(sorted((REPO_ROOT / layer).rglob('*.py')))
+    found = []
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if isinstance(node, ast.Call) and ast.unparse(node.func).split('.')[-1] in names:
+                found.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
+    return found
+
+
+def test_no_production_code_builds_an_umbrella():
+    """An umbrella refuses construction only on the path that runs it: a
+    raise of ``HardwareError`` in a driver's failure branch would reach its
+    caller as a ``TypeError``, past every ``except HardwareError`` -- the
+    capability probe at bring-up among them. So the build fails on the line."""
+    assert _constructions({cls.__name__ for cls in UMBRELLAS}) == []
+
+
 def test_an_umbrella_s_children_are_still_caught_by_it():
     from modules.exceptions import CaptureFailedError, ConfigurationDefectError
 
     assert isinstance(ConfigurationDefectError('settings_not_prepared', 'x'), ConfigError)
-    assert isinstance(CaptureFailedError('x', 'no_frame_returned'), CaptureError)
+    assert isinstance(CaptureFailedError('no_frame'), CaptureError)
 
 
 def test_a_configuration_defect_outside_its_vocabulary_fails_where_it_is_raised():
@@ -176,7 +199,7 @@ def test_a_capture_failure_outside_its_vocabulary_fails_where_it_is_raised():
     from modules.exceptions import CaptureFailedError
 
     with pytest.raises(TypeError, match='nope'):
-        CaptureFailedError('x', 'nope')
+        CaptureFailedError('nope')
 
 
 def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person():
@@ -185,8 +208,8 @@ def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person()
 
     assert outcome_of(ConfigurationDefectError('settings_not_prepared', 'x')).for_person is False
     assert outcome_of(ConfigurationDefectError('layers_unresolved', 'x')).for_person is True
-    assert outcome_of(CaptureFailedError('x', 'no_frame_returned')).for_person is True
-    assert outcome_of(CaptureFailedError('x', 'unknown_save_encoding')).for_person is False
+    assert outcome_of(CaptureFailedError('no_frame')).for_person is True
+    assert outcome_of(CaptureFailedError('unknown_save_encoding', encoding='x')).for_person is False
 
 
 def test_no_kind_is_itself_an_exception():
@@ -198,7 +221,7 @@ def test_no_kind_is_itself_an_exception():
 
 def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     """Whose words a fault's are is its class's, not a list kept beside the reporter."""
-    from drivers.exceptions import HardwareError
+    from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
     from modules.notification_center import outcome_of
 
     # Written for the person, and now shown as written: the file and what is
@@ -207,6 +230,163 @@ def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     assert installation.kind == 'fault'
     assert installation.for_person is True
 
-    assert outcome_of(HardwareError('no response from motor board')).for_person is True
+    wedged = LedFirmwareWedgedError('LED firmware wedged. Power-cycle the unit.')
+    assert outcome_of(wedged).for_person is True
+    # A driver fault carrying the SDK's text: the person reads its title.
+    read = CameraReadFailedError('BlackLevel read failed: RuntimeException: node not readable')
+    assert outcome_of(read).for_person is False
     # A Python error's words are a developer's: the person reads the generic sentence.
     assert outcome_of(RuntimeError('list index out of range')).for_person is False
+
+
+# ---------------------------------------------------------------------------
+# A title on the type, and a reason, on every one (W0 (d1), R1)
+# ---------------------------------------------------------------------------
+
+RAISABLE = tuple(
+    cls for cls in EXCEPTION_CLASSES if issubclass(cls, LumascopeError) and cls not in UMBRELLAS
+)
+
+
+def _ours(cls):
+    """The classes in ``cls``'s chain that this codebase defines."""
+    return [k for k in cls.__mro__ if k.__module__.split('.')[0] in ('modules', 'drivers', 'rest')]
+
+
+def _init_sets_reason(cls):
+    for k in _ours(cls):
+        init = vars(k).get('__init__')
+        if init is None:
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(
+                    isinstance(t, ast.Attribute)
+                    and t.attr == 'reason'
+                    and ast.unparse(t.value) == 'self'
+                    for t in targets
+                ):
+                    return True
+            if (
+                isinstance(node, ast.Call)
+                and ast.unparse(node.func).endswith('__init__')
+                and (any(kw.arg == 'reason' for kw in node.keywords) or len(node.args) >= 2)
+            ):
+                return True
+    return False
+
+
+def test_every_raisable_outcome_has_a_title_on_its_type():
+    """A title is the class's, or its table's by reason: never chosen where it is raised."""
+    untitled = [
+        cls
+        for cls in RAISABLE
+        if not isinstance(getattr(cls, 'title', None), str)
+        # A _WORDS table holds each reason's title beside its words.
+        and not any(hasattr(cls, table) for table in ('_TITLES', '_WORDS'))
+    ]
+    assert untitled == [], (
+        f'state a title in the class body, or a _TITLES table keyed by reason: {_named(untitled)}'
+    )
+
+
+def test_a_class_with_several_reasons_sets_its_reason_where_it_is_built():
+    """A class with one reason answers it; one with several cannot know which
+    was meant, so the reason is set where the outcome is built, and the root
+    refuses one the class does not declare (``lib.lumascope_error``)."""
+    unset = [cls for cls in RAISABLE if len(cls.causes) > 1 and not _init_sets_reason(cls)]
+    assert unset == [], f'set self.reason in __init__, or pass reason up: {_named(unset)}'
+
+
+def _owner(cls, attr):
+    """The class along ``cls``'s MRO whose own body declares ``attr``, or None."""
+    return next((k for k in cls.__mro__ if attr in vars(k)), None)
+
+
+def test_every_title_is_the_class_s_own():
+    """A title a class only inherits passes the title guard above on its
+    parent's value, so a class that lost its own declaration answered with
+    its parent's heading and every guard stayed green. Each is declared in
+    the class's own body, or read from the class's own reason-keyed table; a
+    class that shares its parent's says so in one line (``title =
+    Parent.title``). Its reasons are held the same way by
+    ``test_every_refusal_states_its_reason.py``."""
+    inherited = [
+        f'{cls.__qualname__}.title <- {_owner(cls, "title").__qualname__}'
+        for cls in RAISABLE
+        if _owner(cls, 'title') not in (None, cls)
+        and not any(table in vars(cls) for table in ('_TITLES', '_WORDS'))
+    ]
+    assert inherited == [], f'declare it in the class, or read it from its own table: {inherited}'
+
+
+def test_no_outcome_sets_a_title_per_instance():
+    """``self.title`` is assigned only from a table, so a title cannot be chosen per raise."""
+    from_a_table = ('self._TITLES[', 'self._WORDS[', 'ENDING_TITLES[', 'type(self)._TITLES[')
+    per_instance = []
+
+    def names_self_title(target):
+        if isinstance(target, ast.Tuple):
+            return any(names_self_title(element) for element in target.elts)
+        return (
+            isinstance(target, ast.Attribute)
+            and target.attr == 'title'
+            and ast.unparse(target.value) == 'self'
+        )
+
+    for cls in (*RAISABLE, *UMBRELLAS):
+        init = vars(cls).get('__init__')
+        if init is None:
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+        for node in ast.walk(tree):
+            # A tuple target too: ``self.title, message = self._WORDS[reason]``.
+            sets_title = isinstance(node, ast.Assign) and any(
+                names_self_title(t) for t in node.targets
+            )
+            if sets_title and not ast.unparse(node.value).startswith(from_a_table):
+                per_instance.append(f'{cls.__qualname__}: {ast.unparse(node)}')
+    assert per_instance == [], f'a title set per instance, not read from a table: {per_instance}'
+
+
+def test_no_production_call_passes_a_title_to_an_outcome():
+    names = {cls.__name__ for cls in (*RAISABLE, *UMBRELLAS)}
+    passing = []
+    for layer in ('modules', 'drivers', 'rest', 'ui'):
+        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+                if (
+                    isinstance(node, ast.Call)
+                    and ast.unparse(node.func).split('.')[-1] in names
+                    and any(kw.arg == 'title' for kw in node.keywords)
+                ):
+                    passing.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
+    assert passing == [], f'a title passed where an outcome is built: {passing}'
+
+
+_REASON_TABLES = MemberNames(
+    ('modules/exceptions.py', 'drivers/exceptions.py'),
+    {'_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
+)
+
+
+def test_every_reason_keyed_table_holds_every_reason_its_class_declares():
+    """A reason the class declares and one of its tables lacks fails where it is
+    raised: a refusal turned crash, a KeyError at the raise. A table may hold
+    more, where it is a store its class shares (the run's faults title their
+    failures from every run ending's title)."""
+    short = []
+    for cls in RAISABLE:
+        # A table keyed by anything but plain reason strings is keyed by
+        # something else: PostProcessingRefusedError's _WORDS is its headings,
+        # by operation and (operation, reason).
+        for name in _REASON_TABLES:
+            table = vars(cls).get(name)
+            if table is None or not all(type(key) is str for key in table):
+                continue
+            missing = sorted(set(cls.causes) - set(table))
+            if missing:
+                short.append(f'{cls.__qualname__}.{name} lacks {missing}')
+    assert short == [], f'each table lacks the reasons named: {short}'

@@ -15,7 +15,7 @@ from harness import check, make_session, report
 s, _live = make_session('probe_motion', microscope='LS850T')
 try:
     m = s.scope.motion
-    objs = s.objective_helper.get_objectives_list()
+    objs = s.scope.objective_helper.get_objectives_list()
     a, b = objs[0], objs[1]
     s.assign_turret_objective(1, a)
     s.assign_turret_objective(2, b)
@@ -50,7 +50,7 @@ try:
         str(q)[:140],
     )
     if q is not None:
-        s.confirm_objective(b, turret_position=3)
+        s.confirm_objective(b, slot=3)
         check(
             'confirm_objective assigns the slot, clears the question, and is active',
             s.get_settings_snapshot()['turret_objectives'][3] == b

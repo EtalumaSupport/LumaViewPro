@@ -23,21 +23,26 @@ The four modes and their derived facts:
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
 import pytest
 import tifffile as tf
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
+from tests.stock_channels import LED0, LED1
 
 
-def _metadata(path, channel='Blue', significant_bits=None):
+def _metadata(path, channel=LED0, significant_bits=None):
     """Minimal metadata dict matching write_tiff's generate_tiff_data."""
     meta = {
         'file_loc': str(path),
-        'datetime': '2026-06-18T00:00:00',
+        'datetime': datetime.datetime(2026, 6, 18, 0, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
-        'objective': 'test',
+        'objective': {'id': 'test'},
         'exposure_time_ms': 1.0,
         'gain_db': 0.0,
         'illumination_ma': 0.0,
@@ -129,19 +134,13 @@ def test_config_helper_reads_the_stored_image_mode(mode, depth, encoding):
 
 def test_available_modes_are_every_mode_in_selector_order():
     """A mode is a save policy every camera honours, so all four are offered."""
-    from modules.image_mode import available_mode_labels, available_modes
+    from modules.image_mode import available_modes
 
     assert available_modes() == [
         '8bit',
         '12bit_scientific',
         '12bit_scaled',
         '12bit_false_color_rgb',
-    ]
-    assert available_mode_labels() == [
-        '8-bit',
-        'Scientific (full depth)',
-        'Scaled (full depth)',
-        'RGB (full depth)',
     ]
 
 
@@ -177,15 +176,6 @@ def test_select_capture_pixel_format_no_formats():
     assert select_capture_pixel_format(12, None) is None
 
 
-def test_image_mode_label_round_trip():
-    """Every mode has a label and the label maps back to the mode."""
-    from modules.image_mode import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE, resolve_image_mode
-
-    for mode, label in IMAGE_MODE_LABELS.items():
-        resolve_image_mode(mode)  # every labeled value is a real mode
-        assert LABEL_TO_IMAGE_MODE[label] == mode
-
-
 @pytest.mark.parametrize(
     'feature_count, mode, expected',
     [
@@ -211,27 +201,32 @@ def test_depth_truncation_warning_active(feature_count, mode, expected):
     assert depth_truncation_warning_active(feature_count, mode) is expected
 
 
-def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys():
+def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys(caplog):
     """A present-but-unrecognized stored image_mode beside the legacy keys is a
     corrupt setting: the migration derives the mode from the legacy keys AND
     surfaces a warning so the derivation does not hide the data loss. A file
     with no image_mode at all (a pre-consolidation install) is a normal
     migration and derives silently."""
-    from unittest import mock
+    import logging
 
     import modules.image_mode as image_mode
+    from tests.log_capture import records_of
 
-    with mock.patch.object(image_mode, 'logger') as mock_logger:
+    def warnings():
+        return [r for r in records_of(caplog, image_mode) if r.levelno == logging.WARNING]
+
+    with caplog.at_level(logging.WARNING):
         settings = {'image_mode': 'bogus', 'use_full_pixel_depth': True}
         assert image_mode.migrate_settings_dict(settings) is True
         assert settings['image_mode'] == '12bit_scientific'
-        assert mock_logger.warning.call_count == 1
+        assert len(warnings()) == 1, caplog.messages
 
-    with mock.patch.object(image_mode, 'logger') as mock_logger:
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
         settings = {}
         assert image_mode.migrate_settings_dict(settings) is True
         assert settings['image_mode'] == '8bit'
-        mock_logger.warning.assert_not_called()
+        assert warnings() == [], caplog.messages
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +310,10 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='msb_aligned',
+        white_bits=None,
     )
 
     arr = tf.imread(str(out_path))
@@ -329,9 +325,9 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
     )
 
 
-def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
+def test_record_frame_must_be_right_aligned_for_video_frame(sim_scope, tmp_path):
     """Real-path lock for the manual-record Frames path: whatever the record
-    path hands to image_save.write_video_frame -- the SOLE depth encoder --
+    path hands to image_save.write_recorded_frame -- the SOLE depth encoder --
     must be the camera's right-aligned payload (0..4095 for 12-bit), not a
     left-justified one. A right-aligned frame round-trips to its true value;
     the left-justified frame the record path produced before the depth fix
@@ -344,7 +340,6 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
     the carrier that delivers it: this named the memmap when a memmap fed the
     encoder, and holds unchanged now that the recording engine does."""
     import modules.image_utils as image_utils
-    from modules.image_save import write_video_frame
 
     raw = np.zeros((8, 8), dtype=np.uint16)
     raw[0, 0] = 4095  # full-scale, right-aligned 12-bit
@@ -352,15 +347,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
 
     # Post-fix record-path content: the camera payload, verbatim.
     correct = tmp_path / 'right_aligned.tiff'
-    write_video_frame(
-        frame=raw.copy(),
-        file_loc=correct,
-        metadata=_metadata(correct, channel='BF'),
-        channel='BF',
-        false_color_on=False,
-        save_encoding='right_aligned',
-        capture_depth=12,
-    )
+    write_recorded(sim_scope, raw.copy(), correct, save_encoding='right_aligned')
     arr = tf.imread(str(correct))
     assert arr[0, 0] == 4095, 'right-aligned frame must round-trip the raw 12-bit value'
     assert arr[1, 1] == 2048
@@ -372,15 +359,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
     # 4095). Locks WHY the frame must stay right-aligned.
     left_justified = raw << 4
     corrupt = tmp_path / 'left_justified.tiff'
-    write_video_frame(
-        frame=left_justified,
-        file_loc=corrupt,
-        metadata=_metadata(corrupt, channel='BF'),
-        channel='BF',
-        false_color_on=False,
-        save_encoding='right_aligned',
-        capture_depth=12,
-    )
+    write_recorded(sim_scope, left_justified, corrupt, save_encoding='right_aligned')
     arr_bug = tf.imread(str(corrupt))
     assert arr_bug[0, 0] == 65520, 'left-justified frame corrupts the saved value (4095 -> 65520)'
     assert arr_bug[0, 0] != 4095
@@ -400,9 +379,10 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
     with tf.TiffFile(str(out_path)) as t:
@@ -417,7 +397,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
 
 def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     """rgb encoding bakes the layer color into 3-channel RGB for a
-    fluorescence layer. Blue lands at index 2, value preserved, others zero."""
+    fluorescence layer. LED0 (blue) lands at index 2, value preserved, others zero."""
     from modules.image_utils import write_tiff
 
     out_path = tmp_path / 'blue_rgb.tiff'
@@ -426,11 +406,12 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Blue'),
+        metadata=_metadata(out_path, channel=LED0),
         ome=False,
-        color='Blue',
+        color=release_color(LED0),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -452,9 +433,10 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF'),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -472,11 +454,20 @@ def test_mp4_writers_pass_layer_color():
     # video step).
     manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
     cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
-    # Both colorize from the recorded layer's false-color signal, and both
-    # encode true grayscale (None) when false color is off -- one contract,
-    # no 'BF' gray-colormap divergence between the paths.
-    assert 'color=resolved_layer if false_color_on else None' in manual_src
-    assert "color=step['Color'] if false_color_on else None" in cap_src
+    # Both colorize from the recorded layer's false-color signal, in the
+    # colours the recording began with, and both encode grey when false
+    # color is off -- one contract, one resolver. Whitespace is dropped, so a
+    # reflow of the call does not read as a change.
+    manual_flat = ''.join(manual_src.split())
+    cap_flat = ''.join(cap_src.split())
+    assert (
+        'color=layer_record.shown_color(plan.layer,false_color_on,plan.channel_colors)'
+        in manual_flat
+    )
+    assert (
+        "color=layer_record.shown_color(step['Color'],false_color_on,self._channel_colors)"
+        in cap_flat
+    )
     # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src
 
@@ -487,186 +478,103 @@ def test_mp4_writers_pass_layer_color():
 # ---------------------------------------------------------------------------
 
 
-def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
-    """A 12-bit video frame saved with rgb encoding widens to 3-channel RGB --
-    the underlying capability the manual + protocol Frames paths route through."""
-    from modules.image_utils import write_tiff
-
-    out_path = tmp_path / 'frame_rgb.tiff'
-    data = np.full((8, 8), 42000, dtype=np.uint16)
-
-    write_tiff(
-        data=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        ome=False,
-        color='Green',
-        video_frame=True,
-        significant_bits=16,
-        save_encoding='rgb',
-    )
-
-    arr = tf.imread(str(out_path))
-    assert arr.shape == (8, 8, 3)
-    assert arr[0, 0, 1] == 42000 and arr[0, 0, 0] == 0 and arr[0, 0, 2] == 0
-
-
-def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
-    """The video_frame TIFF branch emits NO palette colormap, so an 8-bit
-    fluorescence frame saved through it stays mono. This is the constraint that
-    forces write_video_frame to bake 8-bit RGB rather than rely on a colormap."""
-    from modules.image_utils import write_tiff
-
-    out_path = tmp_path / 'frame_8bit.tiff'
-    data = np.full((8, 8), 200, dtype=np.uint8)
-
-    write_tiff(
-        data=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        ome=False,
-        color='Green',
-        video_frame=True,
-        significant_bits=8,
-        save_encoding='8bit',
-    )
-
-    arr = tf.imread(str(out_path))
-    assert arr.ndim == 2, 'video_frame 8-bit write has no palette -- stays mono'
-
-
 # ---------------------------------------------------------------------------
-# write_video_frame helper -- the single canonical frame-save path (V2 target).
-# xfail(strict=True) until the helper lands; the markers flip green at V2.
+# write_recorded_frame -- a recorded frame is written as a still is.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ('save_encoding', 'capture_depth', 'in_dtype', 'fill', 'layer', 'fc_on', 'ndim', 'out_dtype'),
+    ('save_encoding', 'in_dtype', 'fill', 'layer', 'fc_on', 'ndim', 'out_dtype'),
     [
-        # 8-bit: fluorescence + false color bakes RGB (no palette on video frames)
-        ('8bit', 8, np.uint8, 200, 'Green', True, 3, np.uint8),
-        ('8bit', 8, np.uint8, 200, 'Green', False, 2, np.uint8),
-        ('8bit', 8, np.uint8, 200, 'BF', False, 2, np.uint8),
+        # 8-bit: a fluorescence frame with false color on keeps one channel and
+        # carries its colour as a palette, as a still does
+        ('8bit', np.uint8, 200, LED1, True, 2, np.uint8),
+        ('8bit', np.uint8, 200, LED1, False, 2, np.uint8),
+        ('8bit', np.uint8, 200, 'BF', False, 2, np.uint8),
         # 12-bit scientific + scaled are mono modes regardless of the layer toggle
-        ('right_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
-        ('right_aligned', 12, np.uint16, 4095, 'Green', False, 2, np.uint16),
-        ('msb_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
+        ('right_aligned', np.uint16, 4095, LED1, True, 2, np.uint16),
+        ('right_aligned', np.uint16, 4095, LED1, False, 2, np.uint16),
+        ('msb_aligned', np.uint16, 4095, LED1, True, 2, np.uint16),
         # 12-bit RGB: colorize fluorescence when the layer toggle is on;
         # mono when off (per-layer gate) or transmitted
-        ('rgb', 12, np.uint16, 42000, 'Green', True, 3, np.uint16),
-        ('rgb', 12, np.uint16, 42000, 'Green', False, 2, np.uint16),
-        ('rgb', 12, np.uint16, 42000, 'BF', True, 2, np.uint16),
+        ('rgb', np.uint16, 42000, LED1, True, 3, np.uint16),
+        ('rgb', np.uint16, 42000, LED1, False, 2, np.uint16),
+        ('rgb', np.uint16, 42000, 'BF', True, 2, np.uint16),
     ],
 )
-def test_write_video_frame_matrix(
-    tmp_path, save_encoding, capture_depth, in_dtype, fill, layer, fc_on, ndim, out_dtype
+def test_write_recorded_frame_matrix(
+    sim_scope, tmp_path, save_encoding, in_dtype, fill, layer, fc_on, ndim, out_dtype
 ):
-    """One canonical helper produces the right shape + dtype for every
+    """One canonical writer produces the right shape + dtype for every
     (image_mode, per-layer false color, depth) combination."""
-    from modules.image_save import write_video_frame
-
     out_path = tmp_path / 'frame.tiff'
     data = np.full((8, 8), fill, dtype=in_dtype)
-    write_video_frame(
-        frame=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel=layer),
-        channel=layer,
-        false_color_on=fc_on,
-        save_encoding=save_encoding,
-        capture_depth=capture_depth,
+    write_recorded(
+        sim_scope, data, out_path, channel=layer, false_color_on=fc_on, save_encoding=save_encoding
     )
     arr = tf.imread(str(out_path))
     assert arr.ndim == ndim
     assert arr.dtype == out_dtype
 
 
-def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
+def test_write_recorded_frame_12bit_falsecolor_off_stays_mono(sim_scope, tmp_path):
     """The headline manual-record fix: in the RGB image mode, a layer whose
     false-color toggle is OFF saves mono uint16 -- the mode never force-colorizes
     a colorless choice."""
-    from modules.image_save import write_video_frame
-
     out_path = tmp_path / 'off.tiff'
     data = np.full((8, 8), 42000, dtype=np.uint16)
-    write_video_frame(
-        frame=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        channel='Green',
-        false_color_on=False,
-        save_encoding='rgb',
-        capture_depth=12,
-    )
+    write_recorded(sim_scope, data, out_path, channel=LED1, save_encoding='rgb')
     arr = tf.imread(str(out_path))
     assert arr.ndim == 2, 'false-color-off layer must stay mono even in RGB mode'
 
 
-def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
-    """8-bit fluorescence with false color on bakes 3-channel RGB (the
-    video_frame TIFF write has no palette to lean on)."""
-    from modules.image_save import write_video_frame
-
-    out_path = tmp_path / 'baked.tiff'
+def test_an_8bit_false_color_recorded_frame_is_a_palette_like_a_still(sim_scope, tmp_path):
+    """8-bit fluorescence with false color on keeps its one channel of
+    pixels and is coloured by a palette, as the still beside it is: the
+    colour is how it is shown, never baked into what was measured."""
+    out_path = tmp_path / 'palette.tiff'
     data = np.full((8, 8), 200, dtype=np.uint8)
-    write_video_frame(
-        frame=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        channel='Green',
-        false_color_on=True,
-        save_encoding='8bit',
-        capture_depth=8,
+    write_recorded(
+        sim_scope, data, out_path, channel=LED1, false_color_on=True, save_encoding='8bit'
     )
-    arr = tf.imread(str(out_path))
-    assert arr.shape == (8, 8, 3)
-    assert arr[0, 0, 1] == 200 and arr[0, 0, 0] == 0 and arr[0, 0, 2] == 0
+    with tf.TiffFile(str(out_path)) as tif:
+        page = tif.pages[0]
+        assert page.photometric == tf.PHOTOMETRIC.PALETTE
+        assert page.colormap is not None
+        assert page.asarray()[0, 0] == 200
 
 
-def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
-    """The helper stamps significant_bits from capture_depth, so msb_aligned
-    actually left-justifies even when the caller's metadata omits it -- without
-    the stamp, write_tiff would treat the payload as 16-bit and not scale."""
+def test_write_recorded_frame_takes_its_depth_from_its_record(sim_scope, tmp_path):
+    """The writer stamps the depth the frame was delivered at, from its
+    record, so msb_aligned left-justifies a 12-bit frame -- without the
+    depth, write_tiff would treat the payload as 16-bit and not scale."""
     import modules.image_utils as image_utils
-    from modules.image_save import write_video_frame
 
     out_path = tmp_path / 'scaled_frame.tiff'
-    data = np.full((8, 8), 4095, dtype=np.uint16)  # no significant_bits in metadata
-    write_video_frame(
-        frame=data,
-        file_loc=out_path,
-        metadata=_metadata(out_path, channel='BF'),
-        channel='BF',
-        false_color_on=False,
+    data = np.full((8, 8), 4095, dtype=np.uint16)
+    write_recorded(
+        sim_scope,
+        data,
+        out_path,
         save_encoding='msb_aligned',
-        capture_depth=12,
+        record=recorded_record(frame_significant_bits=12),
     )
     arr = tf.imread(str(out_path))
-    assert arr[0, 0] == 65520, 'capture_depth=12 must drive the x16 left-justify'
+    assert arr[0, 0] == 65520, 'a 12-bit frame must drive the x16 left-justify'
     assert (arr >> 4 == 4095).all(), 'x16 must be exactly recoverable'
     assert image_utils.read_tiff_significant_bits(out_path) == 16
 
 
-def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
+def test_write_recorded_frame_rejects_unknown_save_encoding(sim_scope, tmp_path):
     """A typo'd save_encoding fails loud at the write boundary instead of falling
     through to a plain mono write -- the silent-wrong-file the unvalidated entry
     point allowed."""
     from modules.exceptions import CaptureError
-    from modules.image_save import write_video_frame
 
     out_path = tmp_path / 'bad_encoding.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
-    with pytest.raises(CaptureError, match='save_encoding'):
-        write_video_frame(
-            frame=data,
-            file_loc=out_path,
-            metadata=_metadata(out_path, channel='BF'),
-            channel='BF',
-            false_color_on=False,
-            save_encoding='not_a_real_encoding',
-            capture_depth=12,
-        )
+    with pytest.raises(CaptureError, match='save encoding'):
+        write_recorded(sim_scope, data, out_path, save_encoding='not_a_real_encoding')
     assert not out_path.exists(), 'a rejected encoding must not produce a file'
 
 
@@ -694,8 +602,9 @@ def test_write_tiff_requires_save_encoding(tmp_path):
             file_loc=out_path,
             metadata=_metadata(out_path, channel='BF', significant_bits=12),
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=12,
+            white_bits=None,
         )
 
 
@@ -708,6 +617,9 @@ def test_save_image_requires_save_encoding():
         save_image(
             None,
             array=np.zeros((4, 4), dtype=np.uint8),
+            channel_colors=release_colors(),
+            white_bits=None,
+            fallback_focus=None,
         )
 
 
@@ -741,108 +653,13 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding=encoding_for_array(data),
+        white_bits=None,
     )
     arr = tf.imread(str(out_path))
     assert arr[0, 0] == 4095, 'derived uint16 output must stay right-aligned (verbatim)'
-
-
-@pytest.mark.parametrize(
-    ('mode', 'dtype', 'expected'),
-    [
-        # The RGB false-color mode widens a derived fluorescence product, the
-        # same as a freshly captured frame -- a stitch/zproject is not silently
-        # demoted to mono.
-        ('12bit_false_color_rgb', np.uint16, 'rgb'),
-        # The quantitative modes keep the derived product verbatim: scaled does
-        # NOT msb-align a derived output (matches the prior behavior), and
-        # scientific stays right-aligned.
-        ('12bit_scaled', np.uint16, 'right_aligned'),
-        ('12bit_scientific', np.uint16, 'right_aligned'),
-        ('8bit', np.uint8, '8bit'),
-    ],
-)
-def test_save_encoding_for_derived_output_honors_rgb_mode(mode, dtype, expected):
-    """A derived data product preserves its pixels verbatim EXCEPT under the RGB
-    mode, where a fluorescence product widens to false color like a capture."""
-    from modules.image_mode import save_encoding_for_derived_output
-
-    arr = np.zeros((2, 2), dtype=dtype)
-    assert save_encoding_for_derived_output(arr, mode) == expected
-
-
-def test_resolve_output_save_encoding_reads_image_mode_ssot():
-    """The derived-output encoding comes from the live image_mode SSOT, so a
-    stitch/zproject honors the user's false-color choice -- the behavior that
-    used to hide in maybe_apply_false_color's settings read."""
-    from unittest import mock
-
-    import modules.derived_output_encoding as derived_output_encoding
-
-    arr = np.zeros((4, 4), dtype=np.uint16)
-
-    rgb_ctx = mock.MagicMock()
-    rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
-    with mock.patch('modules.app_context.ctx', rgb_ctx):
-        assert derived_output_encoding.resolve_output_save_encoding(arr) == 'rgb'
-
-    sci_ctx = mock.MagicMock()
-    sci_ctx.settings = {'image_mode': '12bit_scientific'}
-    with mock.patch('modules.app_context.ctx', sci_ctx):
-        assert derived_output_encoding.resolve_output_save_encoding(arr) == 'right_aligned'
-
-
-def test_resolve_output_save_encoding_degrades_without_context():
-    """With no app context (headless / pre-init, the post-processor test path),
-    the encoding falls back to the verbatim dtype-based value instead of crashing
-    on a None settings lock -- there is no user image_mode to honor."""
-    from unittest import mock
-
-    import modules.derived_output_encoding as derived_output_encoding
-
-    with mock.patch('modules.app_context.ctx', None):
-        assert (
-            derived_output_encoding.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint8))
-            == '8bit'
-        )
-        assert (
-            derived_output_encoding.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint16))
-            == 'right_aligned'
-        )
-
-
-def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
-    """Regression: a uint16 fluorescence stitch/zproject output saved through the
-    derived-output encoding widens to 3-channel RGB when the user is in the RGB
-    mode -- it must not silently save mono (the grayscale-in-Windows-Preview
-    regression)."""
-    from unittest import mock
-
-    import modules.derived_output_encoding as derived_output_encoding
-    import modules.image_utils as image_utils
-
-    out_path = tmp_path / 'derived_blue.tiff'
-    data = np.full((8, 8), 3000, dtype=np.uint16)
-
-    rgb_ctx = mock.MagicMock()
-    rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
-    with mock.patch('modules.app_context.ctx', rgb_ctx):
-        encoding = derived_output_encoding.resolve_output_save_encoding(data)
-        image_utils.write_tiff(
-            data=data,
-            file_loc=out_path,
-            metadata=_metadata(out_path, channel='Blue'),
-            ome=False,
-            color='Blue',
-            significant_bits=16,
-            save_encoding=encoding,
-        )
-
-    arr = tf.imread(str(out_path))
-    assert arr.shape == (8, 8, 3), 'derived fluorescence under RGB mode must widen to 3-channel'
-    assert arr[0, 0, 2] == 3000 and arr[0, 0, 0] == 0 and arr[0, 0, 1] == 0
 
 
 def test_manual_capture_path_passes_save_encoding():
@@ -879,13 +696,3 @@ def test_manual_capture_path_passes_save_encoding():
             f'a {call.func.id} call at line {call.lineno} still passes a '
             'retired color argument alongside the channel'
         )
-
-
-def test_the_mode_labels_differ_in_their_first_word():
-    """A spinner shortens text too wide for it from the right, so labels that
-    share their opening read the same in the closed selector; each mode's
-    label is told apart by its first word."""
-    from modules.image_mode import IMAGE_MODE_LABELS
-
-    first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
-    assert len(set(first_words)) == len(first_words), first_words

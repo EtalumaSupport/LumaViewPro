@@ -5,9 +5,16 @@ The simulator stands in for a real port at this seam and nowhere else, so
 the properties that matter are that every discovery and every open a board
 makes goes through the backend it was given, and that the production backend
 still reaches pyserial's module attributes at call time (the suite's
-real-port refusal depends on that).
+real-port refusal depends on that). A port the production backend opens has
+one reader: a second process's open is refused, and the holder still answers.
 """
 
+import os
+import pathlib
+import subprocess
+import sys
+
+import pytest
 import serial
 from serial.tools.list_ports_common import ListPortInfo
 
@@ -120,3 +127,43 @@ def test_pyserial_backend_resolves_pyserial_at_call_time(monkeypatch):
     assert serial_backend.PYSERIAL.comports() == []
     assert opened == ['/dev/x']
     assert enumerated == [True]
+
+
+# The second opener of a held port: another process, through the production
+# backend, as a second LumaViewPro, a probe or a test suite is.
+_SECOND_OPENER = """
+import sys
+import serial
+from drivers.serial_backend import PYSERIAL
+try:
+    PYSERIAL.open(port=sys.argv[1], timeout=0.2).close()
+    print('opened')
+except serial.SerialException as e:
+    print(f'refused: {e}')
+"""
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows opens every port exclusively')
+def test_a_port_the_backend_holds_is_refused_to_a_second_process(monkeypatch):
+    # A pseudo-terminal is a real tty and no board's port, so pyserial's own
+    # class is given back for it alone; the suite's refusal stays for the rest.
+    monkeypatch.setattr(serial, 'Serial', serial.serialposix.Serial)
+    master, slave = os.openpty()
+    port = os.ttyname(slave)
+    held = serial_backend.PYSERIAL.open(port=port, timeout=1)
+    try:
+        second = subprocess.run(
+            [sys.executable, '-c', _SECOND_OPENER, port],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=pathlib.Path(__file__).resolve().parent.parent,
+        )
+
+        assert 'Could not exclusively lock port' in second.stdout, second.stdout + second.stderr
+        os.write(master, b'INFO\n')
+        assert held.readline() == b'INFO\n'
+    finally:
+        held.close()
+        os.close(slave)
+        os.close(master)

@@ -9,10 +9,12 @@ import threading
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, led_reading
 
 
 # ---------------------------------------------------------------------------
@@ -22,13 +24,13 @@ from tests.scope_fakes import build_scope
 
 @pytest.fixture
 def scope():
-    """Simulated Lumascope with fast timing."""
+    """Simulated Lumascope with fast timing, bound to the shipped settings."""
     s = build_scope(simulate=True)
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.load_specimen()
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
 
 
@@ -42,57 +44,57 @@ class TestLEDListener:
 
     def test_listener_fires_on_led_on(self, scope):
         events = []
-        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
+        scope.illumination.led_on_by_address(0, 100)
         assert len(events) == 1
-        _color, enabled, illumination_ma = events[0]
-        assert enabled is True
-        assert illumination_ma == 100.0
+        address, _name, state, illumination_ma = events[0]
+        assert (address, state, illumination_ma) == (0, LedState.LIT, 100.0)
 
     def test_listener_fires_on_led_off(self, scope):
         events = []
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
-        scope.illumination.led_off(channel=0)
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
+        scope.illumination.led_off_by_address(0)
         assert len(events) == 1
-        assert events[0][1] is False  # enabled
+        assert (events[0][0], events[0][2]) == (0, LedState.DARK)
 
     def test_listener_fires_on_leds_off(self, scope):
         events = []
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.led_on(channel=1, illumination_ma=50)
-        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.led_on_by_address(1, 50)
+        scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
         scope.illumination.leds_off()
-        # Should fire once per channel in led_ma
-        assert len(events) >= 2
-        assert all(e[1] is False for e in events)
+        # One event per board address, every one dark.
+        board = [r.address for r in scope.illumination.get_led_states()]
+        assert [e[0] for e in events] == board
+        assert all(e[2] is LedState.DARK for e in events)
 
     def test_listener_not_fired_on_skip(self, scope):
         """When led_on is called with same params (skip-check), no listener fires."""
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         events = []
-        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
-        scope.illumination.led_on(channel=0, illumination_ma=100)  # redundant -- should skip
+        scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
+        scope.illumination.led_on_by_address(0, 100)  # redundant -- should skip
         assert len(events) == 0
 
     def test_remove_listener(self, scope):
         events = []
-        listener = lambda c, e, m: events.append((c, e, m))
+        listener = lambda a, n, st, m: events.append((a, n, st, m))
         scope.illumination.add_led_listener(listener)
         scope.illumination.remove_led_listener(listener)
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         assert len(events) == 0
 
     def test_listener_exception_does_not_propagate(self, scope):
         """A broken listener must not prevent the LED command from succeeding."""
 
-        def bad_listener(c, e, m):
+        def bad_listener(a, n, st, m):
             raise RuntimeError('broken listener')
 
         scope.illumination.add_led_listener(bad_listener)
         # Should not raise
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
+        scope.illumination.led_on_by_address(0, 100)
+        assert led_reading(scope, 0).state is LedState.LIT
 
     def test_listener_fires_from_multiple_threads(self, scope):
         """Listeners fire for every caller, whichever thread calls led_on.
@@ -101,14 +103,14 @@ class TestLEDListener:
         events = []
         lock = threading.Lock()
 
-        def listener(c, e, m):
+        def listener(a, n, st, m):
             with lock:
                 events.append(threading.current_thread().name)
 
         scope.illumination.add_led_listener(listener)
 
         def turn_on(ch, illumination_ma):
-            scope.illumination.led_on(channel=ch, illumination_ma=illumination_ma)
+            scope.illumination.led_on_by_address(ch, illumination_ma)
 
         t1 = threading.Thread(target=turn_on, args=(0, 100), name='thread-A')
         t2 = threading.Thread(target=turn_on, args=(1, 50), name='thread-B')
@@ -130,30 +132,28 @@ class TestLEDOwnership:
 
     def test_ownership_allows_own_off(self, scope):
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
-        scope.illumination._led_off_impl(channel=0, _lease=lease)
-        color = scope.illumination.ch2color(0)
-        assert not scope.illumination.get_led_state(color)['enabled']
+        scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
+        scope.illumination._led_off_impl(0, member='led_off', _lease=lease)
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_no_owner_off_is_unconditional(self, scope):
         """led_off without a lease works on a channel a (released) lease lit."""
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+        scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
         lease.release(leave_on=True)
-        scope.illumination.led_off(channel=0)  # no lease = unconditional
-        color = scope.illumination.ch2color(0)
-        assert not scope.illumination.get_led_state(color)['enabled']
+        scope.illumination.led_off_by_address(0)  # no lease = unconditional
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_leds_off_nuclear_clears_all(self, scope):
         protocol = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-        scope.illumination._led_on_impl(channel=1, illumination_ma=50, _lease=protocol)
+        scope.illumination._led_on_impl(1, 50, member='led_on', _lease=protocol)
         autofocus = protocol.acquire_child('autofocus')
-        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=autofocus)
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
+        scope.illumination._led_on_impl(0, 100, member='led_on', _lease=autofocus)
+        assert led_reading(scope, 0).state is LedState.LIT
+        assert led_reading(scope, 1).state is LedState.LIT
         scope.illumination.leds_off()  # nuclear
-        assert not scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
-        assert not scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
+        assert led_reading(scope, 0).state is LedState.DARK
+        assert led_reading(scope, 1).state is LedState.DARK
 
 
 # ---------------------------------------------------------------------------
@@ -162,48 +162,42 @@ class TestLEDOwnership:
 
 
 class TestLEDSaveRestore:
-    """Tests for save_led_state / restore_led_state."""
+    """Tests for restoring saved readings (get_led_states / restore_led_state)."""
 
     def test_save_restore_roundtrip(self, scope):
         """Save state with LEDs on, turn all off, restore, verify original."""
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.led_on(channel=1, illumination_ma=50)
-        snapshot = scope.illumination.save_led_state('test')
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.led_on_by_address(1, 50)
+        snapshot = scope.illumination.get_led_states()
         scope.illumination.leds_off()
-        assert not scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
+        assert led_reading(scope, 0).state is LedState.DARK
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
+        assert led_reading(scope, 0).state is LedState.LIT
+        assert led_reading(scope, 1).state is LedState.LIT
 
-    def test_restore_empty_snapshot(self, scope):
-        """Restoring an empty snapshot is a no-op."""
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.restore_led_state({})
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
-            'enabled'
-        ]  # unchanged
+    def test_restoring_an_all_dark_snapshot_darkens_what_was_lit_since(self, scope):
+        """The readings hold every address, so ones taken with nothing lit
+        restore every address dark."""
+        snapshot = scope.illumination.get_led_states()
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.restore_led_state(snapshot)
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_af_pattern_save_restore(self, scope):
         """Simulate the AF pattern: save -> own LED on -> do work -> release -> restore."""
-        # User has Blue LED on
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        # User has LED 0 on
+        scope.illumination.led_on_by_address(0, 100)
         # AF starts
-        snapshot = scope.illumination.save_led_state('autofocus')
+        snapshot = scope.illumination.get_led_states()
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-        scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)  # BF for AF
+        scope.illumination._led_on_impl(3, 200, member='led_on', _lease=lease)  # BF for AF
         # AF finishes
         lease.release()  # only kills the LED the AF lease lit
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
-            'enabled'
-        ]  # user's Blue still on
-        assert not scope.illumination.get_led_state(scope.illumination.ch2color(3))[
-            'enabled'
-        ]  # AF's BF off
+        assert led_reading(scope, 0).state is LedState.LIT  # user's LED 0 still on
+        assert led_reading(scope, 3).state is LedState.DARK  # AF's BF off
         # Restore (should be a no-op since user's LED was never touched)
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
-            'enabled'
-        ]  # still on
+        assert led_reading(scope, 0).state is LedState.LIT  # still on
 
 
 # ---------------------------------------------------------------------------
@@ -212,44 +206,52 @@ class TestLEDSaveRestore:
 
 
 class TestCameraListener:
-    """Tests for add_camera_listener / _fire_camera_listeners."""
+    """Tests for add_gain_listener / add_exposure_listener: each setting its own event, in its unit."""
 
-    def test_listener_fires_on_set_gain(self, scope):
-        events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_gain_db(5.0)
-        assert len(events) == 1
-        assert events[0] == ('gain', 5.0)
+    def test_the_gain_listener_hears_the_gain_in_db_and_not_an_exposure(self, scope):
+        gains, exposures = [], []
+        scope.camera.add_gain_listener(gains.append)
+        scope.camera.add_exposure_listener(exposures.append)
+        scope.camera.set_gain_db(5.0)
+        assert (gains, exposures) == ([5.0], [])
 
-    def test_listener_fires_on_set_exposure(self, scope):
-        events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_exposure_ms(25.0)  # Different from default 10ms
-        assert len(events) == 1
-        assert events[0] == ('exposure', 25.0)
+    def test_the_exposure_listener_hears_the_exposure_in_ms_and_not_a_gain(self, scope):
+        gains, exposures = [], []
+        scope.camera.add_gain_listener(gains.append)
+        scope.camera.add_exposure_listener(exposures.append)
+        scope.camera.set_exposure_ms(25.0)  # Different from default 10ms
+        assert (gains, exposures) == ([], [25.0])
 
     def test_listener_not_fired_on_redundant_gain(self, scope):
         """Skip-check: same gain value should not fire listener."""
-        scope.imaging.set_gain_db(5.0)
+        scope.camera.set_gain_db(5.0)
         events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_gain_db(5.0)  # redundant
+        scope.camera.add_gain_listener(events.append)
+        scope.camera.set_gain_db(5.0)  # redundant
         assert len(events) == 0
 
-    def test_remove_camera_listener(self, scope):
+    def test_remove_gain_listener(self, scope):
         events = []
-        listener = lambda p, v: events.append((p, v))
-        scope.imaging.add_camera_listener(listener)
-        scope.imaging.remove_camera_listener(listener)
-        scope.imaging.set_gain_db(5.0)
+        listener = events.append
+        scope.camera.add_gain_listener(listener)
+        scope.camera.remove_gain_listener(listener)
+        scope.camera.set_gain_db(5.0)
+        assert len(events) == 0
+
+    def test_remove_exposure_listener(self, scope):
+        events = []
+        listener = events.append
+        scope.camera.add_exposure_listener(listener)
+        scope.camera.remove_exposure_listener(listener)
+        scope.camera.set_exposure_ms(25.0)
         assert len(events) == 0
 
     def test_camera_listener_exception_does_not_propagate(self, scope):
-        def bad_listener(p, v):
+        def bad_listener(gain_db):
             raise RuntimeError('broken')
 
-        scope.imaging.add_camera_listener(bad_listener)
-        scope.imaging.set_gain_db(5.0)  # should not raise
+        scope.camera.add_gain_listener(bad_listener)
+        scope.camera.set_gain_db(5.0)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -261,27 +263,31 @@ class TestCameraSaveRestore:
     """Tests for save_camera_state / restore_camera_state."""
 
     def test_save_restore_roundtrip(self, scope):
-        scope.imaging.set_gain_db(5.0)
-        scope.imaging.set_exposure_ms(25.0)
-        snapshot = scope.imaging.save_camera_state('test')
+        scope.camera.set_gain_db(5.0)
+        scope.camera.set_exposure_ms(25.0)
+        snapshot = scope.camera.save_camera_state('test')
         # Change to different values
-        scope.imaging.set_gain_db(10.0)
-        scope.imaging.set_exposure_ms(50.0)
-        assert scope.imaging.get_gain_db() != 5.0
+        scope.camera.set_gain_db(10.0)
+        scope.camera.set_exposure_ms(50.0)
+        assert scope.camera.read_gain_db() != 5.0
         # Restore
-        scope.imaging.restore_camera_state(snapshot)
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01
-        assert abs(scope.imaging.get_exposure_ms() - 25.0) < 0.01
+        scope.camera.restore_camera_state(snapshot)
+        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01
+        assert abs(scope.camera.read_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
-        scope.imaging.set_gain_db(5.0)
-        scope.imaging.restore_camera_state(None)
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01  # unchanged
-        scope.imaging.restore_camera_state({})
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01  # unchanged
+        from modules.exceptions import ArgumentTypeRefusedError
+
+        scope.camera.set_gain_db(5.0)
+        # No snapshot is not a snapshot: the member takes a dict.
+        with pytest.raises(ArgumentTypeRefusedError) as refused:
+            scope.camera.restore_camera_state(None)
+        assert (refused.value.reason, refused.value.argument) == ('wrong_argument_type', 'snapshot')
+        scope.camera.restore_camera_state({})
+        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01  # unchanged
 
     def test_snapshot_contains_tag(self, scope):
-        snapshot = scope.imaging.save_camera_state('protocol')
+        snapshot = scope.camera.save_camera_state('protocol')
         assert snapshot['tag'] == 'protocol'
         assert 'gain_db' in snapshot
         assert 'exposure_ms' in snapshot

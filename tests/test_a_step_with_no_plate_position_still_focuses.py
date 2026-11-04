@@ -5,16 +5,13 @@ A run's step move went to Z only after moving X and Y, so a step with no
 X/Y left the focus wherever it was while the saved image recorded the
 step's Z -- an image that says it was taken at a focus it was not.
 
-A step with no plate position at all is refused where the protocol is
-built until the Z-only row fixes every reader of an unknown position
-(ruled F2); until then the step carries the position it was saved with,
-and the scope, having no XY stage, moves only Z.
+The step has no plate position, as a step recorded on such a scope does
+(absent hardware stage 4), and the scope, having no XY stage, moves only Z.
 
 Driven through the Session on a simulated LS820, a scope with Z and no XY
 stage.
 """
 
-import json
 import pathlib
 import threading
 
@@ -38,27 +35,27 @@ def zonly_session(tmp_path):
         complete_settings(**_settings(tmp_path, microscope='LS820')), simulate=True
     )
     home_sim_scope(session.scope)
-    session.scope.motion.move_absolute('Z', START_Z_UM)
+    session.scope.motion.move_z(START_Z_UM)
     yield session
     session.shutdown()
 
 
 def _step_at(z_um):
-    step = {**_make_single_step_protocol().step(idx=0), 'Z': z_um}
+    step = {**_make_single_step_protocol().step_row(step_index=0), 'X': None, 'Y': None, 'Z': z_um}
     return _build_real_protocol([step])
 
 
 def _run_and_wait_for_files(session, tmp_path, protocol):
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     files_written = threading.Event()
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=protocol,
         sequence_name='zonly',
         parent_dir=str(tmp_path),
         events=RunEvents(files_written=lambda run_dir, files: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
 
 def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_path):
@@ -73,7 +70,7 @@ def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_pa
         p for p in pathlib.Path(tmp_path).rglob('*') if p.suffix.lower() in ('.tif', '.tiff')
     ]
     with tifffile.TiffFile(str(image)) as tf:
-        plane = json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+        plane = tf.shaped_metadata[0]['Plane']
     assert plane['PositionZ'] == pytest.approx(STEP_Z_UM)
 
 
@@ -87,7 +84,7 @@ def test_the_image_states_no_plate_position_on_a_scope_without_one(zonly_session
         p for p in pathlib.Path(tmp_path).rglob('*') if p.suffix.lower() in ('.tif', '.tiff')
     ]
     with tifffile.TiffFile(str(image)) as tf:
-        plane = json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+        plane = tf.shaped_metadata[0]['Plane']
     assert 'PositionX' not in plane
     assert 'PositionY' not in plane
     assert plane['PositionZ'] == pytest.approx(STEP_Z_UM)

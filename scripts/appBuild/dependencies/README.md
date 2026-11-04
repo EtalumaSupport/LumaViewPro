@@ -45,10 +45,11 @@ version-checks the extension. If it is absent the build stops and says so.
 | File | Pattern matched | Effect when absent |
 |---|---|---|
 | `ids_peak_*.exe` plus `setup.iss` | `ids_peak_*.exe`, `setup.iss` | IDS cameras need a manual driver install on customer machines |
-| `fx2\*WinUSB*.inf` | `*WinUSB*.inf`, in the `fx2\` subfolder | FX2 driver not auto-installed; customer must use Zadig |
-| `fx2\libusb-1.0.dll` | `libusb-1.0.dll`, in the `fx2\` subfolder | Bundled app fails at first FX2 access |
-
-Both FX2 files live in an `fx2\` **subfolder** of this directory, not here.
+Nothing for the FX2 (LS560, LS620, LS720) goes here: its driver INF is in
+the repo (`scripts\appBuild\build_exe\fx2_driver\`), and its libusb library
+and firmware come with the clone and the `libusb-package` wheel. An `.inf` or
+a `libusb*.dll` left here or in an `fx2\` subfolder from the old route
+refuses the build.
 
 ## Notes
 

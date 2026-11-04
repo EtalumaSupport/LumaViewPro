@@ -3,33 +3,32 @@
 import pathlib
 import traceback
 import harness
+from tests.stock_channels import LED0, LED1
 
 s, live = harness.make_session('p7')
 try:
     # two channels acquiring an image is the composite's own precondition
     with s.settings_lock:
-        for lay in ('Blue', 'Green'):
+        for lay in (LED0, LED1):
             s.settings[lay]['acquire'] = 'image'
             s.settings[lay]['illumination_ma'] = 50
-    runner = s.create_protocol_runner()
+    runner = s.protocol_runner()
     parent = pathlib.Path(live) / 'Manual' / 'Composites'
     # (a) not streaming -- does the ENGINE refuse, or only the GUI pre-check?
-    print(
-        'streaming?', s.scope.imaging.is_streaming(), 'active_cached', s.scope.imaging.active_cached
-    )
+    print('streaming?', s.scope.imaging.is_streaming(), 'active', s.scope.camera.active)
     try:
         out = runner.start_composite(sequence_name='composite', parent_dir=parent)
         print('a: start_composite while NOT streaming -> ACCEPTED', out)
-        res = out.wait(timeout_s=90)
+        res = out.result(timeout=90)
         print('a: outcome', res)
     except Exception as e:
         print('a: start_composite while NOT streaming -> REFUSED', type(e).__name__, e)
     # (b) streaming
-    s.scope.imaging.start_streaming()
+    s.scope.imaging.enable_streaming()
     try:
         out = runner.start_composite(sequence_name='composite2', parent_dir=parent)
         print('b: start_composite streaming -> ACCEPTED', out)
-        res = out.wait(timeout_s=120)
+        res = out.result(timeout=120)
         print('b: outcome', res)
     except Exception as e:
         print('b: REFUSED', type(e).__name__, e)

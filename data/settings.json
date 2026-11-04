@@ -13,7 +13,7 @@
         "y": 4000.0
     },
     "objective_id": "20x Oly",
-    "objective_confirmed": false,
+    "objective_confirmed": null,
     "turret_objectives": {
         "1": null,
         "2": null,
@@ -22,7 +22,9 @@
     },
     "frame": {
         "width": 1900,
-        "height": 1900
+        "height": 1900,
+        "native_width": 1900,
+        "native_height": 1900
     },
     "live_folder": "./capture",
     "bookmark": {
@@ -31,10 +33,10 @@
         "z": 4950.0
     },
     "BF": {
-        "file_root": "BF_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
+        "display_color": null,
         "illumination_ma": 5.0,
         "sum": 1,
         "gain_db": 1.0,
@@ -42,15 +44,14 @@
         "exposure_ms": 2.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
     "PC": {
-        "file_root": "PC_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
+        "display_color": null,
         "illumination_ma": 50.0,
         "sum": 1,
         "gain_db": 1.0,
@@ -58,15 +59,14 @@
         "exposure_ms": 5.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
     "DF": {
-        "file_root": "DF_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
+        "display_color": null,
         "illumination_ma": 50.0,
         "sum": 1,
         "gain_db": 1.0,
@@ -74,87 +74,39 @@
         "exposure_ms": 30.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
-    "Blue": {
-        "file_root": "B_",
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 250.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
-    },
-    "Green": {
-        "file_root": "G_",
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 250.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
-    },
-    "Red": {
-        "file_root": "R_",
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 350.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
+    "channel_defaults": {
+        "fluorescence": {
+            "focus": null,
+            "autofocus": false,
+            "false_color": true,
+            "display_color": null,
+            "illumination_ma": 250.0,
+            "sum": 1,
+            "gain_db": 10.0,
+            "auto_gain": false,
+            "exposure_ms": 100.0,
+            "acquire": null,
+            "video_config": {
+                "duration": 5
+            },
+            "stim_config": {
+                "enabled": false,
+                "illumination_ma": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 100
+            },
+            "composite_brightness_threshold": 50
+        }
     },
     "Lumi": {
-        "file_root": "LM_",
         "focus": null,
         "autofocus": false,
         "false_color": true,
+        "display_color": null,
         "illumination_ma": 0.0,
         "sum": 1,
         "gain_db": 10.0,
@@ -162,15 +114,14 @@
         "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         },
         "composite_brightness_threshold": 50
     },
     "zstack": {
         "step_size": 0,
         "range": 0,
-        "position": "Current Position at Center"
+        "position": "center"
     },
     "protocol": {
         "period": 20,
@@ -179,11 +130,9 @@
         "filepath": "./data/new_default_protocol.tsv",
         "autogain": {
             "target_brightness": 0.3,
-            "max_duration_seconds": 1.0,
             "min_gain_db": 0.0,
             "max_gain_db": 20.0
-        },
-        "bf_af_for_fluorescence": false
+        }
     },
     "binning": {
         "size": "1x1"
@@ -198,7 +147,6 @@
         },
         "autofocus": false
     },
-    "step_channel_order": ["BF", "PC", "DF", "Green", "Blue", "Red", "Lumi"],
     "mode": "normal",
     "debug_mode": false,
     "cprofile_enabled": false,
@@ -212,9 +160,7 @@
     "fx2_debug_wire_enabled": false,
     "profiling": {
         "enabled": false,
-        "stim_profiling": false,
         "handle_trace_enabled": false,
-        "handle_trace_obj_sample_every": 1000,
         "open_files_enabled": false,
         "metrics_interval_s": null
     },
@@ -227,7 +173,7 @@
     },
     "video": {
         "max_fps": 0,
-        "max_duration_seconds": 300,
+        "max_duration_s": 300,
         "timestamp_overlay": true
     },
 
@@ -244,22 +190,10 @@
     "keep_led_between_steps": false,
     "stimulation_enabled": false,
     "lvp_lock_port": 43101,
-    "camera_type": "auto",
-    "autofocus": {
-        "one_af_per_well": false,
-        "reduce_af_range": false,
-        "af_range_reduction_pct": 50,
-        "suppress_background_during_protocol": false
-    },
-    "stage": {
-        "plate_bottom_z_estimate": null,
-        "focus_safety_margin_um": 500
-    },
     "rest_api": {
         "enabled": false,
-        "host": "127.0.0.1",
         "port": 8000,
-        "api_key": null,
-        "cors_origins": ["http://localhost:*", "http://127.0.0.1:*"]
+        "address": "127.0.0.1",
+        "allowed_clients": []
     }
 }

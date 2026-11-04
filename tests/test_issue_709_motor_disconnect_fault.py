@@ -2,7 +2,7 @@
 leave the axis stuck MOVING forever.
 
 Before the fix the motion monitor skipped a disconnected axis on every
-poll, so is_moving() never cleared and autofocus / the protocol runner
+poll, so is_any_axis_moving() never cleared and autofocus / the protocol runner
 wedged silently with no notification. The monitor now bounds the
 disconnect: after a short deadline it faults the axis to a terminal state
 (UNKNOWN, which fires the arrival event so waiters unblock) and notifies
@@ -36,7 +36,7 @@ def test_disconnect_mid_move_faults_axis_and_notifies(centre_posts):
     # Drive an axis MOVING; the monitor wakes and now sees the disconnect.
     assert motion._begin_move('Z', motion._stop_generation)
 
-    assert _wait_until(lambda: not motion.is_moving()), (
+    assert _wait_until(lambda: not motion.is_any_axis_moving()), (
         'a disconnected axis must leave MOVING within the fault deadline, not hang forever'
     )
     assert motion._axis_state['Z'] == AxisState.UNKNOWN

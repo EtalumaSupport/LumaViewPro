@@ -82,7 +82,11 @@ Adding a new camera model
 """
 
 import copy
+import json
+import pathlib
 from dataclasses import dataclass, field, replace
+
+from lib.log_helpers import logger
 
 
 @dataclass
@@ -103,9 +107,11 @@ class CameraProfile:
 
     # --- Static (hardcoded per model) ---
     model_name: str = ''
-    sensor: str = ''
+    # The sensor's name and its shutter ('rolling' or 'global'), as the model's
+    # datasheet states them; None for a camera no curated entry describes.
+    sensor: str | None = None
     pixel_size_um: float = 0.0  # Pixel pitch in micrometers
-    shutter: str = 'rolling'  # 'rolling' or 'global'
+    shutter: str | None = None
     native_resolution: dict = field(default_factory=dict)  # {'width': int, 'height': int}
     pixel_formats: list[str] = field(default_factory=list)
     binning_sizes: list[int] = field(default_factory=lambda: [1])
@@ -119,6 +125,10 @@ class CameraProfile:
     has_auto_exposure: bool = False
     driver: str = ''  # 'pylon', 'ids', 'simulated'
     notes: str = ''
+    # The model whose measured timing record (data/camera_timing/<model>.json)
+    # this camera's frame-validity drains are read from; empty: none measured,
+    # and the drains are frame validity's shipped counts.
+    timing_model: str = ''
 
     # --- Exposure ceiling (microseconds) ---
     # Single source of truth for the maximum exposure cap. Default it
@@ -137,6 +147,7 @@ class CameraProfile:
 # Basler dart -- daA3840-45um
 _daA3840_45um = CameraProfile(
     model_name='daA3840-45um',
+    timing_model='daA3840-45um',
     sensor='Sony IMX334LLR-C',
     pixel_size_um=2.0,
     shutter='rolling',
@@ -191,6 +202,7 @@ _dmA3536_9gm = CameraProfile(
 # Basler ace 2 -- a2A3536-31umBAS
 _a2A3536_31umBAS = CameraProfile(
     model_name='a2A3536-31umBAS',
+    timing_model='a2A3536-31umBAS',
     sensor='Sony IMX676-AAMR1-C',
     pixel_size_um=2.0,
     shutter='rolling',
@@ -246,11 +258,14 @@ _U3_34L0XCP_M = CameraProfile(
 # meets on the bench. Built from that profile, so every field an API caller
 # reads is the dart's by construction; replaced are the identity, the ranges
 # the real camera fills at connect (given as what it advertises: 0-48 dB,
-# 14 us - 1 s), and the formats the simulator renders (it has no packed
-# Mono12p). The simulated camera reads its size, name and formats from here.
+# 14 us - 1 s), the formats the simulator renders (it has no packed
+# Mono12p), and the timing record: the simulated sensor's delays are its own,
+# so a measurement of it never stands as the dart's, nor the dart's as its.
+# The simulated camera reads its size, name and formats from here.
 _simulated = replace(
     copy.deepcopy(_daA3840_45um),
     model_name='SimulatedCamera-3840x2160',
+    timing_model='SimulatedCamera-3840x2160',
     sensor='Simulated',
     driver='simulated',
     pixel_formats=['Mono8', 'Mono12'],
@@ -333,6 +348,29 @@ def simulated_profile() -> CameraProfile:
     return copy.deepcopy(_simulated)
 
 
+def timing_record_path(profile: CameraProfile) -> pathlib.Path:
+    """Where ``profile``'s measured timing record ships."""
+    return (
+        pathlib.Path(__file__).resolve().parent.parent
+        / 'data'
+        / 'camera_timing'
+        / f'{profile.timing_model}.json'
+    )
+
+
+def timing_record(profile: CameraProfile) -> dict | None:
+    """``profile``'s measured timing record, or None when it names none.
+
+    A record the profile names is shipped with the installation, so a
+    missing or unreadable one raises (``OSError``, ``ValueError``): a
+    measurement the installation claims to carry is not silently absent.
+    """
+    if not profile.timing_model:
+        return None
+    with open(timing_record_path(profile), encoding='utf-8') as f:
+        return json.load(f)
+
+
 def ids_default_profile(model_name: str) -> CameraProfile:
     """Generic IDS profile for a body whose model name matched no static entry.
 
@@ -350,7 +388,6 @@ def ids_default_profile(model_name: str) -> CameraProfile:
     """
     return CameraProfile(
         model_name=model_name,
-        sensor='IDS (unrecognized model)',
         pixel_size_um=0.0,  # filled from SensorPixelWidth at connect
         pixel_formats=[],  # filled from the live PixelFormat node at connect
         binning_sizes=[1],  # widened from the live binning ceiling at connect
@@ -379,16 +416,7 @@ def lookup_profile(model_name: str | None) -> CameraProfile:
             result.model_name = model_name  # Use the actual full model name
             return result
 
-    logger = None
-    try:
-        from lvp_logger import logger as _logger
-
-        logger = _logger
-    except ImportError:
-        pass
-
-    if logger:
-        logger.warning(f'[CAM Prof  ] No profile found for model: {model_name}, using defaults')
+    logger.warning(f'[CAM Prof  ] No profile found for model: {model_name}, using defaults')
 
     result = copy.deepcopy(_DEFAULT)
     result.model_name = model_name

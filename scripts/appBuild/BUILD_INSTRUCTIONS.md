@@ -20,8 +20,8 @@ The `-setup.exe` bundle is only created when both **required** dependencies
 are present: the Basler Pylon USB Camera Driver MSI and the Microsoft VC++
 Redistributable (`vc_redist.x64.exe` -- the app deliberately ships no
 `msvcp140.dll` of its own, so the bundle must chain the redistributable).
-Optional dependencies (IDS Peak, FX2 driver) are silently skipped when their
-files are absent.
+The optional dependency (IDS Peak) is silently skipped when its files are
+absent. The FX2 driver package is carried by every build, from the repo.
 
 ## One-Time Setup
 
@@ -96,10 +96,7 @@ dependencies\
 |-- pylon_USB_Camera_Driver.msi          # required for the bundle
 |-- vc_redist.x64.exe                    # required for the bundle
 |-- ids_peak_<version>.exe               # optional — IDS cameras
-|-- setup.iss                            # optional — paired with ids_peak EXE
-`-- fx2\
-    |-- LumaScope_WinUSB.inf             # optional — LVC FX2 driver bind
-    `-- libusb-1.0.dll                   # optional — pyusb backend on Windows
+`-- setup.iss                            # optional — paired with ids_peak EXE
 ```
 
 #### Where each dependency comes from
@@ -110,8 +107,6 @@ dependencies\
 | `vc_redist.x64.exe` | [aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Microsoft's latest VC++ x64 redistributable, no account needed. The build fails if its version is older than the newest VC runtime any bundled wheel carries (build.ps1 prints both in the CRT census). |
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant | Free MyIDS account required. **The download is a package; extract it and use the inner `ids_peak_<version>.exe` (underscores). The hyphenated outer file cannot be driven silently.** Chaining IDS is not currently supported — see the IDS Peak section below before using these two rows. |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run the **inner** `ids_peak_<version>.exe /r`; it records your interactive choices into `%WINDIR%\setup.iss`. The choices matter — the USB3 Vision Transport Layer must be selected. See the IDS Peak section below. |
-| `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
-| `fx2\libusb-1.0.dll` | Firmware repo, `fx2_firmware/build_deps/libusb-1.0.dll` | x64 build, ~150 KB. Pinned to libusb v1.0.29 (VS2019/MS64). To upgrade, replace the file in the Firmware repo and update `fx2_firmware/build_deps/README.md`. |
 
 Keep a local mirror of every account-gated download (Pylon, IDS Peak) in
 your build artefact store. Do not depend on being logged into MyBasler /
@@ -227,39 +222,65 @@ order and that `requirements.txt` does not currently carry. IDS renumbered
 releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
 guidance predates the change and cannot be compared numerically.
 
-#### FX2 WinUSB Driver (LVC cameras: LS560 / LS620 / LS720)
+#### Code Signing Certificate (optional; it also decides the Lumascope Classic driver)
 
-```text
-dependencies\fx2\
-|-- LumaScope_WinUSB.inf            # ~2 KB text file
-`-- libusb-1.0.dll                  # ~150 KB native library
-```
+With no certificate configured the build is unsigned and leaves the Lumascope
+Classic driver out of the installer (below). To sign:
 
-Two files together enable end-to-end FX2 support. Both are
-build-time-optional and runtime-decoupled — `drivers/fx2driver.py` gates
-its imports with `_FX2_AVAILABLE`, so absence degrades to "FX2 not
-supported" rather than a crash.
+1. Buy an OV code-signing certificate issued to Etaluma, with the CA's cloud
+   signing (SSL.com eSigner, Certum SimplySign, or Sectigo through a reseller),
+   not a USB token: a token's PIN needs someone at the build box. Install the
+   CA's signing tool on the build box and sign in; it puts the certificate,
+   with its key, in your certificate store (`Cert:\CurrentUser\My`).
+2. Install the Windows SDK (its Signing Tools give `signtool.exe`) and the
+   Windows Driver Kit (`Inf2Cat.exe`). Both are free from Microsoft.
+3. Put the certificate's SHA-1 thumbprint, on one line, in
+   `dependencies\signing\thumbprint.txt`
+   (`Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert` lists it).
 
-- **`LumaScope_WinUSB.inf`** — binds inbox `WinUSB.sys` to the FX2 VID/PID
-  `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open the device without
-  Zadig. When present, the LVP MSI installs it to
-  `<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
-  during `InstallFiles` (deferred, runs as SYSTEM, errors ignored).
+The build then signs `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`, the
+Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
+each with a timestamp, and stops if any file fails to sign. Its receipt says
+`Signed: yes (<thumbprint>)`, or `Signed: NO`.
 
-- **`libusb-1.0.dll`** — the native USB library that pyusb's `libusb1`
-  backend loads via `ctypes` on Windows. PyInstaller bundles it next to
-  `lumaviewpro.exe` so `ctypes.cdll.LoadLibrary("libusb-1.0.dll")` finds
-  it inside the installed app.
+#### FX2 WinUSB Driver (Lumascope Classic: LS560 / LS620 / LS720)
 
-When either file is absent, the build still succeeds but FX2 cameras
-won't work on the resulting installer:
+Nothing to drop in, and in a signed build only. The driver package is
+`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` in the repo: it
+binds inbox `WinUSB.sys` to both of the FX2's identities, `0x04B4:0x8613` (the
+bootloader) and `0x04B4:0xEA17` (the running firmware), named "Lumascope
+Classic (Bootloader)" and "Lumascope Classic" in Device Manager. A signed
+build stamps its `DriverVer` with the build's date and the installer version
+(`scripts\appBuild\config\fx2_driver_package.py`), writes the stamped copy to
+the output folder's `fx2_driver\`, makes its catalog with `Inf2Cat` and signs
+it, and the MSI installs both to `<InstallFolder>\drivers\fx2\`. Windows ranks
+equally signed packages for one device by that date, so the stamp is what
+lets ours outrank an older Zadig binding. An unsigned build leaves them out
+and its receipt says `ClassicDriver=NOT BUNDLED (no signing certificate)`:
+Windows accepts a driver package only with a signed catalog.
 
-| INF | DLL | Result |
-|---|---|---|
-| ✓ | ✓ | Full FX2 support — driver auto-installed, app can talk to camera |
-| ✗ | ✓ | App has FX2 libraries but customer must install driver via Zadig |
-| ✓ | ✗ | Driver installed but bundled app fails at first FX2 access |
-| ✗ | ✗ | FX2 unsupported (current 4.0.0-beta default) |
+The installer does not bind the driver. The first time LumaViewPro meets a
+Classic on no driver, or on one it cannot use (LumaView Classic's libusbK),
+it offers to install it; that runs the driver step, `lvp_fx2_driver_step.exe
+install`, as an administrator on the person's desktop, where Windows asks
+whether to install software from Etaluma. The step adds our package to the
+driver store, and only once it is there exports and removes every other
+vendor's package for the running firmware (`0xEA17`), binds the present
+devices to ours, removes our older packages and the past devices of both
+identities, and logs every step to
+`<InstallFolder>\logs\driver_install_<version>_<time>.log`. A working Zadig
+WinUSB binding is left as it is. Uninstall runs `lvp_fx2_driver_step.exe
+uninstall`, which removes our package and restores what install exported; an
+upgrade leaves the driver installed.
+
+The rest of what the FX2 needs is not a dependency to drop in either: the release
+spec ships the firmware hex from the clone's `firmware\` folder and the
+native libusb library from the `libusb-package` wheel (`requirements.txt`),
+inside the bundle's `libusb_package\` folder where the driver looks for it.
+The build is refused, naming the file, when either is missing, before
+PyInstaller runs and again in the built tree. A `libusb*.dll` or an `.inf`
+left in `dependencies\` or `dependencies\fx2\` from the old route also refuses
+the build: nothing reads it any more.
 
 ### 4. Copy The Build Script
 
@@ -326,10 +347,10 @@ The script then:
    version (e.g. `4.0.0-beta6` → `4.0.0.6`) so beta-to-beta upgrades are
    visible to Windows Installer / Burn.
 2. Installs build dependencies into `buildvenv`.
-3. Builds the app folder with PyInstaller. Bundles `libusb-1.0.dll` if
-   present in `dependencies\fx2\`.
-4. Builds `LumaViewPro-<version>.msi`. Adds an FX2 driver-install
-   custom action if `LumaScope_WinUSB.inf` is present.
+3. Builds the app folder with PyInstaller, with the FX2's firmware hex and
+   `libusb-package`'s library.
+4. Stamps the FX2 driver package and builds `LumaViewPro-<version>.msi`,
+   which carries it and runs the FX2 driver step at install and uninstall.
 5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present.
    Chains the IDS Peak runtime EXE if its files are present.
 6. Removes temporary clone/build files.
@@ -339,7 +360,9 @@ Example output:
 ```text
 C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6\
 |-- LumaViewPro-4.0.0-beta6.msi
-`-- LumaViewPro-4.0.0-beta6-setup.exe
+|-- LumaViewPro-4.0.0-beta6-setup.exe
+`-- fx2_driver\
+    `-- Lumascope_Classic.inf          # the stamped copy the MSI carries
 ```
 
 Previous completed packages are preserved in `exe_artifacts\`.
@@ -351,7 +374,7 @@ Before a customer build:
 1. Confirm `version.txt` has the release version testers should see.
 2. Commit and push the branch to be packaged.
 3. Confirm `dependencies\` contains the Pylon MSI. Confirm any optional
-   dependencies you intend to ship (IDS Peak, FX2 INF + DLL) are also present.
+   dependency you intend to ship (IDS Peak) is also present.
 4. Run `.\build.ps1` and choose `Release`.
 5. Verify both output files exist.
 6. Ship `LumaViewPro-<version>-setup.exe`.
@@ -377,7 +400,7 @@ Use the branch that contains the desired build script.
 |-------|-----|
 | `wix not found` | Install WiX v6 with `dotnet tool install --global wix --version 6.0.0`, then restart PowerShell. |
 | `wix --version` reports `7.x.x` (or build aborts with "WiX 7 is not supported") | Downgrade per the One-Time Setup section. v7 changed the BootstrapperApplication API and produces bundles that fail at runtime with `0x80070057`. |
-| Bundle `-setup.exe` fails at runtime with `0x80070057: Failed to read plan scope of BAEnginePlan args` (or `Failed to load splash screen bitmap`) | The bundle was built against WiX v7. Confirm `wix --version` shows 6.x, then rebuild. |
+| Bundle `-setup.exe` fails at runtime with `0x80070057: Failed to read plan scope of BAEnginePlan args` | The bundle was built against WiX v7. Confirm `wix --version` shows 6.x, then rebuild. |
 | WiX `WixUI` or UI extension errors | This build should not require `WixToolset.UI.wixext` for the standalone MSI. Make sure the branch being packaged uses the restored minimal-UI `Package.wxs`; the full install UI belongs to the `-setup.exe` bundle. |
 | `python not found` | Install Python 3.12+ and make sure `py`, `python`, or `python3` is available. |
 | `git clone failed` | Check network access and confirm the selected branch exists on GitHub. |

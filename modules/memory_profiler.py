@@ -4,7 +4,9 @@ import gc
 import os
 import time
 import threading
-from datetime import datetime
+
+from modules.log_stamp import now_stamp
+import modules.wall_time as wall_time
 
 
 class MemoryLeakProfiler:
@@ -14,7 +16,7 @@ class MemoryLeakProfiler:
     # for multi-hour leak hunts.
     INTERVAL = 60  # Take a snapshot every 60s
     TRACE_DEPTH = 25  # How many stack frames to record
-    LOG_DIR = datetime.now().strftime('%Y%m%d_%H%M%S') + '_memory_logs'
+    LOG_DIR = wall_time.now().strftime('%Y%m%d_%H%M%S') + '_memory_logs'
 
     _first_snapshot = None
 
@@ -39,11 +41,11 @@ class MemoryLeakProfiler:
             cls.take_report()
 
     @classmethod
-    def take_report(cls):
+    def take_report(cls) -> None:
         # Force GC to ensure we only see 'true' leaks, not pending cleanup
         gc.collect()
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = wall_time.now().strftime('%Y%m%d_%H%M%S')
         current_snapshot = tracemalloc.take_snapshot()
 
         # Binary Save: Preserves 100% of the data for offline analysis
@@ -61,9 +63,9 @@ class MemoryLeakProfiler:
 
         # Log 3: Summary of peak memory
         current, peak = tracemalloc.get_traced_memory()
-        with open(os.path.join(cls.LOG_DIR, 'summary.log'), 'a') as f:
+        with open(os.path.join(cls.LOG_DIR, 'summary.log'), 'a', encoding='utf-8') as f:
             f.write(
-                f'[{timestamp}] Current: {current / 1024 / 1024:.2f}MB, Peak: {peak / 1024 / 1024:.2f}MB\n'
+                f'{now_stamp()} Current: {current / 1024 / 1024:.2f}MB, Peak: {peak / 1024 / 1024:.2f}MB\n'
             )
 
     @classmethod
@@ -72,7 +74,7 @@ class MemoryLeakProfiler:
         stats = new_snap.compare_to(old_snap, 'traceback')
 
         filepath = os.path.join(cls.LOG_DIR, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write('Top 25 Memory Growth Sources (by Traceback):\n')
             for stat in stats[:25]:
                 f.write(f'\n--- {stat.size_diff / 1024:.2f} KiB increase ---\n')
@@ -83,7 +85,7 @@ class MemoryLeakProfiler:
     def _save_lineno_stats(cls, snapshot, filename):
         stats = snapshot.statistics('lineno')
         filepath = os.path.join(cls.LOG_DIR, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write('Top 25 Current Allocations (by Line Number):\n')
             for stat in stats[:25]:
                 f.write(f'{stat}\n')
@@ -92,7 +94,7 @@ class MemoryLeakProfiler:
     def _save_traceback_stats(cls, snapshot, filename):
         stats = snapshot.statistics('traceback')
         filepath = os.path.join(cls.LOG_DIR, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write('Top 25 Current Allocations (by Traceback):\n')
             for stat in stats[:25]:
                 f.write(f'\n--- {stat.size / 1024:.2f} KiB allocated ---\n')

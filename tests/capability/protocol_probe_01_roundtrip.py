@@ -19,9 +19,9 @@ try:
     banner('1. create a protocol (no GUI)')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         session.settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -31,7 +31,7 @@ try:
     cfg['labware_id'] = 'Center Plate'
     protocol = session.scope.protocols.create_protocol(input_config=cfg)
     print('created steps   :', protocol.num_steps())
-    print('labware         :', protocol.labware())
+    print('labware         :', protocol.labware_id())
 
     banner('2. save to TSV')
     path = live / 'probe_roundtrip.tsv'
@@ -46,15 +46,15 @@ try:
     print('steps match     :', reloaded.num_steps() == protocol.num_steps())
 
     banner('4. run one scan over the reloaded protocol')
-    outcome = runner.run_single_scan(
+    outcome = runner.start_single_scan(
         reloaded,
         sequence_name='probe_roundtrip',
     )
-    settled = outcome.wait(timeout_s=240)
+    settled = outcome.result(timeout=240)
     print('status          :', getattr(settled, 'status', None))
     print('reason          :', getattr(settled, 'reason', None))
     print('message         :', getattr(settled, 'message', None))
-    run_dir = outcome.run_dir
+    run_dir = outcome.progress().run_dir
     print('run_dir         :', run_dir)
 
     banner('5. did it actually write files?')

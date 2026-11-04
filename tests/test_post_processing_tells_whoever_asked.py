@@ -16,11 +16,13 @@ itself and answers under the same operation key. The GUI's buttons go
 through the GUI boundary, so a failure is told once per press.
 """
 
+import concurrent.futures
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 import modules.stack_builder as stack_builder
 from modules.common_utils import PostFunction
 from modules.exceptions import (
@@ -28,12 +30,14 @@ from modules.exceptions import (
     HyperstackRefusedError,
     Notice,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.notification_center import NotificationCenter, Severity, notifications
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
+from modules.layer_record import release_colors
 
 
 class _Processor(ProtocolPostProcessor):
@@ -52,6 +56,13 @@ class _Processor(ProtocolPostProcessor):
     def _filter_ignored_types(self, df):
         return df
 
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
+
+    def _places(self, group):
+        return None
+
     def _group_algorithm(self, path, df, **kwargs):
         return self._outcomes.pop(0)
 
@@ -64,7 +75,7 @@ def _images_df(groups):
     for g in range(groups):
         for i in range(2):  # two frames per group, so each group is eligible
             row = {'Filepath': f'g{g}_f{i}.tiff', 'GroupKey': g, 'OutName': f'out{g}.tiff'}
-            row.update(dict.fromkeys(PostFunction.list_values(), False))
+            row.update(post_derivation.raw_columns())
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -80,7 +91,9 @@ def _drive(processor, tmp_path, monkeypatch, *, helper=None, groups=2):
         'protocol': None,
     }
     monkeypatch.setattr(processor._post_processing_helper, 'load_folder', lambda **kw: answer)
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+    return processor.load_folder(
+        path=tmp_path, tiling_grids=shipped_grids(), channel_colors=release_colors()
+    )
 
 
 def _ok(**metadata):
@@ -181,6 +194,19 @@ def test_a_z_projection_with_no_z_stack_says_where_one_lives():
     assert 'Pick a folder that contains a Z-stack run' in str(refusal)
 
 
+def test_a_heading_for_another_reason_says_only_what_its_own_row_names(monkeypatch):
+    """The Z-stack advice is its row's, not every pair row's: a stitch given a
+    heading of its own does not tell the person to look for a Z-stack."""
+    # a stand-in by design: the table has one pair row today; a second is the case
+    words = dict(PostProcessingRefusedError._WORDS)
+    words[(PostProcessingOperation.STITCH, 'no_data')] = ('No Tiles Found', '')
+    monkeypatch.setattr(PostProcessingRefusedError, '_WORDS', words)
+
+    refusal = PostProcessingRefusedError(operation='Stitch', reason='no_data', message='No images.')
+
+    assert (refusal.title, str(refusal)) == ('No Tiles Found', 'No images.')
+
+
 # ---------------------------------------------------------------------------
 # The post-run hyperstack: the one build nobody waits on
 # ---------------------------------------------------------------------------
@@ -200,16 +226,16 @@ def _hyperstack_build(monkeypatch, tmp_path, answer):
 
     monkeypatch.setattr(notifications, 'report_outcome', _report)
 
-    def _load_folder(self, **kwargs):
+    def _submit():
+        # a stand-in by design: the build's answer is the case, not how it was made
+        settled = concurrent.futures.Future()
         if isinstance(answer, BaseException):
-            raise answer
-        return answer
+            settled.set_exception(answer)
+        else:
+            settled.set_result(answer)
+        return settled
 
-    monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
-    # The run's images are already on disk: the wait returns at once.
-    stack_builder.build_hyperstacks_for_run(
-        tmp_path, False, TILING_CONFIGS, wait_for_images=lambda: None, save_encoding='8bit'
-    )
+    stack_builder.build_hyperstacks_for_run(_submit, lambda: None)
     return notices, reports
 
 
@@ -330,7 +356,7 @@ def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
     import modules.composite_generation as composite_generation
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
-    def _refuse(self, **kwargs):
+    def _refuse(self, path, **kwargs):
         raise PostProcessingRefusedError(
             operation='Composite', reason='excluded_inputs', message='Only composites here.'
         )
@@ -343,7 +369,8 @@ def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
     ):
         runner.run_composite(sequence_name='refused', parent_dir=str(tmp_path))
 
-    assert raised.value.reason == 'excluded_inputs'
+    assert raised.value.reason == 'merge_error'
+    assert raised.value.merge_failure == 'excluded_inputs'
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +389,9 @@ def _manual_video(monkeypatch, tmp_path, video_result):
     monkeypatch.setattr(video_builder.recording_frames, 'frame_number', lambda n: 0)
     monkeypatch.setattr(builder, '_read_recording_manifest', lambda path: {'channel_color': None})
     monkeypatch.setattr(builder, '_create_video', lambda **kwargs: video_result)
-    return builder._build_manual_recording_video(tmp_path, frames_per_sec=10)
+    return builder._build_manual_recording_video(
+        tmp_path, frame_rate_fps=10, channel_colors=release_colors()
+    )
 
 
 def test_a_manual_video_that_failed_to_encode_raises(tmp_path, monkeypatch):

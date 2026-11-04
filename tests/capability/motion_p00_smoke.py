@@ -11,7 +11,7 @@ try:
     print('limits X:', m.get_axis_limits('X'))
     print('limits Y:', m.get_axis_limits('Y'))
     print('limits Z:', m.get_axis_limits('Z'))
-    print('current:', m.get_current_position())
+    print('current:', m.get_current_positions())
     # Before a home the plate position is refused; the axes say why.
     print('axis positions:', m.axis_positions())
     print('objective:', s.scope.runtime_state.resolve_current_objective()[0])

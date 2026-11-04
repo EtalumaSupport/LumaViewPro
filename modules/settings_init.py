@@ -5,15 +5,18 @@ import json
 import logging
 import pathlib
 import time
+from typing import ClassVar
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 from modules import labware_loader
 from modules.exceptions import (
     ArgumentRefusedError,
+    InstallationFileError,
     SettingsFileNotReplacedError,
     StoredSettingReplacedNotice,
 )
 from modules.path_utils import read_installation_file
+from modules.python_values import python_values
 
 # A setting's value: what one leaf of the settings file holds.
 type SettingValue = str | int | float | bool | list | dict | None
@@ -54,16 +57,23 @@ class SettingsFileError(Fault, ValueError):
     crash.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'settings_file_unreadable': None}
+    title = 'Settings File Unreadable'
+
 
 # Layer sub-keys whose names changed when the storage dict became the L2 API
 # surface. Old name -> new name. `stim_config.illumination` lives one level
-# down and is handled alongside; only Blue/Green/Red carry a stim_config.
+# down and is handled alongside; only the fluorescence channels carry a stim_config.
 _RENAMED_LAYER_KEYS = {
     'ill_ma': 'illumination_ma',
     'exp_ms': 'exposure_ms',
 }
 _RENAMED_STIM_KEYS = {
     'illumination': 'illumination_ma',
+}
+# The recording's duration cap, named for its unit.
+_RENAMED_VIDEO_KEYS = {
+    'max_duration_seconds': 'max_duration_s',
 }
 
 
@@ -128,13 +138,11 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     generator falls back to other directories, the GUI asks the user), so
     this classifies and they choose.
 
-    No `encoding=` argument, deliberately. Every reader and the writer in
-    `microscope_settings.save_settings` use the platform default, which is
-    cp1252 on Windows. Reading as UTF-8 here would make a config that
-    Windows wrote with any non-ASCII byte -- a live_folder under an
-    accented user directory is the everyday case -- suddenly unparseable,
-    and the caller would then offer to reset it. Changing this means
-    migrating the read and the write together.
+    Read as UTF-8 on every platform, as `settings_saver.write_whole`
+    writes it. Every file LVP writes is ASCII anyway (`json.dump` escapes
+    non-ASCII), so only a hand edit saved in another encoding fails to
+    decode, and it is refused as any unreadable file is: never decoded a
+    second way.
 
     `logger` is optional because `load_debug_setting` runs during logger
     bootstrap, before there is a logger to pass.
@@ -150,7 +158,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
             AttributeError deep in validation and kill startup).
     """
     try:
-        with open(path) as read_file:
+        with open(path, encoding='utf-8') as read_file:
             parsed = json.load(read_file)
     except FileNotFoundError:
         raise
@@ -174,16 +182,21 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     return parsed
 
 
+def _missing_required_keys(settings: dict) -> list[str]:
+    """The keys the app cannot start without that *settings* lacks, sorted."""
+    return sorted(_REQUIRED_SETTINGS_KEYS - settings.keys())
+
+
 def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """Check that loaded settings contain all required keys and types.
 
     Raises on missing critical keys. Warns on missing optional keys or
     type mismatches -- allows the app to start with partial config.
     """
-    missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
+    missing = _missing_required_keys(settings)
     if missing:
         raise ValueError(
-            f'[Settings ] {filepath} missing required keys: {sorted(missing)}. '
+            f'[Settings ] {filepath} missing required keys: {missing}. '
             'App cannot start without these keys.'
         )
 
@@ -313,6 +326,21 @@ def migrate_video_settings_dict(settings_dict: dict) -> bool:
     return True
 
 
+def migrate_video_key_names_dict(settings_dict: dict) -> bool:
+    """Carry the video section's keys to their unit-suffixed names.
+
+    Must run after `migrate_video_settings_dict`, so a key folded from
+    manual_video is renamed with the rest, and before the settings.json
+    default-merge, which would otherwise merge the shipped
+    max_duration_s = 300 in beside a stored max_duration_seconds.
+
+    Returns:
+        True when at least one key was moved.
+    """
+    video = settings_dict.get('video')
+    return isinstance(video, dict) and _migrate_renamed_keys(video, _RENAMED_VIDEO_KEYS)
+
+
 # Set when current.json could not be used and the app came up on the shipped
 # template instead. Holds the rejected file's path and why, until a human
 # decides what to do about it.
@@ -326,11 +354,10 @@ rejected_current_json = None
 
 
 # Written into a layer whose video_config arrived absent or null. The shipped
-# template carries the same pair, so an untouched install never reaches
-# these; a rate or duration the recorder cannot use is the writer's range
+# template carries the same value, so an untouched install never reaches
+# it; a duration the recorder cannot use is the writer's range
 # (``settings_paths._RANGES``), replaced at load and told once.
 DEFAULT_VIDEO_DURATION_SEC = 5
-DEFAULT_VIDEO_FPS = 30
 
 
 def normalize_loaded_settings(settings_dict: dict) -> bool:
@@ -351,6 +378,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # and both of these import lvp_logger.logger at their own top.
     from modules import image_mode
     from modules.common_utils import get_layers
+    from modules.zstack_config import ZStackReference
 
     changed = False
 
@@ -358,12 +386,87 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if isinstance(output_format, dict) and output_format.get('sequenced') == 'ImageJ Hyperstack':
         # The file written never changed -- it was always OME-TIFF. Only the
         # label did, because it named a reader instead of the format.
-        output_format['sequenced'] = image_mode.OUTPUT_FORMAT_HYPERSTACK
+        output_format['sequenced'] = image_mode.OutputFormat.HYPERSTACK.value
+        changed = True
+
+    # The z-stack's reference was stored as the spinner's label. It is stored
+    # as its ZStackReference value now, and the label is the GUI's own, which
+    # may change; these are the labels earlier releases wrote, which do not.
+    zstack = settings_dict.get('zstack')
+    stored_label = zstack.get('position') if isinstance(zstack, dict) else None
+    retired_labels = {
+        'Current Position at Top': ZStackReference.TOP,
+        'Current Position at Center': ZStackReference.CENTER,
+        'Current Position at Bottom': ZStackReference.BOTTOM,
+    }
+    if isinstance(stored_label, str) and stored_label in retired_labels:
+        zstack['position'] = retired_labels[stored_label]
         changed = True
 
     # Protocol accordions are permanently enabled; a stored preference for
     # the retired toggle would be read by nothing.
     if settings_dict.pop('disable_protocol_accordions', None) is not None:
+        changed = True
+
+    # Reusing brightfield's autofocus result for the fluorescence steps was
+    # removed, never shown: it skipped their autofocus without moving to
+    # that focus, and carried one well's result to the next.
+    protocol = settings_dict.get('protocol')
+    if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
+        changed = True
+
+    # The longest an auto-gain step waited to converge, unread since its
+    # settle became a frame count: the camera's auto-gain refuses a key it
+    # does not take, so a stored one would refuse every arm.
+    autogain = protocol.get('autogain') if isinstance(protocol, dict) else None
+    if isinstance(autogain, dict) and autogain.pop('max_duration_seconds', None) is not None:
+        changed = True
+
+    # Seven shipped settings that nothing read: stimulation profiling, whose
+    # producer is gone, and the autofocus and stage blocks, which named
+    # features not built. A stored copy was readable, unwritable and never
+    # range-checked, so it goes with the template's.
+    profiling = settings_dict.get('profiling')
+    if isinstance(profiling, dict) and profiling.pop('stim_profiling', None) is not None:
+        changed = True
+    for block in ('autofocus', 'stage'):
+        if settings_dict.pop(block, None) is not None:
+            changed = True
+
+    # The handle trace's object-type sampler was removed: its gc.get_objects()
+    # handed the grab and save threads' half-built tuples to another thread,
+    # whose tuple() then raised. Its interval has nothing left to set.
+    if (
+        isinstance(profiling, dict)
+        and profiling.pop('handle_trace_obj_sample_every', None) is not None
+    ):
+        changed = True
+
+    # The REST server's host, key and CORS origins, which nothing ever read;
+    # where it serves is ``address``. A shipped null key is dropped too, so
+    # the test is membership, not the value.
+    rest_api = settings_dict.get('rest_api')
+    if isinstance(rest_api, dict):
+        for key in ('host', 'api_key', 'cors_origins'):
+            if key in rest_api:
+                del rest_api[key]
+                changed = True
+
+    # The slot a person last turned the turret to, once preferred when two
+    # slots carry one objective. Each protocol step now records its own
+    # slot, and nothing reads this one.
+    if settings_dict.pop('turret_position', None) is not None:
+        changed = True
+
+    # Unconfirmed, as stored before the confirmation recorded its topology.
+    if settings_dict.get('objective_confirmed') is False:
+        settings_dict['objective_confirmed'] = None
+        changed = True
+
+    # The camera driver once chosen in the settings, which nothing read:
+    # bring-up asks the camera registry, and a host that wants one driver
+    # names it to Lumascope itself.
+    if settings_dict.pop('camera_type', None) is not None:
         changed = True
 
     # A top-level binning factor that nothing writes and no shipped template
@@ -392,6 +495,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if not isinstance(layer_settings, dict):
             continue
 
+        # A filename prefix every layer once shipped, which nothing reads:
+        # a capture's name is built by the writer that saves it.
+        if 'file_root' in layer_settings:
+            del layer_settings['file_root']
+            changed = True
+
         video_config = layer_settings.get('video_config')
         if not isinstance(video_config, dict):
             video_config = {}
@@ -400,8 +509,11 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
             changed = True
-        if 'fps' not in video_config:
-            video_config['fps'] = DEFAULT_VIDEO_FPS
+        # A layer's own recording rate, which every protocol video step it
+        # made copied and recorded at below the one global limit: a
+        # recording's only limit is ``video.max_fps``.
+        if 'fps' in video_config:
+            del video_config['fps']
             changed = True
 
     return changed
@@ -445,6 +557,61 @@ def take_stored_replacements() -> list[StoredSettingReplacedNotice]:
     return taken
 
 
+# The reserved top-level key the stock rename leaves in the dict it
+# prepared: each old channel name it moved, and the stock key it moved to --
+# names only. The session's factory takes it out before the dict is any
+# session's store (``take_old_channel_blocks``), so it never reaches a file;
+# the shape and range checks walk the template, which has no such key.
+OLD_CHANNEL_BLOCKS = '_old_channel_blocks'
+
+
+def take_old_channel_blocks(settings_dict: dict) -> dict[str, str]:
+    """The old channel names the stock rename moved, each with its stock key,
+    taken out of the prepared ``settings_dict``; empty when it moved none."""
+    return settings_dict.pop(OLD_CHANNEL_BLOCKS, {})
+
+
+def fold_old_channel_blocks(logger: logging.Logger, settings_dict: dict) -> None:
+    """Rename each old channel block to its stock key, before any reader of a block.
+
+    A file an earlier release wrote keys its fluorescence blocks by the old
+    colour names. Every reader before the scope exists -- the validation,
+    the focus retirement, the repairs, the merge, the range check -- reads
+    the release's keys, so each old block becomes its stock key's here
+    (``layer_record.release_old_names``) and is read there; the unit is not
+    known yet, and its bring-up places them by its own LEDs
+    (``ScopeSession._place_old_channel_blocks``), from the record this
+    leaves under ``OLD_CHANNEL_BLOCKS``. Run again on its own result it
+    changes nothing, and keeps the record.
+
+    An old block whose stock key already holds one (a file written across a
+    rollback, or by hand) is dropped, the stock key's kept, and the drop is
+    told with the load's replacements: the release has no setting of that
+    name.
+    """
+    from modules.layer_record import release_old_names
+
+    moved = {}
+    dropped = []
+    for old in release_old_names():
+        if old.name not in settings_dict:
+            continue
+        block = settings_dict.pop(old.name)
+        if old.stock_key in settings_dict:
+            dropped.append((old.name, block, None))
+            continue
+        settings_dict[old.stock_key] = block
+        moved[old.name] = old.stock_key
+    if moved:
+        settings_dict.setdefault(OLD_CHANNEL_BLOCKS, {}).update(moved)
+        logger.info(
+            '[Settings ] Renamed the old channel settings to their stock keys: '
+            + ', '.join(f'{old} -> {stock}' for old, stock in moved.items())
+        )
+    if dropped:
+        _stored_replacements.append(StoredSettingReplacedNotice(dropped))
+
+
 def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """Every fold that must run on a loaded dict before the default merge.
 
@@ -455,10 +622,13 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """
     from modules import image_mode
 
+    fold_old_channel_blocks(logger, settings_dict)
     if image_mode.migrate_settings_dict(settings_dict):
         logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
     if migrate_video_settings_dict(settings_dict):
         logger.info('[Settings ] Renamed manual_video settings section to video')
+    if migrate_video_key_names_dict(settings_dict):
+        logger.info('[Settings ] Renamed video.max_duration_seconds to video.max_duration_s')
     if normalize_loaded_settings(settings_dict):
         logger.info('[Settings ] Repaired stored values the running version cannot use')
 
@@ -479,23 +649,97 @@ def _retire_shipped_values(logger, settings_dict: dict) -> None:
 
 
 def _load_and_validate(logger, filepath: str) -> dict:
-    """Read one settings file and check it carries the keys the app needs."""
+    """Read one settings file and check it carries the keys the app needs.
+
+    Its old channel blocks are renamed first, so the check, and every
+    reader after it, sees them under the release's keys.
+    """
     loaded = read_settings_json(filepath, logger)
+    fold_old_channel_blocks(logger, loaded)
     _validate_settings(loaded, filepath, logger)
     return loaded
 
 
-def _load_template(logger, template_path: str) -> dict:
-    """The shipped template, checked for the keys the app needs.
+def load_template(logger: logging.Logger, template_path: str) -> dict:
+    """The shipped template, a block for every catalogue key, checked for the keys the app needs.
 
     Read as a file the installation ships, not as the user's: a template
-    that is missing or will not parse is the installation's fault and
-    raises ``InstallationFileError``, never a reason to skip the step that
-    needed it.
+    that is missing, will not parse, or cannot give every catalogue key a
+    block is the installation's fault and raises ``InstallationFileError``,
+    never a reason to skip the step that needed it.
     """
     template = read_installation_file(template_path)
+    missing = _missing_required_keys(template)
+    if missing:
+        raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
+    _give_every_layer_a_block(template, template_path)
+    _give_the_shipped_step_order(template, template_path)
     _validate_settings(template, template_path, logger)
     return template
+
+
+def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
+    """The order a new protocol's steps take, from the catalogue's ``step_order``.
+
+    The catalogue's record is the one place a layer's step order is said, so
+    a key added there takes its place without an edit here. A template that
+    states its own order would be a second, unread source of it, and is
+    refused. A stored order is not a person's either: no write reaches it
+    (``settings_paths.DERIVED``), so one that differs is an earlier
+    release's derivation, re-derived at load (``prepare_loaded``) and not
+    told.
+
+    Raises:
+        InstallationFileError: the template states ``step_channel_order``.
+    """
+    # Deferred: layer_record imports lvp_logger, which imports this module.
+    from modules.layer_record import release_layers
+
+    if 'step_channel_order' in template:
+        raise InstallationFileError(
+            template_path,
+            "states step_channel_order, which is each scopes.json LayerOrder record's step_order",
+        )
+    template['step_channel_order'] = [
+        layer.key for layer in sorted(release_layers(), key=lambda layer: layer.step_order)
+    ]
+
+
+def _give_every_layer_a_block(template: dict, template_path: str) -> None:
+    """Every catalogue key's block: its own, else a copy of its modality's default.
+
+    The file names a block only for a key with values of its own; every
+    other key takes ``channel_defaults``' block for its modality, so a key
+    added to the catalogue has settings without an edit here. The defaults
+    are consumed: no prepared dict, published template or saved file holds
+    them, so the only blocks a caller sees are layers.
+
+    Raises:
+        InstallationFileError: ``channel_defaults`` is missing or is not a
+            mapping of blocks, or has no block for the modality of a key
+            the file names none for.
+    """
+    # Deferred: layer_record imports lvp_logger, which imports this module.
+    from modules.layer_record import release_layers
+
+    defaults = template.pop('channel_defaults', None)
+    if not isinstance(defaults, dict) or not all(isinstance(b, dict) for b in defaults.values()):
+        raise InstallationFileError(
+            template_path, f'has no usable channel_defaults (found {defaults!r})'
+        )
+    unfilled = []
+    for layer in release_layers():
+        if layer.key in template:
+            continue
+        default = defaults.get(layer.modality)
+        if default is None:
+            unfilled.append(f'{layer.key} ({layer.modality})')
+            continue
+        template[layer.key] = copy.deepcopy(default)
+    if unfilled:
+        raise InstallationFileError(
+            template_path, f'has no block and no channel_defaults block for {unfilled}'
+        )
 
 
 def _normalize_turret_slot_keys(settings: dict) -> None:
@@ -519,18 +763,23 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
 
 
-def bring_up_live_folder(logger: logging.Logger, live_folder: str, directory: str) -> str:
+def bring_up_live_folder(live_folder: str, directory: str) -> tuple[str, OSError | None]:
     """The live folder as it is stored: absolute, and created.
 
     The one rule for the value wherever it enters -- the settings file at
-    load, and ``update_settings`` after. The shipped template holds a
-    relative folder, which means the installation's; left relative, each
-    writer would resolve it against the process's working directory, and an
-    installed build's working directory is not writable. A folder that
-    cannot be created stays the person's: replacing it would send their
-    captures somewhere they will not look and save the replacement over
-    their choice. Captures into it are refused by the capture-location
-    owner, naming it, until it is reachable.
+    load, and ``ScopeSession.set_live_folder`` after. The shipped template
+    holds a relative folder, which means the installation's; left relative,
+    each writer would resolve it against the process's working directory,
+    and an installed build's working directory is not writable.
+
+    Returns:
+        The folder as it is stored, and the error that kept it from being
+        created, or None. What a folder that cannot be created means is the
+        entry's: at load it stays the person's, at a write it is refused.
+
+    Raises:
+        ValueError: ``live_folder`` is a string no file system can name (a
+            NUL byte).
     """
     folder = pathlib.Path(live_folder)
     if not folder.is_absolute():
@@ -539,11 +788,8 @@ def bring_up_live_folder(logger: logging.Logger, live_folder: str, directory: st
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        logger.warning(
-            f'[Settings ] The live folder {folder} could not be created ({e}); '
-            'captures into it are refused until it is reachable.'
-        )
-    return live_folder
+        return live_folder, e
+    return live_folder, None
 
 
 def prepare_settings(
@@ -569,7 +815,7 @@ def prepare_settings(
         (settings dict, rejected) where rejected is None, or
         (path, reason) naming the user's file that was set aside.
     """
-    current_path = os.path.join(directory, 'data', 'current.json')
+    current_path = current_json_path(directory)
     template_path = os.path.join(directory, 'data', 'settings.json')
     data_dir = os.path.join(directory, 'data')
     rejected = None
@@ -579,7 +825,7 @@ def prepare_settings(
         # parse is the installation's fault (``InstallationFileError``) and
         # is never reported as "current.json could not be used", which
         # would send the user to delete the one file that was still good.
-        template = _load_template(logger, template_path)
+        template = load_template(logger, template_path)
         try:
             prepared = _load_and_validate(logger, current_path)
             _retire_shipped_values(logger, prepared)
@@ -611,7 +857,7 @@ def prepare_settings(
         return prepared, rejected
 
     if os.path.exists(template_path):
-        template = _load_template(logger, template_path)
+        template = load_template(logger, template_path)
         prepared = prepare_loaded(
             logger,
             copy.deepcopy(template),
@@ -642,12 +888,16 @@ def prepare_loaded(
     first step. In order: the containers are held to the template's kinds
     (the merge would not repair a mismatch, it only recurses where both
     sides are dicts, so this comes first); the retired spellings and the
-    values the running version cannot use are folded forward; the turret
+    values the running version cannot use are folded forward; a numpy
+    scalar or a closed set's member, a caller's or a fold's, at any depth,
+    is made the plain value it holds, so the store and the file written
+    from it hold plain data; the turret
     slot keys become ints on BOTH sides before the merge, because merged
     afterwards the template's string keys would sit beside the stored int
     keys and the normalization that followed would let the template's
     ``None`` win over every stored assignment; the keys newer releases
-    added are merged in; the values are held to the writer's ranges; the
+    added are merged in; a stored derived value is made the release's
+    derivation; the values are held to the writer's ranges; the
     live folder is brought up. Run again on its own result it changes
     nothing, so a dict the file's preparation already made usable goes
     through a session's door unchanged.
@@ -659,9 +909,13 @@ def prepare_loaded(
     can fix a file at load; a handed value is a write of every key at once
     and is refused as a write is. A container of the wrong kind is the
     file's ``SettingsFileError``, naming the file, or the argument's
-    ``ArgumentRefusedError('wrong_kind')``, naming the key.
+    ``ArgumentRefusedError('wrong_kind')``, naming the key. ``handed`` is
+    also ``ScopeSession.create``'s door, its one caller that passes True,
+    and every host's dict passes it, so a live folder that cannot be
+    created is warned about there alone: the drive, not the dict, holds
+    that condition, so a second preparation would say it again.
 
-    ``template`` is ``_load_template``'s answer, never read a second way;
+    ``template`` is ``load_template``'s answer, never read a second way;
     it is copied here, so the merge never aliases its blocks into the
     store.
 
@@ -685,27 +939,53 @@ def prepare_loaded(
         if handed:
             where, want, _got, value = problems[0]
             raise ArgumentRefusedError(
-                'wrong_kind', argument=f'{source}.{where}', value=value, kind=f'a {want}'
+                'wrong_kind', argument=f'{source}.{where}', value=value, takes=f'a {want}'
             )
         raise SettingsFileError(
             f'{source}: structure does not match settings.json -- '
             + '; '.join(f'{where}: expected {want}, got {got}' for where, want, got, _ in problems)
         )
     _apply_load_migrations(logger, loaded)
+    # After the migrations, so a value one writes (a migrated image mode) is
+    # plain data too, as a value a caller handed is.
+    python_values(loaded)
     _normalize_turret_slot_keys(loaded)
     added = _deep_merge_defaults(loaded, template, logger=logger)
     if added:
         logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
     # Imported here: settings_paths' own imports reach this module (lvp_logger).
-    from modules.settings_paths import refuse_handed_values, replace_refused_stored_values
+    from modules.settings_paths import (
+        DERIVED,
+        refuse_handed_values,
+        replace_refused_stored_values,
+    )
 
     if handed:
         refuse_handed_values(loaded, template)
     else:
+        # A stored derived value is the release's, never a person's: no write
+        # reaches one, so one that differs is an earlier release's
+        # derivation (a step order in its own keys), re-derived and not told.
+        # A handed one is a write of it, refused as a write is.
+        for path in DERIVED:
+            *blocks, leaf = path.split('.')
+            stored, shipped = loaded, template
+            for block in blocks:
+                stored, shipped = stored[block], shipped[block]
+            stored[leaf] = copy.deepcopy(shipped[leaf])
         replaced = replace_refused_stored_values(loaded, template)
         if replaced is not None:
             _stored_replacements.append(replaced)
-    loaded['live_folder'] = bring_up_live_folder(logger, loaded['live_folder'], directory)
+    # A folder that cannot be created stays the person's: replacing it would
+    # send their captures somewhere they will not look and save the
+    # replacement over their choice. Captures into it are refused by the
+    # capture-location owner, naming it, until it is reachable.
+    loaded['live_folder'], unreachable = bring_up_live_folder(loaded['live_folder'], directory)
+    if unreachable is not None and handed:
+        logger.warning(
+            f'[Settings ] The live folder {loaded["live_folder"]} could not be created '
+            f'({unreachable}); captures into it are refused until it is reachable.'
+        )
     return loaded
 
 
@@ -747,15 +1027,15 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     store exists to prevent.
 
     Setting ``rejected_current_json`` is the half that keeps the promise:
-    it makes the session provisional, so every save raises loudly instead
-    of writing template values over the only copy of the user's
-    configuration. The file itself is not touched.
+    it makes the session provisional, so the session saves nothing and
+    says so, instead of writing template values over the only copy of the
+    user's configuration. The file itself is not touched.
     """
     global rejected_current_json
 
-    current_path = os.path.join(lvp_appdata, 'data', 'current.json')
+    current_path = current_json_path(lvp_appdata)
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    template = _load_template(logger, template_path)
+    template = load_template(logger, template_path)
 
     logger.error(
         f'[Settings ] {current_path} could not be used ({reason}); '
@@ -807,34 +1087,23 @@ def settings_are_provisional() -> bool:
     """True while the app is running on defaults nobody has agreed to keep.
 
     Writing current.json in this state would replace a user's whole
-    configuration with the template, so the writer refuses while it holds.
+    configuration with the template, so the session saves nothing while it
+    holds.
     """
     return rejected_current_json is not None
 
 
-def targets_current_json(file: object) -> bool:
-    """Is this save aimed at the live user configuration?
+def current_json_path(directory: str | os.PathLike) -> str:
+    """The live user configuration of the installation at ``directory``.
 
-    Matched on the resolved basename rather than the literal argument: the
-    writer normalises its path afterwards (appends .json, absolutizes
-    against the source root), and a caller outside this repo may hand it an
-    absolute path to the same file. Comparing the string it was given would
-    let those through.
-
-    Lives here rather than beside the writer because which file holds the
-    user's configuration is a fact about settings, not about the GUI -- any
-    future writer needs the same answer.
+    The one spelling of where it lives, for its reader here and for each
+    host that names it to ``ScopeSession.create(settings_file=...)``.
     """
-    if not isinstance(file, (str, os.PathLike)):
-        return False
-    name = os.fspath(file)
-    if name[-5:].lower() != '.json':
-        name += '.json'
-    return os.path.basename(name).lower() == 'current.json'
+    return os.path.join(directory, 'data', 'current.json')
 
 
 def _resolve_settings_path(directory):
-    current_path = os.path.join(directory, 'data', 'current.json')
+    current_path = current_json_path(directory)
     settings_path = os.path.join(directory, 'data', 'settings.json')
     data_dir = os.path.join(directory, 'data')
 
@@ -847,94 +1116,59 @@ def _resolve_settings_path(directory):
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-# The four readers below read the file as read, before it is prepared: the
-# logger, the profilers and the tracer are configured before the live
-# settings exist, so a key an older file lacks takes its shipped value
-# here. Every other reader indexes the prepared store.
+def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
+    """One installation-only setting, read before the settings are prepared.
+
+    For what a process needs before ``prepare_settings`` can run: the
+    instance lock a second launch must meet before it touches the files,
+    and the logger and profilers configured before anything logs.
+    Read only, by preparation's own rule: ``current.json`` is live, and the
+    shipped ``settings.json`` answers when ``current.json`` is missing,
+    unusable (preparation reports that once it runs), or lacks the key (a
+    key a later release added). Every other reader indexes the prepared
+    store.
+
+    Returns:
+        The value, and the basename of the file it came from.
+
+    Raises:
+        InstallationFileError: the shipped ``settings.json`` is missing,
+            unusable, or lacks ``key``. The installation is at fault, so
+            the caller does not answer with a default: the launch stops and
+            names the file.
+    """
+    data_dir = os.path.join(directory, 'data')
+    try:
+        live = read_settings_json(os.path.join(data_dir, 'current.json'))
+    except (FileNotFoundError, SettingsFileError):
+        live = {}
+    if key in live:
+        return live[key], 'current.json'
+    template_path = os.path.join(data_dir, 'settings.json')
+    template = read_installation_file(template_path)
+    if key not in template:
+        raise InstallationFileError(template_path, f'has no {key!r}')
+    return template[key], 'settings.json'
+
+
 def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
-
-    try:
-        filename = _resolve_settings_path(directory)
-
-        temp_settings = read_settings_json(filename)
-
-        # Named as the source only after the read succeeds: a rejected
-        # file must not appear in the banner as the settings in force.
-        debug_setting_source = os.path.basename(filename)
-
-        debug_setting = temp_settings.get('debug_mode', False)
-        return debug_setting
-
-    except Exception as e:
-        raise e
-
-
-def load_profile_trace_setting(directory: str) -> dict:
-    """Read profile_trace.enabled + profile_trace.output_dir from settings.
-
-    Returns a dict {"enabled": bool, "output_dir": str | None}. Missing
-    or unreadable settings file resolves to {"enabled": False,
-    "output_dir": None} so the caller never has to guard for absence;
-    profile_trace defaults OFF in that case.
-
-    Called from lib/profile_trace.py at module-import time, mirroring
-    the timing of load_debug_setting() above. Replaces the prior
-    LVP_PROFILE_TRACE environment-variable gate.
-    """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return {'enabled': False, 'output_dir': None}
-
-    return {
-        'enabled': bool(temp_settings.get('profile_trace_enabled', False)),
-        'output_dir': temp_settings.get('profile_trace_output_dir') or None,
-    }
+    debug_setting, debug_setting_source = read_before_preparation(directory, 'debug_mode')
+    return debug_setting
 
 
 def load_tracemalloc_setting(directory: str) -> bool:
-    """Read tracemalloc_enabled from settings.
-
-    Returns bool. Missing or unreadable settings file resolves to False
-    so the caller never has to guard for absence; tracemalloc defaults
-    OFF in that case (10-30% process-memory overhead is the cost).
-
-    Called from modules/common_utils.py at module-import time, mirroring
-    the timing of load_profile_trace_setting() above. Replaces the prior
-    LVP_TRACEMALLOC environment-variable gate.
-    """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return False
-
-    return bool(temp_settings.get('tracemalloc_enabled', False))
+    """tracemalloc_enabled, before preparation; read by modules/common_utils.py at import."""
+    enabled, _ = read_before_preparation(directory, 'tracemalloc_enabled')
+    return bool(enabled)
 
 
 def load_memory_profile_setting(directory: str) -> dict:
-    """Read memory_profile settings (gate + cadence).
+    """memory_profile_enabled and memory_profile_interval_s, before preparation.
 
-    Returns ``{"enabled": bool, "interval_s": float}``. Missing or unreadable
-    settings file resolves to ``{"enabled": False, "interval_s": 5.0}`` so the
-    caller never has to guard for absence; the memory profiler defaults OFF
-    (tracemalloc carries 10-30% process-memory overhead, the same cost as the
-    tracemalloc gate). Enable via ``memory_profile_enabled: true`` in the live
-    settings (current.json once it exists, settings.json default) -- the same
-    merged-settings path as profile_trace / tracemalloc.
-
-    Called from lib/memory_profile.py, mirroring load_profile_trace_setting /
-    load_tracemalloc_setting above.
+    Returns ``{"enabled": bool, "interval_s": float}``; read by the GUI's
+    launch, which hands them to ``lib.memory_profile.start``.
     """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return {'enabled': False, 'interval_s': 5.0}
-
-    return {
-        'enabled': bool(temp_settings.get('memory_profile_enabled', False)),
-        'interval_s': float(temp_settings.get('memory_profile_interval_s', 5.0)),
-    }
+    enabled, _ = read_before_preparation(directory, 'memory_profile_enabled')
+    interval_s, _ = read_before_preparation(directory, 'memory_profile_interval_s')
+    return {'enabled': bool(enabled), 'interval_s': float(interval_s)}

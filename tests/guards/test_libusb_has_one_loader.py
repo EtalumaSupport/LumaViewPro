@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, production_modules
+from tests.ast_seams import Words, iter_package_modules, production_modules
 
 _LOADER = 'drivers/fx2driver.py'
-_BINDINGS = ('usb', 'usb1', 'libusb_package')
+_BINDINGS = Words({'usb', 'usb1', 'libusb_package'})
 
 
 def _imported_names(tree: ast.Module):

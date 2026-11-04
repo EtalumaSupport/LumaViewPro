@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import pathlib
 import shutil
 
@@ -31,9 +32,12 @@ from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_fr
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.case_walk import failing_cases
+from tests.installation_fixtures import shipped_grids
+from modules.protocol import StoredNames
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING = REPO / 'data' / 'tiling.json'
 TEMPLATE = REPO / 'data' / 'settings.json'
 PERIOD = datetime.timedelta(minutes=5)
 DURATION = datetime.timedelta(hours=2)
@@ -53,9 +57,12 @@ RUNNABLE = [
 ]
 
 
+def _schedule_s(protocol: Protocol) -> tuple:
+    return protocol.period_s(), protocol.duration_s()
+
+
 def _protocol(period=PERIOD, duration=DURATION) -> Protocol:
-    return Protocol(
-        tiling_configs_file_loc=TILING,
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -77,7 +84,7 @@ class TestTheProtocolsWriter:
             protocol.modify_time_params(period=period, duration=duration)
 
         assert isinstance(refused.value, Refusal)
-        assert (protocol.period(), protocol.duration()) == (PERIOD, DURATION)
+        assert _schedule_s(protocol) == (PERIOD.total_seconds(), DURATION.total_seconds())
 
     @pytest.mark.parametrize('period, duration', RUNNABLE)
     def test_a_runnable_schedule_is_taken_as_given(self, period, duration):
@@ -85,14 +92,19 @@ class TestTheProtocolsWriter:
 
         protocol.modify_time_params(period=period, duration=duration)
 
-        assert (protocol.period(), protocol.duration()) == (period, duration)
+        assert _schedule_s(protocol) == tuple(
+            None if t is None else t.total_seconds() for t in (period, duration)
+        )
 
 
 class TestTheConstructors:
-    @pytest.mark.parametrize('period, duration', [*UNRUNNABLE, NOT_A_TIME])
-    def test_a_protocol_built_with_an_unrunnable_schedule_is_refused(self, period, duration):
-        with pytest.raises(ProtocolScheduleRefusedError):
-            _protocol(period, duration)
+    def test_a_protocol_built_with_an_unrunnable_schedule_is_refused(self):
+        def check(period, duration):
+            with pytest.raises(ProtocolScheduleRefusedError):
+                _protocol(period, duration)
+
+        failed = failing_cases([*UNRUNNABLE, NOT_A_TIME], check)
+        assert not failed, failed
 
     def test_a_file_carrying_a_half_second_period_is_refused_naming_the_file(self, tmp_path):
         path = tmp_path / 'short.tsv'
@@ -102,7 +114,9 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING)
+            protocol_from_file(
+                file_path=path,
+            )
 
         assert str(path) in str(refused.value)
 
@@ -114,7 +128,9 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING)
+            protocol_from_file(
+                file_path=path,
+            )
 
         assert str(path) in str(refused.value)
 
@@ -169,26 +185,23 @@ class TestAReaderThatNeverRunsTheProtocol:
         from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
         loaded = ProtocolPostProcessingHelper().load_folder(
-            self._run_folder(tmp_path), tiling_configs_file_loc=TILING
+            self._run_folder(tmp_path), tiling_grids=shipped_grids()
         )
 
         assert loaded['status'], loaded.get('message')
 
     def test_the_same_file_is_still_refused_when_loaded_to_run(self, tmp_path):
         with pytest.raises(ProtocolScheduleRefusedError):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-                tiling_configs_file_loc=TILING,
             )
 
     def test_a_reader_that_does_not_judge_keeps_the_schedule_as_the_file_has_it(self, tmp_path):
-        protocol = Protocol.from_file(
-            file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-            tiling_configs_file_loc=TILING,
-            runnable=False,
+        protocol = protocol_from_file(
+            self._run_folder(tmp_path) / 'unsaved_protocol.tsv', unit=StoredNames.KEPT
         )
 
-        assert protocol.period() == datetime.timedelta(minutes=0.005)
+        assert protocol.period_s() == 0.005 * 60
 
 
 class TestAValueInItsUnits:
@@ -229,12 +242,9 @@ class TestTheSession:
     def test_new_builds_the_schedule_it_is_given(self, session):
         _acquire_only_bf(session)
 
-        protocol = session.new_protocol(
-            period=datetime.timedelta(minutes=7), duration=datetime.timedelta(hours=3)
-        )
+        protocol = session.new_protocol(period_s=7 * 60, duration_s=3 * 3600)
 
-        assert protocol.period() == datetime.timedelta(minutes=7)
-        assert protocol.duration() == datetime.timedelta(hours=3)
+        assert _schedule_s(protocol) == (7 * 60, 3 * 3600)
 
     def test_new_with_no_schedule_takes_the_stored_default(self, session):
         _acquire_only_bf(session)
@@ -243,14 +253,28 @@ class TestTheSession:
 
         protocol = session.new_protocol()
 
-        assert protocol.period() == datetime.timedelta(minutes=4)
-        assert protocol.duration() == datetime.timedelta(hours=6)
+        assert _schedule_s(protocol) == (4 * 60, 6 * 3600)
 
     def test_new_with_an_unrunnable_schedule_is_refused(self, session):
         _acquire_only_bf(session)
 
         with pytest.raises(ProtocolScheduleRefusedError):
-            session.new_protocol(period=datetime.timedelta(milliseconds=500), duration=DURATION)
+            session.new_protocol(period_s=0.5, duration_s=DURATION.total_seconds())
+
+    def test_seconds_that_are_no_time_are_refused_and_the_schedule_kept(self, session):
+        # The argument door passes any float, NaN included; the protocol
+        # judges whether seconds are a time it can hold.
+        protocol = _protocol()
+        kept = []
+        for seconds in (math.nan, math.inf, -math.inf, 1e20):
+            with pytest.raises(ProtocolScheduleRefusedError) as refused:
+                session.set_protocol_schedule(
+                    protocol, period_s=seconds, duration_s=DURATION.total_seconds()
+                )
+            kept.append((refused.value.reason, refused.value.key, _schedule_s(protocol)))
+
+        schedule = (PERIOD.total_seconds(), DURATION.total_seconds())
+        assert kept == [('schedule_not_runnable', 'period', schedule)] * 4
 
     def test_a_stored_default_out_of_range_is_refused_and_the_store_unchanged(self, session):
         before = dict(session.settings['protocol'])
@@ -284,6 +308,7 @@ def _appdata_with_stored_protocol(tmp_path, **stored) -> str:
 
 
 class TestAStoredDefaultOutOfRange:
+    @pytest.mark.slow
     def test_the_replacement_is_told_once_when_the_session_has_a_listener(self, tmp_path):
         root = _appdata_with_stored_protocol(tmp_path, period=0.001)
         settings, _rejected = settings_init.prepare_settings(

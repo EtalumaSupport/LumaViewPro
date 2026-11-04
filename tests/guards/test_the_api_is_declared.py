@@ -1,15 +1,23 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The API is the marked set, the reference indexes exactly it, and it is closed.
+"""The API is the marked set, the reference is its current render, and it is closed.
 
 A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds four things over every class defined under ``modules/``:
+guard holds eleven things over the declared API (``tests.marked_set``): the
+marked members and fields of every class the API can name
+(``wire_encoding.project_classes``: each defined under ``modules/``, and each
+project class a marked annotation resolves to, a driver's record among them),
+and every marked top-level function of a project module, keyed by its dotted
+path (``rest.app.build_app``):
 
-1. **Equal.** The marked set equals the ``## API reference`` index in
-   ``docs/LumascopeSkills.md``, both ways, in-process labels included. The
-   failure names each side's extras.
+1. **Current.** ``docs/api-reference.md`` is the render of the marked set
+   and its docstrings (``tests.api_reference``), byte for byte, on every
+   interpreter the suite runs on: a member renamed, a docstring changed, a
+   mark added or a route removed without regenerating it fails, naming the
+   command that regenerates it. Run with ``LVP_WRITE_API_REFERENCE=1``,
+   the rule writes the render instead.
 2. **Real.** Every published field is a field the class has: a dataclass or
    NamedTuple field, a class attribute, or assigned as ``self.<name>`` in the
    class body.
@@ -20,133 +28,220 @@ guard holds four things over every class defined under ``modules/``:
    return, the typing idiom for a return the API ignores.
 4. **Closed.** Every project class an annotation names is an enum, an
    exception, or a class with marked members or fields, so nothing published
-   hands out or asks for an object whose own members are not API.
+   hands out or asks for an object whose own members are not API. Rules 3
+   and 4 read a ``type`` alias as its value, so an alias cannot hide either.
 5. **Paths declared.** A parameter of a member on the wire (marked, not
    in-process) that takes a file-system path is annotated exactly
    ``FilePath`` or ``FilePath | None``, so a wire client can tell a path
    from a string and pass it through ``ScopeSession.live_folder_path``.
+6. **One vocabulary.** No marked member's parameter and no published field
+   is named in a word the API retired for another (``layer`` for
+   ``channel``, ``position`` for a turret ``slot``, ``plate_key`` for
+   ``labware_id``, ``idx`` for ``step_index``, ...), so a member written
+   later cannot bring one back.
+7. **Every quantity names its unit.** A marked member's ``float``
+   parameter and a published ``float`` field end in a unit suffix
+   (``UNIT_SUFFIXES``), or are in ``UNITLESS`` with the reason they carry
+   none; a float inside a ``Callable`` or a ``dict`` has no name of its own
+   and is not judged. No marked annotation names ``timedelta``: a duration
+   is a float of seconds. A return's unit is in its member's name or its
+   record, so a return is not judged by name.
+8. **Every fixed word is a closed set.** No marked member's parameter or
+   return and no published field names a plain ``Enum`` or an ``IntEnum``:
+   a closed set is a ``StrEnum``, so it crosses the wire as its word and
+   equals its plain string. Every one that holds a ``str`` -- a parameter,
+   a return, a field, a dict's key or a callback's argument -- is in
+   ``OPEN_STRINGS`` with the reason its words are open (a channel key, a
+   catalogue key, a reason word, words a person reads, a camera's, board's
+   or OS's own word, ...), so a fixed list of words written later as a
+   ``str`` fails here until it is a ``StrEnum`` or its reason is given.
+9. **An LED is lit by its channel's name.** No marked member outside
+   ``engineering=True`` takes an LED board address: an ``int`` parameter of
+   an ``IlluminationAPI`` member or one named for an address, or a record
+   that holds an ``address`` (``LedReading``, and a record holding one), so
+   an address-taking LED member written later fails here until it is an
+   engineering member. ``LED_ADDRESS_TAKERS`` names the one exception and
+   its reason. An answer keeps the address, a listener's callback's
+   arguments among them.
+10. **Nothing private in the reference.** No code span of the render
+    outside a signature names a private member (``_name``, ``owner._name``):
+    a reader cannot call it, so a published docstring says what it would
+    have pointed to.
+11. **Every parameter is described.** Every parameter of a marked member
+    has an entry in its docstring's ``Args:`` section.
 
-Annotations are read as strings and resolved by class name over the loaded
-classes, never through ``typing.get_type_hints``, which raises on the
-``TYPE_CHECKING`` imports the API modules use. A static read: no session.
+Beside the eleven, two hold the set itself whole. A module's function is
+never marked for the wire, since nothing routes a function: it is
+``in_process``. And every class defined in a project module that carries a
+mark is in the table, by identity, so no mark sits where the rules cannot
+see it.
+
+The rules read annotations as strings and look each name up in that table,
+which resolves them once, so a class an annotation names cannot be missing
+from it unseen: the table raises instead. Rules 3, 4 and 8 are shown on
+fixtures to catch a class from outside ``modules/``. A static read: no session.
 """
 
 from __future__ import annotations
 
 import ast
 import dataclasses
+import difflib
 import enum
-import importlib
 import inspect
-import pkgutil
+import os
 import re
-import warnings
+import sys
+import types
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from tests.ast_seams import REPO_ROOT
-
-DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
-INDEX_HEADING = '## API reference'
-IN_PROCESS_LABEL = '(in-process)'
+from modules import wire_encoding
+from modules.api_surface import API, api, entries_of
+from tests.api_reference import REFERENCE, REGENERATE, WRITE, member_function, render
+from tests.ast_seams import RetiredNames, Words
+from tests.marked_set import (
+    Marked,
+    marked_classes_outside,
+    marked_functions,
+    marked_members,
+    marked_set,
+)
 
 # Members whose absence would mean the walk lost its way, one per kind of
 # owner: a Session member, a sub-API member, a run handle's, a run outcome's
-# field, and an outcome delivered to a listener.
+# field, an outcome delivered to a listener, and a module's function.
 NOT_VACUOUS = {
     'ScopeSession.add_step',
-    'ImagingAPI.set_gain_db',
-    'RunHandle.wait',
+    'CameraAPI.set_gain_db',
+    'Operation.stop',
     'RunOutcome.status',
     'Notification.kind',
+    'rest.app.build_app',
 }
 
-_BLIND = {'Any', 'object'}
+_BLIND = Words({'Any', 'object'})
 
 
 @pytest.fixture(scope='module')
 def universe() -> dict[str, type]:
-    """Every class defined under modules/, by name, every module imported."""
-    import modules
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', FutureWarning)
-        for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
-            importlib.import_module(info.name)
-    classes: dict[str, set[type]] = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                classes.setdefault(cname, set()).add(obj)
-    ambiguous = sorted(n for n, found in classes.items() if len(found) > 1)
-    assert not ambiguous, (
-        f'two classes under modules/ share each of these names: {ambiguous}. An '
-        'annotation names a class by name, so the closure check cannot tell them apart'
-    )
-    return {n: next(iter(found)) for n, found in classes.items()}
+    """Every class the API can name, by name (``wire_encoding.project_classes``)."""
+    return wire_encoding.project_classes()
 
 
 @pytest.fixture(scope='module')
-def marked(universe: dict[str, type]) -> dict[str, str]:
-    """``Class.member`` -> ``api`` or ``in_process``; fields -> ``api``."""
-    from modules.api_surface import fields_of, mark_of
-
-    found = {}
-    for cname, cls in universe.items():
-        for member, value in vars(cls).items():
-            tag = mark_of(value)
-            if tag is not None:
-                found[f'{cname}.{member}'] = tag
-        for field in fields_of(cls):
-            found[f'{cname}.{field}'] = 'api'
-    return found
-
-
-def _index(text: str) -> dict[str, str]:
-    """``Class.member`` -> ``api`` or ``in_process``, from the doc's index."""
-    start = text.index(f'\n{INDEX_HEADING}\n')
-    section = text[start + len(INDEX_HEADING) + 2 :]
-    end = section.find('\n## ')
-    section = section if end < 0 else section[:end]
-    indexed, cls = {}, None
-    for line in section.splitlines():
-        heading = re.fullmatch(r'### `?([A-Za-z_][A-Za-z0-9_]*)`?', line.strip())
-        if heading:
-            cls = heading.group(1)
-            continue
-        item = re.fullmatch(r'- `([A-Za-z_][A-Za-z0-9_]*)`( \(in-process\))?', line.strip())
-        if item:
-            assert cls is not None, f'index item {line!r} sits under no class heading'
-            indexed[f'{cls}.{item.group(1)}'] = 'in_process' if item.group(2) else 'api'
-    return indexed
+def aliases() -> dict[str, str]:
+    return wire_encoding.project_aliases()
 
 
 @pytest.fixture(scope='module')
-def indexed() -> dict[str, str]:
-    """pin-justified: the guard's subject is the reference's index text."""
-    return _index(DOC.read_text(encoding='utf-8'))
+def marked(universe: dict[str, type]) -> dict[str, Marked]:
+    """The declared API (``tests.marked_set``): *universe*'s marks and every marked function."""
+    return marked_set(universe)
 
 
-def test_no_marked_name_is_private(marked: dict[str, str]) -> None:
-    private = sorted(name for name in marked if name.split('.', 1)[1].startswith('_'))
+@pytest.fixture(scope='module')
+def rendered(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
+    """The reference's text, rendered now from the marks and the docstrings."""
+    return render(marked, universe, aliases)
+
+
+def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
+    private = sorted(name for name, m in marked.items() if m.member.startswith('_'))
     assert not private, f'members marked as API whose names say private: {private}'
 
 
-def test_the_index_is_the_marked_set(marked: dict[str, str], indexed: dict[str, str]) -> None:
-    unindexed = sorted(set(marked) - set(indexed))
-    unmarked = sorted(set(indexed) - set(marked))
-    mislabelled = sorted(
-        f'{name}: marked {marked[name]}, indexed {indexed[name]}'
-        for name in set(marked) & set(indexed)
-        if marked[name] != indexed[name]
+def test_the_reference_is_current(rendered: str) -> None:
+    if os.environ.get(WRITE):
+        REFERENCE.write_text(rendered, encoding='utf-8', newline='\n')
+        return
+    committed = REFERENCE.read_text(encoding='utf-8') if REFERENCE.exists() else ''
+    changed = list(
+        difflib.unified_diff(
+            committed.splitlines(), rendered.splitlines(), 'committed', 'rendered', lineterm='', n=1
+        )
     )
-    assert not (unindexed or unmarked or mislabelled), (
-        f'{DOC.name} "{INDEX_HEADING}" and the @api / @api_fields marks disagree.\n'
-        f'  marked, not indexed: {unindexed}\n'
-        f'  indexed, not marked: {unmarked}\n'
-        f'  labelled differently: {mislabelled}'
+    assert not changed, (
+        f'{REFERENCE.name} is not the render of the marks and docstrings; regenerate it:\n'
+        f'  {REGENERATE}\n' + '\n'.join(changed[:60])
+    )
+
+
+def test_the_reference_names_no_internal_tool(rendered: str) -> None:
+    """The reference is public and the engineering plugin is internal: no
+    published docstring names the plugin or its panel."""
+    found = [
+        line
+        for line in rendered.splitlines()
+        if re.search(r'engineering (plugin|panel)', line, re.I)
+    ]
+    assert not found, 'the reference names an internal tool:\n' + '\n'.join(found)
+
+
+def test_the_reference_names_no_engineering_member(
+    marked: dict[str, Marked], rendered: str
+) -> None:
+    """A member marked ``engineering`` -- a bench or support member -- is
+    callable from Python and absent from the public reference: no entry,
+    no link, and no code span names it, by its key or its bare name."""
+    from modules.api_surface import is_engineering
+
+    engineering = {k: m for k, m in marked.items() if not m.field and is_engineering(m.value)}
+    # The walk reached them: the camera's, the LEDs', the imaging pair and diagnostics' ten.
+    assert len(engineering) >= 16, sorted(engineering)
+    # A bare name another published member also has is that member's, not this one's.
+    public = {m.member for k, m in marked.items() if k not in engineering}
+    spans = set(re.findall(r'`([\w.]+)`', rendered))
+    named = sorted(
+        key
+        for key, m in engineering.items()
+        if key in spans
+        or f'id="{key}"' in rendered
+        or (m.member not in public and m.member in spans)
+    )
+    assert not named, f'the reference names engineering members: {named}'
+
+
+# A code span naming a private member, ``_name`` or ``owner._name``; the
+# signature blocks are left out, where a private default's name is source.
+_FENCE = re.compile(r'^```.*?^```$', re.M | re.S)
+_PRIVATE_SPAN = re.compile(r'`(?:[\w.]*\.)?(_[A-Za-z]\w*)[^`]*`')
+_ANCHOR = re.compile(r'<a id="([^"]+)"></a>')
+
+
+def test_the_reference_names_nothing_private(rendered: str) -> None:
+    named: dict[str, set[str]] = {}
+    entry = 'the preface'
+    for line in _FENCE.sub('', rendered).splitlines():
+        entry = (_ANCHOR.findall(line) or [entry])[-1]
+        for name in _PRIVATE_SPAN.findall(line):
+            named.setdefault(entry, set()).add(name)
+    assert not named, (
+        'the reference sends its reader to a name that is not API; say in the published '
+        'docstring what the private one does:\n'
+        + ''.join(f'  {entry}: {sorted(names)}\n' for entry, names in sorted(named.items()))
+    )
+
+
+def test_every_parameter_is_described(marked: dict[str, Marked]) -> None:
+    undescribed = {}
+    for key, item in sorted(marked.items()):
+        if item.field or isinstance(item.value, property):
+            continue
+        function = member_function(item.value)
+        described = {n.lstrip('*') for n in entries_of(inspect.getdoc(function) or '', 'Args')}
+        missing = [
+            name
+            for name in inspect.signature(function).parameters
+            if name not in ('self', 'cls') and name not in described
+        ]
+        if missing:
+            undescribed[key] = missing
+    assert not undescribed, (
+        f'{len(undescribed)} members take a parameter their docstring has no Args: entry for:\n'
+        + ''.join(f'  {key}: {names}\n' for key, names in undescribed.items())
     )
 
 
@@ -212,12 +307,12 @@ def _field_annotation(cls: type, name: str) -> str | None:
     return None
 
 
-def _edges(cls: type, member: str) -> list[tuple[str, str | None]]:
-    """(edge, annotation text) for a marked member: its return and parameters, or the field."""
-    value = vars(cls).get(member)
+def _edges(owner: type | types.ModuleType, member: str) -> list[tuple[str, str | None]]:
+    """(edge, annotation text) for a marked member or function: its return and parameters, or the field."""
+    value = vars(owner).get(member)
     function = value.fget if isinstance(value, property) else getattr(value, '__func__', value)
     if value is None or not callable(function) or inspect.isclass(function):
-        return [('field', _field_annotation(cls, member))]
+        return [('field', _field_annotation(owner, member))]
     function = inspect.unwrap(function)
     annotations = function.__annotations__
     edges = [('return', _text(annotations.get('return', inspect.Parameter.empty)))]
@@ -292,16 +387,36 @@ def _named(text: str, *, holds_callbacks: bool = True) -> tuple[set[str], set[st
     return blind, names
 
 
-def test_the_api_is_typed_and_closed(universe: dict[str, type], marked: dict[str, str]) -> None:
-    owners = {name.split('.', 1)[0] for name in marked}
+def _named_through_aliases(
+    text: str, aliases: dict[str, str], *, holds_callbacks: bool
+) -> tuple[set[str], set[str]]:
+    """``_named``, with each ``type`` alias it uses read as its value too."""
+    blind, names = _named(text, holds_callbacks=holds_callbacks)
+    read, pending = set(), names & aliases.keys()
+    while pending:
+        alias = pending.pop()
+        read.add(alias)
+        inner_blind, inner = _named(aliases[alias], holds_callbacks=holds_callbacks)
+        blind |= inner_blind
+        names |= inner
+        pending |= (inner & aliases.keys()) - read
+    return blind, names
+
+
+def test_the_api_is_typed_and_closed(
+    universe: dict[str, type], marked: dict[str, Marked], aliases: dict[str, str]
+) -> None:
+    owners = {m.owner_name for m in marked.values()}
     untyped, blind, unpublished = [], [], {}
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if text is None:
                 untyped.append(f'{name} {edge}')
                 continue
-            blind_names, names = _named(text, holds_callbacks=edge != 'return')
+            blind_names, names = _named_through_aliases(
+                text, aliases, holds_callbacks=edge != 'return'
+            )
             if blind_names:
                 blind.append(f'{name} {edge}: {text}')
             for used in names & universe.keys():
@@ -321,25 +436,68 @@ def test_the_api_is_typed_and_closed(universe: dict[str, type], marked: dict[str
     )
 
 
-def test_the_walk_is_not_vacuous(marked: dict[str, str], indexed: dict[str, str]) -> None:
-    assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
-    assert indexed.keys() >= NOT_VACUOUS, (
-        f'index entries not found: {sorted(NOT_VACUOUS - indexed.keys())}'
+def _bare_operations(text: str) -> bool:
+    """Whether an annotation names ``Operation`` without saying what its ``result()`` returns."""
+    tree = ast.parse(text, mode='eval')
+    said = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Subscript)}
+    return any(
+        (isinstance(node, ast.Name) and node.id == 'Operation')
+        or (isinstance(node, ast.Attribute) and node.attr == 'Operation')
+        for node in ast.walk(tree)
+        if id(node) not in said
     )
 
 
+def test_every_operation_handed_out_names_its_result(marked: dict[str, Marked]) -> None:
+    # An Operation's result is a record only through its T: unsaid, the
+    # closure above never reaches what a still or a run's files hand back.
+    bare, said = [], {}
+    for name in sorted(marked):
+        for edge, text in _edges(marked[name].owner, marked[name].member):
+            if text is None or edge.startswith('parameter'):
+                continue
+            said[f'{name} {edge}'] = _named(text)[1]
+            if _bare_operations(text):
+                bare.append(f'{name} {edge}: {text}')
+    assert not bare, f'an Operation handed out says no result type (Operation[T]): {bare}'
+    assert 'SavedStill' in said['ManualCaptureController.capture return']
+    assert 'RunFiles' in said['Operation.files field']
+
+
+def test_no_function_is_marked_for_the_wire(marked: dict[str, Marked]) -> None:
+    wire = sorted(name for name, m in marked.items() if m.at_top_level and m.tag == API)
+    assert not wire, (
+        f'a function marked for the wire, which routes only class members; mark it '
+        f'@api(in_process=True): {wire}'
+    )
+
+
+def test_every_marked_class_is_in_the_table(universe: dict[str, type]) -> None:
+    outside = marked_classes_outside(universe)
+    assert not outside, (
+        'a class carries a mark the rules cannot see, since no class under modules/ names '
+        f'it: define it under modules/, or name it from a marked annotation: {outside}'
+    )
+
+
+def test_the_walk_is_not_vacuous(marked: dict[str, Marked], rendered: str) -> None:
+    assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
+    unrendered = sorted(name for name in NOT_VACUOUS if f'<a id="{name}"></a>' not in rendered)
+    assert not unrendered, f'reference entries not found: {unrendered}'
+
+
 # A parameter naming one of these takes a file-system path.
-_PATH_NAMES = {'Path', 'PathLike', 'FilePath'}
+_PATH_NAMES = Words({'Path', 'PathLike', 'FilePath'})
 _DECLARED_PATH = {'FilePath', 'FilePath | None'}
 # A wire path parameter whose absence would mean the walk lost its way.
 KNOWN_WIRE_PATH = 'ScopeSession.load_protocol parameter file_path'
 
 
-def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str, str]) -> None:
+def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str, Marked]) -> None:
     seen, undeclared = set(), []
-    for name in sorted(n for n, tag in marked.items() if tag == 'api'):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+    for name in sorted(n for n, m in marked.items() if m.tag == 'api'):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if not edge.startswith('parameter ') or text is None:
                 continue
             if not _named(text)[1] & _PATH_NAMES:
@@ -353,3 +511,746 @@ def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str
         '(modules.api_surface), so a wire client knows which arguments are paths:\n  '
         + '\n  '.join(undeclared)
     )
+
+
+# Words the API retired for one name each (W5a): a channel is a channel, a
+# step or a scan is counted by its index, a plate is named by its labware_id,
+# the turret's place is a slot, a period is period_s.
+RETIRED_WORDS = RetiredNames(
+    {
+        'layer',
+        'layers',
+        'idx',
+        'step_idx',
+        'scan',
+        'scan_number',
+        'interval',
+        'plate_key',
+        'labware_name',
+        'position',
+        'turret_position',
+    }
+)
+# A published name the rename that retires its word has not reached yet,
+# with the part that renames it. Each entry must still be a hit, so the
+# rename that lands deletes it here.
+NOT_YET_RENAMED: dict[str, str] = {}
+# A parameter whose absence would mean the walk lost its way.
+KNOWN_PARAMETER = 'ScopeSession.add_step parameter protocol'
+
+
+def test_the_api_speaks_one_vocabulary(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
+    seen, hits = set(), set()
+    for name in sorted(marked):
+        member = marked[name].member
+        for edge, _ in _edges(marked[name].owner, member):
+            if edge == 'field':
+                word, where = member, f'{name} field'
+            elif edge.startswith('parameter '):
+                word, where = edge.removeprefix('parameter '), f'{name} {edge}'
+            else:
+                continue
+            seen.add(where)
+            if word in RETIRED_WORDS:
+                hits.add(where)
+    assert KNOWN_PARAMETER in seen, f'the walk did not reach {KNOWN_PARAMETER}'
+    stale = sorted(set(NOT_YET_RENAMED) - hits)
+    assert not stale, f'renamed now, so delete them from NOT_YET_RENAMED: {stale}'
+    offenders = sorted(hits - set(NOT_YET_RENAMED))
+    assert not offenders, (
+        'A published parameter or field is named in a retired word; use its one name '
+        '(channel, step_index, scan_index, labware_id, slot, turret_slot, period_s):\n  '
+        + '\n  '.join(offenders)
+    )
+
+
+# The unit suffixes a published float may end in (W5a): the unit is always
+# last, so a reader of the name (Micro-Manager, PyDevice) finds it there.
+UNIT_SUFFIXES = Words(
+    {
+        '_um',
+        '_mm',
+        '_um2',
+        '_px2',
+        '_s',
+        '_ms',
+        '_us',
+        '_ns',
+        '_ma',
+        '_db',
+        '_nm',
+        '_hz',
+        '_pct',
+        '_fps',
+        '_bytes',
+        '_mb',
+        '_degc',
+        '_rpm',
+        '_epoch_s',
+    }
+)
+# A published float that carries no unit, with the reason. Each entry is
+# read one by one, none admitted by pattern, and each must still be a hit,
+# so a rename that gives it a unit deletes it here.
+UNITLESS: dict[str, str] = {
+    # concurrent.futures.Future's name, kept so an Operation is waited on as any Future is.
+    'Operation.exception parameter timeout': "the Future's name for a wait in seconds",
+    'Operation.result parameter timeout': "the Future's name for a wait in seconds",
+    'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
+    'CameraSettingOutOfRangeError.limits field': "the camera's bounds, in the setting's unit",
+    'PositionOutOfRangeError.limits field': "the bound's ends, in the refused quantity's unit",
+    'SettingRefusedError.limits field': "the setting's range, in the setting's unit",
+    'CameraAPI.set_black_level parameter level': 'a raw sensor level',
+    'FrameRecord.black_level field': 'a raw sensor level',
+    'SensorExposure.black_level field': 'a raw sensor level',
+    'SensorExposure.light field': (
+        "the simulated scene's light per second of exposure at unity gain, in its own scale"
+    ),
+    'FrameRecord.saturated_fraction field': "a fraction of the frame's pixels",
+    'SimulationAPI.hold_axis parameter at_fraction': "a fraction of the move's travel",
+    'MotionAPI.start_jog parameter steps': "a count of the active objective's jog steps",
+    'CameraLink.link_speed field': (
+        'in the unit the camera declares (link_speed_unit), carried and never converted'
+    ),
+    'CellCounts.total_object_intensity field': (
+        'pixel area times mean intensity in percent of full scale: an integrated '
+        'intensity with no physical unit'
+    ),
+    'ImageStatistics.mean field': "the image's counts",
+    'ImageStatistics.standard_deviation field': "the image's counts",
+    'Objective.magnification field': 'a ratio',
+    'Objective.numerical_aperture field': 'a ratio',
+    'FilterBounds.min field': 'in the unit of the CellCountFilters field it bounds',
+    'FilterBounds.max field': 'in the unit of the CellCountFilters field it bounds',
+    'SizeSliderStops.positions field': 'slider positions',
+    'SizeSliderStops.size_at parameter positions': 'slider positions',
+    'SizeSliderStops.reach field': "a size in the measure's scale, um or px by the image's scale",
+    'SizeSliderStops.sizes field': "sizes in the measure's scale, um or px by the image's scale",
+    'SizeSliderStops.positions_of parameter sizes': (
+        "sizes in the measure's scale, um or px by the image's scale"
+    ),
+}
+# A float whose absence from the walk would mean it lost its way.
+KNOWN_QUANTITY = 'AppliedExposure.applied_ms field'
+_UNNAMED = Words({'Callable', 'dict', 'Mapping'})
+
+
+def _names_a_float(text: str) -> bool:
+    """Whether an annotation holds a float with a name of its own: not inside a Callable or a dict."""
+
+    def visit(node: ast.AST) -> bool:
+        if isinstance(node, ast.Subscript):
+            base = (
+                node.value.attr
+                if isinstance(node.value, ast.Attribute)
+                else getattr(node.value, 'id', '')
+            )
+            if base in _UNNAMED:
+                return False
+        if isinstance(node, ast.Name):
+            return node.id == 'float'
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return _names_a_float(node.value)
+        return any(visit(child) for child in ast.iter_child_nodes(node))
+
+    return visit(ast.parse(text, mode='eval'))
+
+
+def test_every_quantity_names_its_unit(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
+    seen, hits, durations = set(), set(), []
+    for name in sorted(marked):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
+            if text is None:
+                continue
+            if 'timedelta' in _named(text)[1]:
+                durations.append(f'{name} {edge}')
+            if edge == 'field':
+                word, where = member, f'{name} field'
+            elif edge.startswith('parameter '):
+                word, where = edge.removeprefix('parameter '), f'{name} {edge}'
+            else:
+                continue
+            if not _names_a_float(text):
+                continue
+            seen.add(where)
+            if not any(word.endswith(suffix) for suffix in UNIT_SUFFIXES):
+                hits.add(where)
+    assert KNOWN_QUANTITY in seen, f'the walk did not reach {KNOWN_QUANTITY}'
+    assert not durations, f'a duration is a float of seconds, never a timedelta: {durations}'
+    stale = sorted(set(UNITLESS) - hits)
+    assert not stale, f'these carry a unit or are gone now, so delete them from UNITLESS: {stale}'
+    offenders = sorted(hits - set(UNITLESS))
+    assert not offenders, (
+        "A published float's name says no unit; end it in one of UNIT_SUFFIXES, or, when it "
+        'has none, enter it in UNITLESS with the reason:\n  ' + '\n  '.join(offenders)
+    )
+
+
+# The reasons a published str is open: its words are not a fixed list the
+# API owns. Each entry below is read one by one, none admitted by pattern,
+# and each must still be a hit, so a str made a StrEnum deletes it here.
+_CHANNEL = "a channel key, the release's layer vocabulary (W5c)"
+_OBJECTIVE = 'an objective catalogue key'
+_LABWARE = 'a labware catalogue key'
+_MODEL = 'a model catalogue key'
+_TILING = 'a tiling catalogue key'
+_FILTERSET = 'a filterset, as the catalogue or the board names it'
+_CATALOGUE_TEXT = 'catalogue text, as the installation file writes it'
+_WELL = 'a well label of the selected plate'
+_TILE = "a tile label of the step's grid"
+_STEP = "a protocol step's name or label"
+_SEQUENCE = "a run's sequence name, the caller's"
+_NAME = 'a name the caller gives'
+_PROSE = 'words a person reads'
+_REASON = 'a reason word: why a thing happened is a string; what it is, an enum'
+_SETTING = 'a settings path'
+_MEMBER = "an API member's or argument's name"
+_TYPE = 'a type, as source text'
+_OFFERED = "the values offered for the refused argument, any set's"
+_PATH = 'a file-system path or file name, in process'
+_CAMERA = "the camera's or its SDK's own word"
+_BOARD = "the board's own report, as its firmware gives it"
+_OS = "the operating system's own word"
+_PLUGIN = "a plugin's name, namespace or version, or the host callback it failed in"
+_CONTROL = "a control session's name or id"
+_VERSION = 'a version, as its source writes it'
+_COLOUR = 'a colour as text, or a channel key naming one'
+_NUMBER_TEXT = 'a number given as its text'
+_COLUMN = 'a column of the results file read'
+_RECORD_KEYS = "a record's keys, not a set (TODO.md, outside W5b)"
+_PROVENANCE = "the measuring run's record, as the characterization writes it"
+_LISTENER = "a listener's own name"
+_TAG = "the caller's tag for a snapshot"
+_SOURCE = 'the module or function a post came from'
+_CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
+_KEY = "an outcome's operation key, the caller's"
+_HEADER = "the protocol file format's header line"
+_PROTOCOL_COLUMN = "a column heading of the protocol file format's steps table"
+_READER = "the REST request reader's own word: where it found an argument, or its code for why"
+_CAPABILITY = 'an API surface a plugin declares it uses, as a dotted path the plugin writes'
+_REQUIREMENT = "a requirement on LumaViewPro's version, as the plugin writes it"
+_URL = 'a web address'
+
+OPEN_STRINGS: dict[str, str] = {
+    'ArgumentRefusedError.argument field': _MEMBER,
+    'ArgumentRefusedError.board field': _PROSE,
+    'ArgumentRefusedError.member field': _MEMBER,
+    'ArgumentRefusedError.plate field': _LABWARE,
+    'ArgumentRefusedError.takes field': _PROSE,
+    'CompositeFailedError.merge_failure field': _REASON,
+    'CompositeFailedError.run_ending field': _REASON,
+    'ArgumentRefusedError.offered field': _OFFERED,
+    'ArgumentTypeRefusedError.argument field': _MEMBER,
+    'ArgumentTypeRefusedError.declared field': _TYPE,
+    'ArgumentTypeRefusedError.member field': _MEMBER,
+    'BuildResult.message field': _PROSE,
+    'BuildsResult.message field': _PROSE,
+    'CameraAPI.apply parameter channel': _CHANNEL,
+    'CameraAPI.pixel_format return': _CAMERA,
+    'CameraAPI.read_pixel_format return': _CAMERA,
+    'CameraAPI.save_camera_state parameter tag': _TAG,
+    'CameraLink.link_speed_unit field': _CAMERA,
+    'CameraLink.transport field': _CAMERA,
+    'CatalogueNameRefusedError.argument field': _MEMBER,
+    'CatalogueNameRefusedError.offered field': _OFFERED,
+    'CellCountResult.message field': _PROSE,
+    'ChannelIdentity.filterset field': _FILTERSET,
+    'ChannelIdentity.find parameter key_name': _CHANNEL,
+    'ChannelIdentity.model field': _MODEL,
+    'ChannelIdentity.refuse_unless_on_scope parameter channel': _CHANNEL,
+    'ChannelIdentity.refuse_unless_on_scope parameter member': _MEMBER,
+    'ChannelIdentity.refuse_unless_on_scope parameter then': _PROSE,
+    'ChannelRecord.display_color field': _COLOUR,
+    'ChannelRecord.display_name field': _PROSE,
+    'ChannelRecord.key_name field': _CHANNEL,
+    'ChannelRecord.label field': _PROSE,
+    'ControlSession.name field': _CONTROL,
+    'ControlSessionRefusedError.control_session field': _CONTROL,
+    'ControlsLock.control_named field': _PROSE,
+    'ControlsLock.named return': _PROSE,
+    'ControlsLock.run_named field': _PROSE,
+    'DegradedOutput.fallback_reason field': _REASON,
+    'DiagnosticsAPI.get_camera_temperatures_degc return': _CAMERA,
+    'DiagnosticsAPI.motor_fan_spin_times return': _RECORD_KEYS,
+    'DisplayRates.frame_interval_percentiles_ms return': _RECORD_KEYS,
+    'EnhanceResult.message field': _PROSE,
+    'FailedCapture.cause field': _REASON,
+    'FailedCapture.step_name field': _STEP,
+    'FocusFailure.cause field': _REASON,
+    'FocusFailure.step_name field': _STEP,
+    'Frame.chunks field': _CAMERA,
+    'FrameRecord.camera_model field': _CAMERA,
+    'FrameRecord.held_channel field': _CHANNEL,
+    'FrameRule.provenance field': _PROVENANCE,
+    'GraphOptions.x_axes field': _COLUMN,
+    'GraphOptions.y_axes field': _COLUMN,
+    'GraphResult.message field': _PROSE,
+    'IlluminationAPI.add_led_listener parameter listener': _CHANNEL,
+    'IlluminationAPI.led_off parameter channel': _CHANNEL,
+    'IlluminationAPI.led_on parameter channel': _CHANNEL,
+    'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
+    'ImagingAPI.add_frame_listener parameter name': _LISTENER,
+    'InjectedFault.arguments field': _MEMBER,
+    'InjectedFault.member field': _MEMBER,
+    'Labware.name field': _CATALOGUE_TEXT,
+    'Labware.standard field': _CATALOGUE_TEXT,
+    'LayerHold.channel field': _CHANNEL,
+    'LedBoardInfo.firmware_date field': _BOARD,
+    'LedBoardInfo.firmware_version field': _BOARD,
+    'LedReading.name field': _CHANNEL,
+    'LiveFolderEntry.name field': _PATH,
+    'LiveProcessingRegistry.unregister parameter name': _PLUGIN,
+    'Lumascope.labware return': _LABWARE,
+    'Lumascope.objectives return': _OBJECTIVE,
+    'Lumascope.scope_models return': _MODEL,
+    'ManualRecordingController.end_reason return': _REASON,
+    'MotionAPI.move_to_well parameter well': _WELL,
+    'MotionAPI.start_move_to_well parameter well': _WELL,
+    'MotorBoardInfo.firmware_date field': _BOARD,
+    'MotorBoardInfo.firmware_version field': _BOARD,
+    'MotorBoardInfo.model field': _BOARD,
+    'MotorBoardInfo.serial_number field': _BOARD,
+    'NamespaceHealth.namespace field': _PLUGIN,
+    'Notification.category field': _CATEGORY,
+    'Notification.message field': _PROSE,
+    'Notification.operation_key field': _KEY,
+    'Notification.reason field': _REASON,
+    'Notification.source field': _SOURCE,
+    'Notification.title field': _PROSE,
+    'Objective.description field': _PROSE,
+    'Objective.id field': _OBJECTIVE,
+    'Objective.short_name field': _CATALOGUE_TEXT,
+    'ObjectiveQuestion.choices field': _OBJECTIVE,
+    'ObjectiveQuestion.proposed field': _OBJECTIVE,
+    'Outcome.reason field': _REASON,
+    'Outcome.title field': _PROSE,
+    'Outcome.words field': _PROSE,
+    'PartStatus.cause field': _REASON,
+    'PartStatus.describe return': _PROSE,
+    'PartStatus.detail field': _PROSE,
+    'PluginNotLoaded.name field': _PLUGIN,
+    'PluginNotLoaded.reason field': _REASON,
+    'PluginNotLoaded.version field': _PLUGIN,
+    'PluginSpec.author field': _PROSE,
+    'PluginSpec.capabilities field': _CAPABILITY,
+    'PluginSpec.description field': _PROSE,
+    'PluginSpec.name field': _PLUGIN,
+    'PluginSpec.requires_lvp_version field': _REQUIREMENT,
+    'PluginSpec.url field': _URL,
+    'PluginSpec.version field': _PLUGIN,
+    'PluginRuntimeError.exc_type field': _TYPE,
+    'PluginRuntimeError.hook field': _PLUGIN,
+    'PluginRuntimeError.message field': _PROSE,
+    'PluginRuntimeError.namespace field': _PLUGIN,
+    'PluginRuntimeError.plugin_name field': _PLUGIN,
+    'PluginStatus.name field': _PLUGIN,
+    'PluginStatus.namespace field': _PLUGIN,
+    'PluginStatus.version field': _PLUGIN,
+    'PostProcessingRegistry.get parameter name': _PLUGIN,
+    'PostProcessingRegistry.get return': _PATH,
+    'PostProcessingRegistry.names return': _PLUGIN,
+    'PostProcessingRegistry.register parameter processor': _PATH,
+    'ProcessorResult.message field': _PROSE,
+    'PostProcessingAPI.draw_graph parameter x': _COLUMN,
+    'PostProcessingAPI.draw_graph parameter y': _COLUMN,
+    'PostProcessingAPI.draw_graph parameter x_label': _PROSE,
+    'PostProcessingAPI.draw_graph parameter y_label': _PROSE,
+    'PostProcessingAPI.draw_graph parameter title': _PROSE,
+    'PostProcessingAPI.graph parameter x': _COLUMN,
+    'PostProcessingAPI.graph parameter y': _COLUMN,
+    'PostProcessingAPI.graph parameter x_label': _PROSE,
+    'PostProcessingAPI.graph parameter y_label': _PROSE,
+    'PostProcessingAPI.graph parameter title': _PROSE,
+    'PostProcessingAPI.graph_options parameter x': _COLUMN,
+    'PostProcessingAPI.graph_options parameter y': _COLUMN,
+    'Protocol.CURRENT_COLUMNS field': _PROTOCOL_COLUMN,
+    'Protocol.PROTOCOL_FILE_HEADER field': _HEADER,
+    'Protocol.capture_prefix return': _NAME,
+    'Protocol.capture_root return': _PATH,
+    'Protocol.channel_settings return': _CHANNEL,
+    'Protocol.labware_id return': _LABWARE,
+    'Protocol.tiling return': _TILING,
+    'Protocol.validate_steps parameter objectives': _OBJECTIVE,
+    'ProtocolRunner.run_autofocus parameter channel': _CHANNEL,
+    'ProtocolRunner.run_autofocus parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_composite parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_protocol parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_single_scan parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_zstack parameter channel': _CHANNEL,
+    'ProtocolRunner.run_zstack parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_autofocus parameter channel': _CHANNEL,
+    'ProtocolRunner.start_autofocus parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_composite parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_protocol parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_single_scan parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_zstack parameter channel': _CHANNEL,
+    'ProtocolRunner.start_zstack parameter sequence_name': _SEQUENCE,
+    'ProtocolSizeAdvisory.message field': _PROSE,
+    'MotionAPI.positions_to_keep parameter then': _PROSE,
+    'RecordingFinished.end_reason field': _REASON,
+    'Remedy.cancel_text field': _PROSE,
+    'Remedy.confirm_text field': _PROSE,
+    'RunFiles.not_written_reason field': _REASON,
+    'RunOutcome.cleanup_failures field': _PROSE,
+    'RunOutcome.merge_reason field': _REASON,
+    'RunOutcome.message field': _PROSE,
+    'RunOutcome.reason field': _REASON,
+    'ScopeDisconnectError.part_reasons field': _REASON,
+    'RunOutcome.title field': _PROSE,
+    'RuntimeState.get_turret_config return': _OBJECTIVE,
+    'RuntimeState.get_well_label return': _WELL,
+    'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,
+    'RuntimeState.plate_transform parameter labware_id': _LABWARE,
+    'RuntimeState.resolve_current_objective return': _OBJECTIVE,
+    'RuntimeState.stage_to_plate parameter labware_id': _LABWARE,
+    'SavedStill.channel field': _CHANNEL,
+    'SavedStill.objective_id field': _OBJECTIVE,
+    'SavedStill.well_label field': _WELL,
+    'ScopeCapabilities.camera_firmware_version field': _CAMERA,
+    'ScopeCapabilities.camera_model field': _CAMERA,
+    'ScopeCapabilities.camera_pixel_formats field': _CAMERA,
+    'ScopeCapabilities.camera_sdk_version field': _CAMERA,
+    'ScopeCapabilities.camera_sensor field': _CAMERA,
+    'ScopeCapabilities.camera_serial_number field': _CAMERA,
+    'ScopeCapabilities.led_colors field': _CHANNEL,
+    'ScopeModel.filterset field': _FILTERSET,
+    'ScopeModel.id field': _MODEL,
+    'ScopeSession.acting_in_control parameter session_id': _CONTROL,
+    'ScopeSession.add_settings_listener parameter listener': _SETTING,
+    'ScopeSession.add_shown_channel_listener parameter listener': _CHANNEL,
+    'ScopeSession.add_step return': _STEP,
+    'ScopeSession.add_step parameter channels': _CHANNEL,
+    'ScopeSession.app_version return': _VERSION,
+    'ScopeSession.apply_focus_to_channel_steps parameter channel': _CHANNEL,
+    'ScopeSession.apply_tiling parameter tiling': _TILING,
+    'ScopeSession.assign_turret_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.capture_still parameter channel': _CHANNEL,
+    'ScopeSession.channel_acquire parameter channel': _CHANNEL,
+    'ScopeSession.channel_auto_gain parameter channel': _CHANNEL,
+    'ScopeSession.channel_auto_gain_lock parameter channel': _CHANNEL,
+    'ScopeSession.channel_colors return': _CHANNEL,
+    'ScopeSession.channel_slider_maxima parameter channel': _CHANNEL,
+    'ScopeSession.confirm_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.end_control parameter session_id': _CONTROL,
+    'ScopeSession.get_setting parameter path': _SETTING,
+    'ScopeSession.labware_id return': _LABWARE,
+    'ScopeSession.live_folder_listing parameter name': _PATH,
+    'ScopeSession.live_folder_path parameter name': _PATH,
+    'ScopeSession.model return': _MODEL,
+    'ScopeSession.model_at_next_start return': _MODEL,
+    'ScopeSession.new_protocol parameter tiling': _TILING,
+    'ScopeSession.objective_id return': _OBJECTIVE,
+    'ScopeSession.point_steps_at_turret_slot parameter objective_id': _OBJECTIVE,
+    'ScopeSession.protocol_files_stuck_write return': _PROSE,
+    'ScopeSession.put_live_folder_file parameter name': _PATH,
+    'ScopeSession.remove_settings_listener parameter listener': _SETTING,
+    'ScopeSession.remove_shown_channel_listener parameter listener': _CHANNEL,
+    'ScopeSession.rename_step return': _STEP,
+    'ScopeSession.rename_step parameter name': _STEP,
+    'ScopeSession.save_channel_focus parameter channel': _CHANNEL,
+    'ScopeSession.save_focus parameter channel': _CHANNEL,
+    'ScopeSession.saved_focus_z_um parameter channel': _CHANNEL,
+    'ScopeSession.select_labware parameter labware_id': _LABWARE,
+    'ScopeSession.select_model parameter model': _MODEL,
+    'ScopeSession.select_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.set_channel_acquire parameter channel': _CHANNEL,
+    'ScopeSession.set_channel_auto_gain parameter channel': _CHANNEL,
+    'ScopeSession.set_live_folder parameter folder': _PATH,
+    'ScopeSession.set_protocol_capture_root parameter root': _PATH,
+    'ScopeSession.set_protocol_filepath parameter file_path': _PATH,
+    'ScopeSession.set_protocol_labware return': _LABWARE,
+    'ScopeSession.set_protocol_labware parameter labware_id': _LABWARE,
+    'ScopeSession.show_channel parameter channel': _CHANNEL,
+    'ScopeSession.take_control return': _CONTROL,
+    'ScopeSession.take_control parameter name': _CONTROL,
+    'ScopeSession.turret_objective return': _OBJECTIVE,
+    'ScopeSession.update_settings parameter path': _SETTING,
+    'ScopeSession.update_step return': _STEP,
+    'ScopeSession.update_step parameter channel': _CHANNEL,
+    'ScopeSession.update_step parameter label': _STEP,
+    'ScopeSession.user_settings_file return': _PATH,
+    'SettingRefusedError.member field': _MEMBER,
+    'SettingRefusedError.path field': _SETTING,
+    'SettingsChanged.paths field': _SETTING,
+    'SettingsSetAside.reason field': _REASON,
+    'ShownChannel.channel field': _CHANNEL,
+    'SimulatedModelAnswer.model field': _MODEL,
+    'SimulatedScope.model field': _MODEL,
+    'SimulationAPI.answer_model parameter model': _MODEL,
+    'SimulationAPI.bind_camera_usb_driver parameter hardware_id': _OS,
+    'SimulationAPI.bind_camera_usb_driver parameter service': _OS,
+    'SimulationAPI.drop_replies parameter command': _BOARD,
+    'SkippedBuild.message field': _PROSE,
+    'StepRecord.channel field': _CHANNEL,
+    'StepRecord.label field': _STEP,
+    'StepRecord.name field': _STEP,
+    'StepRecord.objective field': _OBJECTIVE,
+    'StepRecord.stim_config field': _CHANNEL,
+    'StepRecord.tile field': _TILE,
+    'StepRecord.well field': _WELL,
+    'Substitution.setting field': _SETTING,
+    'SupportReportSaved.message return': _PROSE,
+    'SupportReportSaved.title return': _PROSE,
+    'TakenCapture.step_name field': _STEP,
+    'TilingConfig.available field': _TILING,
+    'TilingConfig.default field': _TILING,
+    'TurretSlotQuestion.objective_id field': _OBJECTIVE,
+    'UnfitArgument.loc field': _READER,
+    'UnfitArgument.msg field': _PROSE,
+    'UnfitArgument.type field': _READER,
+    'UsbDeviceBinding.date field': _OS,
+    'UsbDeviceBinding.inf field': _OS,
+    'UsbDeviceBinding.instance_id field': _OS,
+    'UsbDeviceBinding.provider field': _OS,
+    'UsbDeviceBinding.service field': _OS,
+    'UsbDeviceBinding.version field': _OS,
+    'UsbIdentityBindings.hardware_id field': _OS,
+    'UsbIdentityBindings.name field': _OS,
+    'UsbIdentityBindings.needs field': _OS,
+    'Video.frame_rate_fps field': _NUMBER_TEXT,
+    'WorkItem.name field': _PROSE,
+}
+# A string whose absence from the walk would mean it lost its way.
+KNOWN_OPEN = 'Notification.category field'
+
+
+def test_every_fixed_word_is_a_closed_set(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
+    loose, hits = [], set()
+    for name in sorted(marked):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
+            if text is None:
+                continue
+            names = _named(text, holds_callbacks=edge != 'return')[1]
+            for used in names & universe.keys():
+                cls = universe[used]
+                if issubclass(cls, enum.Enum) and not issubclass(cls, enum.StrEnum):
+                    loose.append(f'{name} {edge}: {used}')
+            if 'str' in names:
+                hits.add(f'{name} {edge}')
+    assert KNOWN_OPEN in hits, f'the walk did not reach {KNOWN_OPEN}'
+    assert not loose, f'a closed set the API names is a StrEnum, never an Enum or IntEnum: {loose}'
+    stale = sorted(set(OPEN_STRINGS) - hits)
+    assert not stale, (
+        f'these are a closed set or gone now, so delete them from OPEN_STRINGS: {stale}'
+    )
+    offenders = sorted(hits - set(OPEN_STRINGS))
+    assert not offenders, (
+        'A published str takes or answers a word: make its fixed list a StrEnum, or, when '
+        'its words are open, enter it in OPEN_STRINGS with the reason:\n  ' + '\n  '.join(offenders)
+    )
+
+
+# The members outside engineering that take an LED address, each with its reason.
+LED_ADDRESS_TAKERS = {
+    'IlluminationAPI.restore_led_state parameter readings': (
+        "the readings are the API's own answer (get_led_states) handed back; restoring them "
+        'by address keeps a lit address the identity cannot name'
+    ),
+}
+_LED_OWNER = 'IlluminationAPI'
+
+
+def _holds_an_address(universe: dict[str, type]) -> set[str]:
+    """The published records with an ``address`` field, and every record holding one."""
+    from modules.api_surface import fields_of
+
+    holders = {
+        cname
+        for cname, cls in universe.items()
+        if 'address' in fields_of(cls) and _field_annotation(cls, 'address') == 'int'
+    }
+    grown = True
+    while grown:
+        grown = False
+        for cname, cls in universe.items():
+            if cname in holders:
+                continue
+            for field in fields_of(cls):
+                text = _field_annotation(cls, field)
+                if text is not None and _named(text)[1] & holders:
+                    holders.add(cname)
+                    grown = True
+                    break
+    return holders
+
+
+def _is_a_callback(text: str) -> bool:
+    """A callback parameter: what it is called with is an answer, the API's to give."""
+    node = ast.parse(text, mode='eval').body
+    base = node.value if isinstance(node, ast.Subscript) else None
+    return getattr(base, 'id', getattr(base, 'attr', None)) == 'Callable'
+
+
+def _is_an_address(owner: str, parameter: str, names: set[str], holders: set[str]) -> bool:
+    if names & holders:
+        return True
+    if 'int' not in names:
+        return False
+    return owner == _LED_OWNER or parameter == 'address' or parameter.endswith('_address')
+
+
+def test_an_led_is_lit_by_its_channels_name(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
+    from modules.api_surface import is_engineering
+
+    holders = _holds_an_address(universe)
+    assert 'LedReading' in holders, f'the walk lost the LED record: {holders}'
+    takers, engineering = set(), set()
+    for name in sorted(marked):
+        cname, member, value = marked[name].owner_name, marked[name].member, marked[name].value
+        for edge, text in _edges(marked[name].owner, member):
+            if not edge.startswith('parameter ') or text is None or _is_a_callback(text):
+                continue
+            parameter = edge.removeprefix('parameter ')
+            if not _is_an_address(cname, parameter, _named(text)[1], holders):
+                continue
+            (engineering if is_engineering(value) else takers).add(f'{name} {edge}')
+    assert 'IlluminationAPI.led_on_by_address parameter address' in engineering, (
+        f'the walk did not reach the engineering members: {sorted(engineering)}'
+    )
+    stale = sorted(set(LED_ADDRESS_TAKERS) - takers)
+    assert not stale, f'these no longer take an LED address, so delete them: {stale}'
+    offenders = sorted(takers - set(LED_ADDRESS_TAKERS))
+    assert not offenders, (
+        "A member outside engineering takes an LED address: take the channel's name, or mark "
+        'it engineering=True (C11):\n  ' + '\n  '.join(offenders)
+    )
+
+
+# --- The table is what the API names -----------------------------------------
+# Each fixture is a class from outside modules/ that a marked member names,
+# added to the real API's table through the one walk that builds it, so the
+# rule's own reach checks hold and the fixture is the only offender.
+
+
+class _DriverRecord:
+    """Handed out by a marked member, with no marked member of its own."""
+
+    __module__ = 'drivers.fixture'
+
+
+class _DriverWord(enum.Enum):
+    """A driver's closed set that is not a StrEnum."""
+
+    __module__ = 'drivers.fixture'
+    ONE = 'one'
+
+
+type _HidesAny = dict[str, Any]
+
+
+class _HandsOutADriverRecord:
+    @api
+    def record(self) -> _DriverRecord:
+        raise NotImplementedError
+
+
+class _AnswersADriverWord:
+    @api
+    def word(self) -> _DriverWord:
+        raise NotImplementedError
+
+
+class _AnswersAnAlias:
+    @api
+    def hidden(self) -> _HidesAny:
+        raise NotImplementedError
+
+
+class _NamesNothing:
+    @api
+    def nowhere(self) -> _Nowhere:  # noqa: F821 -- the name that resolves to nothing
+        raise NotImplementedError
+
+
+def _with(root: type) -> dict[str, type]:
+    return wire_encoding.project_classes() | wire_encoding.closure({root}, {})
+
+
+def test_an_unpublished_class_from_outside_modules_is_not_closed() -> None:
+    universe = _with(_HandsOutADriverRecord)
+    assert universe['_DriverRecord'] is _DriverRecord
+
+    with pytest.raises(
+        AssertionError,
+        match=r"_DriverRecord is named by \['_HandsOutADriverRecord\.record return'\]",
+    ):
+        test_the_api_is_typed_and_closed(
+            universe, marked_set(universe), wire_encoding.project_aliases()
+        )
+
+
+def test_a_drivers_plain_enum_is_not_a_closed_set() -> None:
+    universe = _with(_AnswersADriverWord)
+
+    with pytest.raises(AssertionError, match=r"_AnswersADriverWord\.word return: _DriverWord'\]"):
+        test_every_fixed_word_is_a_closed_set(universe, marked_set(universe))
+
+
+def test_an_alias_cannot_hide_any() -> None:
+    universe = _with(_AnswersAnAlias)
+    aliases = wire_encoding.project_aliases() | {'_HidesAny': 'dict[str, Any]'}
+
+    with pytest.raises(AssertionError, match=r'_AnswersAnAlias\.hidden return: _HidesAny'):
+        test_the_api_is_typed_and_closed(universe, marked_set(universe), aliases)
+
+
+def test_a_name_that_resolves_to_nothing_raises() -> None:
+    with pytest.raises(NameError, match=r'_NamesNothing\.nowhere'):
+        wire_encoding.closure({_NamesNothing}, {})
+
+
+def test_two_classes_under_one_name_raise() -> None:
+    first = type('_Twin', (), {'__module__': 'drivers.one'})
+    second = type('_Twin', (), {'__module__': 'drivers.two'})
+
+    with pytest.raises(TypeError, match=r"_Twin: \['drivers.one._Twin', 'drivers.two._Twin'\]"):
+        wire_encoding.closure({first, second}, {})
+
+
+# --- The set is every mark -----------------------------------------------------
+# Functions of this module, read as a project module's would be: the rules
+# reach a function, not only a class's member.
+
+
+@api(in_process=True)
+def _takes_anything(value: Any) -> None:
+    raise NotImplementedError
+
+
+@api
+def _on_the_wire(count: int) -> int:
+    raise NotImplementedError
+
+
+def _this_module() -> tuple[types.ModuleType, ...]:
+    return (sys.modules[__name__],)
+
+
+def test_a_function_is_judged_by_the_rules(universe: dict[str, type]) -> None:
+    marked = marked_set(universe) | marked_functions(_this_module())
+
+    with pytest.raises(AssertionError, match=r'_takes_anything parameter value: Any'):
+        test_the_api_is_typed_and_closed(universe, marked, wire_encoding.project_aliases())
+
+
+def test_a_function_marked_for_the_wire_is_named() -> None:
+    with pytest.raises(AssertionError, match=r'_on_the_wire'):
+        test_no_function_is_marked_for_the_wire(marked_functions(_this_module()))
+
+
+def test_a_stand_in_answering_a_mark_is_not_one() -> None:
+    """The conftest's stand-ins answer any attribute, a mark among them (a kivy property on a widget)."""
+    # a stand-in by design: the conftest's own kind, the thing the seam must not read as a mark
+    widget = type('_Widget', (), {'bg_color': MagicMock(), '__module__': 'ui.fixture'})
+
+    assert marked_members({'_Widget': widget}) == {}

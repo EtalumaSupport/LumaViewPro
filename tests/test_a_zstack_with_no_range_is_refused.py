@@ -1,7 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A z-stack asked for and not configured is refused, not quietly flattened.
 
-``Protocol.from_config`` used to treat ``use_zstacking=True`` with a zero
+The protocol build (``ProtocolsAPI.create_protocol``, behind New, REST and
+``start_zstack``) used to treat ``use_zstacking=True`` with a zero
 range or a zero step size as a request for a single plane: it logged a
 warning and built one step per position. The caller asked for a stack and
 got a photograph, and because the result was non-empty it sailed past the
@@ -12,7 +13,7 @@ papered over with a plausible wrong result. The builder now refuses.
 
 From the GUI this case is unreachable today: the z-stack starter runs its
 own zero-range check before the builder is ever called. The live case is
-the headless one, where ``ProtocolRunner.run_zstack()`` passes
+the headless one, where ``ProtocolRunner.start_zstack()`` passes
 ``use_zstacking=True`` with no guard of its own, which is why the second
 class here drives the refusal through that entry point rather than
 through a widget.
@@ -24,20 +25,19 @@ this is the layer above, where the degrade branch decided not to build a
 
 from __future__ import annotations
 
-import pathlib
 from unittest.mock import MagicMock
+
+import os
 
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.notification_center import Severity
-from modules.protocol import Protocol
-from tests.scope_fakes import build_scope
-from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
-
-_REPO_ROOT = pathlib.Path(__file__).parent.parent
-_TILING = _REPO_ROOT / 'data' / 'tiling.json'
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+from tests.test_start_zstack_entry_point import _POSITION, _zstack_settings
+from tests.objective_records import objective
 
 
 # Both halves of "not configured": the count needs a range to sweep and a
@@ -58,7 +58,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
     settings['zstack'] = {**settings['zstack'], **zstack}
 
     objective_helper = MagicMock()
-    objective_helper.get_objective_info.return_value = {'magnification': 10}
+    objective_helper.get_objective_info.return_value = objective(magnification=10)
     wellplate_loader = WellPlateLoader()
 
     return config_helpers.get_standalone_capture_config_from_settings(
@@ -66,7 +66,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
         objective_helper,
         wellplate_loader,
         layer='BF',
-        position=dict(_POSITION),
+        position=_POSITION,
         position_name='ZStack',
         autofocus=False,
         use_zstacking=use_zstacking,
@@ -75,26 +75,21 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
 
 
 @pytest.fixture
-def sim_scope():
-
-    scope = build_scope(simulate=True, source_path=_REPO_ROOT)
+def sim_scope(tmp_path):
+    """The simulated scope, composed into a session: the protocol build
+    stamps turret slots from the session's settings."""
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
-        yield scope
+        yield session.scope
     finally:
-        scope.disconnect()
+        session.shutdown()
 
 
 class TestTheBuilderRefuses:
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
     def test_an_unconfigured_stack_is_refused(self, zstack, sim_scope):
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            Protocol.from_config(
-                input_config=_standalone_config(zstack),
-                tiling_configs_file_loc=_TILING,
-                capabilities=sim_scope.capabilities,
-                objective_helper=sim_scope.objective_helper,
-                wellplate_loader=sim_scope.wellplate_loader,
-            )
+            sim_scope.protocols.create_protocol(input_config=_standalone_config(zstack))
 
         assert refusal.value.reason == 'zstack_not_configured', (
             'the reason code is the contract a REST or SDK caller branches on'
@@ -102,12 +97,8 @@ class TestTheBuilderRefuses:
 
     def test_a_configured_stack_still_builds(self, sim_scope):
         """The guard must not refuse the stacks that are fine."""
-        protocol = Protocol.from_config(
-            input_config=_standalone_config({'range': 20.0, 'step_size': 5.0}),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        protocol = sim_scope.protocols.create_protocol(
+            input_config=_standalone_config({'range': 20.0, 'step_size': 5.0})
         )
 
         assert protocol.num_steps() > 1, 'a configured stack is more than one plane'
@@ -120,12 +111,8 @@ class TestTheBuilderRefuses:
         carries, so a guard keyed on the values alone would refuse most of
         the protocols in the program.
         """
-        protocol = Protocol.from_config(
-            input_config=_standalone_config(zstack, use_zstacking=False),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        protocol = sim_scope.protocols.create_protocol(
+            input_config=_standalone_config(zstack, use_zstacking=False)
         )
 
         assert protocol.num_steps() >= 1
@@ -141,12 +128,8 @@ class TestTheRefusalReachesTheUser:
     """
 
     def _build(self, sim_scope):
-        Protocol.from_config(
-            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        sim_scope.protocols.create_protocol(
+            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0})
         )
 
     def test_the_builder_raises_and_posts_nothing(self, sim_scope, centre_posts):
@@ -178,26 +161,19 @@ class TestTheHeadlessCallerGetsIt:
     """The reachable case: ProtocolRunner passes use_zstacking=True unguarded."""
 
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
-    def test_run_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_scope, tmp_path):
-        from modules.protocol_runner import ProtocolRunner
+    def test_start_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_session):
+        from tests.scope_fakes import home_sim_scope
 
-        settings = _zstack_settings()
-        settings['zstack'] = {**settings['zstack'], **zstack}
-        settings['live_folder'] = str(tmp_path)
-
-        session = MagicMock()
-        session.settings = settings
-        session.capture_settings_snapshot.return_value = session.settings
-        session.scope = sim_scope
-        session.plate_position_on.return_value = dict(_POSITION)
-        session.objective_helper.get_objective_info.return_value = {'magnification': 10}
-        session.wellplate_loader = sim_scope.wellplate_loader
-        runner = ProtocolRunner(session)
+        home_sim_scope(sim_session.scope)
+        for key, value in zstack.items():
+            sim_session.update_settings(f'zstack.{key}', value)
+        live_folder = sim_session.settings['live_folder']
+        runner = sim_session.protocol_runner()
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            runner.run_zstack(layer='BF')
+            runner.start_zstack(channel='BF')
 
         assert refusal.value.reason == 'zstack_not_configured'
-        assert not runner._executor.prepare.called, (
-            'the refusal must arrive before the run is prepared, not after it commits'
-        )
+        # The refusal arrives before the run is prepared, not after it commits.
+        assert not sim_session.live_work.work
+        assert list(os.scandir(live_folder)) == [], 'a refused stack made a run folder'

@@ -12,7 +12,6 @@ from the type. The guard that no direct post remains is
 
 from __future__ import annotations
 
-import datetime
 
 import pytest
 
@@ -36,15 +35,17 @@ _NOTICES = [
     ),
     (exc.SlowFileWritesNotice(), 'slow_file_writes'),
     (
+        exc.RecordingSavedLateNotice(save_wait_s=45.0, as_frames=True, protocol_run=False),
+        'recording_saved_late',
+    ),
+    (
         exc.ProtocolStepsInvalidNotice(
             errors=['Step 1 (a): Exposure must be more than 0 ms, got 0.0']
         ),
         'protocol_steps_invalid',
     ),
     (
-        exc.SingleScanNotice(
-            period=datetime.timedelta(minutes=10), duration=datetime.timedelta(minutes=5)
-        ),
+        exc.SingleScanNotice(period_s=600.0, duration_s=300.0),
         'single_scan',
     ),
     (exc.HyperstacksSavingNotice(), 'hyperstacks_saving'),
@@ -60,23 +61,20 @@ _FAULTS = [
     (exc.AutoGainNotSettledError(), 'auto_gain_not_settled', False),
     (exc.AutofocusFailedError('flat_focus_curve'), 'flat_focus_curve', False),
     (exc.AutofocusFailedError('unexpected_error'), 'unexpected_error', False),
-    (exc.AutofocusZNotRestoredError(z_lost=True), 'z_position_lost', False),
-    (exc.AutofocusZNotRestoredError(z_lost=False), 'z_left_at_search_position', False),
+    (exc.AutofocusZNotRestoredError(), 'z_left_at_search_position', False),
     (
         exc.CompositeFailedError('The run has no directory to merge from.', 'no_run_dir'),
         'no_run_dir',
         False,
     ),
     (
-        exc.RunFailedToStartError(reason='start_failed', title='Run failed to start', message='m'),
+        exc.RunFailedToStartError(reason='start_failed', message='m'),
         'start_failed',
         False,
     ),
     (
-        exc.RunFailedError(
-            reason='motion_timeout', title='Protocol Error -- Motion Timeout', message='m'
-        ),
-        'motion_timeout',
+        exc.RunFailedError(reason='position_lost', message='m'),
+        'position_lost',
         True,
     ),
 ]
@@ -110,12 +108,12 @@ def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_star
     centre_posts, unattended_run
 ):
     notifications.report_outcome(
-        exc.RunFailedError(reason='disk_space_critical', title='Disk Space Critical', message='m'),
+        exc.RunFailedError(reason='disk_space_critical', message='m'),
         solicited=False,
         category='FileIO',
     )
     notifications.report_outcome(
-        exc.RunFailedToStartError(reason='start_failed', title='Run failed to start', message='m'),
+        exc.RunFailedToStartError(reason='start_failed', message='m'),
         solicited=False,
         category='Protocol',
     )
@@ -136,27 +134,29 @@ class TestTheAutoGainLimitsAreShown:
             s.shutdown()
 
     def _lock(self, state, *, resume_after_capture=True):
-        from modules.lumascope_api.imaging import AutoGainLock
+        from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
 
+        # A FAILED lock reached no values, so it carries none.
+        reached = state != AutoGainConvergence.FAILED
         return AutoGainLock(
             state=state,
-            exposure_ms=0.01,
-            gain_db=0.0,
+            exposure_ms=0.01 if reached else None,
+            gain_db=0.0 if reached else None,
             floor_ms=0.05,
             ceiling_ms=200.0,
             resume_after_capture=resume_after_capture,
         )
 
     def test_a_live_view_lock_at_either_limit_is_a_shown_notice(self, session):
-        from modules.lumascope_api.imaging import AutoGainConvergence
+        from modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)
-        imaging = session.scope.imaging
+        camera = session.scope.camera
 
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.MAXED))
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MINIMUM))
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.FAILED))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.MAXED))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MINIMUM))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.FAILED))
 
         assert [(n.kind, n.title, n.shown) for n in heard] == [
             (OutcomeKind.NOTICE, 'Exposure at the maximum', True),
@@ -165,13 +165,13 @@ class TestTheAutoGainLimitsAreShown:
         ]
 
     def test_a_protocol_steps_lock_tells_no_one(self, session):
-        from modules.lumascope_api.imaging import AutoGainConvergence
+        from modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)
-        imaging = session.scope.imaging
+        camera = session.scope.camera
 
-        imaging._notify_auto_gain_outcome(
+        camera._notify_auto_gain_outcome(
             self._lock(AutoGainConvergence.MAXED, resume_after_capture=False)
         )
 

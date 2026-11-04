@@ -7,12 +7,20 @@ import threading
 import time
 from typing import ClassVar
 from collections.abc import Mapping
-from lvp_logger import logger
+from lib.log_helpers import logger
 
-from drivers.serialboard import SerialBoard
+from drivers.serialboard import CONNECT_FAILURES, SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import motor_registry
-from drivers.exceptions import ConfigReadError, HardwareError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    ConfigReadError,
+    HardwareError,
+    MotionNotCompletedError,
+    PartAbsentError,
+)
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 
 
@@ -43,31 +51,37 @@ _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
 # travel, and answers THOME and then drives Z back, without waiting. The
 # longest of those is Z's climb to centre, 682666 microsteps at the field Z
 # INI's VMAX of 400000 on a 16 MHz chip clock: about two seconds. The bound
-# is generous against that and well inside the motion API's own wait on a
-# home.
+# is generous against that.
 _HOME_ARRIVAL_TIMEOUT_S = 30.0
 
-# How long the host waits for the board's answer to each home. A board that
-# fails a home says so in its own words ("Z home timeout"), but only after
-# its own sequence ends; a host that stops reading first reports a blank
-# error, or none. Measured on the field firmware in the realistic-timing
-# simulator, every switch stuck: ZHOME 15.7 s; THOME 25.7 s (it re-homes Z
-# when Z is not homed, then waits for Z to reach 0 with no bound of its
-# own); HOME 65.9 s (Z, then that THOME, then XY). Each deadline is above
-# its worst case, and HOME's plus the arrival wait stays inside the motion
-# API's 150 s bound on a full home.
-_ZHOME_REPLY_TIMEOUT_S = 30.0
-_THOME_REPLY_TIMEOUT_S = 45.0
-_HOME_REPLY_TIMEOUT_S = 100.0
+# How long the host waits for the board's answer to each home: the backstop
+# for a board that has stopped answering, never the home's own bound. The
+# board bounds its home and says so in its own words ("Z home timeout"),
+# but only after its own sequence ends; a host that stops reading first
+# reports a blank error while the board goes on homing. So each deadline is
+# above the longest home any firmware may legitimately run. The field
+# firmware, measured in the realistic-timing simulator with every switch
+# stuck: ZHOME 15.7 s; THOME 25.7 s (it re-homes Z when Z is not homed);
+# HOME 65.9 s. The 3.0 firmware bounds each phase of a home on the board
+# (motorconfig "Axis Timeout": XY 10 s, Z and T 15 s), so its longest
+# legitimate home is the sum of its phases' bounds, derived from main.py:
+# ZHOME five Z phases, 75 s; THOME one Z move, a Z re-home and five T
+# phases, 165 s; HOME a Z home, a T home without its Z re-home and six XY
+# phases, 225 s. Each deadline is that sum with 15 s more.
+_ZHOME_REPLY_TIMEOUT_S = 90.0
+_THOME_REPLY_TIMEOUT_S = 180.0
+_HOME_REPLY_TIMEOUT_S = 240.0
 
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
+# The model and serial number are None, unknown, never a string that could
+# be read as a model or stamped into an image as a serial number.
 # No axis is reported homed here, which leaves motion at "position
 # unknown" -- the conservative end of the gate, not a bypass.
 _UNKNOWN_BOARD_RECORD = {
-    'model': 'unknown',
-    'serial_number': 'unknown',
+    'model': None,
+    'serial_number': None,
     'has_turret': False,
     'present_axes': [],
     'homed_axes': [],
@@ -227,26 +241,26 @@ class MotorBoard(SerialBoard):
 
         Called once after connect() succeeds. Separate from connect() because
         connect's job is opening the port -- config loading is a post-connect step.
+
+        A config the board did not answer or that did not parse is recorded
+        as unread (``_read_board_config``); a value it cannot use is rejected
+        by the merge's validation. The merge itself is our code, so a defect
+        in it leaves as itself.
+
+        Raises:
+            BoardPortFailedError: the port is closed, or failed before CONFIG
+                was sent.
         """
         board_cfg = self._read_board_config()
         if not board_cfg:
             return
-        try:
-            self.motorconfig.update_from_board(board_cfg)
-            self._rebuild_cached_values()
-            logger.info(
-                f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                f'SN={self.motorconfig.serial_number()}, '
-                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
-            )
-        except Exception as e:
-            # A half-applied merge leaves the per-unit values unreliable,
-            # which for every downstream consumer is the same state as an
-            # unreadable board: record it as one, and keep the scope up on
-            # defaults (motion works without per-unit config; a config
-            # problem must not take down connect).
-            self.motorconfig.mark_board_read_failed()
-            logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
+        self.motorconfig.update_from_board(board_cfg)
+        self._rebuild_cached_values()
+        logger.info(
+            f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+            f'SN={self.motorconfig.serial_number()}, '
+            f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
+        )
 
     def _read_board_config(self) -> dict | None:
         """Read the board's config, converting a failed READ into recorded state.
@@ -283,6 +297,7 @@ class MotorBoard(SerialBoard):
         # Note: _lock is an RLock (from SerialBoard), so re-entrant acquisition
         # by _open_serial, _reset_firmware, exchange_command etc. is safe.
         with self._lock:
+            self._connect_unanswered = False
             try:
                 # Skip if already connected
                 if self.driver is not None and self.driver.is_open:
@@ -307,10 +322,9 @@ class MotorBoard(SerialBoard):
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
-                self._connect_succeeded()
 
                 logger.info('[XYZ Class ] Connected to motor controller')
-            except Exception as e:
+            except CONNECT_FAILURES as e:
                 self._connect_failed(e)
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol
@@ -341,16 +355,15 @@ class MotorBoard(SerialBoard):
         """Send FULLINFO and return the parsed board record.
 
         Returns:
-            dict: ``{'model': str, 'serial_number': str, 'present_axes':
+            dict: ``{'model': str | None, 'serial_number': str | None, 'present_axes':
                 list, 'homed_axes': list, '_raw': str}``. Falls back to
-                the unknown record when the response is missing or
-                unparseable.
+                the unknown record when the response is unparseable.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         info = self.exchange_command('FULLINFO')
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
-        if info is None:
-            logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
-            return _UNKNOWN_BOARD_RECORD.copy()
         # Legacy firmware (pre-FULLINFO) replies with an UNKNOWN_CMD error
         # instead of model/serial. That is an expected capability gap on older
         # units, not a fault -- log at INFO and fall back, rather than an ERROR
@@ -363,7 +376,7 @@ class MotorBoard(SerialBoard):
             )
             return _UNKNOWN_BOARD_RECORD.copy()
         record = _parse_fullinfo(info)
-        if record['model'] == 'unknown':
+        if record['model'] is None:
             logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r}')
             return record
         if record['has_turret']:
@@ -412,12 +425,15 @@ class MotorBoard(SerialBoard):
 
         Falls back to a fresh round trip only when connect() never
         cached one, so the common path costs no serial traffic.
+
+        Raises:
+            HardwareError: that round trip was not answered.
         """
         with self._state_lock:
             info = self._fullinfo
         if info is not None:
             return info
-        return _parse_fullinfo(self.exchange_command('FULLINFO') or '')
+        return _parse_fullinfo(self.exchange_command('FULLINFO'))
 
     def detect_present_axes(self) -> list:
         """Detect which axes are present on this board.
@@ -499,12 +515,12 @@ class MotorBoard(SerialBoard):
         response = self.exchange_command(register + axis)
         try:
             return int(response)
-        except (TypeError, ValueError) as e:
-            raise HardwareError(
+        except ValueError as e:
+            raise BoardReplyUnreadableError(
                 f'{register}{axis}: the board did not report a position (reply {response!r})'
             ) from e
 
-    def _user_units(self, axis: str, steps: int) -> float | int:
+    def steps_to_position(self, axis: str, steps: int) -> float | int:
         """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
         if axis == 'Z':
             return self.z_ustep2um(steps)
@@ -524,9 +540,9 @@ class MotorBoard(SerialBoard):
     def acceleration_limit(self, axis: str, parameter: str) -> int:
         """Read the firmware acceleration / deceleration limit for an axis.
 
-        Cached after the first read; the cache is invalidated by
-        ``_on_disconnect()``. Falls back to a hardcoded default when the
-        firmware does not implement the AMAX / DMAX query.
+        Cached after the first answer; the cache is invalidated by
+        ``_on_disconnect()``. Firmware that does not implement the AMAX /
+        DMAX query answers with a hardcoded default, cached like a read.
 
         Args:
             axis: Axis letter ('X' or 'Y').
@@ -540,6 +556,10 @@ class MotorBoard(SerialBoard):
         Raises:
             NotImplementedError: ``axis`` or ``parameter`` is not
                 supported.
+            BoardNoReplyError: the board did not answer; nothing is cached,
+                so the next call asks again.
+            BoardPortFailedError: the port is closed, or failed before the
+                query was sent.
         """
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return 0
@@ -554,40 +574,20 @@ class MotorBoard(SerialBoard):
         parameter_char = parameter_map[parameter]
         command = f'{parameter_char}MAX{axis}'
         DEFAULT_ACCELERATION_LIMIT = 30000
-        using_default = False
-        try:
-            resp = self.exchange_command(command)
+        resp = self.exchange_command(command)
 
-            if resp is None:
-                # No reply says nothing about what the firmware supports,
-                # so the default serves this call and nothing is cached:
-                # the next call asks the board again.
-                logger.warning(
-                    f'[XYZ Class ] MotorBoard.acceleration_limit({command}): no reply, '
-                    f'using default {DEFAULT_ACCELERATION_LIMIT} for this call'
-                )
-                return DEFAULT_ACCELERATION_LIMIT
-
-            # In case firmware doesn't support retrieving the acceleration limits
-            if resp.startswith('ERROR'):
-                raise ValueError(f'Firmware returned ERROR for {command}')
-
-            # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
-            if not resp.isdigit():
-                raise ValueError(f'Non-numeric response for {command}: {resp}')
-
-        except Exception:
-            resp = DEFAULT_ACCELERATION_LIMIT
-            using_default = True
-
-        if using_default:
+        # Firmware that does not implement the query answers ERROR or text
+        # that is not a register value: that is the board saying it has no
+        # limit to report, so the default is its answer, and it is cached.
+        if resp.startswith('ERROR') or not resp.isdigit():
             logger.debug(
-                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support, using default {DEFAULT_ACCELERATION_LIMIT}'
+                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support '
+                f'({resp!r}), using default {DEFAULT_ACCELERATION_LIMIT}'
             )
+            value = DEFAULT_ACCELERATION_LIMIT
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
-
-        value = int(resp)
+            value = int(resp)
 
         # Cache the result
         if self._accel_cache is None:
@@ -689,7 +689,7 @@ class MotorBoard(SerialBoard):
     # callers in this repo outside tests, but bench tools and tests in the
     # companion Firmware repo import and call them -- a caller search here
     # alone reads as dead code and is misleading.
-    def spi_read(self, axis: str, addr: int) -> str | None:
+    def spi_read(self, axis: str, addr: int) -> str:
         """Read a TMC motor driver SPI register.
 
         A dummy ``00`` payload is appended so the firmware accepts the
@@ -700,8 +700,10 @@ class MotorBoard(SerialBoard):
             addr: SPI register address (0x00-0x7F).
 
         Returns:
-            str | None: Raw response string from the firmware, or None
-                when the board did not answer.
+            str: Raw response string from the firmware.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
         # It is expecting a payload.
@@ -738,11 +740,6 @@ class MotorBoard(SerialBoard):
         logger.debug(
             f'[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}'
         )
-        if resp is None:
-            raise HardwareError(
-                f'spi_write({axis}, 0x{addr:02x}): no response from motor board '
-                '(timeout or disconnect)'
-            )
         return resp
 
     # ----------------------------------------------------------
@@ -827,11 +824,9 @@ class MotorBoard(SerialBoard):
         """
         resp = self.exchange_command('ZHOME', timeout=_ZHOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
-        if resp is None:
-            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
         success = 'successful' in resp.lower() or 'complete' in resp.lower()
         if not success:
-            raise HardwareError(f'zhome(): firmware error: {resp}')
+            raise BoardReportedError(f'zhome(): firmware error: {resp}')
 
     # ----------------------------------------------------------
     # XY Stage Functions
@@ -881,8 +876,6 @@ class MotorBoard(SerialBoard):
         """
         resp = self.exchange_command('HOME', timeout=_HOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
-        if resp is None:
-            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self._confirm_homed('home()', axes=None)
             self._wait_for_arrival(self.detect_present_axes(), 'home()')
@@ -900,7 +893,7 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_homing_complete = True
             return
-        raise HardwareError(f'home(): firmware error: {resp}')
+        raise BoardReportedError(f'home(): firmware error: {resp}')
 
     def _confirm_homed(self, what: str, axes) -> None:
         """Believe a home's success only if the board's own flags agree.
@@ -923,22 +916,20 @@ class MotorBoard(SerialBoard):
                 an axis the home covers that the board reports not homed.
         """
         info = self.exchange_command('FULLINFO')
-        if info is None:
-            raise HardwareError(f'{what}: no reply to FULLINFO; the home cannot be confirmed')
         if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
             # Firmware older than FULLINFO cannot be asked; its reply stands.
             logger.info(f'[XYZ Class ] {what}: FULLINFO not supported; home not confirmed')
             return
         record = _parse_fullinfo(info)
-        if record['model'] == 'unknown':
-            raise HardwareError(
+        if record['model'] is None:
+            raise BoardReplyUnreadableError(
                 f'{what}: unreadable FULLINFO {info!r}; the home cannot be confirmed'
             )
         present = record['present_axes']
         covered = present if axes is None else [axis for axis in axes if axis in present]
         missed = [axis for axis in covered if axis not in record['homed_axes']]
         if missed:
-            raise HardwareError(f'{what}: {", ".join(missed)} did not home')
+            raise MotionNotCompletedError(f'{what}: {", ".join(missed)} did not home')
 
     def _wait_for_arrival(self, axes, what: str) -> None:
         """Return once every axis has reached its target.
@@ -954,7 +945,7 @@ class MotorBoard(SerialBoard):
         deadline = time.monotonic() + _HOME_ARRIVAL_TIMEOUT_S
         for axis in axes:
             if not self.wait_for_position(axis, timeout=max(0.0, deadline - time.monotonic())):
-                raise HardwareError(
+                raise MotionNotCompletedError(
                     f'{what}: {axis} did not reach its target within '
                     f'{_HOME_ARRIVAL_TIMEOUT_S:.0f} s of the reply'
                 )
@@ -1040,8 +1031,6 @@ class MotorBoard(SerialBoard):
         """
         resp = self.exchange_command('THOME', timeout=_THOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
-        if resp is None:
-            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self._confirm_homed('thome()', axes=('Z', 'T'))
             self._wait_for_arrival(
@@ -1053,7 +1042,7 @@ class MotorBoard(SerialBoard):
         # "T not present" is not a failure -- board just doesn't have a turret
         if 'not present' in resp.lower():
             return
-        raise HardwareError(f'thome(): firmware error: {resp}')
+        raise BoardReportedError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         """Whether the connected board has a turret installed.
@@ -1108,17 +1097,10 @@ class MotorBoard(SerialBoard):
             steps += 0x100000000  # two's complement for firmware's unsigned integer format
         if steps > 0xFFFFFFFF:
             raise ValueError(f'Steps {steps} exceeds 32-bit range for axis {axis}')
-        response = self.exchange_command('TARGET_W' + axis + str(steps))
-        if response is None:
-            # An unanswered target write means the move did not happen.
-            # Returning quietly made that indistinguishable from a move
-            # that did, so every layer above recorded an arrival that
-            # never occurred -- the axis stayed at its last known state
-            # while the stage was somewhere else entirely.
-            raise HardwareError(
-                f'move({axis}, {steps}): no response to the target write '
-                f'(timeout or disconnect); the move did not happen'
-            )
+        # An unanswered target write raises from the wire: the move did
+        # not happen, and returning quietly would make every layer above
+        # record an arrival that never occurred.
+        self.exchange_command('TARGET_W' + axis + str(steps))
 
         # while int(target_pos) != desired_target:
         #     self.exchange_command('TARGET_W' + axis + str(steps))
@@ -1139,7 +1121,7 @@ class MotorBoard(SerialBoard):
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the target.
         """
-        return self._user_units(axis, self._read_register('TARGET_R', axis))
+        return self.steps_to_position(axis, self._read_register('TARGET_R', axis))
 
     # Get current position (in um or position for Turret)
     def current_pos(self, axis: str) -> float | int:
@@ -1155,7 +1137,7 @@ class MotorBoard(SerialBoard):
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the position.
         """
-        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
+        return self.steps_to_position(axis, self._read_register('ACTUAL_R', axis))
 
     def backlash_um(self) -> float:
         """Z antibacklash, um: how far below its target a downward Z move
@@ -1183,7 +1165,7 @@ class MotorBoard(SerialBoard):
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ----------------------------------------------------------
@@ -1195,12 +1177,10 @@ class MotorBoard(SerialBoard):
 
         ``not found`` / ``ERROR``-prefixed replies mean the connected
         firmware does not implement the command; any other reply counts
-        as supported. No reply is inconclusive (board absent or wedged,
-        not a capability answer): returns False WITHOUT caching, so a
-        later healthy exchange asks again.
+        as supported. No reply is not a capability answer: the wire raises
+        before this is asked, nothing is cached, and a later healthy
+        exchange asks again.
         """
-        if resp is None:
-            return False
         resp_str = str(resp)
         supported = not ('not found' in resp_str or resp_str.startswith('ERROR'))
         setattr(self, cache_attr, supported)
@@ -1271,45 +1251,46 @@ class MotorBoard(SerialBoard):
         return self._command_supported('VOLTAGE', '_supports_diagnostics_cached')
 
     def motor_stop(self) -> bool:
-        """Stop all motors via STOP, with field-firmware fallback.
+        """Stop every motor where it is, on every firmware.
 
-        Field firmware (e.g. EL-0940-02 2024-09-10) does not implement
-        the ``STOP`` command and replies ``ERROR: command 'STOP' not
-        found``. Newer firmware (2025-onward) accepts STOP as the
-        emergency-stop command (sets target=actual on every axis).
+        Newer firmware (2025-onward) takes ``STOP``, which it implements
+        as ``motorstop``: each axis's actual position written as its
+        target. Field firmware (e.g. EL-0940-02 2024-09-10) has no STOP
+        and replies ``ERROR: command 'STOP' not found``; on it the host
+        does what ``motorstop`` does, one axis at a time, through the
+        ``ACTUAL_R`` read and the ``TARGET_W`` write the firmware has.
+        On the field firmware an axis caught at speed runs on while the
+        reads and writes go out and it decelerates: X at full speed came to
+        rest about 2 mm past where the stop was asked, with no drive back
+        (an LS850T, 2026-10-14, ``tests/capability/motion_p11_stop_halts_and_progress_reads.py``).
 
-        The send doubles as the support probe: the response is
-        interpreted and cached (shared with ``supports_motor_stop``),
-        so firmware without STOP is asked exactly once and every later
-        call skips the wire and returns False.
-
-        The caller's shutdown is unaffected when STOP isn't supported:
-        the host is about to disconnect anyway, and v3.0.x firmware
-        latches its current state when the host stops issuing commands.
-        Returning False lets the caller know the stop didn't actually
-        execute (useful for tests / diagnostics).
+        The first send doubles as the support probe: the response is
+        interpreted and cached (shared with ``supports_motor_stop``), so
+        firmware without STOP is asked exactly once and every later stop
+        goes straight to the per-axis halt.
 
         Idempotent + safe to call concurrently with other operations
         (per SerialBoard's exchange_command lock).
 
+        Returns:
+            bool: True: every axis was halted.
+
         Raises:
-            HardwareError: the board did not answer the STOP. It may have
-                taken it, so the stage may be stopping or still moving:
-                neither a stop nor an answer about support.
+            HardwareError: the board did not answer the STOP, or a read or
+                write of the per-axis halt. It may have taken part of it,
+                so the stage may be stopping or still moving.
         """
-        # Cached "unsupported" -- silently skip the wire (and skip the
-        # FIRMWARE ERROR warning that exchange_command would emit).
-        if getattr(self, '_supports_stop_cached', None) is False:
-            return False
-        # expect_unsupported=True suppresses the FIRMWARE ERROR warning
-        # when this send turns out to be the first-contact probe of
-        # legacy firmware; _record_support logs that case at INFO.
-        resp = self.exchange_command('STOP', expect_unsupported=True)
-        if resp is None:
-            raise HardwareError(
-                'STOP: no reply from the motor board; the stage may still be moving'
-            )
-        return self._record_support('STOP', '_supports_stop_cached', resp)
+        if getattr(self, '_supports_stop_cached', None) is not False:
+            # expect_unsupported=True suppresses the FIRMWARE ERROR warning
+            # when this send turns out to be the first-contact probe of
+            # legacy firmware; _record_support logs that case at INFO.
+            resp = self.exchange_command('STOP', expect_unsupported=True)
+            if self._record_support('STOP', '_supports_stop_cached', resp):
+                return True
+        for axis in ('X', 'Y', 'Z', 'T'):
+            if axis in self.axes_config:
+                self.move(axis, self.current_pos_steps(axis))
+        return True
 
     # return True if current position and target position are the same
     def target_status(self, axis: str) -> bool:
@@ -1323,26 +1304,9 @@ class MotorBoard(SerialBoard):
 
         Raises:
             HardwareError: No response from the motor board (timeout or
-                disconnect); re-raised after logging.
+                disconnect), or a reply that is not a number.
         """
-
-        # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
-        try:
-            payload = 'STATUS_R' + axis
-            response = self.exchange_command(payload)
-            if response is None:
-                raise HardwareError(
-                    f'target_status({axis}): no response from motor board '
-                    '(STATUS_R returned None -- timeout or disconnect)'
-                )
-            data = int(response)
-            bits = format(data, 'b').zfill(32)
-
-            return bits[22] == '1'
-
-        except Exception:
-            logger.error('[XYZ Class ] MotorBoard.target_status(' + axis + ') inactive')
-            raise
+        return format(self.reference_status(axis), 'b').zfill(32)[22] == '1'
 
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis: str) -> int:
@@ -1355,10 +1319,18 @@ class MotorBoard(SerialBoard):
             int: 32-bit register value as returned by the firmware.
 
         Raises:
-            Exception: Re-raises any error from the STATUS_R query.
+            HardwareError: No response from the motor board (timeout or
+                disconnect), or a reply that is not a number; re-raised
+                after logging.
         """
         try:
-            data = int(self.exchange_command('STATUS_R' + axis))
+            response = self.exchange_command('STATUS_R' + axis)
+            try:
+                data = int(response)
+            except ValueError as e:
+                raise BoardReplyUnreadableError(
+                    f'STATUS_R{axis}: the board did not report a status (reply {response!r})'
+                ) from e
             # bits = format(data, 'b').zfill(32)
 
             # data is an integer that represents 4 bytes, or 32 bits,
@@ -1382,24 +1354,21 @@ class MotorBoard(SerialBoard):
 
         Returns:
             tuple[int, int]: ``(left, right)`` where each value is 1
-                (engaged), 0 (clear), or -1 on read failure.
+                (engaged) or 0 (clear).
+
+        Raises:
+            HardwareError: No response from the motor board.
         """
-        try:
-            resp = self.reference_status(axis=axis)
-            resp_int = int(resp)
-            if resp_int & (1 << 0):
-                left = 1
-            else:
-                left = 0
+        resp_int = int(self.reference_status(axis=axis))
+        if resp_int & (1 << 0):
+            left = 1
+        else:
+            left = 0
 
-            if resp_int & (1 << 1):
-                right = 1
-            else:
-                right = 0
-
-        except Exception as e:
-            logger.warning(f'[XYZ Class ] limit_switch_status({axis}) failed: {e}')
-            left, right = -1, -1
+        if resp_int & (1 << 1):
+            right = 1
+        else:
+            right = 0
 
         return left, right
 
@@ -1421,9 +1390,10 @@ class MotorBoard(SerialBoard):
                 are unavailable, and callers that would treat the two
                 the same end up silently serving another source's answer.
         """
-        resp = self.exchange_command('CONFIG')
-        if resp is None:
-            raise ConfigReadError('board did not answer CONFIG')
+        try:
+            resp = self.exchange_command('CONFIG')
+        except BoardNoReplyError as e:
+            raise ConfigReadError('board did not answer CONFIG') from e
         # Take first line (may have trailing newline noise)
         data_str = resp.split('\n')[0].strip() if '\n' in resp else resp.strip()
         import json as _json
@@ -1452,16 +1422,19 @@ class MotorBoard(SerialBoard):
         Returns:
             list: One dict per axis with keys ``axis``, ``raw`` (hex
                 string), ``SG`` (int), ``CS`` (int), plus flag strings
-                from the firmware. Empty list on failure.
+                from the firmware.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         cmd = f'DRVSTAT_{axis}' if axis else 'DRVSTAT'
-        resp = self.exchange_multiline(cmd, timeout=5, end_markers=['T:'])
-        if resp is None:
+        try:
+            resp = self.exchange_multiline(cmd, timeout=5, end_markers=['T:'])
+        except BoardNoReplyError:
+            if not axis:
+                raise
             # Try single-line for single axis
-            if axis:
-                resp = self.exchange_command(cmd, timeout=5)
-            if resp is None:
-                return []
+            resp = self.exchange_command(cmd, timeout=5)
 
         lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
@@ -1490,12 +1463,12 @@ class MotorBoard(SerialBoard):
 
         Returns:
             list: One dict per axis with keys ``axis``, ``detected``
-                (bool), ``configured`` (bool), and ``raw_line``. Empty
-                list on failure.
+                (bool), ``configured`` (bool), and ``raw_line``.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         resp = self.exchange_multiline('MOTORDETECT', timeout=5, end_markers=['T:'])
-        if resp is None:
-            return []
         lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
@@ -1513,11 +1486,12 @@ class MotorBoard(SerialBoard):
         Returns:
             list: One dict per axis with keys ``axis``, ``CS_ACTUAL``,
                 ``IRUN``, ``IHOLD``, ``SG_RESULT`` (all int), and
-                ``raw_line``. Empty list on failure.
+                ``raw_line``.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         resp = self.exchange_multiline('CURRENT', timeout=5, end_markers=['T:'])
-        if resp is None:
-            return []
         import re as _re
 
         lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
@@ -1543,14 +1517,23 @@ class MotorBoard(SerialBoard):
             timeout: Maximum wait time in seconds.
 
         Returns:
-            bool: True if the position was reached, False on timeout.
+            bool: True if the position was reached, False when the board
+                was still reporting the axis short of it at the deadline.
+
+        Raises:
+            HardwareError: the board's last poll failed at the deadline --
+                it stopped answering, which is not an axis short of its
+                target. A failed poll before then is ridden out.
         """
         deadline = time.monotonic() + timeout
+        last_error = None
         while time.monotonic() < deadline:
             try:
                 if self.target_status(axis):
                     return True
-            except Exception as e:
+                last_error = None
+            except HardwareError as e:
+                last_error = e
                 logger.debug(
                     '[XYZ Class ] wait_for_position(%s): target_status poll '
                     'raised; continuing to poll: %s: %s',
@@ -1559,40 +1542,23 @@ class MotorBoard(SerialBoard):
                     e,
                 )
             time.sleep(0.01)
+        if last_error is not None:
+            raise last_error
         logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
         return False
 
-    def read_status(self, axis: str) -> int | None:
-        """Read raw STATUS register value for an axis.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-
-        Returns:
-            int | None: 32-bit register value, or None on failure.
-        """
-        try:
-            resp = self.exchange_command('STATUS_R' + axis)
-            if resp is None:
-                return None
-            return int(resp)
-        except (ValueError, TypeError) as e:
-            logger.warning(f'[XYZ Class ] read_status({axis}) failed: {e}')
-            return None
-
-    def get_current_firmware(self) -> str | None:
+    def get_current_firmware(self) -> str:
         """Return the current motor-controller firmware identification.
 
         Returns:
-            str | None: Multi-line response from the INFO command (e.g.
+            str: Multi-line response from the INFO command (e.g.
                 ``Etaluma Motor Controller Board <BOARD>\\nFirmware:
-                <DATE>``), or None when the board did not respond.
+                <DATE>``).
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
-        response = self.exchange_command('INFO')
-        if not response:
-            logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
-            return
-        return response
+        return self.exchange_command('INFO')
 
     def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
@@ -1623,7 +1589,7 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
             logger.error(f'[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})')
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:
@@ -1651,7 +1617,8 @@ class MotorBoard(SerialBoard):
         rejected the command with an `ERROR` prefix (i.e. the legacy
         firmware does not implement this query). Callers should treat
         None as "INCONCLUSIVE -- firmware does not support this
-        diagnostic," NOT as a fault.
+        diagnostic," NOT as a fault. A board that did not answer raises
+        ``HardwareError``, which is a fault, not an unsupported query.
 
         expect_unsupported=True is passed to exchange_command so that
         firmware-not-found responses on legacy firmware (2024-09-10
@@ -1662,8 +1629,6 @@ class MotorBoard(SerialBoard):
         user-visible log on every TSR run against legacy firmware.
         """
         resp = self.exchange_command(command, expect_unsupported=True)
-        if resp is None:
-            return None
         if resp.startswith('ERROR'):
             logger.debug(
                 f'[XYZ Class ] MotorBoard.{command} not supported by '
@@ -1704,6 +1669,12 @@ class MotorBoard(SerialBoard):
             logger.warning(f'[XYZ Class ] FANSPEED unparseable: {raw!r}')
             return None
 
+    # How long the fan takes to reach a new duty, in seconds: up to speed
+    # from a stop, and down to a stop from speed. A tachometer read sooner
+    # sees the old speed.
+    fan_spin_up_s: ClassVar[float] = 2.0
+    fan_spin_down_s: ClassVar[float] = 3.0
+
     def set_fan_duty(self, duty_pct: int) -> None:
         """Set fan PWM duty cycle (0..100).
 
@@ -1718,7 +1689,5 @@ class MotorBoard(SerialBoard):
                 answer.
         """
         resp = self.exchange_command(f'FAN:{duty_pct}')
-        if resp is None:
-            raise HardwareError(f'FAN:{duty_pct}: no response from motor board')
         if resp.startswith('ERROR'):
-            raise HardwareError(f'FAN:{duty_pct}: the motor board answered {resp!r}')
+            raise BoardReportedError(f'FAN:{duty_pct}: the motor board answered {resp!r}')

@@ -21,6 +21,7 @@ To Step drive only the axes the scope has, through one conversion.
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -30,8 +31,10 @@ from modules.exceptions import (
 )
 from modules.lumascope_api._constants import AxisState
 from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 from tests.test_a_run_needs_every_axis_position import _settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
@@ -95,69 +98,70 @@ def _refused(call) -> HardwareCommandRefusedError:
 # --- The refusal names what is missing ----------------------------------------
 
 
+# Every motion command, which a manual scope refuses naming its motors.
+_MANUAL_REFUSES = {
+    'move_z': lambda m: m.move_z(1000.0),
+    'move_xy_by': lambda m: m.move_xy_by(dx_um=10.0),
+    'start_move_xy': lambda m: m.start_move_xy(y_um=1000.0),
+    'move_turret': lambda m: m.move_turret(2),
+    'home_all': lambda m: m.home('ALL'),
+    'home_z': lambda m: m.home('Z'),
+    'home_t': lambda m: m.home('T'),
+    'stop_motion': lambda m: m.stop_motion(),
+    'precision': lambda m: m.set_precision_mode(True),
+    'acceleration': lambda m: m.set_acceleration_limit(limit_pct=50),
+    'limits': lambda m: m.get_axis_limits('Z'),
+}
+
+# The commands a Z-only scope refuses, each with the part it names.
+_Z_ONLY_REFUSES = {
+    'move_x': (lambda m: m.move_xy(x_um=1000.0), MissingPart.X),
+    'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart.Y),
+    'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
+    'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
+    'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart.X),
+}
+
+
+def _refused_otherwise(commands: dict, motion) -> dict:
+    """Each of ``commands`` (name -> (command, expected refusal words)) that
+    ``motion`` does not refuse with those words, with what it did instead."""
+    wrong = {}
+    for name, (command, expected) in commands.items():
+        try:
+            answer = command(motion)
+        except HardwareCommandRefusedError as refusal:
+            words = (refusal.reason, refusal.missing, str(refusal))
+            if words[: len(expected)] != expected:
+                wrong[name] = words
+        else:
+            wrong[name] = f'answered {answer!r}'
+    return wrong
+
+
 @pytest.mark.parametrize('model', MANUAL)
-@pytest.mark.parametrize(
-    'command',
-    [
-        lambda m: m.move_absolute('Z', 1000.0),
-        lambda m: m.move_relative('X', 10.0),
-        lambda m: m.start_move_absolute('Y', 1000.0),
-        lambda m: m.move_turret(2),
-        lambda m: m.home('ALL'),
-        lambda m: m.home('Z'),
-        lambda m: m.home('T'),
-        lambda m: m.stop_motion(),
-        lambda m: m.set_precision_mode('Z', True),
-        lambda m: m.set_acceleration_limit(val_pct=50),
-    ],
-    ids=[
-        'move_absolute',
-        'move_relative',
-        'start_move_absolute',
-        'move_turret',
-        'home_all',
-        'home_z',
-        'home_t',
-        'stop_motion',
-        'precision',
-        'acceleration',
-    ],
-)
-def test_a_manual_scope_has_no_motors(make_session, model, command):
+def test_a_manual_scope_has_no_motors(make_session, model):
     scope = make_session(model).scope
+    expected = ('axis_absent', MissingPart.MOTORS, 'This microscope has no motors.')
 
-    refusal = _refused(lambda: command(scope.motion))
-
-    assert refusal.reason == 'axis_absent'
-    assert refusal.missing is MissingPart.MOTORS
-    assert str(refusal) == 'This microscope has no motors.'
+    commands = {name: (command, expected) for name, command in _MANUAL_REFUSES.items()}
+    assert _refused_otherwise(commands, scope.motion) == {}
 
 
 @pytest.mark.parametrize('model', Z_ONLY)
-@pytest.mark.parametrize(
-    ('command', 'part'),
-    [
-        (lambda m: m.move_absolute('X', 1000.0), MissingPart.X),
-        (lambda m: m.start_move_relative('Y', 10.0), MissingPart.Y),
-        (lambda m: m.set_precision_mode('X', True), MissingPart.X),
-        (lambda m: m.move_turret(2), MissingPart.TURRET),
-        (lambda m: m.home('T'), MissingPart.TURRET),
-    ],
-    ids=['move_x', 'move_y', 'precision_x', 'move_turret', 'home_t'],
-)
-def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model, command, part):
+def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model):
     scope = make_session(model).scope
     z_before = scope.motion.get_current_position('Z')
     sent = _spy_wire(monkeypatch, scope)
 
-    refusal = _refused(lambda: command(scope.motion))
-
-    assert (refusal.reason, refusal.missing) == ('axis_absent', part)
+    commands = {
+        name: (command, ('axis_absent', part)) for name, (command, part) in _Z_ONLY_REFUSES.items()
+    }
+    assert _refused_otherwise(commands, scope.motion) == {}
     assert sent == []
-    # A turret command parks no Z and records no slot for a turret that is not there.
+    # A turret command parks no Z, and the scope still answers that it has no turret.
     assert scope.motion.get_current_position('Z') == z_before
-    assert scope.motion.get_turret_slot() is None
-    assert scope.motion.get_preferred_turret_slot() is None
+    assert scope.motion.turret_status() is None
 
 
 def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
@@ -168,16 +172,32 @@ def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
 
     assert str(refusal) == 'This microscope has no turret.'
     assert sent == []
-    assert scope.motion.get_turret_slot() is None
+    assert scope.motion.turret_status() is None
 
 
+def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(make_session):
+    """The TMCM-6110 stage has no turret: its travel was a 500 fault from the driver, and is
+    now the request's refusal, as every other command for the turret is."""
+    session = make_session('LS720', homed=False)
+    with pytest.raises(HardwareCommandRefusedError) as python:
+        session.scope.motion.get_axis_limits('T')
+    assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart.TURRET)
+
+    with TestClient(build_app(session)) as client:
+        answer = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'T'})
+
+    assert answer.status_code == 422
+    assert (answer.json()['reason'], answer.json()['detail']) == ('axis_absent', str(python.value))
+
+
+# parametrize-justified: each model brings up its own scope and motion boards
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_session, model):
     """A name that is no axis is the request's fault on every model, a manual one included."""
     scope = make_session(model).scope
     with pytest.raises(ArgumentRefusedError) as refused:
-        scope.motion.move_absolute('Q', 0)
-    assert refused.value.reason == 'axis_unknown'
+        scope.motion.get_axis_limits('Q')
+    assert refused.value.reason == 'not_offered'
 
 
 # --- A controller out of reach --------------------------------------------------
@@ -189,7 +209,7 @@ def test_a_pulled_cable_refuses_the_move_and_shutdown_closes_clean(make_session,
     sent = _spy_wire(monkeypatch, scope)
     monkeypatch.setattr(scope._motion_driver, 'is_connected', lambda: False)
 
-    refusal = _refused(lambda: scope.motion.move_absolute('X', 1000.0))
+    refusal = _refused(lambda: scope.motion.move_xy(x_um=1000.0))
 
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
     assert 'Check the USB cable' in str(refusal)
@@ -202,13 +222,14 @@ def test_go_to_step_on_a_scope_whose_board_did_not_come_up_is_refused(make_sessi
 
     session = make_session('LS850')
     monkeypatch.setattr(session.scope, '_motion_driver', NullMotionBoard())
-    protocol = _build_real_protocol([_make_single_step_protocol().step(idx=0)])
+    protocol = _build_real_protocol([_make_single_step_protocol().step_row(step_index=0)])
 
     refusal = _refused(lambda: session.start_go_to_step(protocol, 0))
 
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
 
 
+# parametrize-justified: each model brings up its own scope and motion boards
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_stop_after_disconnect_says_the_scope_is_disconnected(make_session, model):
     session = make_session(model)
@@ -230,25 +251,32 @@ def test_stop_after_disconnect_says_the_scope_is_disconnected(make_session, mode
 def test_a_position_read_of_an_absent_axis_answers_none(make_session, model, absent):
     scope = make_session(model).scope
     for axis in absent:
+        if axis == 'T':
+            assert scope.motion.turret_status() is None
+            continue
         assert scope.motion.get_current_position(axis) is None
-        assert scope.motion.get_target_position(axis) is None
+        assert scope.motion.get_target_positions().get(axis) is None
         assert scope.motion.get_actual_position(axis) is None
-    assert set(scope.motion.get_current_position()) == set(scope.capabilities.axes) - set(absent)
+    # The turret has a slot, not a position: the stage axes only.
+    stage_axes = set(scope.capabilities.axes) - set(absent) - {'T'}
+    assert set(scope.motion.get_current_positions()) == stage_axes
+    assert set(scope.motion.get_target_positions()) == stage_axes
 
 
 def test_after_disconnect_every_read_answers_none(make_session):
     session = make_session('LS850T')
     session.shutdown()
     motion = session.scope.motion
-    for axis in 'XYZT':
+    for axis in 'XYZ':
         assert motion.get_current_position(axis) is None
-        assert motion.get_target_position(axis) is None
-    assert motion.get_current_position() == {}
+        assert motion.get_target_positions().get(axis) is None
+    assert motion.get_current_positions() == {}
+    assert motion.get_target_positions() == {}
 
 
 def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):
     scope = make_session('LS820').scope
-    scope.motion.move_absolute('Z', 3000.0)
+    scope.motion.move_z(3000.0)
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
 
     assert scope.motion.get_current_position('Z') == pytest.approx(3000.0, abs=1.0)
@@ -259,13 +287,13 @@ def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):
 
 def _wait(run):
     """The run's outcome, once its files are done, so the next run is admitted."""
-    outcome = run.wait(timeout_s=_RUN_WAIT_S)
-    run.wait_for_files(timeout_s=_RUN_WAIT_S)
+    outcome = run.result(timeout=_RUN_WAIT_S)
+    run.files.result(timeout=_RUN_WAIT_S)
     return outcome.status, outcome.reason
 
 
 def _protocol(n_scans: int | None = None, rows=None):
-    step = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
+    step = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
     rows = rows or [step]
     if n_scans is None:
         return _build_real_protocol(rows)
@@ -295,9 +323,9 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
 
     monkeypatch.setattr(step_runner.ProtocolStepRunner, 'default_move', default_move)
     session = make_session(model)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
-    run = runner.run_protocol(
+    run = runner.start_protocol(
         protocol=_protocol(n_scans=3),
         sequence_name='timelapse',
         parent_dir=str(tmp_path),
@@ -310,10 +338,10 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
 @pytest.mark.slow
 @pytest.mark.parametrize('model', MANUAL)
 def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, tmp_path, model):
-    session = make_session(model, acquiring=('BF', 'Blue', 'Green'))
-    runner = session.create_protocol_runner()
+    session = make_session(model, acquiring=('BF', LED0, LED1))
+    runner = session.protocol_runner()
 
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_protocol(),
         sequence_name='scan',
         parent_dir=str(tmp_path),
@@ -325,13 +353,13 @@ def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, 
 def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_path, caplog):
     session = make_session(
         'LS820',
-        zstack={'step_size': 50, 'range': 200, 'position': 'Current Position at Center'},
+        zstack={'step_size': 50, 'range': 200, 'position': 'center'},
     )
     scope = session.scope
-    scope.motion.move_absolute('Z', 3000.0)
-    runner = session.create_protocol_runner()
+    scope.motion.move_z(3000.0)
+    runner = session.protocol_runner()
 
-    assert _wait(runner.run_zstack(layer='BF', parent_dir=str(tmp_path))) == (
+    assert _wait(runner.start_zstack(channel='BF', parent_dir=str(tmp_path))) == (
         'completed',
         'completed',
     )
@@ -352,9 +380,12 @@ def test_go_to_step_on_a_z_only_scope_moves_z(make_session):
 @pytest.mark.parametrize('model', MANUAL)
 def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_session, model):
     session = make_session(model)
+    protocol = _protocol()
+    session.settings['BF']['exposure_ms'] = protocol.step_row(step_index=0)['Exposure'] + 1.0
 
-    assert session.start_go_to_step(_protocol(), 0) == ()
-    assert session.get_setting('BF')['focus'] == 3000.0
+    going = session.start_go_to_step(protocol, 0)
+    assert going.done() and going.result() is None
+    assert session.get_setting('BF')['exposure_ms'] == protocol.step_row(step_index=0)['Exposure']
 
 
 # --- The run asks presence before it asks about the home --------------------------
@@ -362,12 +393,12 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
 
 def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_session, tmp_path):
     session = make_session('LS820', homed=False)
-    runner = session.create_protocol_runner()
-    a = {**_make_single_step_protocol().step(idx=0), 'Label': 'a', 'X': 10.0, 'Y': 10.0}
+    runner = session.protocol_runner()
+    a = {**_make_single_step_protocol().step_row(step_index=0), 'Label': 'a', 'X': 10.0, 'Y': 10.0}
     b = {**a, 'Label': 'b', 'X': 30.0, 'Y': 30.0}
 
     with pytest.raises(ProtocolRunRefusedError) as exc:
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=_build_real_protocol([a, b]),
             sequence_name='s',
             parent_dir=str(tmp_path),

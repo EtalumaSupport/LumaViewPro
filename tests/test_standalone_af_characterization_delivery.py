@@ -21,9 +21,9 @@ lands on disk.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
-import pathlib
 import threading
 
 
@@ -33,13 +33,15 @@ from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.run_events import RunEvents
+from modules.layer_record import release_colors
+from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_af_step_protocol():
@@ -66,10 +68,13 @@ def _make_af_step_protocol():
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'AF_test',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
     config = {
@@ -81,7 +86,7 @@ def _make_af_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return protocol_of(config=config)
 
 
 class TestStandaloneAfDeliversCharacterizationData:
@@ -99,11 +104,13 @@ class TestStandaloneAfDeliversCharacterizationData:
         scope._led_driver.set_timing_mode('fast')
         scope._motion_driver.set_timing_mode('fast')
         scope._camera_driver.set_timing_mode('fast')
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
 
-        io_executor = SequentialIOExecutor(name='AF790_IO')
-        file_io_executor = SequentialIOExecutor(name='AF790_FILE')
-        camera_executor = SequentialIOExecutor(name='AF790_CAMERA')
+        io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF790_IO')
+        file_io_executor = SequentialIOExecutor(
+            closed_answer=session_lane_closed, name='AF790_FILE'
+        )
+        camera_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF790_CAMERA')
         for e in (io_executor, file_io_executor, camera_executor):
             e.start()
         protocol_thread = ProtocolThread()
@@ -123,6 +130,8 @@ class TestStandaloneAfDeliversCharacterizationData:
             autofocus_thread=af_thread,
             activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
+            channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
         )
 
         char_dir = tmp_path / 'Autofocus Characterization'
@@ -131,7 +140,6 @@ class TestStandaloneAfDeliversCharacterizationData:
         try:
             plan = runner.prepare(
                 protocol=_make_af_step_protocol(),
-                run_trigger_source='autofocus',
                 run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                 sequence_name='autofocus',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -139,7 +147,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     'target_brightness': 0.3,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
-                    'max_duration': datetime.timedelta(seconds=1),
                 },
                 parent_dir=char_dir,
                 enable_image_saving=False,

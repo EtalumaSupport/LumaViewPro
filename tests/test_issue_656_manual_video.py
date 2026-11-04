@@ -20,11 +20,12 @@ import pandas as pd
 import tifffile as tf
 
 import modules.image_utils as image_utils
-import modules.recording_frames as recording_frames
+from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.video_builder import VideoBuilder
-from modules.recording_frames import FrameFact
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
+from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -61,43 +62,48 @@ def _first_frame(video_path):
     return frame
 
 
-def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
-    """Write one frame the way the manual recording path does."""
-    ts = _ts(frame_num)
-    img = np.full((64, 64), value, dtype=np.uint16)
-    # Source the dict from the production builder both recording legs use, so
-    # this helper cannot drift from the shape it claims to reproduce.
-    metadata, ts_filename = recording_frames.tiff_frame_metadata(
-        timestamp_s=ts.timestamp(),
-        frame_number=frame_num,
-        chunks=None,
-        tick_freq_hz=None,
-        pixel_size_um=None,
-        fact=_FACT,
+def _write_manual_frame(scope, folder, frame_num, *, value=20000):
+    """Write one frame the way the manual recording path does: through the
+    one recorded-frame writer, its time the host's arrival, with its offset."""
+    ts = _ts(frame_num).astimezone()
+    record = recorded_record(
+        captured_at=FrameTime(at=ts, source=TimestampSource.HOST_ARRIVAL),
+        frame_significant_bits=16,
     )
-    if not include_iso:
-        # Older recordings predate the ISO timestamp; drop it to exercise the
-        # fallback that reads the frame time from the filename instead.
-        del metadata['timestamp_iso']
-    file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{ts_filename}.tiff'
-    image_utils.write_tiff(
-        data=img,
-        file_loc=file_loc,
-        metadata=metadata,
-        ome=False,
-        color='BF',
-        video_frame=True,
-        significant_bits=16,
+    stamp = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+    file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{stamp}.tiff'
+    write_recorded(
+        scope,
+        np.full((64, 64), value, dtype=np.uint16),
+        file_loc,
         save_encoding='right_aligned',
+        record=record,
+        frame_number=frame_num,
     )
     return file_loc, ts
 
 
-def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True, channel_color=None):
+def _write_legacy_protocol_frame(folder, frame_num, *, value=20000):
+    """A protocol video-step frame as written before frames shared the still's
+    writer: its description a flat JSON dict with 'timestamp' and 'datetime'
+    and no ISO key. Recordings already on disk keep this shape."""
+    ts = _ts(frame_num)
+    file_loc = folder / f'clip_video_Frame_{frame_num:04}.tiff'
+    description = {
+        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
+        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
+        'frame_num': frame_num,
+    }
+    # The old write handed the dict to tifffile as shaped metadata.
+    tf.imwrite(str(file_loc), np.full((64, 64), value, dtype=np.uint16), metadata=description)
+    return file_loc, ts
+
+
+def _make_manual_folder(scope, tmp_path, n_frames=3, include_hyperstack=True, channel_color=None):
     folder = tmp_path / 'MyRecording'
     folder.mkdir(parents=True)
     for i in range(n_frames):
-        _write_manual_frame(folder, i)
+        _write_manual_frame(scope, folder, i)
     if include_hyperstack:
         # A multi-page OME stack container that build_from_folder must NOT
         # treat as a frame.
@@ -111,27 +117,28 @@ def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True, channel_c
 
 
 # ---------------------------------------------------------------------------
-# read_frame_timestamp -- recovers the per-frame time from each metadata shape
+# A frame's time, as Create Video reads it, from each metadata shape
 # ---------------------------------------------------------------------------
 
 
-def test_read_frame_timestamp_manual_iso(tmp_path):
-    file_loc, ts = _write_manual_frame(tmp_path, 0, include_iso=True)
-    assert image_utils.read_frame_timestamp(file_loc) == ts
+def test_a_frames_time_reads_manual_iso(sim_scope, tmp_path):
+    file_loc, ts = _write_manual_frame(sim_scope, tmp_path, 0)
+    assert image_utils.load_pixels_with_timestamp(file_loc)[3] == ts
 
 
-def test_read_frame_timestamp_protocol_video_no_iso(tmp_path):
-    # Protocol video-step frames carry 'timestamp' / 'datetime' but no iso key.
-    file_loc, ts = _write_manual_frame(tmp_path, 7, include_iso=False)
-    recovered = image_utils.read_frame_timestamp(file_loc)
+def test_a_frames_time_reads_protocol_video_no_iso(tmp_path):
+    # Protocol video-step frames written before the shared writer carry
+    # 'timestamp' / 'datetime' but no iso key.
+    file_loc, ts = _write_legacy_protocol_frame(tmp_path, 7)
+    recovered = image_utils.load_pixels_with_timestamp(file_loc)[3]
     # 'timestamp' is microsecond precision; the recovered value matches exactly.
     assert recovered == ts
 
 
-def test_read_frame_timestamp_no_metadata_returns_none(tmp_path):
+def test_a_frames_time_reads_no_metadata_returns_none(tmp_path):
     bare = tmp_path / 'bare.tiff'
     tf.imwrite(str(bare), np.zeros((8, 8), dtype=np.uint16))
-    assert image_utils.read_frame_timestamp(bare) is None
+    assert image_utils.load_pixels_with_timestamp(bare)[3] is None
 
 
 # ---------------------------------------------------------------------------
@@ -139,16 +146,17 @@ def test_read_frame_timestamp_no_metadata_returns_none(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
-    folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True)
+def test_build_from_folder_manual_creates_video_excluding_hyperstack(sim_scope, tmp_path):
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=3, include_hyperstack=True)
 
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder,
-        tmp_path / 'tiling.json',
+        shipped_grids(),
         None,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is True
@@ -171,26 +179,26 @@ def test_build_from_folder_empty_is_refused(tmp_path):
     # No manual frames -> falls through to load_folder, which refuses a
     # folder holding no protocol data.
     with pytest.raises(PostProcessingRefusedError):
-        builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
+        builder.build_from_folder(folder, shipped_grids(), None, channel_colors=release_colors())
 
 
 def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch):
     # A folder with no manual frames must take the protocol load_folder path.
     folder = tmp_path / 'protocol_run'
     folder.mkdir()
-    tf.imwrite(str(folder / 'scan_step1_Blue.tiff'), np.zeros((8, 8), dtype=np.uint16))
+    tf.imwrite(str(folder / f'scan_step1_{LED0}.tiff'), np.zeros((8, 8), dtype=np.uint16))
 
     builder = VideoBuilder(has_turret=False)
     assert builder._is_manual_recording_folder(folder) is False
 
     called = {}
 
-    def fake_load_folder(path, tiling_configs_file_loc, on_progress=None, **kwargs):
+    def fake_load_folder(path, tiling_grids, on_progress=None, **kwargs):
         called['path'] = path
         return {'status': True, 'message': 'Success'}
 
     monkeypatch.setattr(builder, 'load_folder', fake_load_folder)
-    builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
+    builder.build_from_folder(folder, shipped_grids(), None, channel_colors=release_colors())
     assert called['path'] == folder
 
 
@@ -199,16 +207,30 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_timestamp_overlay_toggle_changes_output(tmp_path):
-    off_folder = _make_manual_folder(tmp_path / 'off', n_frames=2, include_hyperstack=False)
-    on_folder = _make_manual_folder(tmp_path / 'on', n_frames=2, include_hyperstack=False)
+def test_timestamp_overlay_toggle_changes_output(sim_scope, tmp_path):
+    off_folder = _make_manual_folder(
+        sim_scope, tmp_path / 'off', n_frames=2, include_hyperstack=False
+    )
+    on_folder = _make_manual_folder(
+        sim_scope, tmp_path / 'on', n_frames=2, include_hyperstack=False
+    )
 
     builder = VideoBuilder(has_turret=False)
     builder.build_from_folder(
-        off_folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=False
+        off_folder,
+        shipped_grids(),
+        None,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
     )
     builder.build_from_folder(
-        on_folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=True
+        on_folder,
+        shipped_grids(),
+        None,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=True,
+        channel_colors=release_colors(),
     )
 
     # The overlay draws a timestamp into the bottom-left; the frames must differ.
@@ -228,23 +250,29 @@ def _channel_means_bgr(frame):
     return frame[:, :, 0].mean(), frame[:, :, 1].mean(), frame[:, :, 2].mean()
 
 
-def test_manual_video_renders_channel_color_from_manifest(tmp_path):
+def test_manual_video_renders_channel_color_from_manifest(sim_scope, tmp_path):
     folder = _make_manual_folder(
-        tmp_path, n_frames=2, include_hyperstack=False, channel_color='Red'
+        sim_scope, tmp_path, n_frames=2, include_hyperstack=False, channel_color=LED2
     )
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
+    result = builder.build_from_folder(
+        folder, shipped_grids(), None, frame_rate_fps=5, channel_colors=release_colors()
+    )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
-    # 'Red' false-color -> red channel dominates; NOT grayscale (the bug).
+    # LED 2's red false-color -> red channel dominates; NOT grayscale (the bug).
     assert r > g + 10 and r > b + 10, f'expected red-dominant frame, got B={b} G={g} R={r}'
 
 
-def test_manual_video_grayscale_without_channel_color(tmp_path):
+def test_manual_video_grayscale_without_channel_color(sim_scope, tmp_path):
     # No channel_color in the manifest (old recording / brightfield) -> gray.
-    folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=None)
+    folder = _make_manual_folder(
+        sim_scope, tmp_path, n_frames=2, include_hyperstack=False, channel_color=None
+    )
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
+    result = builder.build_from_folder(
+        folder, shipped_grids(), None, frame_rate_fps=5, channel_colors=release_colors()
+    )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
     assert abs(r - g) < 8 and abs(g - b) < 8, f'expected gray frame, got B={b} G={g} R={r}'
@@ -261,37 +289,15 @@ def test_read_manifest_channel_color(tmp_path):
     assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest with the key -> the color.
     (folder / 'session_manifest.json').write_text(
-        json.dumps({'recording': {'channel_color': 'Green'}})
+        json.dumps({'recording': {'channel_color': LED1}})
     )
-    assert builder._read_recording_manifest(folder)['channel_color'] == 'Green'
+    assert builder._read_recording_manifest(folder)['channel_color'] == LED1
 
 
-def test_build_session_manifest_includes_channel_color():
-    from modules.recording_manifest import build_session_manifest
-
-    m = build_session_manifest(
-        timestamps=[],
-        chunks_per_frame=[],
-        tick_freq_hz=None,
-        captured_frames=0,
-        video_duration=0.0,
-        channel_color='Blue',
-    )
-    assert m['recording']['channel_color'] == 'Blue'
-
-
-# ---------------------------------------------------------------------------
-# Single-open per frame -- the overlay build must not re-open each TIFF for the
-# timestamp after already opening it for pixels + depth, and an overlay-OFF
-# build must not pay the per-frame Timestamp.to_pydatetime conversion it never
-# uses.
-# ---------------------------------------------------------------------------
-
-
-def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
+def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     from collections import Counter
 
-    folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=False)
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=3, include_hyperstack=False)
 
     opens = []
     real_tifffile = image_utils.tf.TiffFile
@@ -304,7 +310,12 @@ def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
 
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=True
+        folder,
+        shipped_grids(),
+        None,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=True,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
 
@@ -318,73 +329,66 @@ def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
     )
 
 
-class _SpyTimestamp:
-    """Stand-in for a pandas Timestamp that counts to_pydatetime conversions."""
-
-    def __init__(self, counter, when):
-        self._counter = counter
-        self._when = when
-
-    def to_pydatetime(self):
-        self._counter['n'] += 1
-        return self._when
-
-
-def _spy_timestamp_df(folder, counter, n_frames):
-    for i in range(n_frames):
-        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 64), 12000, dtype=np.uint16))
-    return pd.DataFrame(
+def _overlay_frame(folder, cells, *, overlay=True):
+    """The first frame of a video built over frames that state no time of
+    their own, each row's record time one of ``cells``. Wide enough that the
+    overlay's whole time is drawn: on a narrow frame only its first
+    characters are."""
+    folder.mkdir()
+    for i in range(len(cells)):
+        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 512), 12000, dtype=np.uint16))
+    df = pd.DataFrame(
         {
-            'Filepath': [f'frame_{i:04}.tiff' for i in range(n_frames)],
-            'Scan Count': range(n_frames),
-            'Timestamp': [_SpyTimestamp(counter, _ts(i)) for i in range(n_frames)],
+            'Filepath': [f'frame_{i:04}.tiff' for i in range(len(cells))],
+            'Scan Count': range(len(cells)),
+            'Timestamp': pd.Series(cells, dtype=object),
             'Color': None,
         }
     )
-
-
-def test_overlay_off_skips_to_pydatetime(tmp_path):
-    # The frames carry no readable timestamp, so with the overlay ON the fallback
-    # step time is converted per frame; with the overlay OFF that conversion is
-    # never needed and must be skipped entirely.
-    builder = VideoBuilder(has_turret=False)
-
-    off_folder = tmp_path / 'off'
-    off_folder.mkdir()
-    off_counter = {'n': 0}
-    off_df = _spy_timestamp_df(off_folder, off_counter, n_frames=3)
-    result_off = builder._create_video(
-        path=off_folder,
-        df=off_df,
-        frames_per_sec=5,
-        enable_timestamp_overlay=False,
+    result = VideoBuilder(has_turret=False)._create_video(
+        path=folder,
+        df=df,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=overlay,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
-    assert result_off['status'] is True
-    assert off_counter['n'] == 0, f'overlay OFF must convert no Timestamp, got {off_counter["n"]}'
+    assert result['status'] is True
+    return _first_frame(_find_video(folder, 'out'))
 
-    # Sanity that the spy actually fires when the overlay is ON, so the zero above
-    # is a real skip and not a dead probe.
-    on_folder = tmp_path / 'on'
-    on_folder.mkdir()
-    on_counter = {'n': 0}
-    on_df = _spy_timestamp_df(on_folder, on_counter, n_frames=3)
-    result_on = builder._create_video(
-        path=on_folder,
-        df=on_df,
-        frames_per_sec=5,
-        enable_timestamp_overlay=True,
-        output_file_loc=pathlib.Path('out.mp4'),
-        on_progress=None,
-        total_groups=1,
-        current_group=1,
-    )
-    assert result_on['status'] is True
-    assert on_counter['n'] == 3, (
-        f'overlay ON must convert the fallback per frame, got {on_counter["n"]}'
+
+def test_a_frame_with_no_time_of_its_own_is_overlaid_with_its_record_rows_time(tmp_path):
+    """The overlay prints the record row's time whether pandas holds the
+    cell as its own Timestamp (a run with one offset) or as the record's
+    datetime (a run across a daylight-saving change): the same time prints
+    the same either way, and another time prints differently."""
+    pdt = datetime.timezone(datetime.timedelta(hours=-7))
+    pst = datetime.timezone(datetime.timedelta(hours=-8))
+    across_the_change = [
+        datetime.datetime(2026, 11, 1, 1, 50, tzinfo=pdt),
+        datetime.datetime(2026, 11, 1, 1, 10, tzinfo=pst),
+    ]
+    as_timestamps = [pd.Timestamp(when) for when in across_the_change]
+    an_hour_later = [pd.Timestamp(when + datetime.timedelta(hours=1)) for when in across_the_change]
+
+    from_datetime = _overlay_frame(tmp_path / 'datetime', across_the_change)
+    from_timestamp = _overlay_frame(tmp_path / 'timestamp', as_timestamps)
+    from_later = _overlay_frame(tmp_path / 'later', an_hour_later)
+
+    assert np.array_equal(from_datetime, from_timestamp)
+    assert not np.array_equal(from_timestamp, from_later)
+
+
+def test_a_frame_that_states_no_time_is_overlaid_with_none(tmp_path):
+    """With the overlay on, a frame whose file and record row state no time
+    is drawn as it would be with the overlay off: no other time, the
+    build's own, is printed in its place."""
+    assert np.array_equal(
+        _overlay_frame(tmp_path / 'on', ['', '']),
+        _overlay_frame(tmp_path / 'off', ['', ''], overlay=False),
     )
 
 
@@ -409,12 +413,44 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
     result = builder._create_video(
         path=folder,
         df=df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
+    )
+    assert result['status'] is True
+    assert _find_video(folder, 'out').is_file()
+
+
+def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
+    """A protocol's composites are grouped under the Color 'Composite', which
+    is no layer: the video is built from their own RGB, not refused for want
+    of a layer colour."""
+    folder = tmp_path / 'composites'
+    folder.mkdir()
+    for i in range(2):
+        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 64, 3), 90, dtype=np.uint8))
+    df = pd.DataFrame(
+        {
+            'Filepath': [f'frame_{i:04}.tiff' for i in range(2)],
+            'Scan Count': range(2),
+            'Timestamp': '',
+            'Color': 'Composite',
+        }
+    )
+    result = VideoBuilder(has_turret=False)._create_video(
+        path=folder,
+        df=df,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=False,
+        output_file_loc=pathlib.Path('out.mp4'),
+        on_progress=None,
+        total_groups=1,
+        current_group=1,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()

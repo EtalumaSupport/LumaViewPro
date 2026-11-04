@@ -36,12 +36,14 @@ def _step_runner():
 def test_a_run_axis_move_goes_through_the_public_member():
     step_runner, parent, motion = _step_runner()
 
-    step_runner._move_axis_through_io('X', 1234.0)
+    step_runner._move_to_stage(1234.0, 567.0, 89.0)
 
-    motion.start_move_absolute.assert_called_once_with('X', 1234.0)
+    motion.start_move_xy.assert_called_once_with(1234.0, 567.0)
+    motion.start_move_z.assert_called_once_with(89.0)
     # Never the body on protocol_thread itself -- that is the bypass that
     # races leds_off -- and never a put of the runner's own.
-    motion._move_absolute_impl.assert_not_called()
+    motion._move_xy_impl.assert_not_called()
+    motion._move_z_impl.assert_not_called()
     parent._io_executor.protocol_put.assert_not_called()
 
 

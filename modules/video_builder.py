@@ -1,11 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import datetime
 import json
 import pathlib
 
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
+from modules.layer_record import GREY, ChannelColors
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
@@ -13,6 +17,7 @@ from modules.api_surface import ProgressCallback
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.tiling_config import TilingGrids
 from modules.video_writer import VideoWriter
 
 from lvp_logger import logger
@@ -26,6 +31,9 @@ DEFAULT_BUILD_FPS = 5
 
 
 class VideoBuilder(ProtocolPostProcessor):
+    _PLACE = 'scan'
+    _ONE_PER_ADD = ' Steps Added together make one video.'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -49,25 +57,42 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Z-Slice',
                 'Tile',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
                 'Recording Scan',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        # A video's frames are drawn at its rate, with or without the time
+        # stamped on them, in its layer's colour.
+        color = layer_record.output_color(group.iloc[0]['Color'], kwargs['channel_colors'])
+        return post_derivation.Step(
+            PostFunction.VIDEO,
+            (
+                ('fps', f'{float(kwargs["frame_rate_fps"]):g}'),
+                ('timestamp', 'on' if kwargs['enable_timestamp_overlay'] else 'off'),
+                ('color', post_derivation.color_text(color)),
+            ),
+        )
+
+    def _places(self, group: pd.DataFrame) -> pd.Series | None:
+        # A timelapse takes one still per scan; interleaving two would make a
+        # video of neither. A recording's frames are each their own.
+        if recording_frames.is_video_frame(group['Filepath'].iloc[0]):
+            return None
+        return group['Scan Count']
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
         )
 
-        # Post-output suffixes chain: a video of an already-stitched output
-        # carries both ('stitched', 'video'). channel, tile and z come from the
-        # authoritative columns (a video keeps the source slice's z token,
-        # matching the per-image save).
-        post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, common_utils.POST_TOKEN_VIDEO)
+        # channel, tile and z come from the authoritative columns (a video
+        # keeps the source slice's z token, matching the per-image save).
 
         # One output per recording means one output PER SCAN for recorded
         # video frames; the scan token keeps those names distinct (and
@@ -112,12 +137,13 @@ class VideoBuilder(ProtocolPostProcessor):
             self._create_video(
                 path=path,
                 df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
-                frames_per_sec=kwargs['frames_per_sec'],
+                frame_rate_fps=kwargs['frame_rate_fps'],
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=kwargs['output_file_loc'],
                 on_progress=kwargs['on_progress'],
                 total_groups=kwargs['total_groups'],
                 current_group=kwargs['current_group'],
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -147,6 +173,7 @@ class VideoBuilder(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
         )
 
@@ -183,13 +210,13 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         try:
             if enable_timestamp_overlay:
-                image, significant_bits, frame_ts = image_utils.load_pixels_with_timestamp(
-                    image_path
+                image, significant_bits, white_bits, frame_ts = (
+                    image_utils.load_pixels_with_timestamp(image_path)
                 )
                 if frame_ts is None:
                     frame_ts = fallback_timestamp
             else:
-                image, significant_bits = image_utils.load_pixels(image_path)
+                image, significant_bits, white_bits = image_utils.load_pixels(image_path)
                 frame_ts = None
         except Exception as e:
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
@@ -197,20 +224,28 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
         # load_pixels). VideoWriter applies the layer false-color, the 8-bit
-        # downconvert scaled by significant_bits, and any cv2 BGR-swap internally.
-        writer.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
+        # downconvert scaled by significant_bits against white_bits (one frame's
+        # white, for a sum), and any cv2 BGR-swap internally.
+        writer.add_frame(
+            image=image,
+            timestamp=frame_ts,
+            significant_bits=significant_bits,
+            white_bits=white_bits,
+        )
         return True
 
     def _create_video(
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        frames_per_sec: int,
+        frame_rate_fps: int,
         enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path,
         on_progress: ProgressCallback | None = None,
         total_groups=1,
         current_group=1,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
 
         if recording_frames.is_video_frame(df['Filepath'].values[0]):
@@ -228,13 +263,16 @@ class VideoBuilder(ProtocolPostProcessor):
         # missing/NaN color; rejected because BF/PC/DF carry a transmitted-
         # light label that VideoWriter renders as grayscale -- a hard error
         # would break legitimate brightfield-only videos. None falls through
-        # to grayscale, the safe default.
-        layer_color = df.iloc[0]['Color'] if 'Color' in df.columns else None
+        # to grayscale, the safe default. A manual recording's channel is None
+        # when it was recorded with false color off, which is grey too, and a
+        # group of composites is their own RGB.
+        layer = df.iloc[0]['Color'] if 'Color' in df.columns else None
+        layer_color = GREY if layer is None else layer_record.output_color(layer, channel_colors)
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
             output_path=output_file_loc_abs,
-            fps=frames_per_sec,
+            fps=frame_rate_fps,
             color=layer_color,
             include_timestamp_overlay=enable_timestamp_overlay,
         )
@@ -254,16 +292,13 @@ class VideoBuilder(ProtocolPostProcessor):
             image_path = path / row['Filepath']
             # The step time is only the fallback the overlay uses when a frame
             # carries no timestamp of its own, so with the overlay off it is never
-            # read -- skip the per-frame conversion entirely. Guard the dataframe
-            # Timestamp: the loader fills missing values with the empty string (no
-            # to_pydatetime) rather than a pandas Timestamp.
+            # read. Guard the dataframe Timestamp: the loader fills missing
+            # values with the empty string, and a time is a datetime whether
+            # pandas kept the cell as its own Timestamp (one offset through the
+            # run) or as the record's datetime (offsets that differ).
             fallback_ts = None
-            if enable_timestamp_overlay:
-                fallback_ts = (
-                    row['Timestamp'].to_pydatetime()
-                    if hasattr(row['Timestamp'], 'to_pydatetime')
-                    else None
-                )
+            if enable_timestamp_overlay and isinstance(row['Timestamp'], datetime.datetime):
+                fallback_ts = row['Timestamp']
             if not self._add_source_frame(
                 video,
                 image_path,
@@ -279,6 +314,24 @@ class VideoBuilder(ProtocolPostProcessor):
             i += 1
 
         video.close()
+
+        if i - video.dropped_frames <= 0:
+            # Not one frame reached the video: there is no video to record,
+            # and a success here put a file that does not exist in the record,
+            # which every later build then skipped as already made. Only a
+            # writer handed a frame opened a file, at a name its collision
+            # check chose; one handed none still names the request, which can
+            # be an earlier build's video.
+            if i > 0:
+                pathlib.Path(video.output_path).unlink(missing_ok=True)
+            return {
+                'status': False,
+                'error': (
+                    f'Cannot build a video: none of its {total_frames} frames could be '
+                    f'read or encoded ({df.iloc[0]["Filepath"]} first).'
+                ),
+                'metadata': {},
+            }
 
         total_dropped = skipped + video.dropped_frames
         if total_dropped > 0:
@@ -314,6 +367,7 @@ class VideoBuilder(ProtocolPostProcessor):
         color: str | None = None,
         fps: int = 10,
         include_timestamp_overlay: bool = False,
+        channel_colors: ChannelColors,
     ) -> dict:
         """Build a single video file from mono TIFFs in source_dir.
 
@@ -329,7 +383,7 @@ class VideoBuilder(ProtocolPostProcessor):
             false_color: When True, the layer false-color is applied inside
                 VideoWriter. Requires ``color``; raises ValueError otherwise.
                 When False, encode grayscale.
-            color: Layer name ('Red', 'Green', 'Blue', 'Lumi', 'BF', ...).
+            color: Layer key ('Ex405', 'Ex488', 'Ex589', 'Lumi', 'BF', ...).
                 Required when ``false_color=True``; ignored otherwise.
             fps: Frames per second.
             include_timestamp_overlay: Overlay frame timestamps.
@@ -340,6 +394,8 @@ class VideoBuilder(ProtocolPostProcessor):
         Raises:
             ValueError: If false_color=True and color is None, or if
                 source_dir contains no .tiff / .tif files.
+            ArgumentRefusedError: ``color`` is neither a layer of this
+                release nor a composite (``'channel_unknown'``).
         """
         source_dir = pathlib.Path(source_dir)
         output_file = pathlib.Path(output_file)
@@ -347,14 +403,14 @@ class VideoBuilder(ProtocolPostProcessor):
         if false_color and color is None:
             raise ValueError(
                 'build_video: color is required when false_color=True. '
-                "Pass e.g. color='Blue' to specify which layer to false-color."
+                "Pass e.g. color='Ex405' to specify which layer to false-color."
             )
 
         tiff_paths = image_utils.find_tiff_files(source_dir)
         if not tiff_paths:
             raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
 
-        writer_color = color if false_color else None
+        writer_color = layer_record.output_color(color, channel_colors) if false_color else GREY
         writer = VideoWriter(
             output_path=output_file,
             fps=fps,
@@ -404,7 +460,7 @@ class VideoBuilder(ProtocolPostProcessor):
     def build_from_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
@@ -418,7 +474,7 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         path = pathlib.Path(path)
         is_manual = self._is_manual_recording_folder(path)
-        if kwargs.get('frames_per_sec') is None:
+        if kwargs.get('frame_rate_fps') is None:
             # The UI's 'auto' rate, resolved HERE where the folder type
             # is known: a manual recording plays at its own measured
             # capture rate (from its manifest); folders without a
@@ -427,18 +483,18 @@ class VideoBuilder(ProtocolPostProcessor):
             # standard default.
             measured = self._read_recording_manifest(path)['measured_fps'] if is_manual else None
             if measured is not None and measured > 0:
-                kwargs['frames_per_sec'] = measured
+                kwargs['frame_rate_fps'] = measured
                 logger.info(
                     f'[{self._name}] auto rate: building at the recorded '
                     f'{measured:.3g} fps from the manifest'
                 )
             else:
-                kwargs['frames_per_sec'] = DEFAULT_BUILD_FPS
+                kwargs['frame_rate_fps'] = DEFAULT_BUILD_FPS
         if is_manual:
             return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
         return self.load_folder(
             path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             on_progress=on_progress,
             **kwargs,
         )
@@ -467,27 +523,34 @@ class VideoBuilder(ProtocolPostProcessor):
         schemas nest differently). Fields are None when the folder
         predates both manifests, the file is unreadable, or the field is
         absent -- channel None encodes grayscale; rate None means no
-        measured rate is known.
+        measured rate is known. ``channel_color`` is the channel to colour
+        the video by, None when it was recorded with false color off: a
+        manifest records the channel and a ``false_color`` flag, and one
+        written before the flag records the channel only when it was on.
 
         Returns:
             ``{'channel_color': str | None, 'measured_fps': float | None}``
         """
         manifest_path = path / 'recording_manifest.json'
         try:
-            with open(manifest_path) as fh:
+            with open(manifest_path, encoding='utf-8') as fh:
                 manifest = json.load(fh)
         except (OSError, ValueError):
             manifest = None
         if manifest is not None:
             fps = manifest.get('measured_fps')
+            if 'false_color' in manifest:
+                channel_color = manifest['channel'] if manifest['false_color'] else None
+            else:
+                channel_color = manifest.get('channel_color')
             return {
-                'channel_color': manifest.get('channel_color'),
+                'channel_color': channel_color,
                 'measured_fps': float(fps) if fps else None,
             }
 
         legacy_path = path / 'session_manifest.json'
         try:
-            with open(legacy_path) as fh:
+            with open(legacy_path, encoding='utf-8') as fh:
                 legacy = json.load(fh)
         except (OSError, ValueError):
             # Neither manifest generation is readable. Say so: a LOST
@@ -513,8 +576,9 @@ class VideoBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         on_progress: ProgressCallback | None = None,
         *,
-        frames_per_sec: float,
+        frame_rate_fps: float,
         enable_timestamp_overlay: bool = False,
+        channel_colors: ChannelColors,
         **_ignored: dict,
     ) -> dict:
         frame_paths = [
@@ -557,12 +621,13 @@ class VideoBuilder(ProtocolPostProcessor):
         result = self._create_video(
             path=path,
             df=df,
-            frames_per_sec=frames_per_sec,
+            frame_rate_fps=frame_rate_fps,
             enable_timestamp_overlay=enable_timestamp_overlay,
             output_file_loc=output_file_loc,
             on_progress=on_progress,
             total_groups=1,
             current_group=1,
+            channel_colors=channel_colors,
         )
 
         if on_progress is not None:
@@ -579,6 +644,8 @@ class VideoBuilder(ProtocolPostProcessor):
                 dropped_frames=0,
                 artifact_paths=[],
                 output_root=str(path),
+                accounting_note='',
+                excluded_inputs=(),
             )
         dropped = result.get('metadata', {}).get('dropped_frames', 0)
         if dropped:
@@ -590,13 +657,17 @@ class VideoBuilder(ProtocolPostProcessor):
                 dropped_frames=dropped,
                 artifact_paths=[str(result['actual_output_file_loc'])],
                 output_root=str(path),
+                accounting_note='',
+                excluded_inputs=(),
             )
         # What a protocol folder's build answers: the file it made, where it
         # landed, so a caller is told the video and not only that it worked.
+        # It reads the recording's frames alone, so nothing is left out.
         return {
             'status': True,
             'message': 'Success.',
             'new_count': 1,
             'output_root': str(path),
             'artifact_paths': [str(result['actual_output_file_loc'])],
+            'excluded_inputs': (),
         }

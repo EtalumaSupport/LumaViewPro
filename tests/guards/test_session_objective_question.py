@@ -24,9 +24,14 @@ from modules import settings_init
 from modules.exceptions import CatalogueNameRefusedError, ConfigError, PositionOutOfRangeError
 from modules.lumascope_api.motion import AxisState
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
-import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module, writers_of_settings_keys
+from tests.ast_seams import (
+    REPO_ROOT,
+    Words,
+    iter_package_modules,
+    parse_module,
+    writers_of_settings_keys,
+)
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -74,21 +79,13 @@ def not_provisional(monkeypatch):
 def _turret_settings(**overrides):
     base = {
         'microscope': TURRET_MODEL,
-        'objective_confirmed': False,
+        'objective_confirmed': None,
         'turret_position': 1,
         'turret_objectives': {'1': '4x Oly', '2': None, '3': None, '4': None},
         'objective_id': '20x Oly',
     }
     base.update(overrides)
     return base
-
-
-@pytest.fixture(autouse=True)
-def fresh_log():
-    """The suite installs a MagicMock as ``lvp_logger``, so the Session's
-    lines never reach pytest's log capture; they are read off the mock,
-    reset per case because the mock is process-wide."""
-    scope_session_module.logger.reset_mock()
 
 
 def _at_slot(session, slot):
@@ -100,14 +97,10 @@ def _at_slot(session, slot):
     return session
 
 
-def _clear_log():
-    """Drop the bring-up's own lines so a case measures only the act."""
-    scope_session_module.logger.reset_mock()
-
-
-def _lines():
-    """Every message the Session and its helpers put on the log, any level."""
-    return [str(call.args[0]) for call in scope_session_module.logger.method_calls if call.args]
+def _lines(caplog):
+    """Every message the Session and its helpers put on the main log, at the
+    level the session's settings set from its bring-up on (INFO here)."""
+    return [r.getMessage() for r in caplog.records if r.name == 'lvp_logger']
 
 
 # ---------------------------------------------------------------------------
@@ -120,15 +113,15 @@ class TestT8ObjectiveQuestion:
         session = _at_slot(sessions(**_turret_settings()), 1)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 1
+        assert question.turret_slot == 1
         assert question.proposed == '4x Oly'
-        assert question.choices == tuple(session.objective_helper.get_objectives_list())
+        assert question.choices == tuple(session.scope.objective_helper.get_objectives_list())
 
     def test_a_non_turret_model_asks_without_a_position(self, sessions):
         session = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='10x Oly'))
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position is None
+        assert question.turret_slot is None
         # Owed only before anyone confirmed one, so the stored id is the
         # shipped template's, not glass anyone saw: the default is proposed.
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
@@ -148,7 +141,7 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 2)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
 
     def test_the_position_is_the_live_slot_not_the_stored_one(self, sessions):
         # The stored turret_position says 3; the turret is in slot 2. The
@@ -163,9 +156,9 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 2)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
 
-    def test_an_owed_question_with_the_slot_unknown_says_home_the_turret(self, sessions):
+    def test_an_owed_question_with_the_slot_unknown_says_home_the_scope(self, sessions):
         # Bring-up alone leaves the slot unknown: there is no slot to ask about.
         from modules.exceptions import ObjectiveUnknownError
 
@@ -173,7 +166,7 @@ class TestT8ObjectiveQuestion:
         with pytest.raises(ObjectiveUnknownError) as excinfo:
             session.objective_question()
         assert excinfo.value.reason == 'slot_unknown'
-        assert 'home the turret' in str(excinfo.value)
+        assert 'home the scope' in str(excinfo.value)
 
     def test_a_turret_move_in_flight_owes_no_question(self, sessions, monkeypatch):
         # The slot is unknown for the whole of every turret move. On a
@@ -198,10 +191,10 @@ class TestT8ObjectiveQuestion:
         )
         motion = session.scope.motion
         released = threading.Event()
-        real_status = motion.get_target_status
+        real_status = motion._read_target_status
         monkeypatch.setattr(
             motion,
-            'get_target_status',
+            '_read_target_status',
             lambda ax: released.is_set() if ax == 'T' else real_status(ax),
         )
         outcome = {}
@@ -220,7 +213,7 @@ class TestT8ObjectiveQuestion:
             while motion.get_axis_state('T') != AxisState.MOVING:
                 assert time.monotonic() < deadline, 'the turret move never started'
                 time.sleep(0.005)
-            assert motion.get_turret_slot() is None
+            assert motion.turret_status().slot is None
 
             assert session.objective_question() is None
             with pytest.raises(ObjectiveUnknownError) as excinfo:
@@ -234,27 +227,29 @@ class TestT8ObjectiveQuestion:
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         assert session.objective_question() is None
 
-    def test_no_hardware_withholds_the_owed_question_and_says_so(self, sessions):
+    def test_no_hardware_withholds_the_owed_question_and_says_so(self, caplog, sessions):
         session = sessions(**_turret_settings())
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
         assert session.objective_question() is None
-        assert any('no hardware' in line for line in _lines()), _lines()
+        assert any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_no_hardware_with_nothing_owed_says_nothing(self, sessions):
+    def test_no_hardware_with_nothing_owed_says_nothing(self, caplog, sessions):
         session = _at_slot(sessions(**_turret_settings(objective_confirmed=True)), 1)
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
         assert session.objective_question() is None
-        assert not any('no hardware' in line for line in _lines()), _lines()
+        assert not any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_provisional_settings_defer_the_question_and_say_so(self, sessions, monkeypatch):
+    def test_provisional_settings_defer_the_question_and_say_so(
+        self, caplog, sessions, monkeypatch
+    ):
         session = sessions(**_turret_settings())
         monkeypatch.setattr(
             settings_init, 'rejected_current_json', ('/data/current.json', 'invalid JSON')
         )
         assert session.objective_question() is None
-        assert any('provisional' in line for line in _lines()), _lines()
+        assert any('provisional' in line for line in _lines(caplog)), _lines(caplog)
 
     def test_a_proposal_outside_the_catalogue_falls_back_to_the_default(self, sessions):
         # Slot values are stored as written, so a slot can name something
@@ -269,10 +264,10 @@ class TestT8ObjectiveQuestion:
         )
         _at_slot(session, 2)
         assert session.settings['turret_objectives'][2] == 'banana'
-        assert 'banana' not in session.objective_helper.get_objectives_list()
+        assert 'banana' not in session.scope.objective_helper.get_objectives_list()
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
 
     def test_a_stored_id_outside_the_catalogue_is_replaced_at_bring_up(self, sessions):
@@ -296,7 +291,7 @@ class TestT8ObjectiveQuestion:
     def test_an_empty_catalogue_raises_at_the_api(self, sessions, monkeypatch):
         session = sessions(**_turret_settings())
         monkeypatch.setattr(
-            session.objective_helper, 'get_objectives_list', lambda: [], raising=False
+            session.scope.objective_helper, 'get_objectives_list', lambda: [], raising=False
         )
         with pytest.raises(ConfigError):
             session.objective_question()
@@ -307,7 +302,7 @@ class TestT8ObjectiveQuestion:
         session = _at_slot(sessions(**_turret_settings(turret_position='three')), 1)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 1
+        assert question.turret_slot == 1
 
     def test_the_proposal_never_comes_from_the_stored_id(self, sessions):
         # On a turret model the stored objective_id is a turretless
@@ -325,12 +320,12 @@ class TestT8ObjectiveQuestion:
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
         assert question.proposed != '20x Oly'
 
-    def test_a_returned_question_logs_nothing(self, sessions):
+    def test_a_returned_question_logs_nothing(self, caplog, sessions):
         # The renderer logs its own show; a polled read must not log per poll.
         session = _at_slot(sessions(**_turret_settings()), 1)
-        _clear_log()
+        caplog.clear()
         assert session.objective_question() is not None
-        assert not any('objective question' in line for line in _lines()), _lines()
+        assert not any('objective question' in line for line in _lines(caplog)), _lines(caplog)
 
 
 # ---------------------------------------------------------------------------
@@ -341,25 +336,25 @@ class TestT8ObjectiveQuestion:
 class TestT9ConfirmObjective:
     def test_a_confirm_writes_the_slot_and_the_flag(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        assert session.confirm_objective('10x Oly', turret_position=2) is True
+        assert session.confirm_objective('10x Oly', slot=2) is True
         # The active objective is derived from the slot; no stored copy moves.
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         assert session.settings['objective_id'] == '20x Oly'
         assert session.settings['turret_objectives'][2] == '10x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_confirming_the_held_objective_reports_no_change(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        assert session.confirm_objective('10x Oly', turret_position=2) is True
-        assert session.confirm_objective('10x Oly', turret_position=2) is False
-        assert session.settings['objective_confirmed'] is True
+        assert session.confirm_objective('10x Oly', slot=2) is True
+        assert session.confirm_objective('10x Oly', slot=2) is False
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_a_confirm_binds_the_slot_it_names(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        session.confirm_objective('4x Oly', turret_position=2)
+        session.confirm_objective('4x Oly', slot=2)
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         assert session.settings['turret_objectives'][2] == '4x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     @pytest.mark.parametrize('bad', ['banana', '4', ''])
     def test_a_non_catalogue_id_raises_before_any_write(self, sessions, bad):
@@ -371,7 +366,7 @@ class TestT9ConfirmObjective:
             session.settings.get('objective_confirmed'),
         )
         with pytest.raises(ConfigError):
-            session.confirm_objective(bad, turret_position=2)
+            session.confirm_objective(bad, slot=2)
         after = (
             session.settings['objective_id'],
             session.scope.runtime_state.get_current_objective_id(),
@@ -385,11 +380,11 @@ class TestT9ConfirmObjective:
         before = dict(session.settings['turret_objectives'])
         session.confirm_objective('4x Oly')
         assert dict(session.settings['turret_objectives']) == before
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turretless'
 
     def test_after_a_confirm_the_question_is_answered(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        session.confirm_objective('4x Oly', turret_position=2)
+        session.confirm_objective('4x Oly', slot=2)
         assert session.objective_question() is None
 
 
@@ -399,24 +394,32 @@ class TestT9ConfirmObjective:
 
 
 class TestT10SelectObjective:
-    def test_selecting_the_held_id_is_a_no_op(self, sessions):
+    def test_selecting_the_held_id_is_a_no_op(self, caplog, sessions):
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
         assert held == '4x Oly'  # slot 1's assignment, derived
-        _clear_log()
+        caplog.clear()
         assert session.select_objective(held) is False
-        assert not any('[Optics' in line for line in _lines()), _lines()
+        assert not any('[Optics' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_a_new_id_assigns_the_slot_and_records_the_optics(self, sessions):
-        session = _at_slot(sessions(**_turret_settings()), 1)
+    def test_a_new_id_turns_to_its_slot_and_records_the_optics(self, caplog, sessions):
+        session = _at_slot(
+            sessions(
+                **_turret_settings(
+                    turret_objectives={'1': '4x Oly', '2': '10x Oly', '3': None, '4': None}
+                )
+            ),
+            1,
+        )
         # Slot 1's objective read (and so recorded) before the act.
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
-        _clear_log()
+        caplog.clear()
         assert session.select_objective('10x Oly') is True
-        assert session.settings['turret_objectives'][1] == '10x Oly'
+        assert session.scope.motion.turret_status().slot == 2
+        assert session.settings['turret_objectives'][1] == '4x Oly'
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
-        optics = [line for line in _lines() if line.startswith('[Optics')]
-        assert len(optics) == 1, _lines()
+        optics = [line for line in _lines(caplog) if line.startswith('[Optics')]
+        assert len(optics) == 1, _lines(caplog)
         assert 'objective=10x Oly' in optics[0]
         assert 'um/px' in optics[0] and 'no image scale' not in optics[0], optics[0]
 
@@ -446,20 +449,28 @@ class TestT10SelectObjective:
         # the "no change" branch can only ever compare a key against a key.
         plain = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
         assert plain.scope.runtime_state.get_current_objective_id() in (
-            plain.objective_helper.get_objectives_list()
+            plain.scope.objective_helper.get_objectives_list()
         )
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
-        assert held in session.objective_helper.get_objectives_list()
+        assert held in session.scope.objective_helper.get_objectives_list()
         assert session.select_objective(held) is False
 
-    def test_a_pick_while_the_slot_is_unknown_is_refused(self, sessions):
-        # Bring-up alone leaves the slot unknown: there is no slot to assign.
-        from modules.exceptions import ObjectiveUnknownError
+    def test_a_pick_before_the_turret_is_homed_is_refused_by_the_move(self, sessions):
+        # Bring-up alone leaves the turret unhomed: the move refuses, and no
+        # slot is written.
+        from modules.exceptions import AxisStateUnknownError
 
-        session = sessions(**_turret_settings())
-        with pytest.raises(ObjectiveUnknownError):
+        session = sessions(
+            **_turret_settings(
+                turret_objectives={'1': '4x Oly', '2': '10x Oly', '3': None, '4': None}
+            )
+        )
+        before = dict(session.settings['turret_objectives'])
+        with pytest.raises(AxisStateUnknownError) as refused:
             session.select_objective('10x Oly')
+        assert refused.value.reason == 'position_unknown'
+        assert session.settings['turret_objectives'] == before
 
 
 class TestT10TurretWriters:
@@ -495,39 +506,23 @@ class TestT10TurretWriters:
 
 
 class TestT10TurretPosition:
-    """The saved turret position is the slot a person last turned to -- a
-    preference between slots carrying one objective, seeded at bring-up and
-    written at save. Nothing records it live beside the API's own slot."""
+    """No turret position is stored: each protocol step records its own slot.
 
-    def test_bring_up_seeds_the_preference_from_the_saved_position(self, sessions):
-        session = sessions(**_turret_settings(turret_position=3))
-        assert session.scope.motion.get_preferred_turret_slot() == 3
+    A saved position was once preferred between slots carrying one
+    objective. One preference for every step sent every step naming that
+    objective to one slot, and the startup move to slot 1 overwrote it on
+    every launch."""
 
-    def test_a_saved_position_that_is_no_slot_seeds_no_preference_and_says_so(self, sessions):
-        _clear_log()
-        session = sessions(**_turret_settings(turret_position=9))
-        assert session.scope.motion.get_preferred_turret_slot() is None
-        assert any('is not a slot' in line for line in _lines()), _lines()
-
-    def test_a_save_writes_the_last_slot_moved_to_not_the_home(self, sessions, tmp_path):
-        session = sessions(**_turret_settings(turret_position=1))
-        home_sim_scope(session.scope)
-        session.scope.motion.move_turret(3)
-        # A home lands on slot 1 by convention, not by anyone's choice.
-        home_sim_scope(session.scope)
-        assert session.scope.motion.get_turret_slot() == 1
+    def test_a_stored_position_is_dropped_and_a_save_writes_none(self, tmp_path):
         saved = tmp_path / 'current.json'
-        session.save_settings(str(saved))
-        assert json.loads(saved.read_text())['turret_position'] == 3
-
-    def test_start_application_session_records_no_position(self, sessions):
-        session = sessions(**_turret_settings(turret_position=2))
-        session.start_application_session(
-            disable_homing=False,
-            home_fn=lambda axis: None,
-            turret_fn=lambda position: None,
+        session = ScopeSession.create(
+            complete_settings(**_turret_settings(turret_position=3)),
+            simulate=True,
+            settings_file=str(saved),
         )
-        assert session.settings['turret_position'] == 2
+        assert 'turret_position' not in session.settings
+        session.shutdown()
+        assert 'turret_position' not in json.loads(saved.read_text())
 
 
 # ---------------------------------------------------------------------------
@@ -536,15 +531,40 @@ class TestT10TurretPosition:
 
 
 class TestT14OpticsRecord:
-    def test_the_bring_up_record_carries_a_real_scale(self):
+    def test_the_bring_up_record_carries_a_real_scale(self, caplog):
         session = ScopeSession.create(
             complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
         )
         try:
-            optics = [line for line in _lines() if line.startswith('[Optics')]
-            assert len(optics) == 1, _lines()
+            optics = [line for line in _lines(caplog) if line.startswith('[Optics')]
+            assert len(optics) == 1, _lines(caplog)
             assert 'um/px' in optics[0] and 'no image scale' not in optics[0], optics[0]
-            assert f'binning={session.scope.imaging.get_binning_size()}' in optics[0]
+            assert f'binning={session.scope.camera.read_binning()}' in optics[0]
+        finally:
+            session.shutdown()
+
+    def test_an_objective_change_records_the_optics_without_asking_the_camera(self, caplog):
+        # The record made a fresh camera read inside a swallow on each
+        # objective change; it reads the binning the camera last reported.
+        from drivers.exceptions import CameraReadFailedError
+
+        session = ScopeSession.create(
+            complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
+        )
+        try:
+            held = session.scope.camera.binning
+            session.scope.simulation.refuse_camera_read('binning', 'failed')
+
+            session.select_objective('10x Oly')
+            assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
+
+            optics = [
+                line for line in _lines(caplog) if line.startswith('[Optics') and '10x' in line
+            ]
+            assert len(optics) == 1, _lines(caplog)
+            assert f'binning={held}' in optics[0], optics[0]
+            with pytest.raises(CameraReadFailedError):
+                session.scope.camera.read_binning()  # the fault is still the camera's next read
         finally:
             session.shutdown()
 
@@ -561,11 +581,6 @@ class TestT14OpticsRecord:
             and (getattr(node, 'id', None) or getattr(node, 'attr', None)) == 'log_resolved_optics'
         ]
         assert offenders == [], offenders
-
-    def test_the_gui_getters_no_longer_define_the_record(self):
-        import modules.config_ui_getters as config_ui_getters
-
-        assert not hasattr(config_ui_getters, 'log_resolved_optics')
 
 
 class TestPopulatedSlotsSurviveTheLoad:
@@ -602,7 +617,9 @@ class TestPopulatedSlotsSurviveTheLoad:
 # The exit criterion: the Session members are the ONLY writers of the four facts
 # ---------------------------------------------------------------------------
 
-_OBJECTIVE_FACTS = {'objective_id', 'turret_objectives', 'turret_position', 'objective_confirmed'}
+_OBJECTIVE_FACTS = Words(
+    {'objective_id', 'turret_objectives', 'turret_position', 'objective_confirmed'}
+)
 
 # Each writer is the one home of its fact for every host; a write anywhere
 # else is a second store the API cannot see.
@@ -618,7 +635,13 @@ _ALLOWED_WRITERS = {
     # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
     ('modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
-    ('modules/scope_session.py', 'ScopeSession.save_settings'),
+    ('modules/scope_session.py', 'ScopeSession.get_settings_snapshot'),
+    # A confirmation stored before it recorded its light path, dated at
+    # bring-up, the one place the light path is known.
+    ('modules/scope_session.py', 'ScopeSession._date_an_undated_objective_confirmation'),
+    # A stored unconfirmed flag from before the light path was recorded,
+    # folded to the unconfirmed value at load.
+    ('modules/settings_init.py', 'normalize_loaded_settings'),
     ('modules/settings_init.py', '_normalize_turret_slot_keys'),
 }
 

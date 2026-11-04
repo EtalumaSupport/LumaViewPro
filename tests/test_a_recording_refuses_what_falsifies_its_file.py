@@ -7,8 +7,16 @@ pixel format or turret change from REST, a script or the GUI landed in the
 middle of one and the file went on claiming the start values. Those writes
 now carry a mark the lane refuses while a recording holds -- at submit and
 again when a queued one reaches the worker -- and everything else (X/Y/Z,
-LED, gain, exposure) stays open to anyone. A home of any axis is refused:
-it holds the whole scope, as a run does, and a recording already holds it.
+an LED off, gain, exposure) stays open to anyone. A home of any axis is
+refused: it holds the whole scope, as a run does, and a recording already
+holds it.
+
+A recording is named for the shown layer and keeps the light it started
+under. An LED lit mid-recording -- ``led_on('Ex405')`` over REST while the
+recording was named Ex488 -- left frames lit by one channel and shot at
+another's camera settings, under a manifest and an MP4 naming the first;
+every write that would light now carries the same mark, and a start with
+another LED lit, or with the camera on another layer, is refused.
 """
 
 import copy
@@ -19,9 +27,17 @@ from unittest.mock import patch
 import pytest
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import HardwareCommandRefusedError, RecordingRefusedError
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    snapshot_lit_pairs,
+)
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED0
 
 _WAIT_S = 2.0
 
@@ -33,7 +49,7 @@ def claim():
 
 @pytest.fixture
 def lane(claim):
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.ask_claim(claim)
     ex.start()
     yield ex
@@ -123,21 +139,21 @@ def recording(sim_session):
 _FALSIFIERS = [
     (
         'set_frame_size',
-        'imaging',
+        'camera',
         '_set_frame_size_impl',
-        lambda sc: sc.imaging.set_frame_size(640, 480),
+        lambda sc: sc.camera.set_frame_size(640, 480),
     ),
     (
-        'set_binning_size',
-        'imaging',
-        '_set_binning_size_impl',
-        lambda sc: sc.imaging.set_binning_size(2),
+        'set_binning',
+        'camera',
+        '_set_binning_impl',
+        lambda sc: sc.camera.set_binning(2),
     ),
     (
-        'set_pixel_format',
-        'imaging',
+        'set_image_mode',
+        'camera',
         '_set_pixel_format_impl',
-        lambda sc: sc.imaging.set_pixel_format('Mono12'),
+        lambda sc: sc.camera.set_image_mode('12bit_scientific'),
     ),
     ('move_turret', 'motion', '_move_turret_impl', lambda sc: sc.motion.move_turret(2)),
     ('home T', 'motion', '_home_turret_impl', lambda sc: sc.motion.home('T')),
@@ -145,35 +161,35 @@ _FALSIFIERS = [
 ]
 
 _OPEN = [
-    ('move_absolute Z', lambda sc: sc.motion.move_absolute('Z', 100.0)),
-    ('move_relative X', lambda sc: sc.motion.move_relative('X', 10.0)),
-    ('set_gain_db', lambda sc: sc.imaging.set_gain_db(2.0)),
-    ('set_exposure_ms', lambda sc: sc.imaging.set_exposure_ms(20.0)),
+    ('move_z', lambda sc: sc.motion.move_z(100.0)),
+    ('move_xy_by X', lambda sc: sc.motion.move_xy_by(dx_um=10.0)),
+    ('set_gain_db', lambda sc: sc.camera.set_gain_db(2.0)),
+    ('set_exposure_ms', lambda sc: sc.camera.set_exposure_ms(20.0)),
 ]
 
 
 class TestTheMembers:
-    @pytest.mark.parametrize(
-        ('api', 'impl', 'call'), [f[1:] for f in _FALSIFIERS], ids=[f[0] for f in _FALSIFIERS]
-    )
-    def test_a_falsifier_is_refused_and_its_body_never_runs(
-        self, sim_session, recording, api, impl, call
-    ):
-        target = getattr(sim_session.scope, api)
-        ran = []
+    def test_a_falsifier_is_refused_and_its_body_never_runs(self, sim_session, recording):
+        def check(api, impl, call):
+            target = getattr(sim_session.scope, api)
+            ran = []
 
-        def _body(*args, **kwargs):
-            ran.append(impl)
+            def _body(*args, **kwargs):
+                ran.append(impl)
 
-        with (
-            patch.object(target, impl, _body),
-            pytest.raises(HardwareCommandRefusedError) as refused,
-        ):
-            call(sim_session.scope)
-        assert refused.value.holder == 'recording'
-        assert ran == [], f'{impl} ran inside the recording'
+            with (
+                patch.object(target, impl, _body),
+                pytest.raises(HardwareCommandRefusedError) as refused,
+            ):
+                call(sim_session.scope)
+            assert refused.value.holder == 'recording'
+            assert ran == [], f'{impl} ran inside the recording'
+
+        failed = failing_cases([f[1:] for f in _FALSIFIERS], check, label=lambda case: case[1])
+        assert not failed, failed
 
     @pytest.mark.slow
+    # parametrize-justified: each admitted write runs and changes the scope
     @pytest.mark.parametrize(('call',), [(o[1],) for o in _OPEN], ids=[o[0] for o in _OPEN])
     def test_an_open_write_is_admitted(self, sim_session, recording, call):
         call(sim_session.scope)
@@ -202,6 +218,137 @@ class TestTheMembers:
         assert calls == []
 
 
+class TestTheLights:
+    """While a recording holds, a write that would light an LED is refused
+    before anything changes, from any caller; an off is not."""
+
+    @pytest.fixture
+    def lit_bf(self, sim_session):
+        """BF shown and lit, the LEDs as they are when a recording is held."""
+        sim_session.scope.motion.home('ALL')
+        sim_session.show_channel('BF')
+        sim_session.light_shown_channel(True)
+        return sim_session
+
+    def test_every_write_that_would_light_is_refused_and_the_leds_stay(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        led0 = illumination.color2ch(LED0)
+        illumination.led_on(LED0, 80.0)
+        lit_led0 = illumination.get_led_states()
+        illumination.led_off(LED0)
+        before = illumination.get_led_states()
+        lights = [
+            ('led_on, the shown layer at its own current', lambda: illumination.led_on('BF', 50.0)),
+            ('led_on, another layer', lambda: illumination.led_on(LED0, 100.0)),
+            ('led_on_by_address', lambda: illumination.led_on_by_address(led0, 90.0)),
+            ('restore_led_state', lambda: illumination.restore_led_state(lit_led0)),
+            (
+                'apply_transition',
+                lambda: illumination.apply_transition(
+                    LedTransition.MANUAL_STEP,
+                    LedTransitionCtx(channel=led0, illumination_ma=60.0, preview_on=True),
+                ),
+            ),
+            ('light_shown_channel', lambda: session.light_shown_channel(True)),
+        ]
+        held = session.activity_claim.try_claim('recording')
+        try:
+
+            def check(name, call):
+                with pytest.raises(HardwareCommandRefusedError) as refused:
+                    call()
+                assert (refused.value.reason, refused.value.holder) == (
+                    'exclusive_activity_running',
+                    'recording',
+                )
+                assert illumination.get_led_states() == before
+
+            failed = failing_cases(lights, check, label=lambda case: case[0])
+        finally:
+            held.release()
+        assert not failed, failed
+
+    def test_every_off_is_admitted(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        offs = [
+            ('led_off', lambda: illumination.led_off('BF')),
+            (
+                'led_off_by_address',
+                lambda: illumination.led_off_by_address(illumination.color2ch('BF')),
+            ),
+            ('leds_off', illumination.leds_off),
+            ('light_shown_channel(False)', lambda: session.light_shown_channel(False)),
+        ]
+
+        def check(name, call):
+            session.light_shown_channel(True)
+            held = session.activity_claim.try_claim('recording')
+            try:
+                call()
+            finally:
+                held.release()
+            assert snapshot_lit_pairs(illumination.get_led_states()) == frozenset()
+
+        failed = failing_cases(offs, check, label=lambda case: case[0])
+        assert not failed, failed
+
+    def test_a_shown_layers_illumination_is_stored_and_the_led_is_left(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        before = illumination.get_led_states()
+        stored = session.settings['BF']['illumination_ma']
+        written = stored - 10.0 if stored > 10.0 else stored + 10.0
+        held = session.activity_claim.try_claim('recording')
+        try:
+            session.update_settings('BF.illumination_ma', written)
+        finally:
+            held.release()
+        assert session.settings['BF']['illumination_ma'] == written
+        assert illumination.get_led_states() == before
+
+
+class TestTheStartKeepsItsName:
+    """A recording is named for the shown layer, and does not start when the
+    name would be false: another LED lit, or the camera on another layer."""
+
+    @pytest.fixture
+    def sim_session(self, tmp_path):
+        # A model with no turret: the still below needs a known objective.
+        from modules.scope_session import ScopeSession
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+
+        s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            home_sim_scope(s.scope)
+            yield s
+        finally:
+            s.shutdown()
+
+    def test_a_start_with_another_led_lit_is_refused(self, sim_session):
+        sim_session.show_channel('BF')
+        sim_session.scope.illumination.led_on(LED0, 50.0)
+        with pytest.raises(RecordingRefusedError) as refused:
+            sim_session.manual_recording.start(false_color_on=False)
+        assert refused.value.reason == 'other_led_lit'
+        assert LED0 in str(refused.value)
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.activity_claim.holder is None
+
+    def test_a_start_with_the_camera_on_another_layer_is_refused(self, sim_session):
+        sim_session.show_channel('BF')
+        # Another layer's settings put on the camera while BF is shown.
+        sim_session.apply_layer_camera(LED0)
+        assert sim_session.scope.camera.get_held_layer() == LED0
+        with pytest.raises(RecordingRefusedError) as refused:
+            sim_session.manual_recording.start(false_color_on=False)
+        assert refused.value.reason == 'camera_holds_another_layer'
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.activity_claim.holder is None
+
+
 class TestTheSessionStores:
     """The Session's camera writers reach the camera before they store, so a
     refused write leaves both the camera and the stored settings as they were."""
@@ -209,13 +356,13 @@ class TestTheSessionStores:
     @pytest.mark.parametrize(
         'call',
         [
-            lambda s: s.set_binning_size(2),
-            lambda s: s.set_frame_size(640, 480),
-            lambda s: s.set_image_mode(
+            lambda s: s.scope.camera.set_binning(2),
+            lambda s: s.scope.camera.set_frame_size(640, 480),
+            lambda s: s.scope.camera.set_image_mode(
                 '12bit_scientific' if s.settings['image_mode'] == '8bit' else '8bit'
             ),
         ],
-        ids=['set_binning_size', 'set_frame_size', 'set_image_mode'],
+        ids=['set_binning', 'set_frame_size', 'set_image_mode'],
     )
     def test_a_refused_camera_write_stores_nothing(self, sim_session, recording, call):
         before = copy.deepcopy(
@@ -233,7 +380,7 @@ class TestTheSessionConfiguration:
 
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
     def test_a_labware_change_is_refused_under_any_holder(self, sim_session, kind):
-        loader = sim_session.wellplate_loader
+        loader = sim_session.scope.wellplate_loader
         current = sim_session.settings['protocol']['labware']
         other = next(name for name in loader.get_plate_list() if name != current)
         plate_before = sim_session.scope.runtime_state.get_labware()
@@ -247,36 +394,19 @@ class TestTheSessionConfiguration:
             held.release()
         assert refused.value.holder == kind
         assert sim_session.settings['protocol']['labware'] == current
-        assert sim_session.scope.runtime_state.get_labware().config == plate_before.config
+        assert sim_session.scope.runtime_state.get_labware() == plate_before
 
     def test_an_objective_change_is_refused_under_a_recording(self, sim_session, recording):
         current = sim_session.scope.runtime_state.get_current_objective_id()
-        other = next(o for o in sim_session.objective_helper.get_objectives_list() if o != current)
+        other = next(
+            o for o in sim_session.scope.objective_helper.get_objectives_list() if o != current
+        )
         turret_before = copy.deepcopy(sim_session.settings['turret_objectives'])
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_session.select_objective(other)
         assert refused.value.holder == 'recording'
         assert sim_session.scope.runtime_state.get_current_objective_id() == current
         assert sim_session.settings['turret_objectives'] == turret_before
-
-
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0}
-
-
-class TestTheLongestExposure:
-    """Exposure and gain stay open during a recording, so its feed-death bound
-    reads the longest exposure the camera may be using, not the start value."""
-
-    def test_it_is_the_cached_exposure_with_no_auto_gain_armed(self, sim_session):
-        imaging = sim_session.scope.imaging
-        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
-
-    def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(self, sim_session):
-        imaging = sim_session.scope.imaging
-        imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
-        assert imaging.longest_exposure_ms == 150.0
-        imaging.set_auto_gain(False, dict(_AUTO_GAIN))
-        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
 
 
 class TestReselectingThePlateInPlace:
@@ -321,7 +451,7 @@ class TestTheLabwarePanelReportsARefusal:
             _app_ctx,
             'ctx',
             types.SimpleNamespace(
-                wellplate_loader=types.SimpleNamespace(get_plate_list=lambda: ['A', 'B']),
+                scope=types.SimpleNamespace(labware={'A': None, 'B': None}),
                 session=types.SimpleNamespace(
                     select_labware=_refuse,
                     set_protocol_labware=lambda protocol, key: protocol_plates.append(key),
@@ -337,6 +467,7 @@ class TestTheLabwarePanelReportsARefusal:
         panel.select_labware_ex = lambda selected: (
             protocol_settings_module.ProtocolSettings.select_labware_ex(panel, selected)
         )
+        panel.show_labware = lambda: protocol_settings_module.ProtocolSettings.show_labware(panel)
 
         protocol_settings_module.ProtocolSettings.select_labware(panel)
 

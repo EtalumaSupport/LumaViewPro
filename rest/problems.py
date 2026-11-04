@@ -12,31 +12,33 @@ argument, so a client corrects its request without reading the words.
 A member's outcome is read as every host reads it
 (``notification_center.outcome_of``), so a wire client is refused in the
 words and with the reason a Python caller is. A refusal or quiet outcome is
-422 when the request as sent cannot succeed on this scope and 409 when the
-scope's state refused it, as its type declares (``RefusalCause``), so a
-client retries only a 409; one that declares no cause (a by-contract
+409 when the same request can succeed later, 422 when the request must
+change, and 503 with no ``Retry-After`` when this server cannot do it again
+until the application restarts, as its type declares (``RefusalCause``), so
+a client retries only a 409; one that declares no cause (a by-contract
 cancel) is 409. A fault is 500.
 
 The server's own answers carry their own reasons, kind ``refusal``:
-``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
-``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
-for a member asked while the server closes, ``no_frame_yet`` 503 for a
-live view the camera has sent no frame to, and ``handle_shared`` 409 for
-an id every client shares.
+``ServerRefusedError``'s, each explained on that class, each sent with the
+status ``_SERVER_STATUS`` gives it rather than its cause's.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import datetime
-from typing import ClassVar
+import inspect
+import math
 
 from fastapi.responses import JSONResponse
 
-from modules import notification_center
-from modules.api_surface import fields_of
-from modules.exceptions import Refusal, RefusalCause
+from modules import notification_center, wall_time, wire_encoding
+from lib.lumascope_error import Fault, LumascopeError, defined_classes
+from modules.activity_claim import ActivityClaim
+from modules.api_surface import Admission, raises_of
+from modules.exceptions import RefusalCause, ServerRefusedError, UnfitArgument
 from modules.notification_center import OutcomeKind, outcome_of
+from modules.sequential_io_executor import SequentialIOExecutor
 from rest.routes import wire_form
 
 MEDIA_TYPE = 'application/problem+json'
@@ -64,26 +66,120 @@ OPENAPI_RESPONSES: dict[int | str, dict] = {
     for code, words in (
         (
             '4XX',
-            'Refused: 422 when the request cannot succeed on this scope, 409 when its state refused it or a stop ended it; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
+            "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.",
         ),
         (
             '5XX',
-            'A fault (500), or the server overloaded or closing (503, `Retry-After` when asking again may succeed).',
+            'A fault (500); or 503: with `Retry-After` when asking again later may succeed (the server overloaded, no frame yet), without it when this server cannot do it again until the application restarts (the scope disconnected, the motion monitor ended, the session or the server closing).',
         ),
     )
 }
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
+# The function each door is, whose ``Raises:`` states the door's refusals.
+DOORS: dict[Admission, object] = {
+    Admission.LANE_CALL: SequentialIOExecutor.call,
+    Admission.LANE_OVERRIDE: SequentialIOExecutor.call_overriding,
+    Admission.LANE_SUBMIT: SequentialIOExecutor.submit,
+    Admission.GUARDED_WRITE: ActivityClaim.enter_guarded_write,
+}
+
 # What each cause of a refusal, quiet outcome or raised notice answers: a
-# notice ends a request that nothing failed, as a stopped move does.
-_CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
+# notice ends a request that nothing failed, as a stopped move does. A
+# restart's 503 carries no Retry-After, since no wait makes it succeed.
+_CAUSE_STATUS = {
+    RefusalCause.STATE: 409,
+    RefusalCause.REQUEST: 422,
+    RefusalCause.RESTART: 503,
+    None: 409,
+}
 # What a fault answers.
 _FAULT_STATUS = 500
+# What each of the server's own refusals answers: its own status rather than
+# its cause's, since a server too busy says 503 and when to ask again where a
+# member's refusal for the scope's state says 409.
+_SERVER_STATUS = {
+    'not_found': 404,
+    'invalid_request': 422,
+    'method_not_allowed': 405,
+    'unsupported_media_type': 415,
+    'handle_shared': 422,
+    'overloaded': 503,
+    'server_closing': 503,
+    'no_frame_yet': 503,
+    'not_cancellable': 409,
+    'idempotency_key_reused': 422,
+    'client_not_allowed': 403,
+}
 
 
-def now() -> datetime.datetime:
-    """The local time with its offset, as answers and jobs are stamped."""
-    return datetime.datetime.now().astimezone()
+def outcome_classes() -> dict[str, type[LumascopeError]]:
+    """Every outcome class defined so far, by name: what a ``Raises:`` entry names.
+
+    Read when the server is built, once the API's modules are imported.
+
+    Raises:
+        TypeError: Two classes share a name, so an entry naming it is ambiguous.
+    """
+    found: dict[str, type[LumascopeError]] = {}
+    for cls in defined_classes():
+        if found.setdefault(cls.__name__, cls) is not cls:
+            raise TypeError(f'two outcome classes are named {cls.__name__}')
+    return found
+
+
+def declared(
+    doc: str,
+    classes: dict[str, type[LumascopeError]],
+    admitted_by: tuple[Admission, ...] = (),
+) -> dict[int, dict]:
+    """The responses a member's ``Raises:`` section and the doors it enters declare, for its route's description.
+
+    The entries are the member's own and those of each door in
+    ``admitted_by`` (``DOORS``). Each class an entry names is described
+    under the status each of its reasons answers -- a refusal's cause per
+    reason, a fault 500 -- with the reasons the entry quotes, or every
+    reason the class can carry when it quotes none. Each status carries
+    ``x-refusals``, class to reasons.
+
+    Raises:
+        KeyError: An entry names a class that is not an outcome class.
+    """
+    entries = raises_of(doc)
+    for door in admitted_by:
+        entries += raises_of(inspect.getdoc(DOORS[door]) or '')
+    by_status: dict[int, dict[str, list[str]]] = {}
+    for name, quoted in entries:
+        cls = classes[name]
+        for reason in quoted or _reasons_of(cls) or ('',):
+            said = by_status.setdefault(_status_of(cls, reason), {}).setdefault(name, [])
+            if reason and reason not in said:
+                said.append(reason)
+    return {
+        status: {
+            'description': '; '.join(
+                f'`{name}`' + (f': {", ".join(f"`{r}`" for r in reasons)}' if reasons else '')
+                for name, reasons in refusals.items()
+            ),
+            'content': {MEDIA_TYPE: {'schema': _SCHEMA}},
+            'x-refusals': refusals,
+        }
+        for status, refusals in sorted(by_status.items())
+    }
+
+
+def _reasons_of(cls: type) -> tuple[str, ...]:
+    """Every reason *cls* can carry: its ``causes``; none for an umbrella."""
+    return tuple(getattr(cls, 'causes', ()))
+
+
+def _status_of(cls: type, reason: str) -> int:
+    """What *cls* raised with *reason* answers, as ``refused_by_server`` or ``answered_by_member`` decides it."""
+    if issubclass(cls, ServerRefusedError):
+        return _SERVER_STATUS[reason]
+    if issubclass(cls, Fault):
+        return _FAULT_STATUS
+    return _CAUSE_STATUS[getattr(cls, 'causes', {}).get(reason)]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -105,7 +201,7 @@ class Answer:
     status: int
     body: object
     headers: dict[str, str] = dataclasses.field(default_factory=dict)
-    ended: datetime.datetime = dataclasses.field(default_factory=now)
+    ended: datetime.datetime = dataclasses.field(default_factory=wall_time.now)
 
     @property
     def is_problem(self) -> bool:
@@ -125,169 +221,98 @@ def result(value: object) -> Answer:
     return Answer(200, value)
 
 
-class ServerRefusedError(Refusal, Exception):
-    """A request the server itself answers: it never reached a member.
-
-    A refusal, answered with its own status rather than its cause's: a
-    server too busy says 503 and when to ask again, where a member's refusal
-    for the scope's state says 409.
-
-    Attributes:
-        status: The HTTP status.
-        reason: The machine-readable code.
-        title: The heading.
-        headers: Headers the answer carries, such as ``Retry-After``.
-        extra: Further members of the problem, such as ``errors``.
-    """
-
-    causes: ClassVar[dict[str, RefusalCause]] = {
-        'not_found': RefusalCause.REQUEST,
-        'invalid_request': RefusalCause.REQUEST,
-        'method_not_allowed': RefusalCause.REQUEST,
-        'unsupported_media_type': RefusalCause.REQUEST,
-        'handle_shared': RefusalCause.REQUEST,
-        'overloaded': RefusalCause.STATE,
-        'server_closing': RefusalCause.STATE,
-        'no_frame_yet': RefusalCause.STATE,
-        'job_running': RefusalCause.STATE,
-    }
-
-    def __init__(
-        self,
-        status: int,
-        reason: str,
-        title: str,
-        detail: str,
-        *,
-        headers: dict[str, str] | None = None,
-        extra: dict[str, object] | None = None,
-    ) -> None:
-        super().__init__(detail)
-        self.status = status
-        self.reason = self._declared(reason)
-        self.title = title
-        self.headers = headers or {}
-        self.extra = extra or {}
-
-
 def not_found(detail: str) -> ServerRefusedError:
     """A route, a handle or a job that is not there."""
-    return ServerRefusedError(404, 'not_found', 'Not Found', detail)
+    return ServerRefusedError('not_found', detail)
 
 
-def invalid_request(detail: str, **extra: object) -> ServerRefusedError:
+def invalid_request(
+    detail: str, errors: tuple[UnfitArgument, ...] | None = None
+) -> ServerRefusedError:
     """A request whose arguments do not fit the member."""
-    return ServerRefusedError(422, 'invalid_request', 'Invalid Request', detail, extra=extra)
+    return ServerRefusedError('invalid_request', detail, errors=errors)
 
 
 def method_not_allowed(detail: str) -> ServerRefusedError:
     """A route asked with a method it does not answer."""
-    return ServerRefusedError(405, 'method_not_allowed', 'Method Not Allowed', detail)
+    return ServerRefusedError('method_not_allowed', detail)
 
 
 def unsupported_media_type(detail: str) -> ServerRefusedError:
     """A body that is not JSON."""
-    return ServerRefusedError(415, 'unsupported_media_type', 'Unsupported Media Type', detail)
+    return ServerRefusedError('unsupported_media_type', detail)
 
 
-def overloaded(detail: str, retry_after_s: int) -> ServerRefusedError:
+def overloaded(detail: str, retry_after_s: float) -> ServerRefusedError:
     """More is held than the server keeps; asking again later may succeed."""
-    return ServerRefusedError(
-        503, 'overloaded', 'Overloaded', detail, headers={'Retry-After': str(retry_after_s)}
-    )
+    return ServerRefusedError('overloaded', detail, retry_after_s=retry_after_s)
 
 
 def server_closing() -> ServerRefusedError:
     """A member asked while the server closes: it will not be answered again."""
     return ServerRefusedError(
-        503,
         'server_closing',
-        'Server Closing',
         'The server is closing: it finishes what is under way, then exits.',
     )
 
 
-def no_frame_yet(retry_after_s: int) -> ServerRefusedError:
+def client_not_allowed(peer: str | None) -> ServerRefusedError:
+    """A client at an address the server's allowlist does not name."""
+    return ServerRefusedError(
+        'client_not_allowed',
+        f'This scope serves only the clients its rest_api.allowed_clients names, and {peer} '
+        'is not one of them. Add its address at the scope PC, with LumaViewPro closed.',
+    )
+
+
+def no_frame_yet(retry_after_s: float) -> ServerRefusedError:
     """A live view with no frame to show: the camera sent none in time; asking again later may succeed."""
     return ServerRefusedError(
-        503,
         'no_frame_yet',
-        'No Frame Yet',
         'The camera has sent no frame to show yet; it may not be streaming.',
-        headers={'Retry-After': str(retry_after_s)},
+        retry_after_s=retry_after_s,
     )
 
 
 def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
-    """The problem for a request the server answered itself."""
-    body = _problem(
-        type_=TYPE_PREFIX + refusal.reason,
-        title=refusal.title,
-        detail=str(refusal),
-        status=refusal.status,
-        request_id=request_id,
-        kind=OutcomeKind.REFUSAL,
-        reason=refusal.reason,
-        remedy=None,
-    )
-    return Answer(refusal.status, {**body, **refusal.extra}, dict(refusal.headers))
+    """The problem for a request the server answered itself.
+
+    Its wait, when it has one, is sent as ``Retry-After`` in whole seconds
+    (RFC 9110's form), rounded up so a client never asks before it.
+    """
+    status = _SERVER_STATUS[refusal.reason]
+    body = {
+        'type': TYPE_PREFIX + refusal.reason,
+        **wire_encoding.outcome_fields(refusal, wire_form),
+        'status': status,
+        'instance': f'urn:uuid:{request_id}',
+    }
+    headers = {}
+    if refusal.retry_after_s is not None:
+        headers['Retry-After'] = str(math.ceil(refusal.retry_after_s))
+    return Answer(status, body, headers)
 
 
 def answered_by_member(exception: Exception, request_id: str) -> Answer:
     """The problem for a member's outcome, reported once as every answered outcome is.
 
     Logged and shown to nobody: the problem is the answer, given to the
-    client that asked.
+    client that asked. The log line carries the request's id, the one the
+    problem's ``instance`` names, so a fault's developer words, which the
+    client is not sent, are found from the client's answer.
     """
     notification_center.notifications.report_outcome(
-        exception, solicited=True, category='REST', log_only=True
+        exception, solicited=True, category=f'REST {request_id}', log_only=True
     )
     outcome = outcome_of(exception)
     if outcome.kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET, OutcomeKind.NOTICE):
         status = _CAUSE_STATUS[outcome.cause]
     else:
         status = _FAULT_STATUS
-    body = _problem(
-        type_=TYPE_PREFIX + outcome.reason if outcome.reason else 'about:blank',
-        title=outcome.title or type(exception).__name__,
-        detail=outcome.words,
-        status=status,
-        request_id=request_id,
-        kind=outcome.kind,
-        reason=outcome.reason or None,
-        remedy=wire_form(outcome.remedy),
-    )
-    return Answer(status, {**_published(exception), **body})
-
-
-def _published(exception: Exception) -> dict[str, object]:
-    """Each field *exception*'s type publishes, in its wire form."""
-    found: dict[str, object] = {}
-    for klass in type(exception).__mro__:
-        for name in fields_of(klass):
-            if name not in found:
-                found[name] = wire_form(getattr(exception, name))
-    return found
-
-
-def _problem(
-    *,
-    type_: str,
-    title: str,
-    detail: str,
-    status: int,
-    request_id: str,
-    kind: OutcomeKind,
-    reason: str | None,
-    remedy: dict | None,
-) -> dict[str, object]:
-    return {
-        'type': type_,
-        'title': title,
-        'detail': detail,
+    body = {
+        'type': TYPE_PREFIX + outcome.reason if outcome.reason else 'about:blank',
+        **wire_encoding.outcome_fields(exception, wire_form),
         'status': status,
         'instance': f'urn:uuid:{request_id}',
-        'kind': kind.value,
-        'reason': reason,
-        'remedy': remedy,
     }
+    return Answer(status, body)

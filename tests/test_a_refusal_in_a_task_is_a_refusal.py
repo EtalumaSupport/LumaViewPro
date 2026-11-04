@@ -22,9 +22,9 @@ import logging
 
 import pytest
 
-import modules.sequential_io_executor as sio
 from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
 from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # Each case builds its refusal fresh, as a press does: an outcome is logged
@@ -44,13 +44,6 @@ REFUSALS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _executor_log(monkeypatch):
-    # The suite mocks lvp_logger, so the executor's own lines go nowhere;
-    # a real logger lets these tests read what it writes.
-    monkeypatch.setattr(sio, 'logger', logging.getLogger('LVP.test_executor'))
-
-
 def _move_absolute_impl(error):
     raise error
 
@@ -63,7 +56,7 @@ def _run_task(action, *args, protocol=False):
     """Run one fire-and-forget task through a real executor's worker path
     and epilogue. ``protocol`` is the worker's own mark for a task it took
     off the run's queue."""
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(action, args=args)
     task.set_name(executor.executor_name)
     lane = executor.protocol_queue if protocol else executor.queue
@@ -171,14 +164,15 @@ def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(
 def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(
     scope, monkeypatch, centre_posts
 ):
-    """The sim finding, end to end: a person's move on an axis that has not
-    homed reaches them as the same refusal every gesture gives."""
+    """The sim finding, end to end: a person's move on a scope that has not
+    homed reaches them as the same refusal every gesture gives, naming every
+    axis without a position, not only the one moved."""
     from ui import ui_helpers
 
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
 
     ui_helpers.submit_reported(
-        lambda: scope.motion.move_absolute('Y', 1000.0),
+        lambda: scope.motion.move_xy(y_um=1000.0),
         None,
         'MOVE_Y',
         lane=scope._io_executor,
@@ -186,4 +180,5 @@ def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(
     scope._io_executor.put(IOTask(action=lambda: None), return_future=True).result(timeout=5.0)
 
     assert [(n.severity, n.title) for n in centre_posts] == [(Severity.WARNING, 'Scope Not Homed')]
-    assert 'Y position is unknown' in centre_posts[0].message
+    assert centre_posts[0].reason == 'position_unknown'
+    assert centre_posts[0].message.startswith('The X, Y and Z positions are unknown.')

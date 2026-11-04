@@ -6,7 +6,7 @@ None a successful off returns, so an L2 ``led_on`` on a board-less scope
 answered as if it had lit. After ``disconnect()`` the state reads still
 said the last channel was lit, the capabilities took the null board's 0 mA
 as a real cap (a run was refused "Illumination must be 0-0 mA"), an LS560
-asked to light channel 2 lit Red, and a run whose LED board was pulled
+asked to light channel 2 lit LED 2, and a run whose LED board was pulled
 captured on, dark, to its end.
 
 Every LED command now asks for the LED controller on the io lane, and an
@@ -24,13 +24,18 @@ import logging
 import pytest
 
 from drivers.null_ledboard import NullLEDBoard
-from modules import common_utils
 from modules.exceptions import (
     ArgumentRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import (
+    LedReading,
+    LedState,
+    LedTransition,
+    LedTransitionCtx,
+    lit_other_than,
+)
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     EVERY_MODEL,
     _protocol,
@@ -38,8 +43,10 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _wait,
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
+from tests.scope_fakes import channel_reading, led_reading
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _spy_led_writes(monkeypatch, scope) -> list:
@@ -77,64 +84,99 @@ def _preview(lit: bool) -> LedTransitionCtx:
 # --- Board present: nothing changes but an LED the model lacks --------------------
 
 
+# parametrize-justified: each model brings up its own scope and LED board
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, caplog, model):
     illumination = make_session(model).scope.illumination
 
     commanded = illumination.led_on('BF', 10.0)
-    assert illumination.get_led_state('BF') == {'enabled': True, 'illumination_ma': commanded}
+    lit = channel_reading(illumination, 'BF')
+    assert (lit.name, lit.state, lit.illumination_ma) == ('BF', LedState.LIT, commanded)
     illumination.led_off('BF')
-    assert illumination.get_led_state('BF')['enabled'] is False
+    assert channel_reading(illumination, 'BF').state is LedState.DARK
     illumination.led_on('BF', 10.0)
     illumination.leds_off()
 
-    assert illumination.get_led_states()['BF']['enabled'] is False
+    assert {r.name: r for r in illumination.get_led_states()}['BF'].state is LedState.DARK
     assert _led_lines(caplog) == []
 
 
-@pytest.mark.parametrize(
-    ('led', 'part'), [(2, MissingPart.led(2)), ('Red', MissingPart.led('Red'))]
-)
+_LIGHTS = {
+    f'the name {LED2}': (lambda il: il.led_on(LED2, 10.0), MissingPart.led(LED2)),
+    'the address 2': (lambda il: il.led_on_by_address(2, 10.0), MissingPart.led_address(2)),
+}
+
+
+@pytest.mark.parametrize('led', _LIGHTS)
 def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
-    make_session, monkeypatch, led, part
+    make_session, monkeypatch, led
 ):
     scope = make_session('LS560').scope
     sent = _spy_led_writes(monkeypatch, scope)
+    light, part = _LIGHTS[led]
 
-    refusal = _refused(lambda: scope.illumination.led_on(led, 10.0))
+    refusal = _refused(lambda: light(scope.illumination))
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', part)
+    assert (refusal.reason, refusal.missing) == ('not_on_this_scope', part)
     assert sent == []
-    assert scope.illumination.get_led_state('Red')['enabled'] is False
+    assert led_reading(scope, 2) == LedReading(2, None, LedState.DARK, None)
 
 
-@pytest.mark.parametrize(('model', 'led'), [('LS560', 'Red'), ('LS560', 2), ('Lumi', 'Lumi')])
+def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
+    make_session, monkeypatch
+):
+    """A light refused on the LED lane names the member called, not the lane's ``led_on``."""
+    scope = make_session('LS560').scope
+    sent = _spy_led_writes(monkeypatch, scope)
+    snapshot = (LedReading(2, None, LedState.LIT, 10.0),)
+
+    refusal = _refused(lambda: scope.illumination.restore_led_state(snapshot))
+
+    assert (refusal.reason, refusal.member, refusal.missing) == (
+        'not_on_this_scope',
+        'restore_led_state',
+        MissingPart.led_address(2),
+    )
+    assert sent == []
+
+
+_OFFS = {
+    LED2: lambda il: il.led_off(LED2),
+    'address 2': lambda il: il.led_off_by_address(2),
+    'Lumi': lambda il: il.led_off('Lumi'),
+}
+
+
+@pytest.mark.parametrize(
+    ('model', 'led'), [('LS560', LED2), ('LS560', 'address 2'), ('Lumi', 'Lumi')]
+)
 def test_an_off_of_an_led_the_model_lacks_is_silent(make_session, monkeypatch, caplog, model, led):
     scope = make_session(model).scope
     sent = _spy_led_writes(monkeypatch, scope)
 
-    scope.illumination.led_off(led)
+    _OFFS[led](scope.illumination)
 
     assert sent == []
     assert _led_lines(caplog) == []
 
 
-def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(make_session):
-    """Neither is absent hardware: no scope has a Purple layer, and an FX2 board has no channel 5."""
+def test_a_name_that_is_no_layer_and_an_address_off_the_board_are_the_requests(make_session):
+    """Neither is absent hardware: no scope has a Purple layer, and an FX2 board has no address 5."""
     illumination = make_session('LS620').scope.illumination
 
     with pytest.raises(ArgumentRefusedError) as purple:
         illumination.led_on('Purple', 10.0)
     with pytest.raises(ArgumentRefusedError) as five:
-        illumination.led_on(5, 10.0)
+        illumination.led_on_by_address(5, 10.0)
 
-    assert purple.value.reason == 'layer_unknown'
-    assert (five.value.reason, five.value.offered) == ('led_channel_unknown', (0, 1, 2, 3))
+    assert purple.value.reason == 'channel_unknown'
+    assert (five.value.reason, five.value.offered) == ('led_address_unknown', (0, 1, 2, 3))
 
 
 # --- No LED board ----------------------------------------------------------------
 
 
+# parametrize-justified: each model brings up its own scope and LED board
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_without_its_board_a_light_is_refused_and_an_off_is_satisfied(
     make_session, monkeypatch, caplog, model
@@ -149,7 +191,7 @@ def test_without_its_board_a_light_is_refused_and_an_off_is_satisfied(
     ):
         refusal = _refused(light)
         assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.LED_CONTROLLER)
-        assert str(refusal) == 'The LED controller is not connected.'
+        assert str(refusal) == MissingPart.LED_CONTROLLER.sentence
     illumination.led_off('BF')
     illumination.leds_off()
     illumination.apply_transition(LedTransition.MANUAL_STEP, _preview(False))
@@ -161,17 +203,15 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     session = make_session('LS850')
     illumination = session.scope.illumination
     heard = []
-    illumination.add_led_listener(lambda color, enabled, ma: heard.append((color, enabled)))
+    illumination.add_led_listener(lambda address, name, state, ma: heard.append((name, state)))
     illumination.led_on('BF', 10.0)
 
     session.shutdown()
 
-    assert illumination.get_led_state('BF') is None
+    assert channel_reading(illumination, 'BF') is None
     assert illumination.get_led_states() is None
-    assert illumination.save_led_state('after') is None
-    assert illumination.state_ch2color(3) is None
-    assert ('BF', False) in heard
-    assert common_utils.resolve_channel_identity(illumination, 'Green') == 'Green'
+    assert ('BF', LedState.DARK) in heard
+    assert lit_other_than(illumination, LED1) == []
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
@@ -213,12 +253,13 @@ def test_a_scope_that_came_up_without_its_board_has_no_led_cap_or_channels(make_
         motion=scope._motion_driver,
         led=NullLEDBoard(),
         camera=None,
-        layer_identity=scope.layer_identity,
+        channel_identity=scope.channel_identity,
         scope_models=scope.scope_models,
+        timing_record=None,
     )
 
-    assert (caps.led_max_ma, caps.led_channels) == (None, None)
-    assert caps.led_colors == ('BF', 'Blue', 'Green', 'Red')
+    assert (caps.led_max_ma, caps.led_addresses) == (None, None)
+    assert caps.led_colors == ('BF', LED0, LED1, LED2)
 
 
 def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
@@ -230,18 +271,18 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
     monkeypatch.setattr(
         scope,
         'capabilities',
-        dataclasses.replace(scope.capabilities, led_max_ma=None, led_channels=None),
+        dataclasses.replace(scope.capabilities, led_max_ma=None, led_addresses=None),
     )
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as exc:
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=_protocol(),
             sequence_name='s',
             parent_dir=str(tmp_path),
         )
 
-    assert exc.value.reason == 'hardware_disconnected'
+    assert exc.value.reason == 'not_connected'
     assert str(exc.value).startswith('The LED controller is not connected.')
 
 
@@ -267,11 +308,11 @@ def test_go_to_step_without_the_board_moves_only_when_its_preview_is_dark(
 
 
 def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
-    make_session, monkeypatch, tmp_path
+    make_session, monkeypatch, tmp_path, caplog
 ):
     import modules.sequenced_capture_runner as runner_module
 
-    runner_log = capture_module_log(monkeypatch, runner_module)
+    caplog.set_level(logging.DEBUG)
     session = make_session('LS850')
     scope = session.scope
     driver = scope._led_driver
@@ -283,11 +324,11 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
         return result
 
     monkeypatch.setattr(driver, 'led_on', pulled_after_this)
-    first = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
-    second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': 'Blue', 'X': 12.0}
-    runner = session.create_protocol_runner()
+    first = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
+    second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': LED0, 'X': 12.0}
+    runner = session.protocol_runner()
 
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_build_real_protocol([first, second]),
         sequence_name='pulled',
         parent_dir=str(tmp_path),
@@ -296,5 +337,9 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
     assert _wait(run) == ('failed', 'hardware_disconnected')
     # The channel lit before the pull may still be lit on the board; the
     # cleanup says so rather than that it forced it dark.
-    cleanup = [m for m in messages(runner_log) if 'Cleanup: LED end-state undecided' in m]
+    cleanup = [
+        m
+        for m in messages(records_of(caplog, runner_module))
+        if 'Cleanup: LED end-state undecided' in m
+    ]
     assert cleanup and all('could be forced dark' in m for m in cleanup), cleanup

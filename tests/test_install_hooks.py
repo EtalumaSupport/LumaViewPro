@@ -14,6 +14,7 @@ inherits the session's real judge and pays for an LLM call.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -31,6 +32,7 @@ _CLEAN_ENV = {
 }
 
 _CLEAN = 'def read(path):\n    with open(path) as f:\n        return f.read()\n'
+_SGR = re.compile(r'\x1b\[[0-9;]*m')
 _CLEANER = 'def read(path):\n    with open(path) as f:\n        return f.read().strip()\n'
 _BANDAID = (
     'def read(path):\n'
@@ -50,7 +52,7 @@ def test_the_hook_carries_the_judge_stage_before_the_version_stamp():
     assert _HOOK_SCRIPT.index(_JUDGE_STAGE) < _HOOK_SCRIPT.index(
         'VERSION_FILE="$REPO_ROOT/version.txt"'
     )
-    assert _HOOK_SCRIPT.index('tests/guards') < _HOOK_SCRIPT.index(_JUDGE_STAGE), (
+    assert _HOOK_SCRIPT.index('ruff format --check') < _HOOK_SCRIPT.index(_JUDGE_STAGE), (
         'the paid judge runs after the free gates'
     )
 
@@ -63,8 +65,12 @@ def test_the_stage_pins_the_diff_it_reads():
         '--src-prefix=a/',
         '--dst-prefix=b/',
         '-U3',
+        '-W',
         '--no-ext-diff',
-        '--no-color',
+        '--color=always',
+        '--color-moved=blocks',
+        "color.diff.oldMoved='bold magenta'",
+        "color.diff.newMoved='bold cyan'",
     ):
         assert flag in _JUDGE_STAGE, (
             f'the stage must pin {flag}; a session git setting could change the diff otherwise'
@@ -113,7 +119,10 @@ class _Repo:
         return (self.root / 'version.txt').read_text()
 
     def judged_diff(self) -> str | None:
-        return self.log.read_text() if self.log.exists() else None
+        """What the stage was piped, as the stage reads it: the colour git adds
+        for move detection stripped (the stage reads it only to collapse moved
+        blocks; `judge_commit.py collapse_moves`)."""
+        return _SGR.sub('', self.log.read_text()) if self.log.exists() else None
 
 
 @pytest.fixture
@@ -156,6 +165,27 @@ def test_ih3_an_amend_with_a_staged_bandaid_is_refused(repo):
     repo.write('modules/x.py', _BANDAID)
     repo.ok('add', 'modules/x.py')
     assert repo.git('commit', '-q', '--amend', '--no-edit').returncode != 0
+
+
+def test_ih3b_an_amend_is_judged_as_the_commit_it_produces(repo):
+    """An amend replaces HEAD, so the judge reads the index against HEAD's
+    parent, the amended commit's whole change, never the amend's own delta.
+
+    Here the commit being amended carried a band-aid and the amend takes it
+    out: the whole change (seed to the clean read) has no band-aid and
+    lands, while the delta alone (band-aid to clean) still names the
+    swallowed ValueError on its removed lines. A delta read that way called
+    a kept refusal a deleted guard (triage, 2026-10-14, LVP 5a52ed38).
+    """
+    repo.write('modules/x.py', _BANDAID)
+    repo.ok('commit', '-q', '-m', 'carries a band-aid', '--', 'modules/x.py', judged=False)
+    repo.write('modules/x.py', _CLEANER)
+    repo.ok('add', 'modules/x.py')
+    r = repo.git('commit', '-q', '--amend', '--no-edit')
+    assert r.returncode == 0, r.stderr
+    judged = repo.judged_diff() or ''
+    assert 'except ValueError' not in judged
+    assert '+        return f.read().strip()' in judged
 
 
 def test_ih4_a_pathspec_commit_beside_a_peers_staged_bandaid_lands_and_the_judge_saw_only_its_file(

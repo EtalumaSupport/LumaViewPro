@@ -17,44 +17,43 @@ Covered here:
    merge can read it back, else coerced with the override logged.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-from modules.image_mode import (
-    OUTPUT_FORMAT_HYPERSTACK,
-    OUTPUT_FORMAT_JPG,
-    OUTPUT_FORMAT_OME_TIFF,
-    OUTPUT_FORMAT_TIFF,
-)
+from modules.image_mode import OutputFormat
 
 import modules.config_helpers as config_helpers
+from modules.layer_record import release_catalogue
 from tests.settings_fixtures import complete_settings
+from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1, LED2
 
 # The plate position a composite starts from; every channel step shares
 # it, so only the name and the deferred z carry meaning here.
-_POSITION = {'x': 1234.5, 'y': 678.9, 'z': 4321.0}
+_POSITION = PlateLocation(x_mm=1234.5, y_mm=678.9, z_um=4321.0)
 
-_ALL_LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
+_ALL_LAYERS = release_catalogue()
 
 
 def _layer(acquire=None, focus=0.0):
+    # No current, gain or exposure: each layer takes its shipped light from
+    # the template, as a scope would, so BF is not lit ten times past it.
     return {
         'acquire': acquire,
         'video_config': {},
         'stim_config': {'enabled': False},
         'autofocus': False,
         'false_color': True,
-        'illumination_ma': 50.0,
-        'gain_db': 2.0,
         'auto_gain': False,
-        'exposure_ms': 10.0,
         'sum': 1,
         'focus': focus,
     }
 
 
-def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=None):
+def _settings(acquiring=(), sequenced_format=OutputFormat.TIFF, focus_by_layer=None):
     """A prepared settings store with *acquiring* layers set to capture images."""
     focus_by_layer = focus_by_layer or {}
     settings = {
@@ -71,13 +70,12 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
             'frame': {'width': 800, 'height': 600},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'motion': {'acceleration_max_pct': 100},
-            'image_output_format': {'live': OUTPUT_FORMAT_TIFF, 'sequenced': sequenced_format},
+            'image_output_format': {'live': OutputFormat.TIFF, 'sequenced': sequenced_format},
             'live_folder': '.',
             'protocol': {
                 'labware': '96 well microplate',
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },
@@ -89,7 +87,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
 
 def _objective_helper():
     helper = MagicMock()
-    helper.get_objective_info.return_value = {'magnification': 10}
+    helper.get_objective_info.return_value = objective(magnification=10)
     return helper
 
 
@@ -97,7 +95,7 @@ def _assemble(settings):
     return config_helpers.get_composite_capture_config_from_settings(
         settings,
         _objective_helper(),
-        position=dict(_POSITION),
+        position=_POSITION,
     )
 
 
@@ -115,16 +113,16 @@ def _warnings_and_errors(centre_posts):
 
 class TestCompositeConfigShape:
     def test_one_step_per_acquiring_channel(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue', 'Green')))
-        assert set(config['layer_configs']) == {'BF', 'Blue', 'Green'}
+        config = _assemble(_settings(acquiring=('BF', LED0, LED1)))
+        assert set(config['layer_configs']) == {'BF', LED0, LED1}
 
     def test_non_acquiring_channels_are_excluded(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
-        assert 'Red' not in config['layer_configs']
+        config = _assemble(_settings(acquiring=('BF', LED0)))
+        assert LED2 not in config['layer_configs']
         assert 'Lumi' not in config['layer_configs']
 
     def test_single_position_named_composite(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', LED0)))
         assert len(config['positions']) == 1
         assert config['positions'][0]['name'] == 'Composite'
 
@@ -134,39 +132,39 @@ class TestCompositeConfigShape:
         # Protocol.from_config resolve z per layer.
         config = _assemble(
             _settings(
-                acquiring=('BF', 'Blue'),
-                focus_by_layer={'BF': 1000.0, 'Blue': 2000.0},
+                acquiring=('BF', LED0),
+                focus_by_layer={'BF': 1000.0, LED0: 2000.0},
             )
         )
         assert config['positions'][0]['z'] is None
 
     def test_position_keeps_the_stages_xy(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
-        assert config['positions'][0]['x'] == _POSITION['x']
-        assert config['positions'][0]['y'] == _POSITION['y']
+        config = _assemble(_settings(acquiring=('BF', LED0)))
+        assert config['positions'][0]['x'] == _POSITION.x_mm
+        assert config['positions'][0]['y'] == _POSITION.y_mm
 
     def test_each_channel_carries_its_own_focus(self):
         config = _assemble(
             _settings(
-                acquiring=('BF', 'Blue'),
-                focus_by_layer={'BF': 1000.0, 'Blue': 2000.0},
+                acquiring=('BF', LED0),
+                focus_by_layer={'BF': 1000.0, LED0: 2000.0},
             )
         )
         assert config['layer_configs']['BF']['focus'] == 1000.0
-        assert config['layer_configs']['Blue']['focus'] == 2000.0
+        assert config['layer_configs'][LED0]['focus'] == 2000.0
 
     def test_no_zstacking_and_no_tiling(self):
         # A composite is one frame per channel at one point: z-stacking or
         # a tiling mosaic would multiply the steps and leave the merge
         # grouping several frames per channel.
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', LED0)))
         assert config['use_zstacking'] is False
         assert config['zstack_params'] == {}
         assert config['tiling'] == '1x1'
         assert config['tiling_overlap_percent'] == 0.0
 
     def test_is_a_single_shot_run(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', LED0)))
         assert config['period'] is None
         assert config['duration'] is None
 
@@ -174,14 +172,14 @@ class TestCompositeConfigShape:
         # Protocol.from_config stamps this one value onto every step, so a
         # populated dict here would fire stim hardware at the sample during
         # what is only a multi-channel image capture.
-        settings = _settings(acquiring=('BF', 'Blue'))
-        settings['Blue']['stim_config'] = {'enabled': True, 'duration_ms': 500}
+        settings = _settings(acquiring=('BF', LED0))
+        settings[LED0]['stim_config'] = {'enabled': True, 'duration_ms': 500}
         assert _assemble(settings)['stim_config'] == {}
 
     def test_routes_through_the_canonical_builder_key_set(self):
         from tests.test_sequenced_capture_config_builder import _CANONICAL_KEYS
 
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', LED0)))
         assert set(config) >= _CANONICAL_KEYS
 
 
@@ -192,17 +190,17 @@ class TestCompositeConfigShape:
 
 class TestOneTransmittedWins:
     def test_only_the_first_acquiring_transmitted_channel_is_kept(self):
-        config = _assemble(_settings(acquiring=('BF', 'PC', 'DF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', 'PC', 'DF', LED0)))
         transmitted = {'BF', 'PC', 'DF'} & set(config['layer_configs'])
         assert transmitted == {'BF'}
 
     def test_a_later_transmitted_channel_wins_when_it_is_the_only_one(self):
-        config = _assemble(_settings(acquiring=('DF', 'Blue')))
+        config = _assemble(_settings(acquiring=('DF', LED0)))
         assert 'DF' in config['layer_configs']
 
     def test_every_fluorescence_channel_survives(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue', 'Green', 'Red')))
-        assert {'Blue', 'Green', 'Red'} <= set(config['layer_configs'])
+        config = _assemble(_settings(acquiring=('BF', LED0, LED1, LED2)))
+        assert {LED0, LED1, LED2} <= set(config['layer_configs'])
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +219,7 @@ class TestTwoChannelFloor:
 
     @pytest.mark.parametrize(
         ('acquiring', 'expected'),
-        [((), 0), (('BF',), 1), (('Blue',), 1), (('BF', 'PC'), 1)],
+        [((), 0), (('BF',), 1), ((LED0,), 1), (('BF', 'PC'), 1)],
         ids=['none', 'one_transmitted', 'one_fluorescence', 'two_transmitted_collapse_to_one'],
     )
     def test_fewer_than_two_channels_is_assembled_without_refusing(
@@ -232,7 +230,7 @@ class TestTwoChannelFloor:
         assert _warnings_and_errors(centre_posts) == [], 'assembly refuses nothing and tells no one'
 
     def test_two_channels_is_enough(self):
-        config = _assemble(_settings(acquiring=('BF', 'Blue')))
+        config = _assemble(_settings(acquiring=('BF', LED0)))
         assert len(config['layer_configs']) == 2
 
 
@@ -244,62 +242,55 @@ class TestTwoChannelFloor:
 class TestCompositeOutputFormat:
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_TIFF, OUTPUT_FORMAT_OME_TIFF],
+        [OutputFormat.TIFF, OutputFormat.OME_TIFF],
         ids=['tiff', 'ome_tiff'],
     )
     def test_a_mergeable_preference_passes_through_untouched(self, user_format):
         config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', 'Blue'), sequenced_format=user_format)
+            _settings(acquiring=('BF', LED0), sequenced_format=user_format)
         )
         assert config.output_format_sequenced == user_format
 
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_HYPERSTACK],
+        [OutputFormat.JPG, OutputFormat.HYPERSTACK],
         ids=['jpg', 'hyperstack'],
     )
     def test_a_format_the_merge_cannot_read_is_coerced(self, user_format):
         config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', 'Blue'), sequenced_format=user_format)
+            _settings(acquiring=('BF', LED0), sequenced_format=user_format)
         )
-        assert config.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
+        assert config.output_format_sequenced == OutputFormat.OME_TIFF
 
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_HYPERSTACK],
+        [OutputFormat.JPG, OutputFormat.HYPERSTACK],
         ids=['jpg', 'hyperstack'],
     )
     def test_the_coercion_is_logged(self, user_format, caplog):
         # The user picked a format and silently got another one; the run
         # record is where they find out why their composite is not JPG.
-        import lvp_logger
-
-        logged = []
-        original = lvp_logger.logger.info
-        lvp_logger.logger.info = lambda msg, *a, **kw: logged.append(str(msg))
-        try:
+        with caplog.at_level(logging.INFO):
             config_helpers.get_composite_image_capture_config_from_settings(
-                _settings(acquiring=('BF', 'Blue'), sequenced_format=user_format)
+                _settings(acquiring=('BF', LED0), sequenced_format=user_format)
             )
-        finally:
-            lvp_logger.logger.info = original
-        assert any(user_format in line for line in logged), (
-            f'the format override must name the rejected preference; got {logged}'
+        assert any(user_format in line for line in caplog.messages), (
+            f'the format override must name the rejected preference; got {caplog.messages}'
         )
 
     def test_the_hyperstack_build_gate_stays_shut(self):
         # The coercion is also what keeps a composite run from entering the
         # per-well stack build, which has no 2D frame for the merge to read.
         config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', 'Blue'), sequenced_format=OUTPUT_FORMAT_HYPERSTACK)
+            _settings(acquiring=('BF', LED0), sequenced_format=OutputFormat.HYPERSTACK)
         )
-        assert config.output_format_sequenced != OUTPUT_FORMAT_HYPERSTACK
+        assert config.output_format_sequenced != OutputFormat.HYPERSTACK
 
     def test_the_composite_captures_eight_bit(self):
         # build_composite downconverts to 8-bit, so a 12-bit capture would
         # cost acquisition time for depth the merged artifact discards.
         config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', 'Blue'))
+            _settings(acquiring=('BF', LED0))
         )
         assert config.image_mode == '8bit'
         assert config.capture_depth == 8

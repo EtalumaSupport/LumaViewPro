@@ -21,12 +21,67 @@ import pytest
 from modules.scheduler import (
     Scheduler,
     ThreadingTimerScheduler,
-    _CallablePairScheduler,
 )
 
 
 class TestThreadingTimerScheduler:
     """Behavioral contract for the production REST scheduler."""
+
+    def test_schedule_once_fires_once_on_the_schedulers_thread(self):
+        sched = ThreadingTimerScheduler()
+        fired_on = []
+        fired = threading.Event()
+
+        def _cb():
+            fired_on.append(threading.current_thread())
+            fired.set()
+
+        try:
+            sched.schedule_once(_cb, 0.01)
+            assert fired.wait(timeout=2.0), 'the one-shot never fired'
+            # Twenty of its delays: a timer that re-armed would have fired again.
+            time.sleep(0.2)
+        finally:
+            sched.shutdown()
+        assert len(fired_on) == 1
+        assert fired_on[0] is not threading.current_thread()
+
+    def test_a_raising_one_shot_is_reported_once(self):
+        reported = []
+        seen = threading.Event()
+
+        def _cb():
+            raise RuntimeError('the first sample failed')
+
+        def _on_error(error):
+            reported.append(error)
+            seen.set()
+
+        sched = ThreadingTimerScheduler(on_callback_error=_on_error)
+        try:
+            sched.schedule_once(_cb, 0.01)
+            assert seen.wait(timeout=2.0), 'the failure was never reported'
+            # Twenty of its delays: a timer that re-armed would have failed again.
+            time.sleep(0.2)
+        finally:
+            sched.shutdown()
+        assert [str(e) for e in reported] == ['the first sample failed']
+
+    def test_an_unscheduled_one_shot_never_fires(self):
+        sched = ThreadingTimerScheduler()
+        fired = threading.Event()
+        try:
+            handle = sched.schedule_once(fired.set, 0.2)
+            sched.unschedule(handle)
+            assert not fired.wait(timeout=0.4)
+        finally:
+            sched.shutdown()
+
+    def test_schedule_once_after_shutdown_is_refused(self):
+        sched = ThreadingTimerScheduler()
+        sched.shutdown()
+        with pytest.raises(RuntimeError, match='shutdown'):
+            sched.schedule_once(lambda: None, 0.0)
 
     def test_schedule_interval_fires_callback(self):
         sched = ThreadingTimerScheduler()
@@ -158,33 +213,6 @@ class TestThreadingTimerScheduler:
             sched.shutdown()
 
 
-class TestCallablePairScheduler:
-    """Backwards-compat adapter for the legacy two-callable form."""
-
-    def test_wraps_and_invokes(self):
-        scheduled = []
-        unscheduled = []
-
-        def _sched(cb, interval):
-            scheduled.append((cb, interval))
-            return ('handle', len(scheduled))
-
-        def _unsched(handle):
-            unscheduled.append(handle)
-
-        pair = _CallablePairScheduler(_sched, _unsched)
-        h = pair.schedule_interval(lambda: None, 1.5)
-        assert len(scheduled) == 1
-        assert scheduled[0][1] == 1.5
-        pair.unschedule(h)
-        assert unscheduled == [h]
-        pair.shutdown()
-
-    def test_satisfies_scheduler_protocol(self):
-        pair = _CallablePairScheduler(lambda cb, i: None, lambda h: None)
-        assert isinstance(pair, Scheduler)
-
-
 class TestACallbacksOwnTypeErrorIsItsOwn:
     """A scheduler calls a callback with no arguments, and nothing else.
 
@@ -217,18 +245,3 @@ class TestACallbacksOwnTypeErrorIsItsOwn:
             sched.shutdown()
         assert str(reported[0]) == 'the real failure'
         assert len(calls) == len(reported)
-
-    def test_the_host_clock_scheduler_raises_it_after_one_call(self):
-        scheduled = []
-        calls = []
-
-        def _cb():
-            calls.append(None)
-            raise TypeError('the real failure')
-
-        pair = _CallablePairScheduler(lambda cb, _s: scheduled.append(cb), lambda _h: None)
-        pair.schedule_interval(_cb, 1.0)
-        with pytest.raises(TypeError, match='the real failure'):
-            scheduled[0](1.0)
-        assert len(calls) == 1
-        pair.shutdown()

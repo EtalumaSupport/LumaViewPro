@@ -3,13 +3,15 @@
 
 The controller is the caller-shaped half of manual recording: settings
 snapshot, per-leg write edges (real production writes into tmp_path),
-typed start refusals, the rolling disk floor, the duration cap, and the
+typed start refusals, the rolling disk floor, the duration backstop, and the
 post-drain finish. The engine underneath is the real one; the camera is
 a stub delivering frames straight into the registered listener.
 """
 
+import copy
 import itertools
 import json
+import sys
 import threading
 from types import SimpleNamespace
 
@@ -18,16 +20,51 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
+import modules.stack_builder as stack_builder_module
+from modules.coord_transformations import PlatePosition
 from modules.exceptions import RecordingRefusedError
-from modules.layer_record import LayerIdentity, LayerRecord, release_catalogue
+from modules.image_utils import read_file_record
+from modules.layer_record import load_scope_models
+from modules.lumascope_api.illumination import LedReading, LedState
+from modules.lumascope_api.frame_record import ClockMapping
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+from modules.scope_capabilities import FrameSize
+from modules.video_cadence import stall_threshold_s
+from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
+from tests.camera_fakes import delivered_frame
 from modules.lumascope_api import AxisPosition, AxisState
+from modules.layer_record import release_colors
+from tests.frame_records import plate
+from tests.objective_records import objective
+from tests.post_processing_lane import a_post_processing_api
+from tests.stock_channels import LED0, LED1, LED2
 
 TICK_HZ = 1_000_000_000
+
+# The layers the stock models carry, read from the units' own rows: the
+# release lists keys (Ex550, Ex640) that no stock model has.
+_STOCK_LAYERS = tuple(
+    dict.fromkeys(
+        record.key_name for model in load_scope_models().values() for record in model.channels
+    )
+)
+
+
+# The test's own builds, a real lane per test (``_a_lane_of_builds``).
+_builds = None
+
+
+@pytest.fixture(autouse=True)
+def _a_lane_of_builds(monkeypatch):
+    # make_controller is called inside each test, so the lane is handed to it
+    # through the module, set and restored per test, and shut down after.
+    with a_post_processing_api() as api:
+        monkeypatch.setattr(sys.modules[__name__], '_builds', api)
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -39,23 +76,64 @@ def _healthy_disk(monkeypatch):
     )
 
 
-class _FakeImaging:
+class _FakeCamera:
     def __init__(self, exposure_ms=100.0, width=32, height=24):
-        self.active_cached = True
-        self.exposure_ms_cached = exposure_ms
-        self._frame_size = {'width': width, 'height': height}
-        self.listener = None
+        self.active = True
+        self.exposure_ms = exposure_ms
+        self._frame_size = FrameSize(width, height)
         # Read at recording start to resolve the frames' image scale.
-        self._binning_size = 1
+        self.binning = 1
 
     @property
     def longest_exposure_ms(self):
         # No auto-gain arm in this fake: the exposure in force is the cache.
-        return self.exposure_ms_cached
+        return self.exposure_ms
 
     @property
-    def frame_size_cached(self):
-        return dict(self._frame_size)
+    def frame_size(self):
+        return self._frame_size
+
+    def get_held_layer(self):
+        # Read as each recorded frame arrives; this fake holds no layer's
+        # settings.
+        return None
+
+    def refuse_camera_not_connected(self, member):
+        # a stand-in by design: this camera is always connected; a start with
+        # none is refused on the simulated scope
+        # (test_a_camera_command_with_no_camera_is_refused.py).
+        return None
+
+
+class _FakeImaging:
+    def __init__(self):
+        self.listener = None
+        # The camera's clock is the test's clock: ``feed_frames`` stamps a
+        # frame's tick as the clock's reading, so this mapping carries a tick
+        # to that reading. None is a camera without a latch.
+        self.mapping = ClockMapping(
+            host_ns=0, camera_ticks=0, tick_hz=TICK_HZ, uncertainty_ns=0, wall_ns=0
+        )
+
+    def map_camera_clock(self):
+        return self.mapping
+
+    @staticmethod
+    def steady_clock(clock):
+        """The host's steady clock this mapping is anchored on, read off the
+        test's clock: the steady clock at ``clock``'s reading maps through the
+        mapping to that same reading, so a start read through the mapping is
+        the clock's reading, as a frame's time is."""
+        return lambda: round(clock() * 1e9)
+
+    def changes_in_force(self, mapping=None, exclude_sources=()):
+        # This scope records no change, so a recording's wait before its
+        # first frame ends at once; the wait itself is pinned on the
+        # simulated scope (test_a_recording_keeps_no_frame_from_before_a_change.py).
+        return True
+
+    def changes_in_force_limit_s(self, exclude_sources=()):
+        return 3.0
 
     def add_frame_listener(self, cb, name=None):
         self.listener = cb
@@ -93,6 +171,10 @@ class _FakeMotion:
             out[ax] = AxisPosition(state, pos if known else None)
         return out
 
+    def turret_status(self):
+        # A scope with no turret.
+        return None
+
 
 class _FakeIllumination:
     """Commanded LED state, the shape get_led_states() returns.
@@ -105,17 +187,24 @@ class _FakeIllumination:
         self._board = board
         self._lit = lit
 
+    # One reading per board address, address order, each named by the
+    # layer the unit's identity gives it; the two trailing addresses are
+    # named by no layer, as on an EL-0940 board.
+    _NAMES = (LED0, LED1, LED2, 'BF', 'PC', 'DF', None, None)
+
     def get_led_states(self):
         if not self._board:
             return None
-        return {
-            color: {'enabled': color == self._lit, 'illumination_ma': None, 'owner': ''}
-            for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF')
-        }
+        return tuple(
+            LedReading(address, name, LedState.LIT, 100.0)
+            if name is not None and name == self._lit
+            else LedReading(address, name, LedState.DARK, None)
+            for address, name in enumerate(self._NAMES)
+        )
 
 
 class _FakeRuntimeState:
-    """The objective store the scale resolver reads at recording start.
+    """The objective and plate a recording reads at its start.
 
     Without an app context these tests resolve to no scale, which is the
     honest-degradation path; the attribute still has to exist because the
@@ -123,7 +212,10 @@ class _FakeRuntimeState:
     """
 
     def __init__(self, focal_length=9.0):
-        self._objective = {'focal_length': focal_length}
+        self._objective = objective(focal_length_mm=focal_length)
+
+    def get_labware(self):
+        return plate()
 
     def get_current_objective(self):
         return self._objective
@@ -131,31 +223,35 @@ class _FakeRuntimeState:
     def resolve_current_objective(self):
         return 'fake', self._objective
 
-    def stage_to_plate(self, sx, sy):
+    def stage_to_plate(self, x_um, y_um):
         # A stand-in transform, distinct from the identity so a stage number
         # recorded as a plate one shows.
-        return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
+        return PlatePosition(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5)
 
     def plate_transform(self):
         return self.stage_to_plate
 
 
 class _FakeScope:
-    def __init__(self, lit=None, board=True, **imaging_kwargs):
-        self.imaging = _FakeImaging(**imaging_kwargs)
+    def __init__(self, lit=None, board=True, **camera_kwargs):
+        self.camera = _FakeCamera(**camera_kwargs)
+        self.imaging = _FakeImaging()
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
-        # Every layer of the release: the recording's start asks the scope
-        # has the layer it is named for, and these tests name each.
-        self.layer_identity = LayerIdentity(
-            layers=tuple(
-                LayerRecord(i, name, name, (), None) for i, name in enumerate(release_catalogue())
-            ),
-            filterset='',
-            source='scopes',
-            model='LS850',
+        # What a frame's file reads of the scope that does not change while it
+        # waits to be written: the objective's catalogue entry, and the motor
+        # board's identity, which this scope does not report.
+        self.objective_helper = SimpleNamespace(
+            get_objective_info=lambda objective_id: self.runtime_state.get_current_objective()
         )
+        self.diagnostics = SimpleNamespace(
+            get_motor_info=lambda: SimpleNamespace(serial_number=None)
+        )
+        # Every layer a stock model carries: the recording's start asks the
+        # scope has the layer it is named for, and these tests name the
+        # LS850's layers and Lumi.
+        self.channel_identity = identity_with_layers(_STOCK_LAYERS, model='LS850')
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(
@@ -174,7 +270,7 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
         video_as_frames=video_as_frames,
         video={
             'max_fps': max_fps,
-            'max_duration_seconds': duration_s,
+            'max_duration_s': duration_s,
             'timestamp_overlay': True,
         },
     )
@@ -183,24 +279,50 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
     return settings
 
 
-def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kwargs):
+def make_controller(
+    tmp_path,
+    *,
+    scope=None,
+    clock=None,
+    elapsed_clock=None,
+    lit=None,
+    shown='BF',
+    claim=None,
+    post_processing=None,
+    settings=None,
+    **settings_kwargs,
+):
+    # A test outside this module hands its own lane: this module's is set
+    # only for its own tests.
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
+    store = settings if settings is not None else make_settings(tmp_path, **settings_kwargs)
     controller = ManualRecordingController(
         scope=scope,
-        settings=make_settings(tmp_path, **settings_kwargs),
-        activity_claim=ActivityClaim(),
+        # A private copy per call, as the session's get_settings_snapshot
+        # answers, so a test writing ``store`` writes the live settings.
+        settings_snapshot=lambda: copy.deepcopy(store),
+        shown_layer=lambda: shown,
+        activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
+        steady_clock=scope.imaging.steady_clock(clock),
+        elapsed_clock=elapsed_clock or clock,
+        channel_colors=release_colors,
+        post_processing=post_processing or _builds,
     )
     return controller, scope, clock
 
 
-def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
+def feed_frames(
+    scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None, stamped=True, start_id=0
+):
     """Deliver n frames through the registered listener at the given rate.
 
-    Ticks advance uniformly at the camera's own clock; the host float
-    timestamp optionally jitters around the same instants.
+    Ticks advance uniformly at the camera's own clock; the host arrival
+    timestamp optionally jitters around the same instants. Unstamped frames
+    come without their ``Timestamp`` chunk, as a Basler frame whose chunk
+    the driver could not read.
     """
     step = 1.0 / fps
     for i in range(n):
@@ -212,10 +334,12 @@ def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
             # -- the write lane's own disk-floor breach ends a recording
             # exactly this way, from a thread racing this loop.
             return
-        host_ts = clock() + (jitter[i % len(jitter)] if jitter else 0.0)
-        chunks = {'Timestamp': int(clock() * TICK_HZ), 'FrameID': i}
+        wall_ns = round((clock() + (jitter[i % len(jitter)] if jitter else 0.0)) * 1e9)
+        chunks = {'FrameID': start_id + i}
+        if stamped:
+            chunks['Timestamp'] = int(clock() * TICK_HZ)
         image = np.full((height, width), i % 256, dtype=np.uint8)
-        listener(image, host_ts, chunks)
+        listener(delivered_frame(image, chunks, seq=i + 1, wall_ns=wall_ns))
 
 
 def finish(controller, timeout=15.0):
@@ -226,16 +350,9 @@ def finish(controller, timeout=15.0):
 
 
 class TestStartRefusals:
-    def test_inactive_camera_refused(self, tmp_path):
-        controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.active_cached = False
-        with pytest.raises(RecordingRefusedError) as e:
-            controller.start()
-        assert e.value.reason == 'camera_inactive'
-
     def test_unknown_exposure_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.exposure_ms_cached = 0.0
+        scope.camera.exposure_ms = 0.0
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
@@ -251,9 +368,10 @@ class TestStartRefusals:
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.active_cached = False
-        with pytest.raises(RecordingRefusedError):
+        scope.camera.exposure_ms = 0.0
+        with pytest.raises(RecordingRefusedError) as e:
             controller.start()
+        assert e.value.reason == 'camera_exposure_unknown'
         assert scope.imaging.listener is None
         assert not controller.is_recording and not controller.is_draining
 
@@ -312,8 +430,8 @@ class TestRateLimit:
 
 class TestFramesLeg:
     def test_end_to_end_frames_and_manifest(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
         finish(controller)
@@ -327,13 +445,49 @@ class TestFramesLeg:
         manifest = json.loads((folders[0] / 'recording_manifest.json').read_text())
         assert manifest['frames_written'] == 5
         assert manifest['write_failures'] == 0
-        assert manifest['channel_color'] == 'Blue'
+        assert (manifest['channel'], manifest['false_color']) == (LED0, True)
         assert manifest['camera']['model'] == 'testcam-9000'
         assert manifest['camera']['serial'] == 'TC9K-001'
         assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
         assert manifest['provenance']['software']['lvp_version'] is not None
-        assert manifest['timestamp_grade'] == 'camera'
+        assert manifest['timestamp_grade'] == 'camera_frame_start'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])
+
+    def test_a_live_folder_moved_while_the_recording_starts_is_the_next_recordings(self, tmp_path):
+        # The settings a recording is made with are the ones of the moment its
+        # start was asked for: a live folder moved while it starts (here, as
+        # it reads the exposure) takes the next recording, not this one's
+        # frames.
+        store = make_settings(tmp_path)
+        moved_to = tmp_path / 'moved'
+        moved_to.mkdir()
+
+        class _CameraWhoseReadMovesTheFolder(_FakeCamera):
+            # a stand-in by design: a write landing inside start's own reads,
+            # a moment no simulated part can place a write at.
+            @property
+            def exposure_ms(self):
+                store['live_folder'] = str(moved_to)
+                return self._exposure_ms
+
+            @exposure_ms.setter
+            def exposure_ms(self, value):
+                self._exposure_ms = value
+
+        scope = _FakeScope()
+        scope.camera = _CameraWhoseReadMovesTheFolder()
+        controller, scope, clock = make_controller(tmp_path, scope=scope, settings=store)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert not list((moved_to / 'Manual').glob('Video_*')), (
+            'a folder moved during the start took part of the recording'
+        )
+        folders = list((tmp_path / 'Manual').glob('Video_*'))
+        assert len(folders) == 1
+        assert len(list(folders[0].glob('ManualVideo_Frame_*.tiff'))) == 3
 
     def test_two_recordings_in_one_second_get_their_own_folders(self, tmp_path):
         # The folder name comes from a one-second-resolution timestamp, and a
@@ -342,15 +496,15 @@ class TestFramesLeg:
         # join the first via mkdir(exist_ok=True): measured on the bench as 19
         # recordings landing in 6 folders, frame numbers restarting per
         # recording so a rebuild interleaved them into one scrambled video.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
 
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
 
         # Same wall-clock second: the derived name collides.
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 4, fps=10.0)
         controller.stop()
         finish(controller)
@@ -382,6 +536,26 @@ class TestFramesLeg:
         times = [entry['ts_s'] for entry in manifest['frame_index']]
         intervals = [b - a for a, b in itertools.pairwise(times)]
         assert all(dt == pytest.approx(0.1, abs=1e-6) for dt in intervals)
+
+    def test_a_camera_without_a_latch_states_each_frames_arrival(self, tmp_path):
+        jitter = [0.0, 0.03, -0.02]
+        controller, scope, clock = make_controller(tmp_path)
+        scope.imaging.mapping = None
+        controller.start()
+        start = clock()
+        feed_frames(scope, clock, 3, fps=10.0, jitter=jitter)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        manifest = json.loads((folder / 'recording_manifest.json').read_text())
+        assert manifest['timestamp_grade'] == 'host_arrival'
+        arrivals = [start + 0.1 * (i + 1) + jitter[i] for i in range(3)]
+        assert [entry['ts_s'] for entry in manifest['frame_index']] == pytest.approx(
+            arrivals, abs=1e-6
+        )
+        first = read_file_record(sorted(folder.glob('ManualVideo_Frame_*.tiff'))[0])
+        assert first['timestamp_source'] == 'host_arrival'
 
 
 class TestMp4Leg:
@@ -441,15 +615,20 @@ def _fail_the_finish_thread(monkeypatch):
     that exercises the unwind's listener removal. Keyed on the thread's
     production name: the engine's writer lane is constructed in the same
     window and must still start, or the claim could never be released.
+    The stand-in is a ``Thread`` subclass, not a function: the patch is the
+    process's one ``threading`` module, and a module first imported under
+    it evaluates ``threading.Thread | None``.
     """
     real_thread = threading.Thread
 
-    def _thread(*args, **kwargs):
-        if kwargs.get('name') == 'ManualRecordingFinish':
-            raise RuntimeError('scripted thread exhaustion')
-        return real_thread(*args, **kwargs)
+    # a stand-in by design: thread exhaustion is the host's, not the simulator's
+    class _FinishThreadCannotStart(real_thread):
+        def start(self):
+            if self.name == 'ManualRecordingFinish':
+                raise RuntimeError('scripted thread exhaustion')
+            super().start()
 
-    monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
+    monkeypatch.setattr(manual_recording_module.threading, 'Thread', _FinishThreadCannotStart)
 
 
 class TestFailedStartUnwind:
@@ -526,11 +705,13 @@ class TestFailedStartUnwind:
         # off the encoder init defers and the assertion would hold for a
         # reason that has nothing to do with the unwind.
         made = _capture_engine_and_writer(monkeypatch)
-        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False, lit='Blue')
+        controller, _scope, _clock = make_controller(
+            tmp_path, video_as_frames=False, lit=LED0, shown=LED0
+        )
         _fail_the_finish_thread(monkeypatch)
 
         with pytest.raises(RuntimeError):
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
 
         # The file existed: close() alone would flush and close it, and
         # leave it on disk for the next recording to rename around.
@@ -599,21 +780,23 @@ def _block_the_finish(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
+        def create_single_recording_stack(
+            self, df, path, output_file_loc, *, save_encoding, channel_colors
+        ):
             entered.set()
             release.wait(timeout=15)
             return {'status': True, 'error': None, 'metadata': {}}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _BlockingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _BlockingBuilder)
     return entered, release
 
 
 class TestExclusivitySpansTheFinish:
     def test_second_start_during_finish_is_refused(self, tmp_path, monkeypatch):
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
         try:
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
             controller.stop()
             assert entered.wait(timeout=10)
@@ -639,10 +822,10 @@ class TestExclusivitySpansTheFinish:
         # user about their FPS budget has already run half of start().
         entered, release = _block_the_finish(monkeypatch)
         controller, scope, clock = make_controller(
-            tmp_path, hyperstack=True, lit='Blue', max_fps=20
+            tmp_path, hyperstack=True, lit=LED0, shown=LED0, max_fps=20
         )
         try:
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
             controller.stop()
             assert entered.wait(timeout=10)
@@ -655,6 +838,96 @@ class TestExclusivitySpansTheFinish:
         finally:
             release.set()
         finish(controller)
+
+
+class TestARecordingIsAnOperation:
+    """A recording's start returns its Operation: done, with the recording's
+    end reason, only once a new recording may start; its stop stops that
+    recording and never one started after it."""
+
+    def test_its_operation_is_done_only_when_a_new_start_is_accepted(self, tmp_path, monkeypatch):
+        entered, release = _block_the_finish(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        try:
+            recording = controller.start(false_color_on=True)
+            feed_frames(scope, clock, 3, fps=10.0)
+            recording.stop()
+            assert entered.wait(timeout=10)
+
+            # Drained and its claim released, but still finishing: a new
+            # start is refused, so the recording is not done.
+            assert not recording.done()
+            with pytest.raises(RecordingRefusedError):
+                controller.start()
+        finally:
+            release.set()
+
+        assert recording.result(timeout=15).end_reason == 'user_stop'
+        following = controller.start()
+        following.stop()
+        assert following.result(timeout=15).end_reason == 'user_stop'
+
+    def test_its_stop_leaves_a_recording_started_before_it_is_done(self, tmp_path):
+        # A new recording may start from the finish's last announce, before
+        # the ended one's Operation is done: the ended one's stop is late
+        # there, and the new recording keeps recording.
+        held = []
+
+        def on_transition():
+            if len(held) == 1 and not controller.is_busy:
+                held.append(controller.start())
+                held[0].stop()
+
+        controller, scope, clock = make_controller(
+            tmp_path, claim=ActivityClaim(on_transition=on_transition)
+        )
+        held.append(controller.start())
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        held[0].result(timeout=15)
+
+        assert controller.is_recording
+        held[1].stop()
+        assert held[1].result(timeout=15).end_reason == 'user_stop'
+
+    def test_a_stop_while_its_end_is_announced_leaves_its_end_reason(self, tmp_path):
+        # The finish's last announce runs the claim's listener once a new
+        # recording may start and before the Operation is done: a stop asked
+        # there is late, and does not rewrite how the recording ended.
+        held = []
+
+        def on_transition():
+            if held and not controller.is_busy:
+                held[0].stop()
+
+        controller, scope, clock = make_controller(
+            tmp_path, duration_s=2, claim=ActivityClaim(on_transition=on_transition)
+        )
+        held.append(controller.start())
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
+        controller._scheduler.fire()
+
+        assert held[0].result(timeout=15).end_reason == 'duration_elapsed'
+        assert controller.end_reason == 'duration_elapsed'
+
+    def test_one_stopped_through_its_operation_says_so_when_its_finish_fails(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        # No result is produced, so the reason comes from the engine the
+        # operation stopped, not from a latch only the controller's stop sets.
+        def _explode(_self):
+            raise RuntimeError('scripted finalize failure')
+
+        monkeypatch.setattr(
+            manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
+        )
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        recording = controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        recording.stop()
+
+        assert recording.result(timeout=15).end_reason == 'user_stop'
+        assert controller.end_reason == 'user_stop'
 
 
 class TestFinishThreadResilience:
@@ -675,25 +948,94 @@ class TestFinishThreadResilience:
             manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
         )
 
-        completed = threading.Event()
-        controller.start(on_complete=completed.set)
+        recording = controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
-        finish(controller)
 
-        assert completed.is_set()
+        assert recording.result(timeout=15).end_reason == 'user_stop'
         assert made['writer'].close_calls == 1
         assert 'error' in recorder.severities()
         assert not controller.is_busy
 
 
-class TestDurationCap:
-    def test_tick_stops_at_max_duration(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+class TestTheStopIsTheUsers:
+    def test_a_callers_stop_ends_it_as_the_users_and_can_name_no_other_reason(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path)
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
+
+        with pytest.raises(TypeError):
+            controller.stop(reason='disk_floor')
         assert controller.is_recording
-        clock.advance(2.0)
+
+        controller.stop()
+        assert controller.end_reason == 'user_stop'
+        finish(controller)
+
+
+def _backstop_s(duration_s, max_fps=None, exposure_ms=100.0):
+    """How long the health check waits for a recording's own end: its duration and stall bound."""
+    return duration_s + stall_threshold_s(max_fps, exposure_ms / 1000.0)
+
+
+class TestDurationCap:
+    """A recording's content ends on its frames' clock; the cap is a backstop past it.
+
+    The engine ends a recording at its duration on the frames' clock. The
+    health check, on the steady clock, ends one whose frames never reach that
+    end, a stall bound past the duration, so it never races a frame on its way.
+    """
+
+    def test_its_frames_end_it_at_its_duration(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        controller.start()
+        feed_frames(scope, clock, 30, fps=10.0)
+        assert not controller.is_recording
+        assert controller.end_reason == 'duration_elapsed'
+        finish(controller)
+
+    def test_its_last_frame_on_its_way_at_the_duration_is_kept(self, tmp_path):
+        # 10 fps for 2 s is 20 frames; the 20th, due at 2.0 s, has not yet
+        # arrived when the health check first reads the duration as passed.
+        controller, scope, clock = make_controller(tmp_path, duration_s=2, max_fps=10)
+        controller.start()
+        feed_frames(scope, clock, 19, fps=10.0)
+        clock.advance(0.15)
+        controller._scheduler.fire()
+        assert controller.is_recording, 'the cap ended the recording before its last frame'
+        feed_frames(scope, clock, 1, fps=10.0, start_id=19)
+        finish(controller)
+        manifest = json.loads((controller.save_folder / 'recording_manifest.json').read_text())
+        assert (manifest['end_reason'], manifest['frames_written']) == ('frame_budget_filled', 20)
+
+    def test_a_feed_that_never_reaches_its_end_is_ended_at_the_backstop(
+        self, tmp_path, centre_posts
+    ):
+        # Unstamped frames are a live feed with no time on the frames' clock:
+        # only the backstop can end it.
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        started = clock()
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        while clock() - started < _backstop_s(2) - 0.5:
+            feed_frames(scope, clock, 5, fps=10.0, stamped=False)
+            controller._scheduler.fire()
+        assert controller.is_recording, 'the backstop fired before its bound'
+        clock.advance(1.0)
+        controller._scheduler.fire()
+        assert not controller.is_recording
+        assert controller.end_reason == 'duration_elapsed'
+        finish(controller)
+
+    def test_a_wall_clock_step_does_not_end_it(self, tmp_path):
+        elapsed = FakeClock()
+        controller, scope, wall = make_controller(tmp_path, duration_s=2, elapsed_clock=elapsed)
+        controller.start()
+        feed_frames(scope, wall, 3, fps=10.0)
+        wall.advance(3600.0)  # an NTP correction or a host resume
+        controller._scheduler.fire()
+        assert controller.is_recording
+        elapsed.advance(_backstop_s(2))
         controller._scheduler.fire()
         assert not controller.is_recording
         finish(controller)
@@ -706,16 +1048,16 @@ class TestLossIsNotified:
         controller, scope, clock = make_controller(tmp_path)
         recorder = NotifyRecorder(centre_posts)
 
-        real_write = manual_recording_module.image_save.write_video_frame
+        real_write = manual_recording_module.write_frame
         calls = {'n': 0}
 
-        def _flaky_write(**kwargs):
+        def _flaky_write(*args, **kwargs):
             calls['n'] += 1
             if calls['n'] == 2:
                 raise OSError('scripted write failure')
-            return real_write(**kwargs)
+            return real_write(*args, **kwargs)
 
-        monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _flaky_write)
+        monkeypatch.setattr(manual_recording_module, 'write_frame', _flaky_write)
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
@@ -737,7 +1079,7 @@ class TestLossIsNotified:
             def __init__(self, **kwargs):
                 raise RuntimeError('scripted hyperstack failure')
 
-        monkeypatch.setattr(manual_recording_module, 'StackBuilder', _ExplodingBuilder)
+        monkeypatch.setattr(stack_builder_module, 'StackBuilder', _ExplodingBuilder)
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
@@ -757,12 +1099,28 @@ def _capture_hyperstack_df(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
+        def create_single_recording_stack(
+            self, df, path, output_file_loc, *, save_encoding, channel_colors
+        ):
             captured['df'] = df
+            captured['thread'] = threading.current_thread().name
             return {'status': True, 'error': None, 'metadata': {}}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _CapturingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _CapturingBuilder)
     return captured
+
+
+def test_a_recordings_stack_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):
+    # The session's builds own the stack, on their lane, as a run's are: a
+    # recording's finish does not build on a thread of its own.
+    captured = _capture_hyperstack_df(monkeypatch)
+    controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+    controller.start(false_color_on=False)
+    feed_frames(scope, clock, 2, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    assert captured['thread'] == _builds.lane.executor_name
 
 
 class TestChannelIdentity:
@@ -777,38 +1135,28 @@ class TestChannelIdentity:
         # and the hyperstack never builds.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['Color']) == ['BF', 'BF', 'BF']
 
-    def test_lit_channel_wins_over_the_open_accordion(self, tmp_path, monkeypatch):
-        # A channel can be lit with a different accordion open -- the LED
-        # is the evidence of what was imaged, so it wins.
-        captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='BF', false_color_on=False)
-        feed_frames(scope, clock, 2, fps=10.0)
-        controller.stop()
-        finish(controller)
-
-        assert list(captured['df']['Color']) == ['Blue', 'Blue']
-
     def test_luminescence_records_with_zero_lit_channels(self, tmp_path, monkeypatch):
-        # Lumi is legitimately unlit; the open layer names it.
+        # Lumi is legitimately unlit; the shown channel names it.
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
-        controller.start(layer='Lumi', false_color_on=False)
+        controller, scope, clock = make_controller(
+            tmp_path, hyperstack=True, lit=None, shown='Lumi'
+        )
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['Color']) == ['Lumi', 'Lumi']
 
-    def test_startup_state_defaults_to_brightfield(self, tmp_path, monkeypatch):
-        # Nothing lit and no layer selected is LumaViewPro's startup state.
+    def test_startup_state_records_brightfield(self, tmp_path, monkeypatch):
+        # Nothing lit and Brightfield shown is a session's startup state.
         # It records as BF -- it is not refused and never writes a null.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
@@ -819,17 +1167,19 @@ class TestChannelIdentity:
 
         assert list(captured['df']['Color']) == ['BF', 'BF']
 
-    def test_no_led_board_falls_back_to_the_open_layer(self, tmp_path, monkeypatch):
-        # get_led_states() is None with no board, so the open layer stands.
+    def test_no_led_board_falls_back_to_the_shown_channel(self, tmp_path, monkeypatch):
+        # get_led_states() is None with no board, so the shown channel stands.
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
-        controller, scope, clock = make_controller(tmp_path, scope=scope, hyperstack=True)
-        controller.start(layer='Green', false_color_on=True)
+        controller, scope, clock = make_controller(
+            tmp_path, scope=scope, hyperstack=True, shown=LED1
+        )
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['Green', 'Green']
+        assert list(captured['df']['Color']) == [LED1, LED1]
 
     def test_brightfield_hyperstack_is_actually_written(self, tmp_path):
         # End to end with the REAL builder: the defect this fix exists for
@@ -837,7 +1187,7 @@ class TestChannelIdentity:
         # and every other test here substitutes the builder. Nothing else
         # exercises _create_stack on manual-shaped rows.
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
@@ -845,31 +1195,32 @@ class TestChannelIdentity:
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         assert (folder / MANUAL_HYPERSTACK_FILENAME).exists()
 
-    def test_toggle_off_keeps_manifest_channel_color_null(self, tmp_path):
-        # REGRESSION PIN. channel_color is a RENDERING field: video_builder
-        # reads it back to decide whether to colorize a rebuild. Writing
-        # identity here would false-color a recording saved mono.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+    def test_toggle_off_records_the_channel_shown_grey(self, tmp_path):
+        # REGRESSION PIN. false_color is a RENDERING field: video_builder
+        # reads it back to decide whether to colorize a rebuild, so a
+        # recording saved mono records that it was, beside its channel.
+        controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert manifest['channel_color'] is None
+        assert (manifest['channel'], manifest['false_color']) == (LED0, False)
+        assert 'channel_color' not in manifest
 
-    def test_toggle_on_still_carries_channel_color(self, tmp_path):
+    def test_toggle_on_records_the_channel_in_false_colour(self, tmp_path):
         # The other half of the pin: rendering on still records the color.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert manifest['channel_color'] == 'Blue'
+        assert (manifest['channel'], manifest['false_color']) == (LED0, True)
 
 
 class TestCloseWithProgress:
@@ -947,16 +1298,15 @@ class TestD15LiveSettingsBackDoor:
     live settings mid-recording."""
 
     def test_mid_recording_settings_mutation_is_harmless(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, max_fps=0, duration_s=60)
+        store = make_settings(tmp_path, max_fps=0, duration_s=60)
+        controller, scope, clock = make_controller(tmp_path, settings=store)
         controller.start()
         baked = controller._config
 
         # The back door: a protocol load rewrites the live video settings
         # (rate cap, duration, overlay) under the running recording.
-        controller._settings['video'].update(
-            {'max_fps': 1, 'max_duration_seconds': 1, 'timestamp_overlay': False}
-        )
-        controller._settings['video_as_frames'] = False
+        store['video'].update({'max_fps': 1, 'max_duration_s': 1, 'timestamp_overlay': False})
+        store['video_as_frames'] = False
 
         feed_frames(scope, clock, 5, fps=10.0)
         clock.advance(2.0)  # past the mutated 1 s duration, far under the baked 60 s
@@ -981,7 +1331,7 @@ class TestFeedLossDetection:
     """tick() ends a recording whose camera died -- by event or silently.
 
     The disconnect latch is the fast path; the stall watch catches the
-    feed that stops delivering while active_cached stays True. Either
+    feed that stops delivering while active stays True. Either
     way the user gets one loss notification and kept frames stay.
     """
 
@@ -1018,7 +1368,7 @@ class TestFeedLossDetection:
         # Started at 100 ms: the bound is the 5 s floor. Raised to 8 s, the
         # next frame is 8 s away; judged by the start exposure, the live
         # feed would be stopped as dead at 5 s.
-        scope.imaging.exposure_ms_cached = 8000.0
+        scope.camera.exposure_ms = 8000.0
         controller._scheduler.fire()
         clock.advance(7.5)
         controller._scheduler.fire()
@@ -1031,7 +1381,7 @@ class TestFeedLossDetection:
 
     def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, centre_posts):
         controller, scope, clock, _notify = self._recording_controller(tmp_path, centre_posts)
-        scope.imaging.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
+        scope.camera.exposure_ms = 800.0  # bound 10 x 0.8 s = 8 s
         controller._scheduler.fire()
         clock.advance(8.5)
         controller._scheduler.fire()
@@ -1039,11 +1389,47 @@ class TestFeedLossDetection:
         finish(controller)
         assert controller.end_reason == 'camera_stalled'
 
+    def test_frames_that_come_without_timestamps_are_a_live_feed(self, tmp_path, centre_posts):
+        controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
+        # Past the 5 s floor, frames keep coming, none stamped: the camera
+        # is delivering, so the recording runs on.
+        for i in range(4):
+            controller._scheduler.fire()
+            clock.advance(1.5)
+            feed_frames(scope, clock, 1, stamped=False, start_id=3 + i)
+        controller._scheduler.fire()
+        assert controller.is_recording, 'a camera sending unstamped frames was taken for dead'
+        controller.stop()
+        finish(controller)
+
+        manifest = json.loads(
+            next((controller.save_folder).glob('recording_manifest.json')).read_text()
+        )
+        assert (manifest['frames_written'], manifest['frames_unstamped']) == (3, 4)
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert [title for _, (_, title, _), _ in errors] == ['Video Frames Dropped']
+        assert '4 frame(s) came from the camera without their timestamps' in errors[0][1][2]
+
+    def test_a_recording_sent_only_unstamped_frames_says_so(self, tmp_path, centre_posts):
+        notify = NotifyRecorder(centre_posts)
+        controller, scope, clock = make_controller(tmp_path)
+        controller.start()
+        for _ in range(4):
+            controller._scheduler.fire()
+            clock.advance(1.5)
+            feed_frames(scope, clock, 1, stamped=False)
+        controller.stop()
+        finish(controller)
+
+        assert controller.end_reason == 'user_stop'
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert [title for _, (_, title, _), _ in errors] == ['Recording Saved No Frames']
+
     def test_disconnect_stops_immediately_without_waiting_for_the_threshold(
         self, tmp_path, centre_posts
     ):
         controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
-        scope.imaging.active_cached = False
+        scope.camera.active = False
         clock.advance(0.2)
         controller._scheduler.fire()
         assert not controller.is_recording
@@ -1053,7 +1439,7 @@ class TestFeedLossDetection:
 
     def test_healthy_feed_keeps_recording_through_ticks(self, tmp_path, centre_posts):
         # Preservation guard: frames arriving between ticks never trip
-        # the watch, and the duration cap still owns the normal end.
+        # the watch.
         controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
         for _ in range(4):
             clock.advance(3.0)
@@ -1071,8 +1457,7 @@ class TestHealthCheckArming:
         controller.start()
         sched = controller._scheduler
         assert sched.callback is not None, 'start must arm the health check'
-        feed_frames(scope, clock, 3, fps=10.0)
-        clock.advance(2.0)
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
         sched.fire()
         assert not controller.is_recording
         finish(controller)
@@ -1088,7 +1473,7 @@ class TestTheRecordedPosition:
     def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1109,7 +1494,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1126,7 +1511,7 @@ class TestTheRecordedPosition:
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.unknown = {}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1139,17 +1524,17 @@ class TestTheRecordedPosition:
 
     def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['X']) == [1.5, 3.5]
-        assert list(captured['df']['Color']) == ['Blue', 'Green']
+        assert list(captured['df']['Color']) == [LED0, LED1]
 
     def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
         shown = []
@@ -1160,7 +1545,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.motion.unknown = {'Z': 'homing'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1176,7 +1561,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1188,7 +1573,7 @@ class TestTheRecordedPosition:
         controller, scope, clock = make_controller(tmp_path, lit='BF', video_as_frames=False)
         scope.motion.unknown = {'X': 'unknown'}
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1198,7 +1583,7 @@ class TestTheRecordedPosition:
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'T': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1216,18 +1601,15 @@ class TestEachFrameRecordsItsOwnMoment:
 
     @staticmethod
     def _described_frames(tmp_path):
-        import tifffile as tf
+        from modules.image_utils import read_file_record
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
-        described = []
-        for path in folder.glob('*.tiff'):
-            with tf.TiffFile(path) as t:
-                described.append(json.loads(t.pages[0].tags['ImageDescription'].value))
-        return sorted(described, key=lambda d: d['frame_num'])
+        described = [read_file_record(path) for path in folder.glob('*.tiff')]
+        return sorted(described, key=lambda d: d['recording_frame'])
 
     def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1240,7 +1622,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     def test_an_axis_unknown_at_one_frame_is_unknown_on_that_frame_only(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.unknown = {'X': 'unknown'}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1251,13 +1633,13 @@ class TestEachFrameRecordsItsOwnMoment:
 
         known, lost, regained = self._described_frames(tmp_path)
         assert known['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert 'plate_pos_mm' not in lost and 'x_pos' not in lost
+        assert 'plate_pos_mm' not in lost
         assert lost['z_pos_um'] == 3.0, 'Z is independent of the X/Y pair'
         assert regained['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
 
     def test_a_moving_stage_is_marked_on_that_frame(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.states = {'Z': AxisState.MOVING}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1270,22 +1652,22 @@ class TestEachFrameRecordsItsOwnMoment:
         assert moving['z_pos_um'] == 3.0, 'a moving axis still knows its frame of reference'
 
     def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 1, fps=10.0)
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
 
         blue, green = self._described_frames(tmp_path)
-        assert blue['channel'] == 'Blue'
-        assert green['channel'] == 'Green'
+        assert blue['channel'] == LED0
+        assert green['channel'] == LED1
 
     def test_without_labware_frames_record_no_plate_position_but_keep_z(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1306,10 +1688,10 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
     def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
         self, tmp_path, centre_posts
     ):
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1322,3 +1704,146 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
         assert message.startswith('Cannot build a hyperstack for this recording')
         assert '2 channels' in message
         assert 'Recording Finalize Failed' not in [t for t, _ in shown]
+
+
+class TestTheEndReason:
+    def test_one_stopped_through_its_operation_reads_user_stop_while_it_drains(
+        self, tmp_path, monkeypatch
+    ):
+        writing = threading.Event()
+        real_write = ManualRecordingController._write_frame
+
+        def _held_write(self, *args):
+            writing.wait(timeout=15)
+            return real_write(self, *args)
+
+        monkeypatch.setattr(ManualRecordingController, '_write_frame', _held_write)
+        controller, scope, clock = make_controller(tmp_path)
+        recording = controller.start()
+        try:
+            feed_frames(scope, clock, 3, fps=10.0)
+            recording.stop()
+
+            assert not controller.is_recording
+            assert controller.is_draining
+            assert controller.end_reason == 'user_stop'
+        finally:
+            writing.set()
+        assert recording.result(timeout=15).end_reason == 'user_stop'
+
+    def test_a_stop_after_the_duration_ended_it_leaves_duration_elapsed(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        recording = controller.start()
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
+        controller._scheduler.fire()
+        controller.stop()
+
+        assert controller.end_reason == 'duration_elapsed'
+        assert recording.result(timeout=15).end_reason == 'duration_elapsed'
+
+
+SAVED_SLOWLY = 'Recording Saved Slowly'
+
+
+class _WriterDied(BaseException):
+    """What escapes a write and kills the writer lane: not an Exception, so it
+    is not a frame's write failure."""
+
+
+class TestASlowSaveIsToldOnceItFinishes:
+    """A recording whose saving ran on past the 10 s notice bound after it
+    ended is told so once its saving finishes, and only when every frame was
+    kept; the wait rides the operation's answer and the manifest either way.
+
+    The writes are held on their way to disk while the test's clock moves
+    past the bound, so the engine's steady clock, which the test's clock
+    drives here, measures the wait without the test waiting it out.
+    """
+
+    @staticmethod
+    def _hold_writes(monkeypatch, *, dies=False):
+        writing = threading.Event()
+        real_write = ManualRecordingController._write_frame
+
+        def _held_write(self, *args):
+            writing.wait(timeout=15)
+            if dies:
+                raise _WriterDied
+            return real_write(self, *args)
+
+        monkeypatch.setattr(ManualRecordingController, '_write_frame', _held_write)
+        return writing
+
+    @staticmethod
+    def _manifest(tmp_path):
+        (path,) = tmp_path.rglob('*manifest.json')
+        return json.loads(path.read_text())
+
+    def test_saving_past_the_bound_is_told_once_after_it_finishes(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts], (
+            'told while the recording was still saving'
+        )
+        writing.set()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s == pytest.approx(11.0)
+        assert self._manifest(tmp_path)['save_wait_s'] == pytest.approx(11.0)
+        assert self._manifest(tmp_path)['frames_written'] == 4
+        (told,) = [n for n in centre_posts if n.title == SAVED_SLOWLY]
+        assert told.message.startswith(
+            'Every frame was kept. Saving finished 11 s after the recording ended'
+        )
+
+    def test_saving_that_keeps_up_is_not_told(self, tmp_path, centre_posts):
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s is not None and finished.save_wait_s < 10.0
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts]
+
+    def test_a_backlog_discarded_while_saving_is_not_told_and_states_no_wait(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        controller.discard_pending()
+        writing.set()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s is None
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts]
+
+    def test_a_writer_that_died_is_told_as_its_death_not_as_a_slow_save(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch, dies=True)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        writing.set()
+
+        recording.result(timeout=15)
+
+        titles = [n.title for n in centre_posts]
+        assert SAVED_SLOWLY not in titles
+        assert any(n.severity == Severity.ERROR for n in centre_posts), "the writer's death is told"

@@ -20,24 +20,26 @@ catches the silent ones, and the log assertion pins the phantom row.
 
 from __future__ import annotations
 
-import datetime
+import logging
 import pathlib
-from unittest.mock import patch
 
 import pandas as pd
 
 import modules.protocol as protocol_module
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
+from tests.log_capture import records_of
+from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
 STEPPED_EXAMPLE = REPO / 'data' / 'example_protocol.tsv'
 
 
 def _load(path: pathlib.Path) -> Protocol:
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    return protocol_from_file(
+        file_path=path,
+    )
 
 
 def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_facts():
@@ -45,11 +47,10 @@ def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_f
 
     assert isinstance(protocol, Protocol)
     assert protocol.num_steps() == 0
-    assert protocol.period() == datetime.timedelta(minutes=20)
-    assert protocol.duration() == datetime.timedelta(days=2)
-    assert protocol.labware() == '96 well microplate'
+    assert (protocol.period_s(), protocol.duration_s()) == (20 * 60, 2 * 24 * 3600)
+    assert protocol.labware_id() == '96 well microplate'
     assert protocol.capture_root() == ''
-    assert protocol.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
+    assert protocol.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000) == []
 
 
 def test_the_per_row_columns_keep_their_type_at_zero_rows():
@@ -63,12 +64,15 @@ def test_the_per_row_columns_keep_their_type_at_zero_rows():
     assert steps['Stim_Config'].dtype == object
 
 
-def test_a_zero_step_load_logs_nothing_for_a_step_that_does_not_exist():
-    with patch.object(protocol_module, 'logger') as logger:
-        _load(SHIPPED_DEFAULT)
+def test_a_zero_step_load_logs_nothing_for_a_step_that_does_not_exist(caplog):
+    _load(SHIPPED_DEFAULT)
 
-    assert logger.error.call_args_list == []
-    assert logger.warning.call_args_list == []
+    told = [
+        (r.levelname, r.getMessage())
+        for r in records_of(caplog, protocol_module)
+        if r.levelno in (logging.WARNING, logging.ERROR)
+    ]
+    assert told == [], told
 
 
 def test_a_stepped_file_is_unaffected():

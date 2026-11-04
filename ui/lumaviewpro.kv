@@ -1,4 +1,9 @@
 #:kivy 2.1.0
+#:import live_work modules.live_work
+# The share of its row that a button or box alone in that row takes, centred.
+#:set NARROW_WIDTH 0.6
+# The label column of a layer slider row (illumination, stimulation, camera, video).
+#:set SLIDER_LABEL_WIDTH '70dp'
 
 #-------------------------------------------------------------------------------
 # MIT License
@@ -36,8 +41,15 @@
 # -----------------------
 # GLOBAL WIDGET STYLES
 # -----------------------
-# Rounded button -- use in place of Button for text buttons
+# Rounded button -- use in place of Button for text buttons. Kivy draws a
+# label's texture at its full width, centred, with no clipping, so a text
+# wider than its button runs over the edges; text_size wraps it inside the
+# button instead, and halign must be stated because a given text_size
+# otherwise renders flush left. The same for the toggle below.
 <RoundedButton>:
+    text_size: self.width - dp(12), None
+    halign: 'center'
+    valign: 'middle'
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
@@ -51,6 +63,9 @@
 
 # Rounded toggle button -- use in place of ToggleButton for text toggle buttons
 <RoundedToggleButton>:
+    text_size: self.width - dp(12), None
+    halign: 'center'
+    valign: 'middle'
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
@@ -62,13 +77,37 @@
             size: self.size
             radius: [dp(6)]
 
-# Fix checkbox visibility on macOS Metal backend (#466)
+# Icon buttons -- use in place of Button / ToggleButton for a button drawn as
+# an image. A disabled Kivy button draws background_disabled_*, whose default
+# is a plain grey square, so a locked icon would vanish; these keep the icon
+# and dim it instead. icon_tint colours the image (the LED toggle lights in
+# its layer's colour); the dim is applied on top of it.
+<IconButton@Button>:
+    icon_tint: 1, 1, 1, 1
+    background_disabled_normal: self.background_normal
+    background_disabled_down: self.background_down
+    background_color: self.icon_tint[0], self.icon_tint[1], self.icon_tint[2], (0.3 if self.disabled else 1)
+
+<IconToggleButton@ToggleButton>:
+    icon_tint: 1, 1, 1, 1
+    background_disabled_normal: self.background_normal
+    background_disabled_down: self.background_down
+    background_color: self.icon_tint[0], self.icon_tint[1], self.icon_tint[2], (0.3 if self.disabled else 1)
+
+# Fix checkbox visibility on macOS Metal backend (#466). A disabled checkbox
+# draws background_*_disabled_*, Kivy's own atlas images, which show as
+# nothing on the panels, so a locked checkbox or radio vanished; it keeps
+# these images instead, dimmed as a locked icon button is.
 <CheckBox>:
     background_checkbox_normal: 'data/icons/checkbox_off.png'
     background_checkbox_down: 'data/icons/checkbox_on.png'
     background_radio_normal: 'data/icons/radio_off.png'
     background_radio_down: 'data/icons/radio_on.png'
-    color: 1, 1, 1, 1
+    background_checkbox_disabled_normal: 'data/icons/checkbox_off.png'
+    background_checkbox_disabled_down: 'data/icons/checkbox_on.png'
+    background_radio_disabled_normal: 'data/icons/radio_off.png'
+    background_radio_disabled_down: 'data/icons/radio_on.png'
+    color: (1, 1, 1, 0.3) if self.disabled else (1, 1, 1, 1)
 
 # Rounded style for file/folder chooser buttons (extend Button in Python)
 <FileChooseBTN>:
@@ -219,7 +258,7 @@
     # has measured its text, and the box then grows from that left edge.
     HomingBanner:
         id: homing_banner_id
-        active: app.homing
+        active: app.live_work.has(live_work.WorkKind.HOME)
         opacity: 1 if self.active else 0
         pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 
@@ -245,9 +284,11 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width - 9*dp(40))/2, root.status_line_height
+        size_hint: None, None
+        size: self.minimum_width, self.minimum_height
+        pos: (root.width - self.width)/2, root.status_line_height
 
-		Button:
+		IconButton:
 			id: open_last_save_folder
 			# Read-only folder open: intentionally stays live during a protocol
 			# so the operator can reach saved files mid-run.
@@ -261,7 +302,7 @@
 
         FolderChooseBTN:
             id: live_folder_btn
-            disabled: app.controls_locked
+            disabled: app.lock.controls_locked
 			tooltip_text: 'Set destination folder for image & video files'
             border: 0, 0, 0, 0
             size_hint: None, None
@@ -279,9 +320,9 @@
                     pos: self.pos
                     size: self.size
 
-        ToggleButton:
+        IconToggleButton:
             id: live_btn
-            disabled: app.controls_locked
+			# A freeze is the display's alone, so it stays live during a run.
 			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -289,11 +330,11 @@
             size_hint: None, None
             size: '40dp', '40dp'
             state: 'normal'
-            on_release: root.cam_toggle()
+            on_press: root.cam_toggle()
 
-        Button:
+        IconButton:
             id: capture_btn
-            disabled: app.controls_locked
+            disabled: app.lock.controls_locked
 			tooltip_text: 'Snap live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
@@ -302,7 +343,7 @@
             size: '40dp', '40dp'
             on_release: root.live_capture()
 
-        ToggleButton:
+        IconToggleButton:
             id: composite_btn
             disabled: root.composite_held or root.composite_pending
 			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
@@ -313,9 +354,9 @@
             size: '40dp', '40dp'
             on_release: root.composite_capture()
 
-        ToggleButton:
+        IconToggleButton:
             id: record_btn
-            disabled: app.run_lockout
+            disabled: app.lock.run_lockout
 			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(time limit set in Advanced Settings)'
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
@@ -324,7 +365,7 @@
             size: '40dp', '40dp'
             on_press: root.record_button()
 
-        Button:
+        IconButton:
             id: fit_btn
 			tooltip_text: 'Fit live image to window'
             border: 0, 0, 0, 0
@@ -334,7 +375,7 @@
             size: '40dp', '40dp'
             on_release: root.fit_image()
 
-        Button:
+        IconButton:
             id: one2one_btn
 			tooltip_text: 'Show live image as\n1 camera pixel to 1 screen pixel'
             border: 0, 0, 0, 0
@@ -343,6 +384,82 @@
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.one2one_image()
+
+        # The red STOP: halts the stage and ends whatever is driving it,
+        # through the API's one stop. The last of the camera row, an icon's
+        # width (40 dp) past the others, so it reads apart from them and a
+        # press meant for 1:1 lands on nothing. The row is centred and sized
+        # to its buttons (445 dp); in a window too narrow for that between
+        # the two side panels, its ends draw over the panels' edges, since it
+        # is declared after them. Declared after the homing banner too, so
+        # nothing draws over it. Never locked: it is the control a run, a
+        # home or a recording leaves live. Shown only on a scope with a
+        # motorised axis. A stop-sign octagon, flat side up.
+        Widget:
+            size_hint: None, None
+            size: '30dp', '40dp'
+
+        Button:
+            id: stop_button_id
+            text: 'STOP'
+            bold: True
+            font_size: '11sp'
+            color: 1, 1, 1, 1
+            background_normal: ''
+            background_down: ''
+            background_color: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+            opacity: 1 if root.stage_has_motors else 0
+            disabled: not root.stage_has_motors
+            on_press: root.stop_the_stage()
+            canvas.before:
+                Color:
+                    rgba: (0.85, 0.1, 0.1, 1) if self.state == 'normal' else (0.6, 0.05, 0.05, 1)
+                Ellipse:
+                    pos: self.pos
+                    size: self.size
+                    segments: 8
+                    angle_start: 22.5
+                    angle_end: 382.5
+                Color:
+                    rgba: 1, 1, 1, 1
+                Line:
+                    width: dp(1.2)
+                    ellipse: (self.x + dp(2), self.y + dp(2), self.width - dp(4), self.height - dp(4), 22.5, 382.5, 8)
+
+    # Says a client has control of the scope, at the top of the live view,
+    # with the way to take it back. Declared after the side panels, as the
+    # STOP is, so nothing draws over it; hidden by disabled as well as
+    # opacity, since a transparent button still takes touches.
+    BoxLayout:
+        id: remote_control_banner_id
+        orientation: 'horizontal'
+        size_hint: None, None
+        size: self.minimum_width, dp(48)
+        padding: dp(16), dp(6)
+        spacing: dp(16)
+        pos_hint: {'center_x': 0.5, 'top': 1}
+        opacity: 1 if app.control is not None else 0
+        disabled: app.control is None
+        canvas.before:
+            Color:
+                rgba: 0.08, 0.08, 0.08, 0.85
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(8)]
+        Label:
+            text: ('Under remote control: ' + app.control.name) if app.control is not None else ''
+            color: 1, 1, 1, 1
+            size_hint: None, 1
+            width: self.texture_size[0]
+        Button:
+            id: take_back_control_btn
+            text: 'Take back control'
+            size_hint: None, 1
+            width: self.texture_size[0] + dp(24)
+            on_release: root.take_back_control()
 
 
 
@@ -458,257 +575,286 @@
 		Rectangle:
 			size: self.size
 			pos: self.pos
-	Label:
-		id: adjust_focus_label
-		text:'Adjust Focus'
-		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		visible: True
-		spacing: '5dp'
-		color: [51/255, 181/255, 229/255, 1]
-
-	BoxLayout:
-		id: focus_block
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '170dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: (not self.visible) or app.controls_locked
-		visible: True
-
-		BoxLayout:
-		    orientation: 'vertical'
-		    size_hint_x: None
-		    width: '40dp'
-		    spacing: '5dp'
-
-		    Label:
-		    Button:
-		        id: fast_up
-				tooltip_text: 'Coarse Up'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '40dp'
-				background_normal: './data/icons/UU_normal.png'
-				background_down: './data/icons/UU_down.png'
-				on_release: root.coarse_up()
-		    Button:
-		        id: slow_up
-				tooltip_text: 'Fine Up'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				background_normal: './data/icons/U_normal.png'
-				background_down: './data/icons/U_down.png'
-				on_release: root.fine_up()
-		    Button:
-		        id: slow_down
-				tooltip_text: 'Fine Down'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				background_normal: './data/icons/D_normal.png'
-				background_down: './data/icons/D_down.png'
-				on_release: root.fine_down()
-		    Button:
-		        id: fast_down
-				tooltip_text: 'Coarse Down'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '40dp'
-				background_normal: './data/icons/DD_normal.png'
-				background_down: './data/icons/DD_down.png'
-				on_release: root.coarse_down()
-		    Label:
-
+	# The panel scrolls when its controls are taller than the open drawer,
+	# as the other drawers do; every child declares its own height.
+	ModSliderAwareScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
+		pos_hint: {'top': 1.0}
 		BoxLayout:
 			orientation: 'vertical'
-			size_hint_x: None
-			width: '40dp'
-			Label:
-				size_hint_y: None
-				height: '15dp'
-		    ModSlider:
-		        id: obj_position
-		        orientation: 'vertical'
-		        min: 0.
-		        max: 14000.
-		        value: 0.
-				step: 0.1
-		        cursor_size: '30dp','40dp'
-		        cursor_image: './data/icons/objective.png'
-		        cursor_disabled_image: './data/icons/objective.png'
-		        value_track: True
-		        value_track_color: 51/255, 181/255, 229/255, 1
-		        value_track_width: '5dp'
-				on_release: root.set_position(self.value)
-			Label:
-				size_hint_y: None
-				height: '15dp'
-
-		BoxLayout:
-		    orientation: 'vertical'
-		    padding: '5dp'
+			size_hint_y: None
+			height: self.minimum_height
 			spacing: '5dp'
-
-		    Label:
-		        size_hint_y: None
-		        height: '20dp'
-				halign: 'center'
-		        font_size: '12sp'
-		        text: 'Z-Position (um)'
-
-		    TextInput:
-				id: z_position_id
-            	multiline: False
-		        size_hint_y: None
-		        height: '30dp'
-		        font_size: '12sp'
-				halign: 'center'
-            	input_filter: 'float'
-		        text: ''
-				on_focus: if not self.focus: root.set_position_text(self.text)
+			Label:
+				id: adjust_focus_label
+				text:'Adjust Focus'
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
 
 			BoxLayout:
-				orientation:'horizontal'
-				padding: '0dp'
+				id: focus_block
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '170dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.lock.controls_locked
+				visible: True
+
+				BoxLayout:
+				    orientation: 'vertical'
+				    size_hint_x: None
+				    width: '40dp'
+				    spacing: '5dp'
+
+				    Label:
+				    IconButton:
+				        id: fast_up
+						tooltip_text: 'Coarse Up'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '40dp'
+						background_normal: './data/icons/UU_normal.png'
+						background_down: './data/icons/UU_down.png'
+						on_release: root.coarse_up()
+				    IconButton:
+				        id: slow_up
+						tooltip_text: 'Fine Up'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '30dp'
+						background_normal: './data/icons/U_normal.png'
+						background_down: './data/icons/U_down.png'
+						on_release: root.fine_up()
+				    IconButton:
+				        id: slow_down
+						tooltip_text: 'Fine Down'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '30dp'
+						background_normal: './data/icons/D_normal.png'
+						background_down: './data/icons/D_down.png'
+						on_release: root.fine_down()
+				    IconButton:
+				        id: fast_down
+						tooltip_text: 'Coarse Down'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '40dp'
+						background_normal: './data/icons/DD_normal.png'
+						background_down: './data/icons/DD_down.png'
+						on_release: root.coarse_down()
+				    Label:
+
+				BoxLayout:
+					orientation: 'vertical'
+					size_hint_x: None
+					width: '40dp'
+					Label:
+						size_hint_y: None
+						height: '15dp'
+				    ModSlider:
+				        id: obj_position
+				        orientation: 'vertical'
+				        min: 0.
+				        max: 14000.
+				        value: 0.
+						step: 0.1
+				        cursor_size: '30dp','40dp'
+				        cursor_image: './data/icons/objective.png'
+				        cursor_disabled_image: './data/icons/objective.png'
+				        value_track: True
+				        value_track_color: 51/255, 181/255, 229/255, 1
+				        value_track_width: '5dp'
+						on_release: root.set_position(self.value)
+					Label:
+						size_hint_y: None
+						height: '15dp'
+
+				BoxLayout:
+				    orientation: 'vertical'
+				    padding: '5dp'
+					spacing: '5dp'
+
+				    Label:
+				        size_hint_y: None
+				        height: '20dp'
+						halign: 'center'
+				        font_size: '12sp'
+				        text: 'Z-Position (um)'
+
+				    CommitInput:
+						id: z_position_id
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
+		            	multiline: False
+				        size_hint_y: None
+				        height: '30dp'
+				        font_size: '12sp'
+						halign: 'center'
+		            	input_filter: 'float'
+				        text: ''
+						on_commit: root.set_position_text(self.text)
+
+					BoxLayout:
+						orientation:'horizontal'
+						padding: '0dp'
+						spacing: '5dp'
+
+						RoundedButton:
+							id: home_id
+							tooltip_text: 'Lower focus completely'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							text: 'Home'
+							on_release: root.home()
+						RoundedButton:
+							text: 'Set Z'
+							tooltip_text: 'Store Z-value\nfor current channel'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							on_release: root.set_bookmark()
+						RoundedButton:
+							text: 'Set All Z'
+							tooltip_text: 'Store Z-value\nfor all channels'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							on_release: root.set_all_bookmarks()
+					RoundedButton:
+						text: 'Go to Set Z'
+						tooltip_text: 'Go to stored Z-value'
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						on_release: root.goto_bookmark()
+
+			# Outside the locked focus box: this toggle is also the AF ABORT
+			# (second click) and must stay clickable during its own run. It
+			# locks only while a rival recording is live.
+			RoundedToggleButton:
+				id: autofocus_id
+				size_hint_x: NARROW_WIDTH
+				pos_hint: {'center_x': 0.5}
+				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				font_size: '12sp'
+				text: 'Autofocus'
+				disabled: (not self.visible) or root.autofocus_held or root.autofocus_pending
+				visible: True
+				on_release: root.run_autofocus_from_ui()
+
+			Label:
+				text:'Turret Selection'
+				id: turret_selection_label
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
+				visible: True
+
+			# Each slot button names the objective assigned to it, wrapping a
+			# catalogue name to two lines at 12 sp ('40x' over 'w/collar').
+			BoxLayout:
+				orientation: 'horizontal'
+				id: turret_btn_box
+				size_hint_y: None
+				height: '44dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.lock.controls_locked
+				visible: True
 				spacing: '5dp'
 
-				RoundedButton:
-					id: home_id
-					tooltip_text: 'Lower focus completely'
-					size_hint_y: None
-					height: '30dp'
+				RoundedToggleButton:
+					id: turret_pos_1_btn
+					text: '< 1 >'
 					font_size: '12sp'
-					text: 'Home'
-					on_release: root.home()
-				RoundedButton:
-					text: 'Set Z'
-					tooltip_text: 'Store Z-value\nfor current channel'
-					size_hint_y: None
-					height: '30dp'
+					tooltip_text: 'Select turret position 1'
+		            on_release: root.turret_gesture(1)
+				RoundedToggleButton:
+					id: turret_pos_2_btn
+					text: '< 2 >'
 					font_size: '12sp'
-					on_release: root.set_bookmark()
-				RoundedButton:
-					text: 'Set All Z'
-					tooltip_text: 'Store Z-value\nfor all channels'
-					size_hint_y: None
-					height: '30dp'
+					tooltip_text: 'Select turret position 2'
+		            on_release: root.turret_gesture(2)
+				RoundedToggleButton:
+					id: turret_pos_3_btn
+					text: '< 3 >'
 					font_size: '12sp'
-					on_release: root.set_all_bookmarks()
-			RoundedButton:
-				text: 'Go to Set Z'
-				tooltip_text: 'Go to stored Z-value'
+					tooltip_text: 'Select turret position 3'
+		            on_release: root.turret_gesture(3)
+				RoundedToggleButton:
+					id: turret_pos_4_btn
+					text: '< 4 >'
+					font_size: '12sp'
+					tooltip_text: 'Select turret position 4'
+		            on_release: root.turret_gesture(4)
+
+			BoxLayout:
+				orientation: 'horizontal'
+				id: turret_objective_btn_box
 				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				on_release: root.goto_bookmark()
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.lock.controls_locked
+				visible: True
+				spacing: '5dp'
+				# A horizontal row ignores center_x, so its padding centres the button.
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
+				RoundedButton:
+					id: reset_turret_objective_btn
+					text: 'Reset Turret Objective'
+					font_size: '12sp'
+					on_release: root.reset_turret_objective()
 
-	# Outside the locked focus box: this toggle is also the AF ABORT
-	# (second click) and must stay clickable during its own run. It
-	# locks only while a rival recording is live.
-	RoundedToggleButton:
-		id: autofocus_id
-		tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		font_size: '12sp'
-		text: 'Autofocus'
-		disabled: (not self.visible) or root.autofocus_held or root.autofocus_pending
-		visible: True
-		on_release: root.run_autofocus_from_ui()
-
-	Label:
-		text:'Turret Selection'
-		id: turret_selection_label
-		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		spacing: '5dp'
-		color: [51/255, 181/255, 229/255, 1]
-		visible: True
-
-	BoxLayout:
-		orientation: 'horizontal'
-		id: turret_btn_box
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: (not self.visible) or app.controls_locked
-		visible: True
-
-		RoundedToggleButton:
-			id: turret_pos_1_btn
-			text: '< 1 >'
-			tooltip_text: 'Select turret position 1'
-            on_release: root.turret_gesture(1)
-		RoundedToggleButton:
-			id: turret_pos_2_btn
-			text: '< 2 >'
-			tooltip_text: 'Select turret position 2'
-            on_release: root.turret_gesture(2)
-		RoundedToggleButton:
-			id: turret_pos_3_btn
-			text: '< 3 >'
-			tooltip_text: 'Select turret position 3'
-            on_release: root.turret_gesture(3)
-		RoundedToggleButton:
-			id: turret_pos_4_btn
-			text: '< 4 >'
-			tooltip_text: 'Select turret position 4'
-            on_release: root.turret_gesture(4)
-
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        disabled: app.controls_locked
-        Label:
-            text: 'Objective'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-	    PickSpinner:
-			id: objective_spinner2
-			sync_height: True
-	        text: 'Unknown'
-			font_size:'12sp'
-			option_cls: "SpinnerOption0"
-			# #631: text_autoupdate: True caused .values reassignment to reset
-			# .text to the alphabetically-first option, firing on_text with the
-			# wrong objective_id and tripping the misleading turret warning.
-			# Text shows the active objective the API derives, and only that:
-			# a person's pick arrives as on_pick and reaches the Session, and
-			# the display follows the Session's answer.
-	        on_release: root.load_objectives()
-	        on_pick: root.pick_objective(args[1])
-
-	RoundedButton:
-		id: reset_turret_objective_btn
-		text: 'Reset Turret Objective'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.controls_locked
-		on_release: root.reset_turret_objective()
+			# A scope without a turret: the objective is assigned here, shown
+			# exactly when the turret rows are not (set_turret_control_visibility).
+			BoxLayout:
+				orientation: 'horizontal'
+				id: assign_objective_box
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.lock.controls_locked
+				visible: False
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
+				RoundedButton:
+					id: assign_objective_btn
+					text: 'Assign Objective'
+					font_size: '12sp'
+					on_release: root.assign_objective()
             
-	ZStack:
-		id: zstack_id
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		visible: True
+			ZStack:
+				id: zstack_id
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 
 
 # Z-Stack Settings
 <ZStack>:
+	# As tall as its controls, so the Objective Control panel can scroll it
+	# rather than squeeze it; none when the scope has no focus axis.
+	size_hint_y: None
+	height: zstack_box.height if self.visible else 0
 	BoxLayout:
+		id: zstack_box
 		orientation: 'vertical'
+		size_hint_y: None
+		height: self.minimum_height
 		padding: '5dp'
 	    spacing: '5dp'
 		pos_hint: {'x': 0.0, 'y': 0.0}
@@ -740,11 +886,11 @@
 		    size_hint_y: None
 		    height: '30dp'
 			spacing: '5dp'
-			disabled: app.controls_locked
+			disabled: app.lock.controls_locked
 
-			TextInput:
+			CommitInput:
 				id: zstack_stepsize_id
-				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
+				on_commit: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
 		        size_hint_y: None
@@ -753,11 +899,11 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_focus: if not self.focus: root.set_steps()
+	            on_commit: root.set_steps()
 
-			TextInput:
+			CommitInput:
 				id: zstack_range_id
-				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
+				on_commit: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
 		        size_hint_y: None
@@ -766,7 +912,7 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_focus: if not self.focus: root.set_steps()
+	            on_commit: root.set_steps()
 
 			TextInput:
 				id: zstack_steps_id
@@ -780,7 +926,7 @@
 				text: '0'
 		        disabled: True
 
-	    Spinner:
+	    PickSpinner:
 			id: zstack_spinner
 			tooltip_text: 'Position to start Z-Stack'
 			sync_height: True
@@ -789,14 +935,15 @@
 	        text: 'Z Stack'
 			font_size: '12sp'
 			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-			disabled: app.controls_locked
-			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
+			disabled: app.lock.controls_locked
+			log_name: 'ZSTACK_REFERENCE_POSITION'
+			text_follows_pick: True
 			on_text: root.set_position()
-			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
 		RoundedToggleButton:
 			id: zstack_aqr_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			size_hint_y: None
 			height: '30dp'
 			text: 'Acquire'
@@ -805,13 +952,11 @@
 			disabled: root.zstack_held or root.zstack_pending
 			on_release: root.run_zstack_acquire_from_ui()
 
-		Label:
-
 <XYStageControl>:
 	orientation: 'vertical'
 	padding: '5dp'
 	spacing: '5dp'
-	disabled: app.controls_locked
+	disabled: app.lock.controls_locked
 
     canvas:
         Color:
@@ -820,216 +965,227 @@
             size: self.size
             pos: self.pos
 
-	# HOME and CALIBRATE STAGE
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
-		spacing: '5dp'
-
-		# HOME STAGE
-		RoundedButton: 
-			id: home_id
-			tooltip_text: 'Home microscope to upper left corner (A1)'
-			font_size: '12sp'
-			text: 'Home Stage'
-			on_release: root.home()
-		# Button: 
-		# 	id: center_id
-		# 	font_size: '12sp'
-		# 	text: 'Center Stage'
-		# 	on_release: root.center()
-		# Button:
-		# 	text: 'Calibrate'
-		# 	font_size: '12sp'
-		# 	on_release: root.calibrate()
-
-	# Two Columns for X and Y Directions
-	BoxLayout:
-		orientation: 'horizontal'
-		spacing: '5dp'
-		size_hint_y: None
-		height: '170dp'
-
-		# X Direction Controls
+	# The panel scrolls when its controls are taller than the open drawer,
+	# as the other drawers do; every child declares its own height.
+	ModSliderAwareScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
+		pos_hint: {'top': 1.0}
 		BoxLayout:
 			orientation: 'vertical'
+			size_hint_y: None
+			height: self.minimum_height
 			spacing: '5dp'
+			# HOME and CALIBRATE STAGE
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+				# A horizontal row ignores center_x, so its padding centres the button.
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
+
+				# HOME STAGE
+				RoundedButton: 
+					id: home_id
+					tooltip_text: 'Home microscope to upper left corner (A1)'
+					font_size: '12sp'
+					text: 'Home Stage'
+					on_release: root.home()
+				# Button: 
+				# 	id: center_id
+				# 	font_size: '12sp'
+				# 	text: 'Center Stage'
+				# 	on_release: root.center()
+				# Button:
+				# 	text: 'Calibrate'
+				# 	font_size: '12sp'
+				# 	on_release: root.calibrate()
+
+			# Two Columns for X and Y Directions
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '170dp'
+
+				# X Direction Controls
+				BoxLayout:
+					orientation: 'vertical'
+					spacing: '5dp'
 	
-			Label:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'X: (mm)'
-				tooltip_text: 'Current X value'
+					Label:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'X: (mm)'
+						tooltip_text: 'Current X value'
 
-			# Set and Display X Position	
-			TextInput:
-				id: x_pos_id
-				multiline: False
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				input_filter: 'float'
-				text: ''
-				on_focus: if not self.focus: root.set_xposition(self.text)
+					# Set and Display X Position	
+					CommitInput:
+						id: x_pos_id
+						multiline: False
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						halign: 'center'
+						input_filter: 'float'
+						text: ''
+						on_commit: root.set_xposition(self.text)
 			
-			# Set X Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Set X'
-				tooltip_text: 'Save current X position'
-				on_release: root.set_xbookmark()
+					# Set X Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Set X'
+						tooltip_text: 'Save current X position'
+						on_release: root.set_xbookmark()
 
-			# Goto X Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Go to X'
-				tooltip_text: 'Return to saved X position'
-				on_release: root.goto_xbookmark()
+					# Goto X Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Go to X'
+						tooltip_text: 'Return to saved X position'
+						on_release: root.goto_xbookmark()
 
-			# X-Dir Controls
-			BoxLayout:
-				orientation: 'horizontal'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '30dp'
+					# X-Dir Controls
+					BoxLayout:
+						orientation: 'horizontal'
+						spacing: '5dp'
+						size_hint_y: None
+						height: '30dp'
 
-				Button: # COARSE LEFT
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					tooltip_text: 'Coarse Left'
-					size: '30dp', '30dp'
-					background_normal: './data/icons/LL_normal.png'
-					background_down: './data/icons/LL_down.png'
-					on_release: root.coarse_left()
+						IconButton: # COARSE LEFT
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							tooltip_text: 'Coarse Left'
+							size: '30dp', '30dp'
+							background_normal: './data/icons/LL_normal.png'
+							background_down: './data/icons/LL_down.png'
+							on_release: root.coarse_left()
 
-				Button: # FINE LEFT
-					id: slow_up
-					tooltip_text: 'Fine Left'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/L_normal.png'
-					background_down: './data/icons/L_down.png'
-					on_release: root.fine_left()
+						IconButton: # FINE LEFT
+							id: slow_up
+							tooltip_text: 'Fine Left'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/L_normal.png'
+							background_down: './data/icons/L_down.png'
+							on_release: root.fine_left()
 
-				Button: # FINE RIGHT
-					id: slow_down
-					tooltip_text: 'Fine Right'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/R_normal.png'
-					background_down: './data/icons/R_down.png'
-					on_release: root.fine_right()
+						IconButton: # FINE RIGHT
+							id: slow_down
+							tooltip_text: 'Fine Right'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/R_normal.png'
+							background_down: './data/icons/R_down.png'
+							on_release: root.fine_right()
 			
-				Button: # COARSE RIGHT
-					id: fast_down
-					tooltip_text: 'Coarse Right'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '30dp', '30dp'
-					background_normal: './data/icons/RR_normal.png'
-					background_down: './data/icons/RR_down.png'
-					on_release: root.coarse_right()
+						IconButton: # COARSE RIGHT
+							id: fast_down
+							tooltip_text: 'Coarse Right'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '30dp', '30dp'
+							background_normal: './data/icons/RR_normal.png'
+							background_down: './data/icons/RR_down.png'
+							on_release: root.coarse_right()
 
-		# Y Direction Controls
-		BoxLayout:
-			orientation: 'vertical'
-			spacing: '5dp'
+				# Y Direction Controls
+				BoxLayout:
+					orientation: 'vertical'
+					spacing: '5dp'
 
-			Label:
+					Label:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Y: (mm)'
+
+					# Set and Display Y Position	
+					CommitInput:
+						id: y_pos_id
+						multiline: False
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						halign: 'center'
+						input_filter: 'float'
+						text: ''
+						on_commit: root.set_yposition(self.text)
+
+					# Set Y Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Set Y'
+						tooltip_text: 'Save current Y position'
+						on_release: root.set_ybookmark()
+
+					# Goto Y Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Go to Y'
+						tooltip_text: 'Return to saved Y position'
+						on_release: root.goto_ybookmark()
+
+					# Y-Dir Controls
+					BoxLayout:
+						orientation: 'horizontal'
+						spacing: '5dp'
+						size_hint_y: None
+						height: '30dp'
+
+						IconButton: # COARSE FORWARD
+							id: fast_down
+							tooltip_text: 'Coarse upward'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '30dp', ' 30dp'
+							background_normal: './data/icons/DD_normal.png'
+							background_down: './data/icons/DD_down.png'
+							on_release: root.coarse_back()
+						IconButton: # FINE FORWARD
+							border: 0, 0, 0, 0
+							tooltip_text: 'Fine upward'
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/D_normal.png'
+							background_down: './data/icons/D_down.png'
+							on_release: root.fine_back()
+						IconButton: # FINE BACK
+							border: 0, 0, 0, 0
+							tooltip_text: 'Fine downward'
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/U_normal.png'
+							background_down: './data/icons/U_down.png'
+							on_release: root.fine_fwd()
+						IconButton: # COARSE BACK
+							border: 0, 0, 0, 0
+							tooltip_text: 'Coarse downward'
+							size_hint: None, None
+							size: '30dp', '30dp'
+							background_normal: './data/icons/UU_normal.png'
+							background_down: './data/icons/UU_down.png'
+							on_release: root.coarse_fwd()
+
+			# Stage Display
+			FloatLayout:
+				padding: '5dp'
 				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Y: (mm)'
+				height: self.width * 2 / 3
+				id: xy_stage_holder_id
 
-			# Set and Display Y Position	
-			TextInput:
-				id: y_pos_id
-				multiline: False
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				input_filter: 'float'
-				text: ''
-				on_focus: if not self.focus: root.set_yposition(self.text)
-
-			# Set Y Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Set Y'
-				tooltip_text: 'Save current Y position'
-				on_release: root.set_ybookmark()
-
-			# Goto Y Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Go to Y'
-				tooltip_text: 'Return to saved Y position'
-				on_release: root.goto_ybookmark()
-
-			# Y-Dir Controls
-			BoxLayout:
-				orientation: 'horizontal'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '30dp'
-
-				Button: # COARSE FORWARD
-					id: fast_down
-					tooltip_text: 'Coarse upward'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '30dp', ' 30dp'
-					background_normal: './data/icons/DD_normal.png'
-					background_down: './data/icons/DD_down.png'
-					on_release: root.coarse_back()
-				Button: # FINE FORWARD
-					border: 0, 0, 0, 0
-					tooltip_text: 'Fine upward'
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/D_normal.png'
-					background_down: './data/icons/D_down.png'
-					on_release: root.fine_back()
-				Button: # FINE BACK
-					border: 0, 0, 0, 0
-					tooltip_text: 'Fine downward'
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/U_normal.png'
-					background_down: './data/icons/U_down.png'
-					on_release: root.fine_fwd()
-				Button: # COARSE BACK
-					border: 0, 0, 0, 0
-					tooltip_text: 'Coarse downward'
-					size_hint: None, None
-					size: '30dp', '30dp'
-					background_normal: './data/icons/UU_normal.png'
-					background_down: './data/icons/UU_down.png'
-					on_release: root.coarse_fwd()
-
-	# Stage Display
-	FloatLayout:
-		padding: '5dp'
-		size_hint_y: None
-		height: self.width * 2 / 3
-		id: xy_stage_holder_id
-
-	# Fill Space		
-	Label:	
 
 
 # ProtocolSettings - Settings for Labware within ImageSettings
@@ -1057,7 +1213,7 @@
 		# The whole editing surface locks during any exclusive activity;
 		# the run/stop toggles live OUTSIDE this subtree (footer below)
 		# so their abort clicks survive the lock.
-		disabled: app.controls_locked
+		disabled: app.lock.controls_locked
 
 		BoxLayout:
 			pos_hint: {'top': 1.0}
@@ -1088,9 +1244,9 @@
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
-				TextInput:
+				CommitInput:
 					id: capture_period
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					multiline: False
 					size_hint_y: None
 					height: '30dp'
@@ -1099,7 +1255,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(5, '.3g')
-					on_focus: if not self.focus: root.update_period()
+					on_commit: root.update_period()
 				Label:
 					text: 'minutes'
 					size_hint_x: None
@@ -1117,9 +1273,9 @@
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
-				TextInput:
+				CommitInput:
 					id: capture_dur
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					multiline: False
 					size_hint_y: None
 					height: '30dp'
@@ -1128,7 +1284,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(48, '.3g')
-					on_focus: if not self.focus: root.update_duration()
+					on_commit: root.update_duration()
 				Label:
 					text: 'hours'
 					size_hint_x: None
@@ -1136,9 +1292,9 @@
 					font_size: '12sp'
 
 			# Select Labware
-			Spinner:
+			PickSpinner:
 				id: labware_spinner
-				disabled: app.run_lockout
+				disabled: app.lock.run_lockout
 				tooltip_text: 'Select Labware to be used in the Protocol'
 				sync_height: True
 				visible: True
@@ -1151,8 +1307,10 @@
 				# (logs showed "SELECT LABWARE 96 well microplate" twice). Text is
 				# driven by settings['protocol']['labware']; #634 fix removed the
 				# 'New' KV default that bypassed the empty-text -> settings fallback
-				# in get_selected_labware() and crashed first-run before
+				# in the labware read and crashed first-run before
 				# select_labware() could populate the spinner.
+				log_name: 'LABWARE'
+				text_follows_pick: True
 				on_text: root.select_labware()
 
 
@@ -1169,7 +1327,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: root.new_protocol()
 		
 				FileChooseBTN:
@@ -1178,7 +1336,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: self.choose('load_protocol')
 
 				RoundedButton:
@@ -1187,7 +1345,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: root.save_protocol()
 
 				FileSaveBTN:
@@ -1196,7 +1354,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: self.choose('saveas_protocol')
 
 			# Protocol size advisory -- shown when the session reports a protocol
@@ -1268,9 +1426,9 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				TextInput:
+				CommitInput:
 					id: capture_root
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					text: ''
 					size_hint_y: None
 					height: '30dp'
@@ -1278,7 +1436,7 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Filename prefix'
-					on_focus: if not self.focus: root.update_capture_root(self.text)
+					on_commit: root.update_capture_root(self.text)
 				
 
 			# Step Name
@@ -1295,9 +1453,9 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				TextInput:
+				CommitInput:
 					id: step_name_input
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					text: ''
 					size_hint_y: None
 					height: '30dp'
@@ -1305,7 +1463,7 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
-					on_focus: if not self.focus: root.step_name_validation(self.text)
+					on_commit: root.step_name_validation(self.text)
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1319,9 +1477,9 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				Button:
+				IconButton:
 					id: prev_step_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Move to previous Step'
 					border: 0, 0, 0, 0
 					size_hint: None, None
@@ -1330,9 +1488,9 @@
 					background_normal: './data/icons/L_normal.png'
 					background_down: './data/icons/L_down.png'
 					on_release: root.prev_step()
-				TextInput:
+				CommitInput:
 					id: step_number_input
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					text: '0'
 					tooltip_text: 'Enter desired Step ID number'
 					size_hint_y: None
@@ -1341,7 +1499,7 @@
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_focus: if not self.focus: root.handle_step_ui_input_change()
+					on_commit: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
 					text: 'of'
@@ -1362,9 +1520,9 @@
 					disabled: True
 					multiline: False
 					valign: 'center'
-				Button:
+				IconButton:
 					id: next_step_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Move to next Step'
 					border: 0, 0, 0, 0
 					size_hint: None, None
@@ -1404,7 +1562,7 @@
 				spacing: '5dp'
 				RoundedButton:
 					id: delete_step_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Delete current Step'
 					text: 'Delete'
 					size_hint_y: None
@@ -1413,7 +1571,7 @@
 					on_release: root.delete_step()
 				RoundedButton:
 					id: change_step_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Update settings for current Step including XYZ location,AF,AG/AE,Channel,turret position, and Step label'
 					text: 'Change'
 					size_hint_y: None
@@ -1422,7 +1580,7 @@
 					on_release: root.modify_step()
 				RoundedButton:
 					id: add_step_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Add Step after current Step'
 					text: 'Add'
 					size_hint_y: None
@@ -1436,8 +1594,12 @@
 				orientation: 'horizontal'
 				id: tiling_box_layout_id
 				size_hint_y: None
+				# Kept at its height when hidden: a row of no height leaves its
+				# 30dp children over the row above, where they take its touches.
 				height: '30dp'
-				opacity: 1
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 			
 				Label:
@@ -1451,9 +1613,9 @@
 					font_size: '12sp'
 					
 				# Select tiling size
-				Spinner:
+				PickSpinner:
 					id: tiling_size_spinner
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					sync_height: True
 					text: ''
 					tooltip_text: 'Set tiling dimensions for New Protocols or untiled Steps application'
@@ -1461,13 +1623,13 @@
 					size_hint_y: None
 					height: '30dp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
 					values: ''
-					on_text: root.update_tiling_selection()
+					log_name: 'TILING'
+					text_follows_pick: True
 
 				RoundedButton:
 					id: tiling_size_apply_id
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					text: 'Apply'
 					tooltip_text: 'Create tiles around untiled Steps'
 					size_hint_y: None
@@ -1491,7 +1653,7 @@
 				Label:
 					id: protocol_zstacking_box_label_id
 					text: 'Z-Stacking'
-					tooltip_text: 'Use Z-stack settings under Objective Settings'
+					tooltip_text: 'Use the Z-stack settings in Objective Control'
 					size_hint_y: None
 					height: '30dp'
 					size_hint_x: None
@@ -1502,7 +1664,7 @@
 
 				RoundedButton:
 					id: protocol_zstacking_apply_id
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					text: 'Apply'
 					tooltip_text: 'Create Z-stack around unstacked Steps'
 					size_hint_y: None
@@ -1525,16 +1687,16 @@
 							
 				CheckBox:
 					id: acquire_zstack_id
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
-					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
+					tooltip_text: 'Use the Z-stack settings in Objective Control\nwhen New or Add makes steps'
 					width: '30dp'
 					active: False
 					on_release: root.update_acquire_zstack()
 
 				Label:
 					text: 'Enable Z-Stack'
-					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
+					tooltip_text: 'Use the Z-stack settings in Objective Control\nwhen New or Add makes steps'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -1584,33 +1746,6 @@
 			#         background_down: './data/icons/R_down.png'
 			#         on_release: root.exposures_up_button()
 					
-			# HIDDEN: "Use BF Focus for Fluorescence" -- not yet tested, disabled for 4.0.0 release.
-			# Re-enable after validation on hardware with multi-channel AF protocols.
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '0dp'
-				opacity: 0
-				disabled: True
-				Label:
-					font_size: '12sp'
-					text: 'Use BF Focus for Fluorescence'
-					tooltip_text: 'When enabled, autofocus runs only on the\nBrightfield channel and applies the result\nto all fluorescence channels at each well.'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: bf_af_for_fluorescence_btn
-					disabled: app.run_lockout
-					tooltip_text: 'Use Brightfield autofocus result\nfor all fluorescence channels'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_bf_af_for_fluorescence()
-
 			# Engineering mode option
 			BoxLayout:
 				id: protocol_disable_image_saving_box_id
@@ -1624,7 +1759,7 @@
 				CheckBox:
 					id: protocol_disable_image_saving_id
 					on_release: root.log_disable_image_saving()
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					height: '0dp'
 					size_hint_x: None
 					width: '30dp'
@@ -1670,6 +1805,8 @@
 
 		RoundedToggleButton:
 			id: run_autofocus_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Autofocus All Steps'
 			tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 			size_hint_y: None
@@ -1690,6 +1827,8 @@
 
 		RoundedToggleButton:
 			id: run_scan_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Run One Scan'
 			tooltip_text: 'Acquire one Interval of data'
 			size_hint_y: None
@@ -1700,6 +1839,8 @@
 
 		RoundedToggleButton:
 			id: run_protocol_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Run Full Protocol'
 			tooltip_text: 'Initiate complete Protocol for the full Duration'
 			size_hint_y: None
@@ -1717,7 +1858,7 @@
 	orientation: 'vertical'
 	size_hint_y: None
 	height: self.minimum_height
-	disabled: app.run_lockout
+	disabled: app.lock.run_lockout
 
 	# Pad
 	Widget:
@@ -1725,7 +1866,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Create video from Protocol data folder'
+		text: 'Create Video...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Combines sequential images into a video file'
 		size_hint_y: None
 		height: '30dp'
@@ -1753,9 +1896,9 @@
             width: '120dp'
 			tooltip_text: "Playback FPS for video creation\n(blank = the recording's own measured rate)"
 			
-        TextInput:
+        CommitInput:
             id: video_gen_fps_id
-            on_focus: if not self.focus: root.log_video_gen_fps()
+            on_commit: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -1779,7 +1922,7 @@
 			font_size: '12sp'
 			text_size: self.size
 
-		ToggleButton:
+		IconToggleButton:
 			id: enable_timestamp_overlay_btn
 			on_release: root.log_timestamp_overlay()
 			tooltip_text: 'Add real time values to lower left corner of video'
@@ -1810,6 +1953,8 @@
 	FolderChooseBTN:
 
 		id: quality_stitch_btn
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		text: 'Quality Stitch'
 		tooltip_text: 'Quality uses bounded local registration only when stage data shows real overlap. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
@@ -1818,11 +1963,13 @@
 		on_release:
 			root.stitching_mode = 'Quality'
 			self.choose('apply_stitching_to_folder')
-		disabled: app.run_lockout
+		disabled: app.lock.run_lockout
 
 	FolderChooseBTN:
 
 		id: fast_preview_stitch_btn
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		text: 'Fast Preview Stitch'
 		tooltip_text: 'Fast Preview uses bounded FFT registration for rapid visual review. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
@@ -1831,7 +1978,7 @@
 		on_release:
 			root.stitching_mode = 'Fast Preview'
 			self.choose('apply_stitching_to_folder')
-		disabled: app.run_lockout
+		disabled: app.lock.run_lockout
 	
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
@@ -1841,7 +1988,7 @@
 	orientation: 'vertical'
 	size_hint_y: None
 	height: self.minimum_height
-	disabled: app.run_lockout
+	disabled: app.lock.run_lockout
 
 	# Pad
 	Widget:
@@ -1849,7 +1996,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Apply Z-Projection to Z-stacks in folder'
+		text: 'Z-Project Folder...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Creates single image from Z-stacks'
 		size_hint_y: None
 		height: '30dp'
@@ -1876,14 +2025,14 @@
             size_hint_x: None
             width: '120dp'
 			
-		Spinner:
+		PickSpinner:
 			id: zprojection_method_spinner
-			on_text: root.log_zprojection_method()
+			log_name: 'ZPROJECTION_METHOD'
+			text_follows_pick: True
 			sync_height: True
 	        text: 'Select'
 			font_size:'12sp'
 			option_cls: "SpinnerOption0"
-			text_autoupdate: True
 			values: '',
 			text: ''
 
@@ -1895,7 +2044,7 @@
 	orientation: 'vertical'
 	size_hint_y: None
 	height: self.minimum_height
-	disabled: app.run_lockout
+	disabled: app.lock.run_lockout
 
 	# Pad
 	Widget:
@@ -1903,7 +2052,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Create fluorescence composites'
+		text: 'Create Composites...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Combine fluorescence images and one transmitted image in Protocol data folder'
 		size_hint_y: None
 		height: '30dp'
@@ -1919,7 +2070,7 @@
 	height: self.minimum_height
 	padding: '8dp'
 	spacing: '6dp'
-	disabled: app.run_lockout or root.busy
+	disabled: app.lock.run_lockout or root.busy
 	canvas.before:
 		Color:
 			rgba: 0.08, 0.11, 0.14, 1
@@ -1928,19 +2079,21 @@
 			size: self.width - dp(4), self.height - dp(4)
 			radius: [dp(8)]
 
-	FileOrFolderChooseBTN:
-		text: 'Enhance'
+	FileChooseBTN:
+		text: 'Enhance image...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		size_hint_y: None
 		height: '38dp'
-		on_release: self.choose('choose_quick_enhance_target')
-	Label:
-		text: root.status_text
-		font_size: '10sp'
-		text_size: self.width - dp(16), None
+		on_release: self.choose('load_quick_enhance_input_image')
+
+	FolderChooseBTN:
+		text: 'Enhance folder...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		size_hint_y: None
-		height: self.texture_size[1] + dp(12)
-		halign: 'left'
-		valign: 'middle'
+		height: '38dp'
+		on_release: self.choose('apply_quick_enhance_to_folder')
 
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'
@@ -2005,7 +2158,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
-    disabled: app.controls_locked
+    disabled: app.lock.controls_locked
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2122,6 +2275,8 @@
 
 					RoundedButton:
 						text:'Analyze'
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
 						size_hint_y: None
 						height: '30dp'
 						font_size: '12sp'
@@ -2135,6 +2290,8 @@
 
 					RoundedButton:
 						text: 'Plot'
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
 						size_hint_y: None
 						height: '30dp'
 						font_size: '12sp'
@@ -2150,71 +2307,27 @@
 			rectangle: (self.x, self.y, self.width, self.height)
 
 
-<AccordionItemImageSettingsBlueControl>:
-	id: Blue_accordion
+# ChannelDrawer - one layer's drawer, the same for every catalogue key;
+# ImageSettings.show_drawers fills in its record.
+# ------------------------------------------
+<ChannelDrawer>:
 	log_group: 'IMAGE_LAYER'
-	log_item: 'Blue'
-	title: 'Blue Channel Control'
-	on_collapse: root.accordion_collapse()
+	# A run moves the shown channel; a person opens a drawer between runs.
+	disabled: app.lock.run_lockout
+	log_item: root.layer
+	# A swatch of the layer's colour before its label, drawn over the title bar:
+	# a rounded rectangle with the buttons' corner radius.
+	canvas.after:
+		Color:
+			rgba: self.color_rgba
+		RoundedRectangle:
+			pos: (self.container_title.x + dp(10), self.container_title.center_y - dp(8)) if self.container_title else (0, 0)
+			size: (dp(28), dp(16)) if self.container_title else (0, 0)
+			radius: [dp(6)]
 	LayerControl:
-		id: Blue
-		layer: 'Blue'
-		bg_color: 0, .5, 1, 1
-		stimulation_support: True
-
-<AccordionItemImageSettingsGreenControl>:
-	id: Green_accordion
-	log_group: 'IMAGE_LAYER'
-	log_item: 'Green'
-	title: 'Green Channel Control'
-	on_collapse: root.accordion_collapse()
-	LayerControl:
-		id: Green
-		layer: 'Green'
-		bg_color: .2, 0.8, 0.2, 1
-		stimulation_support: True
-
-<AccordionItemImageSettingsRedControl>:
-	id: Red_accordion
-	log_group: 'IMAGE_LAYER'
-	log_item: 'Red'
-	title: 'Red Channel Control'
-	on_collapse: root.accordion_collapse()
-	collapse: False
-	LayerControl:
-		id: Red
-		layer: 'Red'
-		bg_color: 1, 0.2, 0, 1
-		stimulation_support: True
-
-<AccordionItemImageSettingsDfControl>:
-	id: DF_accordion
-	log_group: 'IMAGE_LAYER'
-	log_item: 'DF'
-	title: 'Low Mag Darkfield Control'
-	on_collapse: root.accordion_collapse()
-	LayerControl:
-		id: DF
-		layer: 'DF'
-		bg_color: 0.5, 0.5, 0.5,  1
-		stimulation_support: False
-
-
-<AccordionItemImageSettingsLumiControl>:
-	id: Lumi_accordion
-	log_group: 'IMAGE_LAYER'
-	log_item: 'Lumi'
-	title: 'Luminescence Control'
-	on_collapse: root.accordion_collapse()
-	collapse: False
-	LayerControl:
-		id: Lumi
-		layer: 'Lumi'
-		illumination_support: False
-		stimulation_support: False
-		autogain_support: False
-		exposure_summing_support: True
-		bg_color: 0, .5, 1, 1
+		id: control
+		layer: root.layer
+		bg_color: root.chrome_rgba
 
 
 # ImageSettings - view and edit control accordion
@@ -2245,31 +2358,7 @@
     Accordion:
         orientation: 'vertical'
         id: accordion_id
-        disabled: app.controls_locked
-
-        # BRIGHTFIELD SETTINGS
-        LoggedAccordionItem:
-			id: BF_accordion
-			log_group: 'IMAGE_LAYER'
-			log_item: 'BF'
-            title: 'Brightfield Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: BF
-                layer: 'BF'
-                bg_color: 0.5, 0.5, 0.5,  1
-
-       # PHASE CONTRAST SETTINGS
-        LoggedAccordionItem:
-			id: PC_accordion
-			log_group: 'IMAGE_LAYER'
-			log_item: 'PC'
-            title: 'Phase Contrast Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: PC
-                layer: 'PC'
-                bg_color: 0.5, 0.5, 0.5,  1
+        disabled: app.lock.controls_locked
 
 
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
@@ -2281,7 +2370,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
-    disabled: app.controls_locked
+    disabled: app.lock.controls_locked
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2329,15 +2418,15 @@
 					width: '80dp'
 					text_size: self.size
 
-				TextInput:
+				CommitInput:
 					id: frame_width_id
-					disabled: app.run_lockout or not root.camera_connected
+					disabled: app.lock.run_lockout or not root.camera_connected
 					multiline: False
 					padding: ['2dp', (self.height-self.line_height)/2]
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_focus: if not self.focus: root.frame_size('frame_width_id')
+					on_commit: root.frame_size('frame_width_id')
 					font_size: '12sp'
 				Label:
 					text: 'x'
@@ -2346,15 +2435,15 @@
 					width: '15dp'
 					font_size: '12sp'
 					halign: 'center'
-				TextInput:
+				CommitInput:
 					id: frame_height_id
-					disabled: app.run_lockout or not root.camera_connected
+					disabled: app.lock.run_lockout or not root.camera_connected
 					multiline: False
 					padding: ['5dp', (self.height-self.line_height)/2]
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_focus: if not self.focus: root.frame_size('frame_height_id')
+					on_commit: root.frame_size('frame_height_id')
 					font_size: '12sp'
 			
 			# Field of View
@@ -2412,16 +2501,15 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: live_image_output_format_spinner
-					disabled: app.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
+					log_name: 'LIVE_IMAGE_OUTPUT_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_live_image_output_format()
-					values: ('TIFF', 'OME-TIFF', 'JPG')
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2429,21 +2517,20 @@
 				height: '30dp'
 				Label:
 					text: 'Sequenced Image Format'
-					tooltip_text: 'Choose between TIFF, OME-TIFF,\nOME-TIFF Hyperstack, or JPG\nfor Protocol image capture.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
+					tooltip_text: 'Choose between TIFF, OME-TIFF,\nHyperstack, or JPG\nfor Protocol image capture.\nHyperstack saves each well as one\nOME-TIFF stack after the run.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: sequenced_image_output_format_spinner
-					disabled: app.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
+					log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_sequenced_image_output_format()
-					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack', 'JPG')
 
 			BoxLayout:
 				id: jpg_quality_row
@@ -2467,7 +2554,6 @@
 					size_hint_x: 0.5
 				ModSlider:
 					id: jpg_quality_slider
-					disabled: app.run_lockout
 					min: 0
 					max: 100
 					step: 5
@@ -2475,10 +2561,10 @@
 					size_hint_x: 0.4
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_width: dp(5)
 					on_value: root.update_jpg_quality(self.value)
+					on_release: root.record_jpg_quality(self.value)
 				Label:
 					id: jpg_quality_value_label
 					text: '90'
@@ -2497,14 +2583,15 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: video_recording_format_spinner
-					disabled: app.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
+					log_name: 'VIDEO_RECORDING_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_video_recording_format()
 					values: ('mp4', 'Frames')
 
@@ -2519,14 +2606,16 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				Spinner:
+				PickSpinner:
 					id: image_mode_spinner
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size: '12sp'
 					option_cls: "SpinnerOption0"
 					on_release: root.load_image_modes()
+					log_name: 'IMAGE_MODE'
+					text_follows_pick: True
 					on_text: root.select_image_mode()
 
 			BoxLayout:
@@ -2558,9 +2647,9 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: binning_spinner
-					disabled: app.run_lockout or not root.camera_connected
+					disabled: app.lock.run_lockout or not root.camera_connected
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
@@ -2570,6 +2659,8 @@
 					# .text to the alphabetically-first entry and fire on_text
 					# with the wrong selection.
 					on_release: root.load_binning_sizes()
+					log_name: 'BINNING'
+					text_follows_pick: True
 					on_text: root.select_binning_size()
 
 			BoxLayout:
@@ -2604,9 +2695,8 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_scale_bar_btn
-					disabled: app.run_lockout
 					tooltip_text: 'Show scale bar in lower right corner of image'
 					size_hint: None, None
 					size: '45dp', '30dp'
@@ -2628,9 +2718,9 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_crosshairs_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
 					size_hint: None, None
 					size: '45dp', '30dp'
@@ -2652,9 +2742,9 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_live_image_histogram_equalization_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
 					size_hint: None, None
 					size: '45dp', '30dp'
@@ -2677,7 +2767,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: show_tooltips_btn
 					size_hint: None, None
 					tooltip_text: 'Display hint while hovering over controls'
@@ -2707,7 +2797,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_bullseye_btn_id
 					size_hint: None, None
 					size: '45dp', '30dp'
@@ -2717,9 +2807,8 @@
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bullseye_state()
 
-			# Panel action buttons, stacked vertically and held to a uniform
-			# narrower width so 'Generate Support Report' reads fully at 12sp
-			# without each button spanning the full panel.
+			# Panel action buttons, stacked vertically, each alone in its row
+			# and so at NARROW_WIDTH.
 			BoxLayout:
 				orientation: 'vertical'
 				size_hint_y: None
@@ -2730,25 +2819,23 @@
 					id: btn_advanced_settings
 					text: 'Advanced Settings'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.open_advanced_settings()
 				RoundedButton:
 					id: btn_support_report
 					text: 'Generate Support Report'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.generate_support_report()
 				RoundedButton:
 					id: btn_zip_logs
 					text: 'Zip Logs Only'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.zip_logs_only()
-
-			Label:
 
 # LayerControl - Settings for Layers within ImageSettings
 # ------------------------------------------
@@ -2811,16 +2898,18 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_led_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint: None, None
 					tooltip_text: 'Turn on channel LED'
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
 					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleR.png'
+					# One white image, lit in the layer's colour while on.
+					background_down: './data/icons/ToggleRW.png'
+					icon_tint: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
 					on_release: root.led_toggle()
 
 			BoxLayout:
@@ -2834,31 +2923,30 @@
 				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
-					text: 'Illumination (mA)'
+					text: 'LED (mA)'
 					halign: 'left'
 					tooltip_text: 'Adjust LED brightness'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: ill_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 0.
 					max: 500.
 					value: 100.
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.ill_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: ill_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -2866,7 +2954,7 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_focus: if not self.focus: root.ill_text()
+					on_commit: root.ill_text()
 
 			# Stimulation
 			Label:
@@ -2902,7 +2990,7 @@
 				
 				CheckBox:
 					id: stim_enable_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					group: f'{root.layer}_stim_group'
 					size_hint_x: None
 					width: '30dp'
@@ -2918,7 +3006,7 @@
 
 				CheckBox:
 					id: stim_disable_btn
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					group: f'{root.layer}_stim_group'
 					size_hint_x: None
 					width: '30dp'
@@ -2944,30 +3032,30 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Brightness (mA)'
+					text: 'Stim (mA)'
+					tooltip_text: 'Stimulation brightness (mA)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_ill_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 0
 					max: 500
 					value: 100
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_ill_slider()
-				TextInput:
+				CommitInput:
 					id: stim_ill_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -2976,7 +3064,7 @@
 					halign: 'right'
 					input_filter: 'int'
 					text: str(int(stim_ill_slider.value))
-					on_focus: if not self.focus: root.stim_ill_text()
+					on_commit: root.stim_ill_text()
 
 			BoxLayout:
 				id: stim_freq_box
@@ -2990,30 +3078,30 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Frequency (Hz)'
+					text: 'Freq (Hz)'
+					tooltip_text: 'Frequency (Hz)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_freq_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 0.5
 					max: 6.
 					value: 1.
 					step: 0.25
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_freq_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_freq_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3022,7 +3110,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_freq_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_freq_text()
+					on_commit: root.stim_freq_text()
 
 			BoxLayout:
 				id: stim_pulse_width_box
@@ -3036,30 +3124,30 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Pulse Width (ms)'
+					text: 'Width (ms)'
+					tooltip_text: 'Pulse width (ms)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_pulse_width_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 5
 					max: 25.
 					value: 10.
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_pulse_width_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_pulse_width_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3068,7 +3156,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_width_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_pulse_width_text()
+					on_commit: root.stim_pulse_width_text()
 
 			
 			BoxLayout:
@@ -3083,30 +3171,30 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Pulse Count'
+					text: 'Pulses'
+					tooltip_text: 'Pulse count'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_pulse_count_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 1
 					max: 300
 					value: 1
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_pulse_count_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_pulse_count_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3115,7 +3203,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_count_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_pulse_count_text()
+					on_commit: root.stim_pulse_count_text()
 
 			# Camera
 			Label:
@@ -3148,7 +3236,7 @@
 
 				CheckBox:
 					id: auto_gain
-					disabled: app.run_lockout or not root.camera_connected
+					disabled: app.lock.run_lockout or not root.camera_connected
 					size_hint_x: None
 					width: '25dp'
 					tooltip_text: 'Turn on autogain/exposure for this channel\nillumination should be between 10-30 for transmitted channels\nand 50-400 for fluorescence channels'
@@ -3184,25 +3272,24 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: gain_slider # 0 to 48, default 0, based on camera limits
-					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
+					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					min: 0.
 					max: 48.
 					value: 0.
 					step: 0.1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.gain_slider()
-				TextInput:
+				CommitInput:
 					id: gain_text
-					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
+					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3210,7 +3297,7 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_focus: if not self.focus: root.gain_text()
+					on_commit: root.gain_text()
 
 			# Exposure
 			BoxLayout:
@@ -3224,17 +3311,17 @@
 				visible: True if root.show_camera_controls else False
 
 				Label:
-					text: 'Exposure (ms)'
+					text: 'Exp (ms)'
 					tooltip_text: 'Adjust camera exposure setting'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: exp_slider
-					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
+					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					min: 0.01
 					max: 1000. # values are in ms
 					value: 100.
@@ -3246,14 +3333,13 @@
 					# step: 0.01
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.exp_slider()
-				TextInput:
+				CommitInput:
 					id: exp_text
-					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
+					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3262,7 +3348,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					# text: format(10 ** exp_slider.value, '.3g')
-					on_focus: if not self.focus: root.exp_text()
+					on_commit: root.exp_text()
 				
 			# Exposure Summing
 			BoxLayout:
@@ -3281,25 +3367,24 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '80dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: sum_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 1
 					max: 100
 					value: 1
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.sum_slider()
-				TextInput:
+				CommitInput:
 					id: sum_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3308,7 +3393,7 @@
 					halign: 'right'
 					input_filter: "int"
 					text: "{:d}".format(int(sum_slider.value))
-					on_focus: if not self.focus: root.sum_text()
+					on_commit: root.sum_text()
 
 			BoxLayout:
 				id: sum_depth_hint_row
@@ -3366,7 +3451,7 @@
 					font_size: '12sp'
 					text: 'Save Focus'
 					tooltip_text: 'Save the current focus for this channel and write it to the selected protocol step'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: root.save_focus()
 				RoundedButton:
 					size_hint_y: None
@@ -3374,15 +3459,15 @@
 					font_size: '12sp'
 					text: 'Go to Focus'
 					tooltip_text: 'Go to the previously saved focus'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: root.goto_focus()
 				RoundedButton:
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					text: 'Apply to Steps'
+					text: 'To All Steps'
 					tooltip_text: 'Set every protocol step in this channel to the current focus'
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					on_release: root.apply_focus_to_channel_steps()
 			
 			# Protocol Settings
@@ -3414,7 +3499,7 @@
 
 				CheckBox:
 					id: autofocus
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3463,25 +3548,24 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: video_duration_slider
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 1
 					max: 60
 					value: 5
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.video_duration_slider()
-				TextInput:
+				CommitInput:
 					id: video_duration_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3490,7 +3574,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(video_duration_slider.value, '.4g')
-					on_focus: if not self.focus: root.video_duration_text()
+					on_commit: root.video_duration_text()
 
 			# Acquire Settings
 			Label:
@@ -3522,7 +3606,7 @@
 				
 				CheckBox:
 					id: acquire_none
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					group: f'{root.layer}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
@@ -3540,7 +3624,7 @@
 
 				CheckBox:
 					id: acquire_image
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					group: f'{root.layer}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
@@ -3558,7 +3642,7 @@
 				
 				CheckBox:
 					id: acquire_video
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					group: f'{root.layer}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
@@ -3592,26 +3676,25 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '50dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 					tooltip_text: 'Minimum Composite Brightness Threshold for Composite acquisition'
 				ModSlider:
 					id: composite_threshold_slider # 0 to 100
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					min: 0.
 					max: 100.
 					value: 0.
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.composite_threshold_slider()
-				TextInput:
+				CommitInput:
 					id: composite_threshold_text
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3620,7 +3703,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(composite_threshold_slider.value, '.3g')
-					on_focus: if not self.focus: root.composite_threshold_text()
+					on_commit: root.composite_threshold_text()
 				
 			FloatLayout:
 				padding: '0dp'
@@ -3695,7 +3778,7 @@
 
 				CheckBox:
 					id: false_color
-					disabled: app.run_lockout
+					disabled: app.lock.run_lockout
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3743,7 +3826,7 @@
 
 <GraphingControls>:
 	orientation: 'horizontal'
-	disabled: app.run_lockout
+	disabled: app.lock.run_lockout
 
 	# Controls
 	BoxLayout:
@@ -3785,9 +3868,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: graph_title_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
+				on_commit: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
 				width: '80dp'
@@ -3816,9 +3899,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: x_axis_label_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
+				on_commit: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
 				width: '80dp'
@@ -3846,13 +3929,15 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			Spinner:
+			PickSpinner:
 				id: graphing_x_axis_spinner
 				sync_height: True
 				size_hint_y: None
 				font_size: '12sp'
 				height: '30dp'
 				text: 'X-Axis'
+				log_name: 'GRAPHING_X_AXIS'
+				text_follows_pick: True
 				on_text: root.set_x_axis()
 
 		# Pad
@@ -3875,9 +3960,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: y_axis_label_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
+				on_commit: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
 				width: '80dp'
@@ -3905,13 +3990,15 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			Spinner:
+			PickSpinner:
 				id: graphing_y_axis_spinner
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Y-Axis'
+				log_name: 'GRAPHING_Y_AXIS'
+				text_follows_pick: True
 				on_text: root.set_y_axis()
 
 		# Pad
@@ -3934,15 +4021,16 @@
 				font_size: '12sp'
 				halign: 'left'
 			
-			Spinner:
+			PickSpinner:
 				id: trendline_spinner
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: ''
+				log_name: 'TRENDLINE'
+				text_follows_pick: True
 				on_text: root.update_trendline()
-				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
 
 		# Pad
 		Widget:
@@ -3977,7 +4065,7 @@
 
 <CellCountControls>:
 	orientation: 'horizontal'
-	disabled: app.run_lockout
+	disabled: app.lock.run_lockout
 
 	# Controls
 	BoxLayout:
@@ -3992,7 +4080,7 @@
 		# Select image to load
 		FileChooseBTN:
 			text: 'Load Image'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Select example image to configure analysis settings'
 			size_hint_y: None
@@ -4020,9 +4108,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: text_cell_count_pixels_per_um_id
-				on_focus: if not self.focus: root.commit_pixels_per_um()
+				on_commit: root.commit_pixels_per_um()
 				valign: 'center'
 				text: ''
 				hint_text: 'image'
@@ -4085,7 +4173,6 @@
 					orientation: 'horizontal'
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
 					value_track: True
 					value_track_width: dp(5)
 					on_release: root.slider_adjustment_threshold()
@@ -4265,7 +4352,7 @@
 			
 		RoundedButton:
 			text: 'Apply Method to Preview'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Re-analyze image with new settings'
 			size_hint_y: None
@@ -4276,7 +4363,7 @@
 		# Save method
 		FileSaveBTN:
 			text: 'Save Method As...'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Store analysis settings in a Method file'
 			size_hint_y: None
@@ -4288,7 +4375,7 @@
 		# Select method to load
 		FileChooseBTN:
 			text: 'Load Method'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Retrieve a saved analysis Method'
 			size_hint_y: None
@@ -4299,7 +4386,7 @@
 		# Apply method
 		FolderChooseBTN:
 			text: 'Apply Method to Folder'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Analyze all images in a folder according to the current Method'
 			size_hint_y: None

@@ -17,9 +17,9 @@ try:
     banner('create_protocol with NO channel enabled')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -37,11 +37,11 @@ try:
 
     runner = ProtocolRunner(session)
     try:
-        out = runner.run_single_scan(
+        out = runner.start_single_scan(
             p,
             sequence_name='empty',
         )
-        print('NO RAISE:', out.wait(timeout_s=60))
+        print('NO RAISE:', out.result(timeout=60))
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e} | reason={getattr(e, "reason", None)}')
 
@@ -49,7 +49,7 @@ try:
     import pathlib
     import modules.lumascope_api.protocols as pmod
 
-    src = pathlib.Path(pmod.__file__).read_text()
+    src = pathlib.Path(pmod.__file__).read_text(encoding='utf-8')
     print(
         'create_protocol body calls the rule:',
         'refuse_unaddressable_objectives'

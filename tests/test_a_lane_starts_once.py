@@ -12,11 +12,12 @@ import threading
 
 import pytest
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 def _lane(name):
-    lane = SequentialIOExecutor(name=name)
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name=name)
     lane.start()
     return lane
 

@@ -28,7 +28,6 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 def _prepare(executor, parent_dir, sequence_name):
     return executor.prepare(
         protocol=_make_single_step_protocol(),
-        run_trigger_source='api_scan',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name=sequence_name,
         image_capture_config=_make_image_capture_config(),

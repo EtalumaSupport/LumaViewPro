@@ -3,8 +3,8 @@
 E2E: a manual recording on the real simulated stack ends within the
 stall bound when the feed silently dies -- with NO host pump at all.
 
-Production-path injection: stop_streaming halts the sim camera's
-callback pump WITHOUT flipping active_cached -- the silent-stall shape.
+Production-path injection: disable_streaming halts the sim camera's
+callback pump WITHOUT flipping active -- the silent-stall shape.
 The controller's self-armed health check (real timer scheduler, the
 same one a headless host gets) must stop the recording, keep the
 frames, and record camera_stalled in the manifest. The wait loop below
@@ -19,6 +19,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
+from modules.layer_record import release_colors
 from modules.manual_recording import ManualRecordingController
 from modules.scheduler import ThreadingTimerScheduler
 from tests.scope_fakes import bind_settings_like_a_session
@@ -26,7 +27,9 @@ from tests.settings_fixtures import complete_settings
 
 
 @pytest.mark.slow
-def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
+def test_manual_recording_ends_within_the_stall_bound(
+    sim_scope, tmp_path, monkeypatch, post_processing
+):
     # The disk probe would report this machine's free space; report ample
     # free disk instead so the stall bound is the only thing under test.
     monkeypatch.setattr(
@@ -38,11 +41,17 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     settings = complete_settings(
         live_folder=str(tmp_path),
         video_as_frames=True,
-        video={'max_fps': 0, 'max_duration_seconds': 60, 'timestamp_overlay': False},
+        video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
     )
     scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(
-        scope=sim_scope, settings=settings, activity_claim=ActivityClaim(), scheduler=scheduler
+        scope=sim_scope,
+        settings_snapshot=lambda: settings,
+        shown_layer=lambda: 'BF',
+        channel_colors=release_colors,
+        activity_claim=ActivityClaim(),
+        scheduler=scheduler,
+        post_processing=post_processing,
     )
     controller.start()
     # The feed dies only once the recording has a frame on disk to keep.
@@ -55,7 +64,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     assert list(controller.save_folder.glob('ManualVideo_Frame_*.tiff')), (
         'precondition: the recording wrote a frame before the feed died'
     )
-    sim_scope.imaging.stop_streaming()
+    sim_scope.imaging.disable_streaming()
 
     deadline = time.monotonic() + 30.0
     while controller.is_recording and time.monotonic() < deadline:

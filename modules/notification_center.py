@@ -24,10 +24,10 @@ import itertools
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 
 from lib import profile_trace
 from modules.exceptions import (
@@ -37,7 +37,7 @@ from modules.exceptions import (
     RefusalCause,
     Remedy,
 )
-from modules.api_surface import api_fields
+from modules.api_surface import api, api_fields
 
 logger = logging.getLogger('LVP.notifications')
 # The reporter's own record -- what happened, with the traceback when it is
@@ -47,6 +47,8 @@ logger = logging.getLogger('LVP.notifications')
 _outcome_logger = logging.getLogger('LVP.outcomes')
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
+# The heading of a fault whose type declares none, where no catch names one.
+UNTYPED_FAULT_TITLE = 'Operation failed'
 
 # Set on an exception object once each half of its report is done, so the
 # same object reported again -- by the lane that raised it and then by the
@@ -74,26 +76,49 @@ def _outcome_words(exception: BaseException) -> str:
         )
 
 
-class Severity(IntEnum):
-    """Notification severity levels (matches Python logging levels).
+class Severity(StrEnum):
+    """Notification severity, by its name; its logging level is ``level``.
 
     NOTICE sits between INFO and WARNING: user-facing status (start/done
     of a long unattended operation) that says so without misdeclaring
     itself as a fault. WARNING stays "something didn't work". The level
     says how a post is logged, not whether it is shown: ``shown`` on the
     notification says that.
+
+    Two severities are ordered by their levels, never by their names:
+    ``<``, ``<=``, ``>`` and ``>=`` raise, so an order read from the
+    strings cannot be written.
     """
 
-    DEBUG = logging.DEBUG  # 10
-    INFO = logging.INFO  # 20
-    NOTICE = 25
-    WARNING = logging.WARNING  # 30
-    ERROR = logging.ERROR  # 40
-    CRITICAL = logging.CRITICAL  # 50
+    DEBUG = 'DEBUG'
+    INFO = 'INFO'
+    NOTICE = 'NOTICE'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
+    CRITICAL = 'CRITICAL'
 
+    @property
+    def level(self) -> int:
+        """The Python logging level a post of this severity is logged at."""
+        return _LOGGING_LEVELS[self]
+
+    def _unordered(self, other: object) -> bool:
+        raise TypeError('a Severity is not ordered by its name; compare the two .level values')
+
+    __lt__ = __le__ = __gt__ = __ge__ = _unordered
+
+
+_LOGGING_LEVELS = {
+    Severity.DEBUG: logging.DEBUG,
+    Severity.INFO: logging.INFO,
+    Severity.NOTICE: 25,
+    Severity.WARNING: logging.WARNING,
+    Severity.ERROR: logging.ERROR,
+    Severity.CRITICAL: logging.CRITICAL,
+}
 
 # Name the custom level so log lines read 'NOTICE', not 'Level 25'.
-logging.addLevelName(int(Severity.NOTICE), 'NOTICE')
+logging.addLevelName(Severity.NOTICE.level, 'NOTICE')
 
 
 class OutcomeKind(StrEnum):
@@ -114,6 +139,7 @@ class OutcomeKind(StrEnum):
     UNCLASSIFIED = 'unclassified'
 
 
+@api_fields('kind', 'title', 'words', 'for_person', 'reason', 'remedy', 'fatal', 'cause')
 @dataclass(frozen=True)
 class Outcome:
     """What an exception's type says it is, read once for every host that answers it.
@@ -144,9 +170,23 @@ class Outcome:
     fatal: bool
     cause: RefusalCause | None = None
 
+    @property
+    def shown_words(self) -> str:
+        """What a person reads: ``words`` when written for one, else the generic sentence."""
+        return self.words if self.for_person else _UNTYPED_FAULT_BODY
 
+
+@api(in_process=True)
 def outcome_of(exception: BaseException) -> Outcome:
-    """What *exception* is, as its type says: the one reading of an outcome's kind and words."""
+    """What *exception* is, as its type says: the one reading of an outcome's kind and words.
+
+    Args:
+        exception: The exception to read, raised or not: any exception, a
+            cancellation and one the API does not declare included.
+
+    Raises:
+        Nothing.
+    """
     # Quiet first: a quiet outcome is never shown, whatever else its type is.
     if isinstance(exception, (Quiet, CancelledError)):
         kind = OutcomeKind.QUIET
@@ -195,7 +235,7 @@ def _next_outcome_id() -> int:
     'category',
     'title',
     'message',
-    'timestamp',
+    'monotonic_s',
     'source',
     'fatal',
     'solicited',
@@ -204,8 +244,9 @@ def _next_outcome_id() -> int:
     'kind',
     'outcome_id',
     'reason',
+    'cause',
     'shown',
-    'wall_time',
+    'wall_time_epoch_s',
 )
 @dataclass(frozen=True)
 class Notification:
@@ -217,13 +258,51 @@ class Notification:
     and the dedup window say no), so a listener that
     displays opens only the shown ones and a listener that records keeps
     them all.
+
+    Attributes:
+        severity: How the post is logged; ``shown`` says whether it is
+            displayed.
+        category: The part of the instrument it is about, such as
+            ``'Motor'``, ``'Camera'``, ``'FileIO'`` or ``'Protocol'``.
+        title: The short heading a person reads.
+        message: The words a person reads.
+        monotonic_s: When it was posted, on this process's monotonic clock,
+            in seconds: the order of two notifications within one process.
+        source: The module or function that posted it; empty when none was
+            named.
+        fatal: True for a fault that ended its operation: it reaches a person
+            even while an unattended run mutes the others.
+        solicited: True when it answers a request just made, a refused press
+            or call, so neither the unattended mute nor the repeat window
+            holds it back.
+        operation_key: The piece of work it is one of a sequence about, a
+            starting notice and the notice that answers it, so a display can
+            replace the earlier one; empty for a notification on its own.
+        remedy: The action that answers the outcome, offered to a person;
+            None when it has none.
+        kind: What the outcome is, read from its type; ``UNCLASSIFIED`` for a
+            post made with no outcome behind it.
+        outcome_id: The outcome's number: the same for both deliveries of one
+            outcome (muted, then shown when a person asks for it), different
+            for every other.
+        reason: The outcome's machine-readable code, read from its type;
+            empty for a post that declares none.
+        cause: Whether the same request could succeed later: the outcome's
+            ``Outcome.cause``, None where its type declares none (a fault
+            among them), and None for a post made with no outcome behind it.
+        shown: Whether it is for display now; False when shutdown, an
+            unattended run's mute, a run that already showed it, or the
+            repeat window holds it back. The window never holds back a
+            run's ending.
+        wall_time_epoch_s: When it was posted, in seconds since the epoch,
+            for a client in another process.
     """
 
     severity: Severity
     category: str  # e.g. "Motor", "Camera", "FileIO", "Protocol"
     title: str  # short summary shown in popup title
     message: str  # detail shown in popup body
-    timestamp: float = field(default_factory=time.monotonic)
+    monotonic_s: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
     fatal: bool = False  # reaches listeners even while a protocol suppresses popups
     # True when this notification ANSWERS a request that just arrived --
@@ -251,10 +330,11 @@ class Notification:
     # The outcome's machine-readable code, read from its type; empty for a
     # post that declares none.
     reason: str = ''
+    cause: RefusalCause | None = None
     shown: bool = True
-    # Wall-clock seconds, for a client in another process; ``timestamp`` is
-    # monotonic and orders two notifications within this one.
-    wall_time: float = field(default_factory=time.time)
+    # Wall-clock seconds, for a client in another process; ``monotonic_s``
+    # orders two notifications within this one.
+    wall_time_epoch_s: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -281,7 +361,7 @@ def _log_display_line(
 
     because = f' ({reason})' if reason else ''
     logger.log(
-        int(severity),
+        severity.level,
         f'[{category}] {gui_logger.one_line(title)}{because}: {gui_logger.one_line(message)}',
     )
 
@@ -298,7 +378,8 @@ class NotificationCenter:
     Deduplication: a notification with the same ``(category, title)`` as
     one shown within ``dedup_window_s`` is not shown. Every listener still
     receives it, with ``shown`` False, and the full message still goes to
-    the log file.
+    the log file. A run's ending is not held back by the window: each run
+    tells its ending once, so two same-titled endings are two runs.
     """
 
     def __init__(self, dedup_window_s: float = 10.0):
@@ -435,7 +516,9 @@ class NotificationCenter:
         fatal: bool = False,
         operation_key: str = '',
         solicited: bool = False,
+        ends_a_run: bool = False,
         reason: str = '',
+        cause: RefusalCause | None = None,
         remedy: Remedy | None = None,
         kind: OutcomeKind | None = None,
         outcome_id: int | None = None,
@@ -445,6 +528,7 @@ class NotificationCenter:
 
         ``notify()`` writes the display line first; ``report_outcome`` writes
         each outcome's one line itself, so an outcome is never logged twice.
+        ``ends_a_run`` is ``report_outcome``'s, and is described there.
         """
         from modules import gui_logger
 
@@ -461,7 +545,7 @@ class NotificationCenter:
             from modules import gui_logger
 
             gui_logger.notification(
-                severity.name if hasattr(severity, 'name') else str(severity),
+                severity,
                 f'{category}/{title}',
                 message,
                 source=source or '',
@@ -487,10 +571,14 @@ class NotificationCenter:
                 suppressed_reason = 'shown_this_run'
             else:
                 last = self._dedup.get(key, 0.0)
-                # The window still advances for a solicited notification, so a
-                # later unsolicited repeat of the same (category, title) is
-                # measured from the answer the user actually saw.
-                if not solicited and (now - last) < self._dedup_window_s:
+                # The window still advances for a solicited notification or a
+                # run's ending, so a later ordinary repeat of the same
+                # (category, title) is measured from the one the user saw.
+                # Neither repeats: a request asked twice is asked twice, and
+                # each run tells its ending once, so a second same-titled
+                # ending is another run's.
+                held_back_by_window = not solicited and not ends_a_run
+                if held_back_by_window and (now - last) < self._dedup_window_s:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
@@ -522,7 +610,7 @@ class NotificationCenter:
                     [
                         f'{time.time() * 1000.0:.3f}',
                         suppressed_reason,
-                        getattr(severity, 'name', severity),
+                        severity,
                         category,
                         title,
                         int(bool(fatal)),
@@ -531,13 +619,17 @@ class NotificationCenter:
                 )
 
         if kind is None:
-            kind = OutcomeKind.NOTICE if severity <= Severity.NOTICE else OutcomeKind.UNCLASSIFIED
+            kind = (
+                OutcomeKind.NOTICE
+                if severity.level <= Severity.NOTICE.level
+                else OutcomeKind.UNCLASSIFIED
+            )
         n = Notification(
             severity=severity,
             category=category,
             title=title,
             message=message,
-            timestamp=now,
+            monotonic_s=now,
             source=source,
             fatal=fatal,
             operation_key=operation_key,
@@ -546,10 +638,11 @@ class NotificationCenter:
             kind=kind,
             outcome_id=_next_outcome_id() if outcome_id is None else outcome_id,
             reason=reason,
+            cause=cause,
             shown=shown,
         )
         for min_sev, cb in listeners:
-            if severity >= min_sev:
+            if severity.level >= min_sev.level:
                 try:
                     cb(n)
                 except Exception:
@@ -561,6 +654,21 @@ class NotificationCenter:
                     )
         return shown
 
+    def tell_listeners(
+        self, listeners: Iterable[Callable[..., object]], *args: object, category: str
+    ) -> None:
+        """Call each listener with ``args``; report a listener's raise and tell the rest.
+
+        The one fan-out of a change to its listeners. No caller waits on a
+        listener, so a listener's fault ends its flight here, reported once
+        (``report_outcome``), and the listeners after it are still told.
+        """
+        for listener in listeners:
+            try:
+                listener(*args)
+            except Exception as ex:
+                self.report_outcome(ex, solicited=False, category=category)
+
     def report_outcome(
         self,
         exception: BaseException,
@@ -568,8 +676,9 @@ class NotificationCenter:
         solicited: bool,
         category: str,
         log_only: bool = False,
-        fault_title: str = 'Operation failed',
+        untyped_title: str = UNTYPED_FAULT_TITLE,
         operation_key: str = '',
+        ends_a_run: bool = False,
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
 
@@ -594,8 +703,11 @@ class NotificationCenter:
         shown as a warning and a notice as a notice, each under its
         ``title``; a fault as an error, or as critical when its type says
         ``fatal``, in its own words when its type writes them for a person
-        and in a generic sentence when it does not, under its ``title`` or
-        ``fault_title``. A quiet outcome is never shown. An outcome's
+        and in a generic sentence when it does not, under its ``title``. An
+        exception from outside the root -- Python's own, a library's -- has
+        no type of ours to carry a title, so it is shown under
+        ``untyped_title``, which the catch that knows where it happened
+        names. A quiet outcome is never shown. An outcome's
         ``remedy`` travels with it whatever its kind, and a fault whose type
         says ``fatal`` is shown even during an unattended run.
 
@@ -603,6 +715,13 @@ class NotificationCenter:
         earlier notice announced it, so the outcome replaces that notice
         instead of opening beside it. A refusal given none replaces the last
         refusal shown.
+
+        ``ends_a_run`` says this outcome is how a run ended, which only the
+        report site knows: one type can be a step's failure in a scan and the
+        whole ending of another run. A run tells its ending once, so the
+        repeat window does not hold it back, and a second run ending the same
+        way inside the window is still shown; shutdown, an unattended run's
+        mute and an attended run's shown-once judge it as any other post.
 
         Each half happens once per exception object, whoever reports it and
         from whichever thread. Shown once means delivered once: a post that
@@ -640,7 +759,7 @@ class NotificationCenter:
                     _outcome_logger.warning(f'[{category}] refused ({type_name}{because}): {words}')
             elif notice:
                 if not do_show:
-                    _outcome_logger.log(int(Severity.NOTICE), f'[{category}] {type_name}: {words}')
+                    _outcome_logger.log(Severity.NOTICE.level, f'[{category}] {type_name}: {words}')
             else:
                 because = f' ({reason})' if reason else ''
                 _outcome_logger.error(
@@ -657,8 +776,10 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.REFUSAL,
                 outcome_id=outcome_id,
@@ -671,15 +792,17 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.NOTICE,
                 outcome_id=outcome_id,
             )
         else:
-            body = words if outcome.for_person else _UNTYPED_FAULT_BODY
-            title = outcome.title or fault_title
+            body = outcome.shown_words
+            title = outcome.title or untyped_title
             fatal = outcome.fatal
             # The fault's one line is the reporter's, written above.
             delivered = self._deliver(
@@ -688,9 +811,11 @@ class NotificationCenter:
                 title,
                 body,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key,
                 fatal=fatal,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.FAULT,
                 outcome_id=outcome_id,

@@ -13,13 +13,17 @@ reached nobody but the log. Now a client subscribes on the Session (at
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
 
 import pytest
 
-from modules.exceptions import Notice, ProtocolRunRefusedError
+from modules.lumascope_api.illumination import LedReading, LedState
+
+from modules.exceptions import Notice, ProtocolRunRefusedError, RefusalCause
 from modules.notification_center import NotificationCenter, OutcomeKind, notifications
 from modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 
 @pytest.fixture
@@ -33,6 +37,7 @@ def session(tmp_path):
 
 class _PositionNotRecordedError(Notice, Exception):
     title = 'Position Not Recorded'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'probe_position_not_recorded': None}
 
 
 class _StreamStoppedError(Exception):
@@ -108,7 +113,7 @@ class TestBringUpIsHeard:
 class TestWhatASubscriberHears:
     def test_each_kind_arrives_declared(self, session):
         heard = _listening(session)
-        refusal = ProtocolRunRefusedError('empty_protocol', 'Protocol Empty', 'Add a step first.')
+        refusal = ProtocolRunRefusedError('empty_protocol', 'Add a step first.')
 
         notifications.report_outcome(refusal, solicited=True, category='Protocol')
         notifications.report_outcome(
@@ -120,7 +125,7 @@ class TestWhatASubscriberHears:
         notifications.warning('Camera', 'Raw', 'posted straight to the centre')
 
         assert [(n.title, n.kind) for n in heard] == [
-            ('Protocol Empty', OutcomeKind.REFUSAL),
+            ('No Steps', OutcomeKind.REFUSAL),
             ('Position Not Recorded', OutcomeKind.NOTICE),
             ('Operation failed', OutcomeKind.FAULT),
             ('Raw', OutcomeKind.UNCLASSIFIED),
@@ -220,14 +225,20 @@ class TestABrokenListenerIsLoud:
             ),
             (
                 lambda s, cb: s.scope.illumination.add_led_listener(cb),
-                lambda s: s.scope.illumination._fire_led_listeners('Red', True, 10.0),
+                lambda s: s.scope.illumination._fire_led_listeners(
+                    LedReading(2, LED2, LedState.LIT, 10.0)
+                ),
             ),
             (
-                lambda s, cb: s.scope.imaging.add_camera_listener(cb),
-                lambda s: s.scope.imaging._fire_camera_listeners('gain', 1.0),
+                lambda s, cb: s.scope.camera.add_gain_listener(cb),
+                lambda s: s.scope.camera._fire_gain_listeners(1.0),
+            ),
+            (
+                lambda s, cb: s.scope.camera.add_exposure_listener(cb),
+                lambda s: s.scope.camera._fire_exposure_listeners(1.0),
             ),
         ],
-        ids=['position', 'led', 'camera'],
+        ids=['position', 'led', 'gain', 'exposure'],
     )
     def test_a_raising_scope_listener_is_reported_once(self, session, add, fire):
         heard = _listening(session)

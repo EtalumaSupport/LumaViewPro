@@ -1,48 +1,25 @@
 # Copyright Etaluma, Inc.
 import logging
-import os
 import pathlib
 import subprocess
 import sys
 import threading
 import time
 
-from kivy.clock import Clock
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
+from ui.ui_helpers import run_reported
 import modules.app_context as _app_ctx
 from modules import gui_logger, image_utils
+from modules.kivy_utils import schedule_ui
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
 # Every picker of an image offers the images the readers take, from their one
 # list, so no picker can offer less than the work it feeds accepts.
 _IMAGE_FILETYPES = [('Images', ' '.join(sorted(image_utils.IMAGE_SUFFIXES)))]
-
-
-# Folder-picker contexts that hand work to the file IO executor for
-# post-processing. The executor refuses new work while a protocol owns it,
-# so these are blocked up front with a message -- otherwise the action's
-# progress popup opens but never completes (the task is silently dropped).
-# The disabled buttons are the primary stop; this is the backstop for any
-# path that reaches the funnel anyway (e.g. an async dialog callback).
-_POST_PROCESSING_CONTEXTS = (
-    'apply_cell_count_method_to_folder',
-    'apply_stitching_to_folder',
-    'apply_composite_gen_to_folder',
-    'apply_video_gen_to_folder',
-    'apply_zprojection_to_folder',
-    'apply_quick_enhance_to_folder',
-)
-# The FILE-choose funnel needs the same backstop. The Quick Enhance preview
-# marks its panel busy BEFORE an executor put() that the file executor
-# silently drops while a protocol owns it -- the preview callback then never
-# fires, busy sticks True, and the panel's disabled binding wedges until
-# restart. The other file contexts run synchronously on selection and cannot
-# wedge, so only the executor-backed one is listed.
-_POST_PROCESSING_FILE_CONTEXTS = ('choose_quick_enhance_target',)
 
 
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
@@ -175,15 +152,6 @@ def _macos_choose_folder(initial_dir=None):
     return _osascript_choice(script)
 
 
-def _macos_choose_file_or_folder(initial_dir=None):
-    """Show one native macOS picker that accepts either an image or a folder."""
-    script = 'set theItem to choose file or folder'
-    if initial_dir:
-        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
-    script += '\nPOSIX path of theItem'
-    return _osascript_choice(script)
-
-
 def _foregrounded_tk_root():
     """Build the invisible Tk root a tkinter picker parents to, foregrounded.
 
@@ -259,68 +227,17 @@ def _platform_native_open_file(initial_dir, filetypes):
     return path or None
 
 
-def _platform_native_choose_file_or_folder(initial_dir, filetypes):
-    """Return one user-chosen file or folder on every supported platform.
-
-    Cocoa has a single native panel for both target kinds. Tk does not, so
-    Windows/Linux present one modal image/folder/cancel choice followed by
-    the matching native picker. The LVP panel remains a single visible action.
-    """
-    if sys.platform == 'darwin':
-        return _macos_choose_file_or_folder(initial_dir=initial_dir)
-
-    from tkinter import Button as TkButton
-    from tkinter import Frame, Label, Toplevel, filedialog
-
-    root = _foregrounded_tk_root()
-    try:
-        choice = {'value': None}
-
-        def select(value):
-            choice['value'] = value
-            dialog.destroy()
-
-        dialog = Toplevel(root)
-        dialog.title('Enhance')
-        dialog.transient(root)
-        dialog.resizable(False, False)
-        dialog.protocol('WM_DELETE_WINDOW', lambda: select(None))
-        Label(dialog, text='Choose image or folder').pack(padx=24, pady=(20, 12))
-        buttons = Frame(dialog)
-        TkButton(buttons, text='Image', command=lambda: select(True)).pack(side='left', padx=4)
-        TkButton(buttons, text='Folder', command=lambda: select(False)).pack(side='left', padx=4)
-        TkButton(buttons, text='Cancel', command=lambda: select(None)).pack(side='left', padx=4)
-        buttons.pack(padx=16, pady=(0, 16))
-        dialog.wait_visibility()
-        dialog.grab_set()
-        dialog.wait_window()
-        choose_file = choice['value']
-        if choose_file is True:
-            path = filedialog.askopenfilename(
-                parent=root,
-                initialdir=initial_dir,
-                filetypes=filetypes,
-            )
-        elif choose_file is False:
-            path = filedialog.askdirectory(
-                parent=root,
-                initialdir=initial_dir,
-                title='Select folder to enhance',
-            )
-        else:
-            path = ''
-    finally:
-        root.destroy()
-    return path or None
-
-
 def _platform_native_save_file(initial_dir, filetypes):
     """Platform-native save-file picker (blocking). Returns path or None.
 
+    The picker is told the extension of the first file type, so it adds it
+    to a name typed without it and asks before replacing a file of that
+    full name: the writer writes the name returned and adds nothing.
     Call only from _run_native_dialog_async's worker.
     """
+    extension = filetypes[0][1]
     if sys.platform == 'darwin':
-        return _macos_save_file(initial_dir=initial_dir)
+        return _macos_save_file(initial_dir=initial_dir, extension=extension)
 
     from tkinter import filedialog
 
@@ -330,23 +247,44 @@ def _platform_native_save_file(initial_dir, filetypes):
             parent=root,
             initialdir=initial_dir,
             filetypes=filetypes,
+            defaultextension=extension,
         )
     finally:
         root.destroy()
     return path or None
 
 
-def _macos_save_file(initial_dir=None, default_name=None):
-    """Show a native macOS save-file dialog. Returns path string or None."""
-    script = 'set theFile to choose file name'
-    clauses = []
+def _macos_save_file(initial_dir, extension):
+    """Show a native macOS save panel for files of ``extension``. Returns path string or None.
+
+    AppleScript's ``choose file name`` takes no file type, so it returned a
+    name typed without the extension as typed, having asked about replacing
+    a file of that bare name only. An NSSavePanel restricted to the type
+    adds the extension and asks about the full name. A cancel is raised as
+    error -128, the cancel ``_osascript_choice`` reads.
+    """
+    script = (
+        'use framework "AppKit"\n'
+        'use framework "UniformTypeIdentifiers"\n'
+        'use scripting additions\n'
+        "set theApp to current application's NSApplication's sharedApplication()\n"
+        "theApp's setActivationPolicy:(current application's "
+        'NSApplicationActivationPolicyAccessory)\n'
+        "theApp's activateIgnoringOtherApps:true\n"
+        "set thePanel to current application's NSSavePanel's savePanel()\n"
+        "thePanel's setAllowedContentTypes:{current application's UTType's "
+        f'typeWithFilenameExtension:"{_escape_applescript(extension.lstrip("."))}"}}\n'
+    )
     if initial_dir:
-        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
-    if default_name:
-        clauses.append(f'default name "{_escape_applescript(default_name)}"')
-    if clauses:
-        script += ' ' + ' '.join(clauses)
-    script += '\nPOSIX path of theFile'
+        script += (
+            "thePanel's setDirectoryURL:(current application's NSURL's "
+            f'fileURLWithPath:"{_escape_applescript(initial_dir)}")\n'
+        )
+    script += (
+        "if (thePanel's runModal()) is not (current application's NSModalResponseOK) then "
+        'error number -128\n'
+        "return (thePanel's |URL|()'s |path|()) as text"
+    )
     return _osascript_choice(script)
 
 
@@ -411,7 +349,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
 
     dialog_fn runs on a daemon worker thread (the tkinter primitives keep
     their Tk root confined to that thread) and the chosen path is marshalled
-    back to the main thread via Clock before on_path runs. on_path is
+    back to the main thread (schedule_ui) before on_path runs. on_path is
     invoked only for a non-empty selection; a cancel calls on_cancel, which
     records it under the button's own record name. The guard clears ONLY in the
     delivery step, so a second dialog can never open before the first
@@ -483,7 +421,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
                     error,
                     solicited=True,
                     category=f'UI:FILE_DIALOG:{context}',
-                    fault_title='File Dialog Failed',
+                    untyped_title='File Dialog Failed',
                 )
                 return
             if result:
@@ -491,7 +429,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
             else:
                 on_cancel()
 
-        Clock.schedule_once(deliver, 0)
+        schedule_ui(deliver)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -541,17 +479,6 @@ class FileChooseBTN(HoverBehavior, Button):
             gui_logger.select('FILE_CHOOSE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
-        if self.context in _POST_PROCESSING_FILE_CONTEXTS and ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in '
-                'progress. Stop or finish the protocol first, then retry.',
-            )
-            return
-
         if self.selection:
             if self.context == 'load_protocol':
                 ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
@@ -569,55 +496,6 @@ class FileChooseBTN(HoverBehavior, Button):
 
             elif self.context == 'load_cell_count_method':
                 ctx.cell_count_content.load_method_from_file(file=self.selection[0])
-
-
-class FileOrFolderChooseBTN(HoverBehavior, Button):
-    """One Enhance entry action that accepts either a supported image or a folder."""
-
-    context = StringProperty()
-    selection = ListProperty([])
-
-    def choose(self, context):
-        gui_logger.button('FILE_OR_FOLDER_CHOOSE_OPEN', f'context={context}')
-        logger.info(f'[LVP Main  ] FileOrFolderChooseBTN.choose({context})')
-        self.context = context
-        if context != 'choose_quick_enhance_target':
-            logger.error('Unsupported file-or-folder context: %s', context)
-            return
-
-        initial_dir = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
-        filetypes = _IMAGE_FILETYPES
-        _run_native_dialog_async(
-            self,
-            lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),
-            lambda path: self.handle_selection(selection=[path]),
-            on_cancel=lambda: gui_logger.select(
-                'FILE_OR_FOLDER_CHOOSE', f'context={context} cancelled'
-            ),
-        )
-
-    def handle_selection(self, selection):
-        if selection:
-            self.selection = selection
-            self.on_selection_function()
-
-    def on_selection_function(self, *a, **k):
-        if not self.selection:
-            return
-        path = pathlib.Path(self.selection[0])
-        gui_logger.select('FILE_OR_FOLDER_CHOOSE', f'context={self.context} path={path}')
-        ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in progress. '
-                'Stop or finish the protocol first, then retry.',
-            )
-            return
-        ctx.quick_enhance_controls.set_source(path)
 
 
 class FolderChooseBTN(HoverBehavior, Button):
@@ -686,19 +564,12 @@ class FolderChooseBTN(HoverBehavior, Button):
         else:
             return
 
-        if self.context in _POST_PROCESSING_CONTEXTS and ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in '
-                'progress. Stop or finish the protocol first, then retry.',
-            )
-            return
-
         if self.context == 'live_folder':
-            ctx.set_live_folder(str(pathlib.Path(path).resolve()))
+            run_reported(
+                lambda: ctx.set_live_folder(str(pathlib.Path(path).resolve())),
+                None,
+                'FOLDER_CHOOSE',
+            )
         elif self.context == 'apply_cell_count_method_to_folder':
             ctx.cell_count_content.apply_method_to_folder(path=path)
         elif self.context == 'apply_stitching_to_folder':
@@ -763,11 +634,7 @@ class FileSaveBTN(HoverBehavior, Button):
         elif self.context == 'save_graph':
             if self.selection:
                 ctx.graphing_controls.save_graph(filepath=self.selection[0])
-                logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
 
         elif self.context == 'saveas_cell_count_method' and self.selection:
             logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
-            filename = self.selection[0]
-            if os.path.splitext(filename)[1] == '':
-                filename += '.json'
-            ctx.cell_count_content.save_method_as(file=filename)
+            ctx.cell_count_content.save_method_as(file=self.selection[0])

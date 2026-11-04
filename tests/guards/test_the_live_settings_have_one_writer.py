@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 
 from tests.ast_seams import (
+    Words,
     iter_package_modules,
     parse_module,
     settings_store_aliases,
@@ -27,17 +28,14 @@ from tests.ast_seams import (
     walk_defs,
 )
 
-_MUTATORS = frozenset(
+_MUTATORS = Words(
     {'update', 'pop', 'setdefault', 'append', 'clear', 'extend', 'insert', 'remove', 'popitem'}
 )
 
-# Each a setting that is also an instrument state, or a write that carries a
-# decision; each moves to its own Session member and its count goes to 0.
-_DIRECT_WRITE_PIN = {
-    ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
-    ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
-    ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
-}
+# Every write above the Session goes through its writer; a site added
+# here is a direct write waiting for its Session member, lowered to 0 in
+# the commit that gives it one.
+_DIRECT_WRITE_PIN: dict[tuple[str, str], int] = {}
 
 
 def _direct_writes(fn: ast.AST) -> set[int]:
@@ -106,3 +104,19 @@ def test_nothing_above_the_session_writes_the_live_settings():
         f'direct writes into the live settings; call update_settings(path, value) instead: {over}'
     )
     assert not stale, f'lower the pin to the tree (pinned, found): {stale}'
+
+
+def test_inside_the_session_only_its_writer_writes_the_live_settings():
+    """Every Session write of the live settings goes through ``_store_setting``.
+
+    One writer is the one place a write can be marked for saving; a Session
+    member that subscripts ``self.settings`` itself is a write that place
+    never sees.
+    """
+    tree = parse_module('modules/scope_session.py')
+    found = {
+        qualname: sorted(lines)
+        for qualname, fn in walk_defs(tree.body)
+        if not qualname.endswith('._store_setting') and (lines := _direct_writes(fn))
+    }
+    assert not found, f'write through _store_setting instead (member: lines): {found}'

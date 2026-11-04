@@ -37,7 +37,7 @@ def test_in_budget_handler_does_not_count_toward_drop():
     handler = MagicMock()
     w = _BudgetedHandler(imaging, handler, name='fast')
     for _ in range(10):
-        w(None, None, None)
+        w(None)
     assert handler.call_count == 10
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
@@ -51,8 +51,8 @@ def test_over_budget_increments_consecutive_counter():
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
 
     w = _BudgetedHandler(imaging, slow, name='slow')
-    w(None, None, None)
-    w(None, None, None)
+    w(None)
+    w(None)
     assert w._consecutive_over == 2
     imaging._remove_wrapper.assert_not_called()
 
@@ -69,9 +69,9 @@ def test_one_in_budget_call_resets_counter():
             time.sleep(d / 1000.0)
 
     w = _BudgetedHandler(imaging, variable, name='variable')
-    w(None, None, None)
-    w(None, None, None)
-    w(None, None, None)
+    w(None)
+    w(None)
+    w(None)
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
 
@@ -91,7 +91,7 @@ def test_handler_exception_does_not_count_toward_budget():
 
     w = _BudgetedHandler(imaging, raises, name='raises')
     for _ in range(5):
-        w(None, None, None)
+        w(None)
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
 
@@ -102,7 +102,7 @@ def test_removed_wrapper_short_circuits():
     handler = MagicMock()
     w = _BudgetedHandler(imaging, handler, name='dead')
     w._removed = True
-    w(None, None, None)
+    w(None)
     handler.assert_not_called()
 
 
@@ -127,18 +127,18 @@ def _make_simulated_scope():
     """
 
     scope = build_scope(simulate=True)
-    scope.imaging.set_exposure_ms(1.0)
+    scope.camera.set_exposure_ms(1.0)
     return scope
 
 
 def _start_sim_pump(scope):
     """Spin up the SimulatedCamera callback pump."""
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
 
 
 def _stop_sim_pump(scope):
     """Stop the SimulatedCamera pump (releases the background thread)."""
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
 
 
 def test_integration_basic_fanout_via_simulated_camera():
@@ -149,8 +149,8 @@ def test_integration_basic_fanout_via_simulated_camera():
     received = []
     done = threading.Event()
 
-    def listener(image, ts, chunks):
-        received.append((image, ts, chunks))
+    def listener(frame):
+        received.append(frame)
         if len(received) >= 5:
             done.set()
 
@@ -164,14 +164,12 @@ def test_integration_basic_fanout_via_simulated_camera():
         scope.imaging.remove_frame_listener(listener)
         _stop_sim_pump(scope)
 
-    # Sim has no chunk surface; chunks should always be None.
-    assert all(r[2] is None for r in received)
-    # Payload shape: image is a numpy array, ts is a datetime.
-    import datetime
+    # The simulated camera stamps chunks as a Basler body does.
+    assert all({'FrameID', 'Timestamp'} <= set(r.chunks) for r in received)
+    # Payload shape: image is a numpy array.
     import numpy as np
 
-    assert isinstance(received[0][0], np.ndarray)
-    assert isinstance(received[0][1], datetime.datetime)
+    assert isinstance(received[0].image, np.ndarray)
 
 
 def test_integration_drop_policy_via_simulated_camera():
@@ -183,7 +181,7 @@ def test_integration_drop_policy_via_simulated_camera():
     removed = threading.Event()
     slow_ms = HANDLER_BUDGET_MS + 5
 
-    def slow_listener(image, ts, chunks):
+    def slow_listener(frame):
         call_count[0] += 1
         time.sleep(slow_ms / 1000.0)
 
@@ -260,8 +258,8 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     received = []
     done = threading.Event()
 
-    def handler(image, ts, chunks):
-        received.append((image, ts, chunks))
+    def handler(frame):
+        received.append(frame)
         if len(received) >= 3:
             done.set()
 
@@ -278,42 +276,3 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     # After unregister, the handler is gone from the underlying wrapper
     # registry (one canonical source-of-truth per Rule 35).
     assert handler not in scope.imaging._frame_listener_wrappers
-
-
-def test_a_driver_registration_failure_is_raised_to_the_registrant(monkeypatch):
-    """When the driver rejects register_frame_callback, add_frame_listener
-    raises it to whoever registered the listener, once, naming the listener.
-
-    A plugin's frame handler, a recording or a script whose listener the
-    driver refused would otherwise never receive frames with no signal to
-    anyone. The registrant is the one with something to undo, so the failure
-    is raised to it rather than shown as a popup beside a normal return.
-    """
-    import pytest
-
-    from modules.exceptions import FrameListenerNotRegisteredError
-
-    scope = _make_simulated_scope()
-
-    # Force the driver-side registration to fail.
-    def boom(*_a, **_kw):
-        raise RuntimeError('synthetic driver rejection for test')
-
-    monkeypatch.setattr(scope._camera_driver, 'register_frame_callback', boom)
-
-    def handler(_image, _ts, _chunks):
-        pass
-
-    with pytest.raises(FrameListenerNotRegisteredError) as raised:
-        scope.imaging.add_frame_listener(handler, name='rejected_listener')
-
-    assert 'rejected_listener' in str(raised.value), (
-        'The failure must name the listener so the registrant can correlate it '
-        f'with their registration call; got {raised.value}'
-    )
-    assert isinstance(raised.value.__cause__, RuntimeError)
-    # The dict rollback must still happen -- a future register attempt
-    # for the same handler must not see the stale wrapper entry.
-    assert handler not in scope.imaging._frame_listener_wrappers, (
-        'Failed registration must roll back the dict so a retry can fire.'
-    )

@@ -7,7 +7,8 @@ are display -- 8-bit grey, lossy, no metadata; data is a capture, a file
 in the live folder.
 
 One frame listener serves every watcher, attached while anyone watches. It
-keeps a copy of the newest frame and returns, on the camera's thread; each
+keeps the newest frame (the camera's read-only record, so no copy) and
+returns, on the camera's thread; each
 client encodes the newest frame when it is ready for one, so a slow client
 skips frames rather than falling behind, and the camera is never held up.
 Each part carries ``X-Frame-Ordinal``, a count of the frames received
@@ -28,7 +29,8 @@ import numpy as np
 from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
-from modules import image_utils
+from modules import image_utils, wall_time
+from modules.lumascope_api import Frame as CameraFrame
 from modules.scope_session import ScopeSession
 
 # How long a snapshot nobody else is watching waits for the camera's next frame.
@@ -41,7 +43,7 @@ MEDIA_TYPE = f'multipart/x-mixed-replace; boundary={BOUNDARY}'
 
 @dataclasses.dataclass(frozen=True)
 class Frame:
-    """A frame the view holds: its own copy, and what it needs to be shown."""
+    """A frame the view holds -- the camera's read-only pixels -- and what it needs to be shown."""
 
     ordinal: int
     image: np.ndarray
@@ -57,13 +59,7 @@ class Frame:
 
 def encode(frame: Frame, max_width: int | None) -> bytes:
     """The frame in 8-bit grey, as JPEG, no wider than *max_width* (half its width when None)."""
-    image = image_utils.convert_to_8bit(frame.image, frame.significant_bits)
-    height, width = image.shape[:2]
-    target = max(1, width // 2) if max_width is None else max_width
-    image = image_utils.decimate_for_preview(
-        image, (target, max(1, round(height * target / width)))
-    )
-    return image_utils.encode_image(image, fmt='jpeg')
+    return image_utils.preview_jpeg(frame.image, frame.significant_bits, max_width)
 
 
 class LiveView:
@@ -76,6 +72,10 @@ class LiveView:
         self._newest: Frame | None = None
         self._ordinal = 0
         self._watchers = 0
+        # Set while nobody watches and the frame listener is off: a threading
+        # Event, since who waits for it is a thread other than the server's loop.
+        self._unwatched = threading.Event()
+        self._unwatched.set()
         self._finished = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
@@ -85,6 +85,15 @@ class LiveView:
     def watchers(self) -> int:
         """How many clients watch: a stream each, and each snapshot while it waits."""
         return self._watchers
+
+    def wait_unwatched(self, timeout_s: float) -> bool:
+        """True once nobody watches and the frame listener is removed; False on timeout.
+
+        For a thread off the server's loop, which sees a client go only
+        once the loop has; a listener whose removal raised is never let go,
+        so the wait times out.
+        """
+        return self._unwatched.wait(timeout_s)
 
     async def watch(self) -> None:
         """Join the watchers; the first attaches the frame listener.
@@ -98,9 +107,16 @@ class LiveView:
             self._attaching = asyncio.Lock()
         async with self._attaching:
             if self._watchers == 0:
-                await asyncio.to_thread(
-                    self._imaging.add_frame_listener, self._on_frame, 'REST live view'
-                )
+                # Cleared before the listener goes on, so no waiter is told
+                # nobody watches while it is on; a refused add leaves it off.
+                self._unwatched.clear()
+                try:
+                    await asyncio.to_thread(
+                        self._imaging.add_frame_listener, self._on_frame, 'REST live view'
+                    )
+                except BaseException:
+                    self._unwatched.set()
+                    raise
             self._watchers += 1
 
     async def leave(self) -> None:
@@ -112,6 +128,7 @@ class LiveView:
                 with self._lock:
                     # Not shown to the next watcher: the scope may have moved since.
                     self._newest = None
+                self._unwatched.set()
 
     def finish(self) -> None:
         """End every stream and snapshot: the server is closing. Called on the server's loop."""
@@ -168,14 +185,17 @@ class LiveView:
                 return newest
             await wake.wait()
 
-    def _on_frame(self, image: np.ndarray, timestamp: datetime.datetime, chunks: object) -> None:
-        # On the camera's thread: copy and return. The depth is stamped
-        # with the frame on this thread before its listeners are called.
-        bits = self._imaging.last_significant_bits
-        copy = image.copy()
+    def _on_frame(self, frame: CameraFrame) -> None:
+        # On the camera's thread: keep the record and return. Its pixels are
+        # read-only and no later frame changes them, so holding it is safe.
         with self._lock:
             self._ordinal += 1
-            self._newest = Frame(self._ordinal, copy, bits, timestamp)
+            self._newest = Frame(
+                self._ordinal,
+                frame.image,
+                frame.significant_bits,
+                wall_time.local_time(frame.wall_ns),
+            )
         self._loop.call_soon_threadsafe(self._woken)
 
     def _woken(self) -> None:

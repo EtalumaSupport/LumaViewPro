@@ -3,20 +3,24 @@
 import functools
 import threading
 
-from kivy.clock import Clock
 from kivy.properties import Property
 from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
 from lvp_logger import logger
+from modules import gui_logger
+from modules.kivy_utils import schedule_ui, schedule_ui_latest
 
 
 class _PopupProxy:
     """Thread-safe proxy for CustomPopup.
 
-    All property writes are scheduled on the main thread via Clock.schedule_once.
-    Callers can use ``proxy.text = ...``, ``proxy.progress = ...``, etc. from any
-    thread without violating Kivy's single-thread-UI rule.
+    A property write is a state posted to the UI thread (``schedule_ui_latest``,
+    keyed by popup and attribute), so a held-up UI thread keeps one write per
+    attribute, the newest; ``open``, ``show_outcome`` and ``dismiss`` are events,
+    so a write posted after a ``dismiss`` runs after it. Callers can use
+    ``proxy.text = ...``, ``proxy.progress = ...``, etc. from any thread without
+    violating Kivy's single-thread-UI rule.
     """
 
     _PROXIED_ATTRS = frozenset({'text', 'progress', 'title', 'auto_dismiss'})
@@ -26,7 +30,8 @@ class _PopupProxy:
 
     def __setattr__(self, name, value):
         if name in _PopupProxy._PROXIED_ATTRS:
-            Clock.schedule_once(lambda dt, n=name, v=value: setattr(self._popup, n, v), 0)
+            popup = self._popup
+            schedule_ui_latest((popup, name), lambda dt, n=name, v=value: setattr(popup, n, v))
         else:
             object.__setattr__(self, name, value)
 
@@ -34,10 +39,13 @@ class _PopupProxy:
         return getattr(self._popup, name)
 
     def dismiss(self, *args, **kwargs):
-        Clock.schedule_once(lambda dt: self._popup.dismiss(*args, **kwargs), 0)
+        schedule_ui(lambda dt: self._popup.dismiss(*args, **kwargs))
+
+    def show_outcome(self, message):
+        schedule_ui(lambda dt: self._popup.show_outcome(message))
 
     def open(self, *args, **kwargs):
-        Clock.schedule_once(lambda dt: self._popup.open(*args, **kwargs), 0)
+        schedule_ui(lambda dt: self._popup.open(*args, **kwargs))
 
 
 class _HostWidgetProxy:
@@ -53,9 +61,9 @@ class _HostWidgetProxy:
     callback can corrupt the Kivy property graph mid-update.
 
     Solution: intercept attribute writes on the host. If the attribute
-    is a Kivy property (class-level Property descriptor), marshal the
-    write through `Clock.schedule_once` so the dispatch happens on the
-    UI thread. Non-property attributes pass through directly --
+    is a Kivy property (class-level Property descriptor), post the
+    write as a state (`schedule_ui_latest`, keyed by host and attribute)
+    so the dispatch happens on the UI thread. Non-property attributes pass through directly --
     callers are responsible for thread-safety on plain Python state.
     """
 
@@ -66,7 +74,7 @@ class _HostWidgetProxy:
         host = self._host
         descriptor = getattr(type(host), name, None)
         if isinstance(descriptor, Property):
-            Clock.schedule_once(lambda dt, h=host, n=name, v=value: setattr(h, n, v), 0)
+            schedule_ui_latest((host, name), lambda dt, n=name, v=value: setattr(host, n, v))
         else:
             setattr(host, name, value)
 
@@ -106,6 +114,52 @@ def show_popup(function):
 
 
 class CustomPopup(Popup):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # The record follows the popup's time on the screen: its title and
+        # the first words shown under it are recorded as they arrive while it
+        # is open. The words that follow under one title are its progress;
+        # the words show_outcome puts up are the build's outcome, a stage of
+        # their own.
+        self._showing_outcome = False
+        self.bind(
+            title=self._record_title, text=self._record_words, _is_open=self._record_on_screen
+        )
+
+    def _record_on_screen(self, _popup, is_open: bool) -> None:
+        # One popup's title and words compare equal to the last popup's, so
+        # an opening states its own start (a title given at construction is
+        # set before the bindings exist) and a leaving states the screen
+        # cleared, or a second opening under one title records nothing. A
+        # popup opened untitled is named by its body, recorded as it arrives.
+        if is_open:
+            if self.title:
+                gui_logger.display('PROGRESS_POPUP', self.title)
+        else:
+            gui_logger.display('PROGRESS_POPUP', None)
+            gui_logger.display('PROGRESS_POPUP_WORDS', None)
+
+    def _record_title(self, _popup, title: str) -> None:
+        if self._is_open:
+            gui_logger.display('PROGRESS_POPUP', title or None)
+
+    def _record_words(self, _popup, text: str) -> None:
+        # A cancelled build goes on writing to its popup after it has left
+        # the screen; those words were never shown.
+        if text and self._is_open:
+            stage = f'{self.title} | done' if self._showing_outcome else self.title
+            gui_logger.display('PROGRESS_POPUP_WORDS', f'{self.title} | {text}', stage=stage)
+
+    def show_outcome(self, message: str) -> None:
+        """Show the build's words for what it made, recorded as its outcome.
+
+        Progress under one title is recorded once, so an outcome written as
+        one more text would go unrecorded after any progress words; this
+        popup records its words in one place, and this names the stage.
+        """
+        self._showing_outcome = True
+        self.text = message
+
     def cancel(self):
         """User-initiated escape from a progress popup. The background operation
         runs on a daemon thread and cannot be force-killed, but dismissing the
@@ -113,6 +167,7 @@ class CustomPopup(Popup):
         stalls. Any later result the thread posts to this popup is a harmless
         no-op once it is dismissed."""
         logger.info('[Popup    ] progress popup cancelled by user')
+        gui_logger.popup_response(self.title, 'CANCEL')
         self.dismiss()
 
 

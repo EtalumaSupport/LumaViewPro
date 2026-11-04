@@ -12,15 +12,23 @@ pass is a failure that carries what it did save.
 
 from __future__ import annotations
 
+import datetime
+import errno
 import os
 
 import numpy as np
 import pytest
 
+from modules.cell_count_method import CellCountMethod
+from modules import post_derivation
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.post_processing import PostProcessing, default_cell_count_method
+from modules.post_processing import PostProcessing
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1
+from tests.installation_fixtures import shipped_grids
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
 
@@ -31,23 +39,21 @@ def _write_tiff(path):
         file_loc=path,
         metadata={
             'pixel_size_um': 0.5,
-            'channel': 'Green',
-            'objective': '10x',
+            'channel': LED1,
+            'objective': {'id': '10x'},
             'exposure_time_ms': 50.0,
             'gain_db': 0.0,
             'illumination_ma': 100.0,
             'z_pos_um': 1000.0,
             'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-            'datetime': '2026:06:18 12:00:00',
-            'camera_make': 'Test',
-            'microscope': 'TestScope',
-            'well_label': 'A1',
+            'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
             'significant_bits': 8,
         },
         ome=False,
-        color='Green',
+        color=release_color(LED1),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 
@@ -55,12 +61,12 @@ def _write_tiff(path):
 def counter(monkeypatch):
     post = PostProcessing()
 
-    def counted(image, settings, significant_bits, *, pixels_per_um, name):
+    def counted(image, method, significant_bits, *, pixels_per_um, name):
         return None, {
             'summary': {
                 'num_regions': 3,
-                'total_object_area': 1.0,
-                'area_unit': 'px2',
+                'total_object_area_px2': 1.0,
+                'total_object_area_um2': None,
                 'total_object_intensity': 2.0,
             }
         }
@@ -80,7 +86,7 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
 
     result = counter.apply_cell_count_to_folder(
         str(tmp_path),
-        default_cell_count_method(),
+        CellCountMethod(),
         on_progress=lambda percent, text: seen.append(percent),
     )
 
@@ -93,7 +99,7 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):
     _old_results(tmp_path)
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -101,7 +107,7 @@ def test_a_folder_of_unreadable_images_is_refused_and_keeps_the_previous_results
     _old_results(tmp_path)
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -109,7 +115,7 @@ def test_some_unreadable_images_make_the_count_incomplete_with_its_results(count
     _write_tiff(tmp_path / 'good.tif')
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
     assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
     assert 'good.tif' in (tmp_path / 'results.csv').read_text()
 
@@ -121,25 +127,32 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
     _write_tiff(tmp_path / 'a.tif')
 
     def refuse(src, dst):
-        raise OSError('disk full')
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), dst)
 
     monkeypatch.setattr(os, 'replace', refuse)
-    with pytest.raises(PostProcessingFailedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+    # Why, in the system's words, not Python's rendering of the error.
+    assert os.strerror(errno.ENOSPC) in str(raised.value)
+    assert '[Errno' not in str(raised.value)
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
     assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
 
 
 def test_an_enhance_of_a_folder_with_no_images_is_refused(tmp_path):
     with pytest.raises(PostProcessingRefusedError):
-        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+        QuickEnhancer().export_folder(
+            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
 
 
 def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_path):
     _write_tiff(tmp_path / 'good.tif')
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
-        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+        QuickEnhancer().export_folder(
+            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
     assert len(raised.value.produced_paths) == 1
     assert 'good_enhanced' in raised.value.produced_paths[0]
 
@@ -155,6 +168,7 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
         tmp_path / 'one.tif',
         lambda percent, text: texts.append((percent, text)),
         lambda image, significant_bits: shown.append(significant_bits),
+        channel_colors=release_colors(),
     )
 
     assert result.output_folder == tmp_path
@@ -163,24 +177,43 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
     assert shown == [8]
 
 
-@pytest.mark.parametrize('raised', ['not a tiff', 'cv2'])
-def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch, raised):
+def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     import cv2
 
     from modules.post_processing_api import PostProcessingAPI
 
-    source = tmp_path / 'broken.tif'
-    source.write_bytes(b'not a tiff')
-    if raised == 'cv2':
+    source = tmp_path / 'image.tif'
+    source.write_bytes(b'decoded by the stand-in below')
 
-        def fail(self, *args, **kwargs):
-            raise cv2.error('codec')
+    # a stand-in by design: an image the enhance itself fails on, which no
+    # file on disk produces reliably; a file that cannot be decoded is
+    # refused instead (the test below).
+    def fail(self, *args, **kwargs):
+        raise cv2.error('codec')
 
-        monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
+    monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
 
     with pytest.raises(PostProcessingFailedError) as failure:
-        PostProcessingAPI._enhance(source, None, None)
+        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
     assert failure.value.produced_paths == ()
+
+
+def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_refuses_it(
+    tmp_path,
+):
+    from modules.post_processing import read_cell_count_image
+    from modules.post_processing_api import PostProcessingAPI
+
+    source = tmp_path / 'broken.tif'
+    source.write_bytes(b'not a tiff')
+
+    with pytest.raises(PostProcessingRefusedError) as enhance:
+        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
+    with pytest.raises(PostProcessingRefusedError) as count:
+        read_cell_count_image(source)
+
+    assert enhance.value.reason == count.value.reason == 'unreadable'
+    assert 'broken.tif' in str(enhance.value)
 
 
 class _ScriptedBuild:
@@ -204,6 +237,10 @@ class _ScriptedBuild:
                 '_get_groups': _groups,
                 '_generate_filename': lambda self, df, **kw: df.iloc[0]['OutName'],
                 '_filter_ignored_types': lambda self, df: df,
+                '_derivation_step': lambda self, group, **kw: post_derivation.Step(
+                    self._post_function, None
+                ),
+                '_places': lambda self, group: None,
                 '_group_algorithm': lambda self, path, df, **kw: PostProcResult.ok(
                     significant_bits=8
                 ),
@@ -215,7 +252,7 @@ class _ScriptedBuild:
         for g in range(2):
             for i in range(2):
                 row = {'Filepath': f'g{g}_f{i}.tiff', 'GroupKey': g, 'OutName': f'out{g}.tiff'}
-                row.update(dict.fromkeys(PostFunction.list_values(), False))
+                row.update(post_derivation.raw_columns())
                 rows.append(row)
         return build, pd.DataFrame(rows)
 
@@ -240,9 +277,10 @@ def _drive_scripted(name, tmp_path, monkeypatch, **kwargs):
     seen = []
     build.load_folder(
         path=tmp_path,
-        tiling_configs_file_loc=tmp_path / 'tiling.json',
+        tiling_grids=shipped_grids(),
         on_progress=lambda percent, text: seen.append((percent, text)),
         **kwargs,
+        channel_colors=release_colors(),
     )
     return seen
 
@@ -304,12 +342,13 @@ def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatc
         VideoBuilder(has_turret=False)._group_algorithm(
             path=tmp_path,
             df=df,
-            frames_per_sec=5,
+            frame_rate_fps=5,
             enable_timestamp_overlay=False,
             output_file_loc=tmp_path / 'out.mp4',
             on_progress=progress,
             total_groups=1,
             current_group=1,
+            channel_colors=release_colors(),
         )
     except Exception:
         # The result shape is the encoder's business; this pins only what

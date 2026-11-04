@@ -31,20 +31,21 @@ SUCCESSFUL channel, and the per-channel detail lives in the record and
 the log rather than in the outcome the caller waits on.
 """
 
-import contextlib
 import csv
+import logging
 import pathlib
 
 import pytest
 
 from modules.exceptions import CaptureError
-from modules.image_mode import OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_TIFF
+from modules.image_mode import OutputFormat
 from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,
     single_run_dir,
 )
+from tests.stock_channels import LED0, LED1, LED2
 
 # The invariant middle of the substitution notice
 # config_helpers.get_composite_image_capture_config_from_settings emits --
@@ -55,33 +56,11 @@ from tests.test_composite_run_e2e import (
 # into one that passes for the wrong reason.
 _COERCION_LOG_FRAGMENT = 'cannot be merged; this run saves'
 
-# The layer whose steps are made to fail. Blue is never first in the
-# release layer order (BF, PC, DF, Blue, Green, Red, Lumi), so a run that
-# fails only Blue always has a successful step before it -- which is what
+# The layer whose steps are made to fail. LED0 is never first in the
+# release step order (BF, PC, DF, LED1, LED0, LED2, Lumi, ...), so a run that
+# fails only LED0 always has a successful step before it -- which is what
 # makes the strike counter's reset, not just its increment, observable.
-_FAILING = 'Blue'
-
-
-@contextlib.contextmanager
-def _info_lines():
-    """Collect what production logs at INFO while the block runs.
-
-    ``caplog`` cannot see this: the suite replaces the whole ``lvp_logger``
-    module with a MagicMock in ``conftest.install_mock_deps``, so
-    ``logger.info`` never reaches the logging machinery pytest attaches
-    to. Wrapping the one call the assertion is about is observation only
-    -- nothing about the run changes -- and it is the same instrument
-    ``test_composite_run_config`` already uses for this exact line.
-    """
-    import lvp_logger
-
-    lines = []
-    original = lvp_logger.logger.info
-    lvp_logger.logger.info = lambda msg, *a, **kw: lines.append(str(msg))
-    try:
-        yield lines
-    finally:
-        lvp_logger.logger.info = original
+_FAILING = LED0
 
 
 def _fail_these_channels(camera, step_colors, failing):
@@ -107,10 +86,10 @@ def _fail_these_channels(camera, step_colors, failing):
 
     real_grab = camera.grab_new_capture
 
-    def step_started(step_idx):
-        color = step_colors[step_idx]
+    def step_started(step_index):
+        color = step_colors[step_index]
         if color in failing:
-            camera.grab_new_capture = lambda timeout_s: (False, None, 0)
+            camera.grab_new_capture = lambda timeout_s: None
         else:
             camera.grab_new_capture = real_grab
 
@@ -125,7 +104,7 @@ def _record_rows(run_dir):
     """
     record = pathlib.Path(run_dir) / 'protocol_record.tsv'
     assert record.exists(), f'the run wrote no execution record in {run_dir}'
-    with open(record, newline='') as fp:
+    with open(record, encoding='utf-8', newline='') as fp:
         rows = list(csv.reader(fp, delimiter='\t'))
     columns = rows[3]
     # strict: a row that does not fit the column header is a malformed
@@ -144,13 +123,12 @@ def _failed_step_names(run_dir):
 class TestAChannelThatCapturesNothing:
     """One channel comes back black; what the caller is told about it."""
 
-    def test_two_channels_with_one_failure_leave_nothing_to_merge(self, tmp_path):
-        # Two channels is the minimum a merge can consume, so losing one
-        # leaves a group of a single frame -- which the post-processor
-        # skips at source rather than writing a one-channel "composite".
-        # The caller therefore gets a resolved, not-merged outcome; the
-        # channel that failed is named in the run record, not in the
-        # outcome, because the outcome answers "is there an artifact".
+    def test_two_channels_with_one_failure_merge_nothing(self, tmp_path):
+        # A composite is built from every channel its run recorded or not at
+        # all: the channel that captured nothing fails the merge's one group,
+        # which is not mistaken for a one-image group with nothing to merge.
+        # The caller gets a resolved, not-merged outcome; the channel that
+        # failed is named in the run record and in the merge's failure.
         settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
         with open_composite_session(settings) as (_session, runner):
             outcome = runner.start_composite(
@@ -160,7 +138,7 @@ class TestAChannelThatCapturesNothing:
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
             assert settled is not None, 'the run never settled its outcome'
             assert not settled.merged, (
@@ -176,12 +154,12 @@ class TestAChannelThatCapturesNothing:
                 f'channel: {_record_rows(run_dir)}'
             )
             # Asserted last so the facts above are checked either way. The
-            # code is the post-processor's own: 'no_data' is what it returns
-            # when no image group is usable, and the runner relays it as is.
-            # The runner's 'merge_failed' is only the fallback for a result
-            # that carries no reason at all, so a caller seeing it here
-            # would mean the specific code was lost on the way.
-            assert settled.merge_reason == 'no_data', (
+            # code is the post-processor's own: 'post_processing_failed' is
+            # a build whose every group failed, and the runner relays it as
+            # is. The runner's 'merge_failed' is only the fallback for a
+            # result that carries no reason at all, so a caller seeing it
+            # here would mean the specific code was lost on the way.
+            assert settled.merge_reason == 'post_processing_failed', (
                 f'the outcome named the failure {settled.merge_reason!r}; the '
                 f'code is what a REST or SDK caller maps to a response, so it '
                 f'is part of the contract, not prose'
@@ -207,7 +185,7 @@ class TestAChannelThatCapturesNothing:
                 events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
-            ).wait(timeout_s=120)
+            ).result(timeout=120)
 
             run_dir = single_run_dir(tmp_path)
             frames = sorted(p.name for p in run_dir.glob('*.tiff'))
@@ -236,18 +214,18 @@ class TestAChannelThatCapturesNothing:
                     ),
                 )
 
-            assert excinfo.value.reason == 'no_data', (
-                f'the raise carried reason {excinfo.value.reason!r}, not the '
-                f"post-processor's code for a merge with no usable group"
+            assert excinfo.value.reason == 'merge_error'
+            assert excinfo.value.merge_failure == 'post_processing_failed', (
+                f'the raise carried {excinfo.value.merge_failure!r}, not the '
+                f"post-processor's code for a build whose every group failed"
             )
 
-    def test_three_channels_with_one_failure_still_merge_the_other_two(self, tmp_path):
-        # The true partial merge: two survivors are still a mergeable
-        # group, so the run must produce a real composite AND still say
-        # which channel is missing from it. A run that merged silently
-        # here would hand a user a two-channel image they asked three
-        # channels for.
-        step_colors = ('BF', _FAILING, 'Green')
+    def test_three_channels_with_one_failure_merge_nothing(self, tmp_path):
+        # Two survivors would make an image, but not the composite asked
+        # for: a merge of the other two would hand a user a two-channel
+        # image they asked three channels for. The group fails, naming the
+        # channel, and no composite is written.
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (_session, runner):
             outcome = runner.start_composite(
@@ -255,20 +233,17 @@ class TestAChannelThatCapturesNothing:
                 parent_dir=str(tmp_path),
                 events=_fail_these_channels(_session.scope._camera_driver, step_colors, {_FAILING}),
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
-            assert settled is not None and settled.merged, (
-                f'two surviving channels are a mergeable group, but the run '
-                f'produced nothing: {settled}'
-            )
-            assert pathlib.Path(settled.artifact_path).exists(), (
-                f'the merge reported {settled.artifact_path}, which is not there'
-            )
+            assert settled is not None and not settled.merged, settled
+            assert settled.artifact_path is None, settled
+            assert settled.merge_reason == 'post_processing_failed', settled
+            assert settled.status == 'incomplete', settled
 
             run_dir = single_run_dir(tmp_path)
+            assert not list((run_dir / 'Composite').glob('*')), 'a composite was written'
             assert any(_FAILING in name for name in _failed_step_names(run_dir)), (
-                f'a composite was produced without the record saying which '
-                f'channel is absent from it: {_record_rows(run_dir)}'
+                f'the record does not say which channel failed: {_record_rows(run_dir)}'
             )
 
 
@@ -281,26 +256,20 @@ class TestTheThreeStrikeFatalAbort:
         # Four acquiring channels with the camera black for the whole run
         # is the shape that separates "the run stopped" from "the run
         # finished badly": the fourth channel must never be reached.
-        step_colors = ('BF', 'Blue', 'Green', 'Red')
+        step_colors = ('BF', LED0, LED1, LED2)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (session, runner):
             # No frame at all for the whole run. A black test pattern
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
-            )
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
 
             outcome = runner.start_composite(sequence_name='fatal', parent_dir=str(tmp_path))
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
             assert settled is not None, 'the aborted run never settled its outcome'
-            assert outcome.wait_for_files(timeout_s=120) is not None, (
-                'the run never finished its files'
-            )
+            assert outcome.files.result(timeout=120) is not None, 'the run never finished its files'
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
             # The two vocabularies, separated. status says the RUN failed;
             # reason says what killed it. Before they shared one field the
@@ -331,40 +300,36 @@ class TestTheThreeStrikeFatalAbort:
         # later run and recording, so the run has to be fully unwound by
         # the time the outcome resolves -- the same settling contract the
         # successful path has.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue', 'Green', 'Red'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0, LED1, LED2))
         with open_composite_session(settings) as (session, runner):
             # No frame at all for the whole run. A black test pattern
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
+
+            runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).result(
+                timeout=120
             )
 
-            runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).wait(
-                timeout_s=120
-            )
-
-            assert not session.is_protocol_running, (
+            assert session.activity_claim.run_holder is None, (
                 'the aborted run still held the activity claim after settling'
             )
 
     def test_a_fatal_abort_darkens_every_led_including_one_it_did_not_light(self, tmp_path):
         # A composite hands the illumination back the way it found it
-        # (a one-position run's leds_state_at_end is 'return_to_original'),
+        # (a one-position run's led_end_policy is RETURN_TO_ORIGINAL),
         # so a channel the user had lit before the run normally comes
         # back on at the end. A FATAL abort is the exception: the run died
         # on a fault, and leaving the sample illuminated by a scope nobody
         # is driving is the outcome that policy must not produce.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue', 'Green', 'Red'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0, LED1, LED2))
         with open_composite_session(settings) as (session, runner):
             led_board = session.scope._led_driver
             # PC is an LED layer this run does not acquire, so it can only
             # be lit at the end by the return-to-original restore.
             session.scope.illumination.led_on('PC', 30.0)
-            assert led_board.read_led_current(led_board.color2ch('PC')) > 0, (
+            assert led_board.read_led_current(session.scope.illumination.color2ch('PC')) > 0, (
                 'the pre-run channel never lit, so the restore this test '
                 'exists to override was never armed'
             )
@@ -373,13 +338,9 @@ class TestTheThreeStrikeFatalAbort:
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
-            )
-            runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).wait(
-                timeout_s=120
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
+            runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).result(
+                timeout=120
             )
 
             lit = {
@@ -393,7 +354,7 @@ class TestTheThreeStrikeFatalAbort:
 class TestTheFormatTheCompositeFollows:
     """The composite follows the SEQUENCED preference, or says why not."""
 
-    def test_a_live_jpg_preference_does_not_change_the_composite(self, tmp_path):
+    def test_a_live_jpg_preference_does_not_change_the_composite(self, tmp_path, caplog):
         # The live format is what the retired GUI worker read, and reading
         # it is what made a user's composite silently change format when
         # they picked JPG for the live view. The run kind reads the
@@ -402,11 +363,11 @@ class TestTheFormatTheCompositeFollows:
         # fires only in the coercion branch.
         settings = headless_settings(
             tmp_path,
-            sequenced_format=OUTPUT_FORMAT_TIFF,
-            live_format=OUTPUT_FORMAT_JPG,
+            sequenced_format=OutputFormat.TIFF,
+            live_format=OutputFormat.JPG,
         )
         with open_composite_session(settings) as (_session, runner):
-            with _info_lines() as logged:
+            with caplog.at_level(logging.INFO):
                 artifact = pathlib.Path(
                     runner.run_composite(
                         sequence_name='live_jpg', parent_dir=str(tmp_path)
@@ -424,19 +385,19 @@ class TestTheFormatTheCompositeFollows:
             assert artifact.name.endswith('.tiff') and not artifact.name.endswith('.ome.tiff'), (
                 f'a TIFF-preference run produced {artifact.name}'
             )
-            assert not [line for line in logged if _COERCION_LOG_FRAGMENT in line], (
+            assert not [line for line in caplog.messages if _COERCION_LOG_FRAGMENT in line], (
                 f'a run whose format was NOT substituted logged an override, '
-                f'so the line no longer distinguishes the two cases: {logged}'
+                f'so the line no longer distinguishes the two cases: {caplog.messages}'
             )
 
-    def test_an_unmergeable_sequenced_preference_coerces_and_says_so(self, tmp_path):
+    def test_an_unmergeable_sequenced_preference_coerces_and_says_so(self, tmp_path, caplog):
         # JPG cannot be read back by the merge, so the run has to save
         # something else. Substituting silently leaves a user staring at
         # OME-TIFFs they never asked for with nothing to explain it, so
         # the log line is part of the behaviour, not a debugging aid.
-        settings = headless_settings(tmp_path, sequenced_format=OUTPUT_FORMAT_JPG)
+        settings = headless_settings(tmp_path, sequenced_format=OutputFormat.JPG)
         with open_composite_session(settings) as (_session, runner):
-            with _info_lines() as logged:
+            with caplog.at_level(logging.INFO):
                 artifact = pathlib.Path(
                     runner.run_composite(
                         sequence_name='coerced', parent_dir=str(tmp_path)
@@ -449,8 +410,8 @@ class TestTheFormatTheCompositeFollows:
             )
             assert [
                 line
-                for line in logged
-                if _COERCION_LOG_FRAGMENT in line and OUTPUT_FORMAT_JPG in line
+                for line in caplog.messages
+                if _COERCION_LOG_FRAGMENT in line and OutputFormat.JPG in line
             ], (
-                f'the format was substituted with no override naming the rejected preference: {logged}'
+                f'the format was substituted with no override naming the rejected preference: {caplog.messages}'
             )

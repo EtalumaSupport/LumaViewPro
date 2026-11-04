@@ -8,6 +8,7 @@ ScopeSession.go_to_step.
 from harness import check, run
 
 import modules.config_helpers as config_helpers
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -30,10 +31,10 @@ def body(s):
     # --- build a two-position protocol and navigate to a step by hand ---
     cfg = config_helpers.get_standalone_capture_config_from_settings(
         s.settings,
-        s.objective_helper,
-        s.wellplate_loader,
+        s.scope.objective_helper,
+        s.scope.wellplate_loader,
         layer='BF',
-        position={'x': 30.0, 'y': 20.0, 'z': 2000.0},
+        position=PlateLocation(x_mm=30.0, y_mm=20.0, z_um=2000.0),
         position_name='A',
         autofocus=False,
         use_zstacking=False,
@@ -53,14 +54,14 @@ def body(s):
     idx = config_helpers.find_nearest_step(x=69.0, y=49.0, protocol=protocol)
     check('find_nearest_step resolves a click to a step index', idx >= 0, f'idx={idx}')
 
-    step = protocol.step(idx=idx)
+    step = protocol.step_row(step_index=idx)
     s.go_to_step(protocol, idx)
     m.wait_until_finished_moving()
     here = s.get_current_plate_position()
     check(
         'a script can go to the nearest step through the Session',
-        abs(here['x'] - float(step['X'])) < 0.05 and abs(here['y'] - float(step['Y'])) < 0.05,
-        f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here["x"]:.2f},{here["y"]:.2f},'
+        abs(here.x_mm - float(step['X'])) < 0.05 and abs(here.y_mm - float(step['Y'])) < 0.05,
+        f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here.x_mm:.2f},{here.y_mm:.2f},'
         f'{m.get_current_position("Z"):.1f})',
     )
 

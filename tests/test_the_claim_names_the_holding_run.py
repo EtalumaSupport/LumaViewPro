@@ -10,39 +10,64 @@ taken and released with the run.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import threading
 
 import pytest
 
 from modules.activity_claim import ActivityClaim
+from modules.caller import Caller
+from modules.live_work import WorkKind
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 
 class TestTheClaimCarriesTheRun:
     def test_a_claim_reports_its_kind_and_the_run_behind_it(self):
         claim = ActivityClaim()
 
-        assert claim.try_claim('protocol', run=run_identity('zstack'))
+        assert claim.try_claim('protocol', run=run_identity(Caller.GUI))
 
         holder = claim.holder
-        assert holder.kind == 'protocol'
-        assert holder.run_trigger_source == 'zstack'
+        assert holder.kind == WorkKind.PROTOCOL
+        assert type(holder.kind) is WorkKind, 'a plain string of the set is taken as its member'
+        assert holder.run_started_by == Caller.GUI
         assert claim.owner == 'protocol', 'the kind stays readable on its own'
 
-    def test_an_activity_that_is_not_a_run_carries_no_trigger(self):
+    def test_a_claim_taken_as_no_kind_of_work_fails_and_takes_nothing(self):
+        claim = ActivityClaim()
+
+        with pytest.raises(ValueError, match='WorkKind'):
+            claim.try_claim('nap')
+
+        assert claim.owner is None
+        assert claim.try_claim(WorkKind.RECORDING), 'the failed take left the claim held'
+
+    def test_a_claim_taken_by_work_that_does_not_hold_the_scope_fails_and_takes_nothing(self):
+        # A still, a build or a report is work the session does, not a holder
+        # of the scope: a refusal could not name it as one.
+        claim = ActivityClaim()
+
+        with pytest.raises(ValueError, match='holds the scope'):
+            claim.try_claim(WorkKind.STILL)
+
+        assert claim.owner is None
+        assert claim.try_claim(WorkKind.HOME), 'the failed take left the claim held'
+
+    def test_an_activity_that_is_not_a_run_names_no_starter(self):
         claim = ActivityClaim()
 
         assert claim.try_claim('recording')
 
         assert claim.holder.kind == 'recording'
-        assert claim.holder.run_trigger_source is None
+        assert claim.holder.run_started_by is None
 
     def test_the_holder_is_gone_on_release(self):
         claim = ActivityClaim()
-        held = claim.try_claim('protocol', run=run_identity('scan'))
+        held = claim.try_claim('protocol', run=run_identity())
 
         held.release()
 
@@ -51,7 +76,7 @@ class TestTheClaimCarriesTheRun:
 
     def test_a_release_by_a_non_holder_still_says_who_holds_it(self):
         claim = ActivityClaim()
-        stale = claim.try_claim('protocol', run=run_identity('scan'))
+        stale = claim.try_claim('protocol', run=run_identity())
         stale.release()
         claim.try_claim('recording')
 
@@ -60,8 +85,8 @@ class TestTheClaimCarriesTheRun:
         assert claim.owner == 'recording', 'a stale taking freed the newer holder'
 
     def test_one_snapshot_is_published_at_a_time(self):
-        """Kind and trigger travel together or not at all: a reader
-        cannot observe the kind of one claimant beside the trigger of
+        """Kind and starter travel together or not at all: a reader
+        cannot observe the kind of one claimant beside the starter of
         another, however hard the claim is cycled underneath it."""
         claim = ActivityClaim()
         seen = set()
@@ -71,19 +96,19 @@ class TestTheClaimCarriesTheRun:
             while not stop.is_set():
                 holder = claim.holder
                 if holder is not None:
-                    seen.add((holder.kind, holder.run_trigger_source))
+                    seen.add((holder.kind, holder.run_started_by))
 
         reader = threading.Thread(target=_reader, daemon=True)
         reader.start()
         try:
             for _ in range(500):
-                claim.try_claim('protocol', run=run_identity('scan')).release()
+                claim.try_claim('protocol', run=run_identity()).release()
                 claim.try_claim('recording').release()
         finally:
             stop.set()
             reader.join(timeout=5.0)
 
-        assert seen <= {('protocol', 'scan'), ('recording', None)}, (
+        assert seen <= {('protocol', Caller.API), ('recording', None)}, (
             f'a half-written holder was observed: {seen}'
         )
 
@@ -94,14 +119,14 @@ class TestOnlyTheTakingReleases:
 
     def test_a_second_taker_is_refused(self):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run=run_identity('scan'))
+        assert claim.try_claim('protocol', run=run_identity())
 
-        assert claim.try_claim('protocol', run=run_identity('scan')) is None
+        assert claim.try_claim('protocol', run=run_identity()) is None
         assert claim.try_claim('recording') is None
 
     def test_the_taking_is_not_obtainable_from_the_holder(self):
         claim = ActivityClaim()
-        held = claim.try_claim('protocol', run=run_identity('scan'))
+        held = claim.try_claim('protocol', run=run_identity())
 
         assert claim.holder is not held
         assert not hasattr(claim.holder, 'release'), (
@@ -111,9 +136,9 @@ class TestOnlyTheTakingReleases:
 
     def test_two_takings_with_equal_descriptions_are_different_credentials(self):
         claim = ActivityClaim()
-        first = claim.try_claim('protocol', run=run_identity('scan'))
+        first = claim.try_claim('protocol', run=run_identity())
         first.release()
-        second = claim.try_claim('protocol', run=run_identity('scan'))
+        second = claim.try_claim('protocol', run=run_identity())
 
         with pytest.raises(RuntimeError):
             first.release()
@@ -144,12 +169,14 @@ class TestTheRunnerReadsTheClaim:
                 protocol_thread=MagicMock(),
                 file_io_executor=MagicMock(),
                 autofocus_thread=MagicMock(in_flight_sweep=None),
+                channel_colors=release_colors,
+                post_processing=no_post_run_builds(),
             )
 
     def test_the_getter_is_empty_before_any_run(self):
         runner = bare_capture_runner()
 
-        assert runner.run_trigger_source() is None
+        assert runner.run_started_by() is None
 
     def test_a_second_runs_refusal_names_the_holder_off_the_claim(self):
         session_claim = ActivityClaim()
@@ -159,9 +186,9 @@ class TestTheRunnerReadsTheClaim:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             runner.prepare(**scr_run_kwargs())
 
-        assert excinfo.value.reason == 'exclusive_activity_running'
+        assert excinfo.value.reason == 'recording_active'
         assert excinfo.value.holder == 'recording'
-        assert excinfo.value.holder_trigger is None, 'a recording has no trigger to name'
+        assert excinfo.value.holder_trigger is None, 'a recording has no starter to name'
 
 
 class TestTheFlagAndTheClaimEndTogether:
@@ -171,7 +198,7 @@ class TestTheFlagAndTheClaimEndTogether:
     run_cleanup, the claim in the caller's finally -- so a cleanup that
     raised in between used to leave a run holding nothing that still
     reported itself in progress. In that state the owner's own Stop is
-    refused in the name of a run whose trigger reads as nobody's.
+    refused in the name of a run whose starter reads as nobody's.
     """
 
     def test_a_cleanup_that_raises_still_ends_the_run(self, monkeypatch):
@@ -184,35 +211,33 @@ class TestTheFlagAndTheClaimEndTogether:
             _protocol_execution_record=None,
             _run_dir=None,
         )
-        held = runner._activity_claim.try_claim('protocol', run=run_identity('test'))
+        held = runner._activity_claim.try_claim('protocol', run=run_identity())
         assert held
         runner._held_claim = held
         # The run start() would have committed, with its writes: the
         # cleanup names it, and closes its batch on the way out.
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import RunHandle
+        from modules.sequenced_capture_runner import EngineRun
 
         runner._run_outcome = PendingRunOutcome()
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
+        run = runner._run_handle = EngineRun(runner, runner._run_outcome, runner._write_batch)
         assert runner.run_in_progress()
 
         def _boom(**_kwargs):
             raise RuntimeError('cleanup died before it cleared the run flag')
 
         monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', _boom)
-        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
+        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
 
         from modules.run_outcome import RunEnding
 
         with pytest.raises(RuntimeError, match='cleanup died'):
-            runner._cleanup_inner(
-                RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'), run, []
-            )
+            runner._cleanup_inner(RunEnding('aborted', 'stopped', 'Stopped by test'), run, [])
 
         assert not runner.run_in_progress(), (
             'a run that released the scope still reports itself in progress'
         )
         assert runner._activity_claim.holder is None
-        assert runner.run_trigger_source() is None
+        assert runner.run_started_by() is None

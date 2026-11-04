@@ -29,8 +29,7 @@ Checks implemented (universal -- both repos):
                 Source-text scan (not AST), so escape sequences like
                 '\\r\\n' read as ASCII source even though the resolved
                 string value contains U+000D. File-level exempt:
-                test_check_rules*.py. Line-level exempt registry:
-                _RULE_24_LINE_EXEMPT (load-bearing literals only).
+                test_check_rules*.py.
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
     rule_27d -- same patterns as 27b but applied to docstrings
@@ -69,7 +68,10 @@ Firmware-only (doc_status family):
                 is BLOCKED (a prepend that truncated the file)
     handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
                 outside Branch tips / Next / Rulings, and a new one has
-                all three (WARN, diff-aware)
+                Branch tips and Next, Rulings only when there is one
+                (WARN, diff-aware)
+    handover_length -- a live docs/SESSION_HANDOVER_*.md a commit grows is
+                at most 150 words (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -272,16 +274,6 @@ def _arg_string_constants(call: ast.Call) -> list[tuple[str, int, int]]:
     return results
 
 
-_RULE_24_LINE_EXEMPT: dict[str, frozenset[int]] = {
-    # CLI progress-bar block glyphs (U+2588 / U+2591) -- functional
-    # output; intentionally non-ASCII for terminal rendering.
-    'modules/tech_support_report.py': frozenset({2475}),
-    # Test asserts LumascopeSkills.md handles both U+2026 and '...';
-    # the unicode literal IS the test fixture, replacing it tautologizes.
-    'tests/test_audit_fixes.py': frozenset({9716}),
-}
-
-
 def _is_rule_24_exempt(path: str) -> bool:
     """File-level exempt: test files whose purpose is to construct
     synthetic non-ASCII fixtures for the rule_24 check itself. Pattern
@@ -290,11 +282,6 @@ def _is_rule_24_exempt(path: str) -> bool:
     norm = path.replace('\\', '/')
     basename = norm.rsplit('/', 1)[-1]
     return basename.startswith('test_check_rules')
-
-
-def _rule_24_line_exempt(path: str, line: int) -> bool:
-    norm = path.replace('\\', '/')
-    return line in _RULE_24_LINE_EXEMPT.get(norm, frozenset())
 
 
 def _check_rule_24(source: str, path: str) -> list[Violation]:
@@ -306,9 +293,7 @@ def _check_rule_24(source: str, path: str) -> list[Violation]:
     correctly excludes escape sequences like '\\r\\n' (the source bytes
     are ASCII even though the resolved string value contains U+000D).
 
-    Exemptions:
-      - File-level for `test_check_rules*.py` (synthetic fixtures).
-      - Line-level via `_RULE_24_LINE_EXEMPT` (load-bearing literals).
+    Exemption: file-level for `test_check_rules*.py` (synthetic fixtures).
     """
     if _is_rule_24_exempt(path):
         return []
@@ -316,8 +301,6 @@ def _check_rule_24(source: str, path: str) -> list[Violation]:
     for ln, line in enumerate(source.splitlines(), start=1):
         m = _NON_ASCII.search(line)
         if not m:
-            continue
-        if _rule_24_line_exempt(path, ln):
             continue
         ch = m.group(0)
         violations.append(
@@ -590,11 +573,6 @@ _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
         # is the single canonical gate for that opt-in; it no-ops when the
         # setting is off, preserving the mono-native default everywhere else.
         'modules/image_utils.py',
-        # Sanctioned save-layer exception: write_video_frame is the one
-        # canonical video-frame save path. The video_frame TIFF write emits no
-        # palette colormap, so 8-bit fluorescence false color must bake to RGB
-        # here; it no-ops on mono / already-colored / false-color-off frames.
-        'modules/image_save.py',
     }
 )
 
@@ -845,6 +823,14 @@ _BROKEN_SCOPE_METHODS = frozenset(
         'move_relative',
         'start_move_absolute',
         'start_move_relative',
+        'move_xy',
+        'move_xy_by',
+        'move_z',
+        'move_z_by',
+        'start_move_xy',
+        'start_move_xy_by',
+        'start_move_z',
+        'start_move_z_by',
         'get_current_position',
         'get_target_position',
         'get_target_status',
@@ -856,7 +842,6 @@ _BROKEN_SCOPE_METHODS = frozenset(
         'set_exposure_t',
         'set_exposure_time',
         'set_exposure_ms',
-        'capture_and_wait',
         'get_channels',
         'run_pylon_diagnostic_probe',
     }
@@ -1084,8 +1069,13 @@ def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation
 _HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
 _HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
 # Mirrors the H2 lines of the handover block in the handover-close skill's
-# references/templates.md; a rename lands in both or every next close WARNs.
+# Templates section; a rename lands in both or every next close WARNs.
 _HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings')
+# Rulings holds only a ruling the next session must obey that has no other
+# home yet, so most closes have none and the section is absent (Eric,
+# 2026-10-16: "i never told you to put rulings in there, unless they are
+# critical"); the other two every handover has.
+_HANDOVER_REQUIRED = ('Branch tips', 'Next')
 
 
 def _is_handover(path: str) -> bool:
@@ -1097,13 +1087,13 @@ def _is_handover(path: str) -> bool:
 
 def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
     """WARN when a handover gains a heading outside its closed shape, or a
-    new handover arrives without one of the three.
+    new handover arrives without Branch tips or Next.
 
     The handover's length lives in sections the writer adds beside the
     template's ("the three facts a builder will rediscover", "what was
     established"), not in the template's own sections, so the shape is
-    closed: the plan paragraph under the H1, then exactly Branch tips /
-    Next / Rulings, and nothing deeper. Diff-aware:
+    closed: the one sentence under the H1, then Branch tips / Next,
+    Rulings only when there is one, and nothing deeper. Diff-aware:
     only an ADDED heading line fires, so an old handover left as written
     stays silent; a missing section is reported only when every line of
     the file is added (a new handover), for the same reason. WARN, not
@@ -1134,7 +1124,7 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
             )
     if added >= set(range(1, len(lines) + 1)):
         present = {m.group(1) for m in map(_HEADING_RE.match, lines) if m}
-        for name in _HANDOVER_SECTIONS:
+        for name in _HANDOVER_REQUIRED:
             if name not in present:
                 violations.append(
                     Violation(
@@ -1147,6 +1137,43 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
                     )
                 )
     return violations
+
+
+# The head under the H1 is one sentence, not a paragraph: a paragraph under a
+# ceiling drifts to the ceiling (the 350-word cap of 2026-10-16 halved the
+# median once, to about 160 words, and then held it there), and the paragraph
+# re-told the DAILY_LOG entry. With a one-sentence head, four of the five live
+# handovers of 2026-10-25 weigh 103 to 110 words; the Branch tips table is
+# where the rest goes, and the cap is set to bound it.
+_HANDOVER_MAX_WORDS = 150
+
+
+def _check_handover_length(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a commit grows a live handover past ``_HANDOVER_MAX_WORDS``.
+
+    Diff-aware like the shape check: a handover this commit does not touch
+    stays silent, so an old long one is not re-reported at every commit.
+    WARN, not BLOCK, so the close commit lands and the writer trims it in
+    the same session; the drift is prose, never a broken build.
+    """
+    if not _is_handover(path) or not added:
+        return []
+    words = len(content.split())
+    if words <= _HANDOVER_MAX_WORDS:
+        return []
+    return [
+        Violation(
+            path,
+            1,
+            0,
+            'handover_length',
+            f'handover is {words} words; the shape fits in {_HANDOVER_MAX_WORDS}: '
+            'one sentence naming the DAILY_LOG entry, Branch tips as SHAs, the '
+            'Next pointer, and a ruling only when the next session must obey one '
+            'that has no home yet',
+            severity='warn',
+        )
+    ]
 
 
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
@@ -1380,6 +1407,7 @@ def check_doc(
     violations.extend(_check_daily_log_ordering(content, path))
     violations.extend(_check_daily_log_entries_kept(content, path, previous))
     violations.extend(_check_handover_shape(content, path, added))
+    violations.extend(_check_handover_length(content, path, added))
     return violations
 
 
@@ -1431,22 +1459,47 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
 _CHECKER_PATH = 'tools/check_rules.py'
 
 
-def _sibling_checker(sibling_dir: str) -> Path | None:
-    """The other repo's copy of this checker, when its checkout sits beside this one.
+def sibling_checkout(sibling_dir: str, top: Path) -> Path:
+    """The other repo's checkout beside `top` carrying `top`'s own track
+    suffix: `<other>-<track>` beside `<repo>-<track>`, the bare `<other>`
+    beside the bare checkout.
 
-    The two repos share this checker by copy, and the copies drifted
-    twice. The sibling's WORKING copy is the witness, not a fetched tip:
-    Firmware commits land in the one shared checkout, and the LVP main
-    checkout is only ever pulled, so each is where the other repo keeps
-    its copy current, and the fix for a block is a copy or a pull there.
+    Every track commits in its own worktree, `<repo>-<track>`, and the
+    shared checkouts move only when someone pulls a pushed trunk, so what
+    a track reads of the other repo is its own sibling worktree, the tree
+    it commits the same concern in. The one rule serves the checker's
+    mirror witness here and, in Firmware, every test, probe and tool that
+    imports LumaViewPro (`tools/lvp_checkout.py`): reading the shared
+    checkout instead made two concerns land as one Firmware commit, with
+    that checkout's tree dirtied to clear the block, and ran a worktree's
+    tests against production code 17 commits behind its trunk.
     """
-    top = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-    sibling = Path(top).parent / sibling_dir / _CHECKER_PATH
-    return sibling if sibling.is_file() else None
+    suffix = top.name[top.name.index('-') :] if '-' in top.name else ''
+    return top.parent / f'{sibling_dir}{suffix}'
 
 
-def _check_sibling_copy(staged: str, sibling: Path | None) -> list[Violation]:
-    if sibling is None or staged == sibling.read_text(encoding='utf-8'):
+def _sibling_checker(sibling_dir: str) -> Path:
+    """The other repo's copy of this checker, in the checkout `sibling_checkout`
+    names beside the one this process runs in. The two repos share the
+    checker by copy, and the copies drifted twice before the witness."""
+    top = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
+    return sibling_checkout(sibling_dir, top) / _CHECKER_PATH
+
+
+def _check_sibling_copy(staged: str, sibling: Path) -> list[Violation]:
+    if not sibling.is_file():
+        return [
+            Violation(
+                _CHECKER_PATH,
+                1,
+                1,
+                'sibling_copy',
+                f'no copy at {sibling}; the checker is one file in both repos and its '
+                "witness is the other repo's checkout with this one's track suffix: "
+                'add or move that worktree there before committing',
+            )
+        ]
+    if staged == sibling.read_text(encoding='utf-8'):
         return []
     return [
         Violation(
@@ -1455,7 +1508,7 @@ def _check_sibling_copy(staged: str, sibling: Path | None) -> list[Violation]:
             1,
             'sibling_copy',
             f'differs from {sibling}; the checker is one file in both repos: copy the '
-            'staged file there, or pull that checkout, before committing',
+            'staged file there and commit it there as the same concern',
         )
     ]
 

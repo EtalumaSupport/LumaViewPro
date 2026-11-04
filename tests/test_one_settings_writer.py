@@ -10,6 +10,9 @@ checks, because they all reach the same member. Its read by path,
 """
 
 import math
+import os
+import re
+import sys
 import threading
 
 import pytest
@@ -22,9 +25,12 @@ from modules.exceptions import (
     Refusal,
     SettingRefusedError,
 )
+from modules.coord_transformations import PlateLocation
+from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture(scope='module')
@@ -44,9 +50,10 @@ def test_a_nested_setting_is_written(session):
 
 
 def test_a_leaf_with_no_shipped_value_takes_a_number(session):
-    # The template ships these as null ("unset"); any single value is theirs.
-    session.update_settings('stage.plate_bottom_z_estimate', 1200.0)
-    assert session.settings['stage']['plate_bottom_z_estimate'] == 1200.0
+    # The template ships the metrics cadence as null ("unset"): a number of
+    # seconds is its value.
+    session.update_settings('profiling.metrics_interval_s', 5.0)
+    assert session.settings['profiling']['metrics_interval_s'] == 5.0
 
 
 @pytest.mark.parametrize(
@@ -58,16 +65,25 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_fps', '30', 'wrong_kind'),
         ('show_tooltips', 1, 'wrong_kind'),
         ('video.max_fps', True, 'wrong_kind'),
-        ('stage.plate_bottom_z_estimate', [1], 'wrong_kind'),
+        ('profiling.metrics_interval_s', [1], 'wrong_kind'),
+        ('profiling.metrics_interval_s', '5', 'wrong_kind'),
+        ('profiling.metrics_interval_s', 0, 'out_of_range'),
+        ('profiling.metrics_interval_s', -5, 'out_of_range'),
         # NaN and an infinity are not numbers to the writer, ranged or not:
         # every range compares, and a comparison with NaN passes.
         ('zstack.range', math.nan, 'wrong_kind'),
         ('zstack.range', math.inf, 'wrong_kind'),
-        ('stage.plate_bottom_z_estimate', math.nan, 'wrong_kind'),
+        ('profiling.metrics_interval_s', math.nan, 'wrong_kind'),
         ('video.max_fps', 201, 'out_of_range'),
-        ('video.max_duration_seconds', 0, 'out_of_range'),
+        ('live_view_fps', 61, 'out_of_range'),
+        ('video.max_duration_s', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
-        ('image_output_format.live', 'BMP', 'out_of_range'),
+        ('image_output_format.live', 'BMP', 'not_offered'),
+        # A format of the set the live selector does not offer.
+        ('image_output_format.live', 'OME-TIFF Hyperstack', 'not_offered'),
+        # A leaf shipped null takes null or the kind it holds when set.
+        (f'{LED0}.display_color', 7, 'wrong_kind'),
+        ('step_channel_order', ['BF'], 'derived'),
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):
@@ -79,40 +95,109 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
     assert session.get_settings_snapshot() == before
 
 
+# A session member is named by its name, and its words say ``ScopeSession.``;
+# a camera member is named by where a caller reaches it, ``scope.camera.``.
 @pytest.mark.parametrize(
-    ('path', 'member'),
+    ('path', 'owner', 'member', 'words', 'reason'),
     [
-        ('microscope', 'select_model'),
-        ('live_folder', 'set_live_folder'),
-        ('protocol.filepath', 'set_protocol_filepath'),
-        ('objective_id', 'select_objective'),
-        ('turret_objectives.1', 'assign_turret_objective'),
-        ('protocol.labware', 'select_labware'),
-        ('image_mode', 'set_image_mode'),
-        ('binning.size', 'set_binning_size'),
-        ('frame.width', 'set_frame_size'),
-        ('Blue.acquire', 'set_layer_acquire'),
-        ('Blue.auto_gain', 'set_layer_auto_gain'),
-        ('Blue.focus', 'save_layer_focus'),
+        ('microscope', ScopeSession, 'select_model', 'ScopeSession.select_model', 'has_member'),
+        # In-process members: only the host moves the live folder, which
+        # confines every path a wire caller sends.
+        (
+            'live_folder',
+            ScopeSession,
+            'set_live_folder',
+            'ScopeSession.set_live_folder',
+            'host_only',
+        ),
+        (
+            'protocol.filepath',
+            ScopeSession,
+            'set_protocol_filepath',
+            'ScopeSession.set_protocol_filepath',
+            'host_only',
+        ),
+        (
+            'objective_id',
+            ScopeSession,
+            'select_objective',
+            'ScopeSession.select_objective',
+            'has_member',
+        ),
+        (
+            'turret_objectives.1',
+            ScopeSession,
+            'assign_turret_objective',
+            'ScopeSession.assign_turret_objective',
+            'has_member',
+        ),
+        (
+            'protocol.labware',
+            ScopeSession,
+            'select_labware',
+            'ScopeSession.select_labware',
+            'has_member',
+        ),
+        (
+            'image_mode',
+            CameraAPI,
+            'scope.camera.set_image_mode',
+            'scope.camera.set_image_mode',
+            'has_member',
+        ),
+        (
+            'binning.size',
+            CameraAPI,
+            'scope.camera.set_binning',
+            'scope.camera.set_binning',
+            'has_member',
+        ),
+        (
+            'frame.width',
+            CameraAPI,
+            'scope.camera.set_frame_size',
+            'scope.camera.set_frame_size',
+            'has_member',
+        ),
+        (
+            f'{LED0}.acquire',
+            ScopeSession,
+            'set_channel_acquire',
+            'ScopeSession.set_channel_acquire',
+            'has_member',
+        ),
+        (
+            f'{LED0}.auto_gain',
+            ScopeSession,
+            'set_channel_auto_gain',
+            'ScopeSession.set_channel_auto_gain',
+            'has_member',
+        ),
+        (
+            f'{LED0}.focus',
+            ScopeSession,
+            'save_channel_focus',
+            'ScopeSession.save_channel_focus',
+            'has_member',
+        ),
     ],
 )
-def test_a_setting_with_a_member_is_refused_naming_it(session, path, member):
-    with pytest.raises(SettingRefusedError, match=f'ScopeSession.{member}') as refused:
+def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, member, words, reason):
+    with pytest.raises(
+        SettingRefusedError, match=f'it is changed by {re.escape(words)}'
+    ) as refused:
         session.update_settings(path, None)
-    assert refused.value.reason == 'has_member'
+    assert refused.value.reason == reason
     assert refused.value.member == member
-    # The name it gives is a member a caller can call.
-    assert callable(getattr(ScopeSession, member))
+    # The name it gives is a member a caller can call, on the class that owns it.
+    assert callable(getattr(owner, member.rpartition('.')[2]))
 
 
 @pytest.mark.parametrize(
     ('path', 'value'),
     [
         ('rest_api.enabled', True),
-        ('rest_api.host', '0.0.0.0'),
         ('rest_api.port', 9000),
-        ('rest_api.api_key', 'k'),
-        ('rest_api.cors_origins', ['*']),
         ('mode', 'engineering'),
         ('lvp_lock_port', 1),
         ('profile_trace_output_dir', '/elsewhere'),
@@ -150,6 +235,37 @@ def test_a_live_folder_no_file_system_can_name_is_refused(session):
     assert session.get_settings_snapshot() == before
 
 
+def test_a_live_folder_under_a_file_is_refused_and_the_old_one_stays(session, tmp_path):
+    # Told at the write, not at the first capture into it.
+    blocker = tmp_path / 'a_file'
+    blocker.write_text('')
+    before = session.get_settings_snapshot()
+    with pytest.raises(SettingRefusedError) as refused:
+        session.set_live_folder(str(blocker / 'captures'))
+    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
+    assert str(blocker / 'captures') in str(refused.value)
+    assert session.get_settings_snapshot() == before
+
+
+@pytest.mark.skipif(
+    sys.platform == 'win32' or os.geteuid() == 0,
+    reason='a directory mode binds neither on Windows nor for root',
+)
+def test_a_live_folder_the_os_will_not_create_is_refused(session, tmp_path):
+    # Any reason the folder cannot be made, not only a file in the way.
+    locked = tmp_path / 'locked'
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        before = session.get_settings_snapshot()
+        with pytest.raises(SettingRefusedError) as refused:
+            session.set_live_folder(str(locked / 'captures'))
+        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
+        assert session.get_settings_snapshot() == before
+    finally:
+        locked.chmod(0o700)
+
+
 def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
     # The protocol's own range, refused in the writer's one vocabulary.
     before = session.settings['protocol']['period']
@@ -162,15 +278,31 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
 def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(session):
     # The camera's limit is the apply's to hold (applied_exposure_ms_for),
     # with the stored value kept for a camera that can reach it.
-    assert session.scope.imaging.max_exposure_ms_cached == 1000.0
-    assert session.scope.imaging.max_gain_db_cached == 48.0
-    session.update_settings('Blue.exposure_ms', 1500.0)
-    session.update_settings('Blue.gain_db', 60.0)
-    assert session.settings['Blue']['exposure_ms'] == 1500.0
-    assert session.settings['Blue']['gain_db'] == 60.0
+    assert session.scope.capabilities.camera_limits.exposure_max_ms == 1000.0
+    assert session.scope.capabilities.camera_limits.gain_max_db == 48.0
+    session.update_settings(f'{LED0}.exposure_ms', 1500.0)
+    session.update_settings(f'{LED0}.gain_db', 60.0)
+    assert session.settings[LED0]['exposure_ms'] == 1500.0
+    assert session.settings[LED0]['gain_db'] == 60.0
 
 
-@pytest.mark.parametrize('path', ['Blue.illumination_ma', 'Blue.stim_config.illumination_ma'])
+def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(tmp_path):
+    # Each bound is written alone, so the pair is judged where auto-gain is
+    # armed with it: the shown layer's arm, here, after the store.
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        layer = s.shown_channel.channel
+        s.set_channel_auto_gain(layer, True)
+        with pytest.raises(ArgumentRefusedError) as refused:
+            s.update_settings('protocol.autogain.min_gain_db', 30.0)
+        assert refused.value.reason == 'gain_range_inverted'
+        assert s.settings['protocol']['autogain']['min_gain_db'] == 30.0
+        s.update_settings('protocol.autogain.max_gain_db', 40.0)
+    finally:
+        s.shutdown()
+
+
+@pytest.mark.parametrize('path', [f'{LED0}.illumination_ma', f'{LED0}.stim_config.illumination_ma'])
 def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session, path):
     # The board refuses to drive it and over-driving an LED is a damage
     # mode, so the writer refuses it where the camera's limit is applied.
@@ -187,7 +319,7 @@ def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session
 
 def test_the_sessions_own_model_write_is_not_refused(session):
     # select_model writes the setting the writer refuses to everyone else.
-    model = session.scope.layer_identity.model
+    model = session.scope.channel_identity.model
     session.select_model(model)
     assert session.settings['microscope'] == model
 
@@ -245,35 +377,36 @@ def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ('member', 'imaging_setter', 'path'),
+    ('member', 'camera_body', 'path'),
     [
-        ('set_high_conversion_gain', 'set_conversion_gain_mode', 'high_conversion_gain'),
-        ('set_line_noise_reduction', 'set_line_noise_reduction', 'line_noise_reduction'),
+        ('set_high_conversion_gain', '_set_conversion_gain_mode_impl', 'high_conversion_gain'),
+        ('set_line_noise_reduction', '_set_line_noise_reduction_impl', 'line_noise_reduction'),
     ],
 )
 def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
-    session, monkeypatch, member, imaging_setter, path
+    session, monkeypatch, member, camera_body, path
 ):
-    imaging = session.scope.imaging
-    monkeypatch.setattr(imaging, imaging_setter, lambda value: None)
-    getattr(session, member)(True)
+    camera = session.scope.camera
+    # a stand-in by design: the simulated camera has neither mode, so on is refused before the camera; the gap is the simulator's missing nodes
+    monkeypatch.setattr(camera, camera_body, lambda value: True)
+    getattr(session.scope.camera, member)(True)
     assert session.settings['camera'][path] is True
 
     def refused(value):
-        raise CameraSettingRejected(path, value, title='Not applied', message='refused')
+        raise CameraSettingRejected(path, value, message='refused')
 
-    monkeypatch.setattr(imaging, imaging_setter, refused)
+    monkeypatch.setattr(camera, camera_body, refused)
     with pytest.raises(CameraSettingRejected):
-        getattr(session, member)(False)
+        getattr(session.scope.camera, member)(False)
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
 
 
-def test_the_scale_bar_overlay_and_its_setting_change_together(session):
+def test_the_scale_bar_read_and_its_setting_change_together(session):
     session.set_scale_bar(True)
-    assert session.scope.imaging.scale_bar_config['enabled'] is True
+    assert session.scale_bar_enabled is True
     assert session.settings['scale_bar']['enabled'] is True
     session.set_scale_bar(False)
-    assert session.scope.imaging.scale_bar_config['enabled'] is False
+    assert session.scale_bar_enabled is False
     assert session.settings['scale_bar']['enabled'] is False
 
 
@@ -306,15 +439,16 @@ def test_an_acceleration_with_no_motor_controller_is_refused_and_not_stored(sess
 def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
     session.scope.motion.home('ALL')
     saved = session.save_bookmark(('X', 'Y', 'Z'))
-    here = session.get_current_plate_position()
-    assert saved == {'x': here['x'], 'y': here['y'], 'z': here['z']}
-    assert session.settings['bookmark'] == {**session.settings['bookmark'], **saved}
+    assert saved == session.get_current_plate_position()
+    assert session.bookmark == saved
 
 
 def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
     session.scope.motion.home('ALL')
-    z = session.save_all_bookmarks()
-    on_scope = {record.key_name for record in session.scope.layer_identity.layers}
+    saved = session.save_all_bookmarks()
+    z = session.get_current_plate_position().z_um
+    assert saved == PlateLocation(x_mm=None, y_mm=None, z_um=z)
+    on_scope = {record.key_name for record in session.scope.channel_identity.channels}
     assert session.settings['bookmark']['z'] == z
     for layer in on_scope:
         assert session.settings[layer]['focus'] == z

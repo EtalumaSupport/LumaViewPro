@@ -9,12 +9,48 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
-from modules.protocol import Protocol
+from modules.protocol import Protocol, StoredNames
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.common_utils import PostFunction
+from modules import post_derivation
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.tiling_config import TilingGrids
 
 from lvp_logger import logger
+
+
+def _raw_row(
+    image_name: pathlib.Path, recorded: dict, protocol: Protocol, *, missing: str, frames: int
+) -> dict:
+    """One raw frame's row: its file, its step's columns, and its record's.
+
+    ``Missing`` is empty for a frame in the folder, else why it is not;
+    ``Frames`` is how many frames the row stands for.
+    """
+    step_index = recorded['Step Index']
+    step = protocol.step_row(step_index=step_index)
+    return {
+        'Filepath': image_name,
+        'Name': step['Name'],
+        'Label': step['Label'],
+        'Scan Count': recorded['Scan Count'],
+        'Step Index': step_index,
+        'X': step['X'],
+        'Y': step['Y'],
+        'Z': step['Z'],
+        'Z-Slice': step['Z-Slice'],
+        'Well': step['Well'],
+        'Color': step['Color'],
+        'Objective': step['Objective'],
+        'Tile': step['Tile'],
+        'Tile Group ID': step['Tile Group ID'],
+        'Z-Stack Group ID': step['Z-Stack Group ID'],
+        'Channel Group ID': step['Channel Group ID'],
+        'Custom Step': step['Custom Step'],
+        'Acquire': step['Acquire'],
+        'Timestamp': recorded['Timestamp'],
+        'Missing': missing,
+        'Frames': frames,
+    }
 
 
 class ProtocolPostProcessingHelper:
@@ -35,7 +71,9 @@ class ProtocolPostProcessingHelper:
 
         raw_image_names = []
         post_image_names = []
-        raw_image_dirs = ['.', *common_utils.get_layers()]
+        # A run saved a folder per channel under the names it stored, an old
+        # run's under its old names.
+        raw_image_dirs = ['.', *common_utils.get_stored_channel_names()]
 
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
             raise Exception('Specify only include_subpaths OR exclude_subpaths. Not both.')
@@ -44,10 +82,10 @@ class ProtocolPostProcessingHelper:
 
         # A video recording folder holds frames one level below the
         # protocol folder that owns the execution record; step up so
-        # relative names compute against the protocol folder. Tested on
-        # the final path component only -- a protocol ROOT that happens
-        # to carry the token in its name must not step out of itself.
-        if recording_frames.is_video_recording_dir_name(path.name):
+        # relative names compute against the protocol folder. Told from the
+        # frames it holds -- a protocol ROOT whose name carries the token
+        # must not step out of itself.
+        if recording_frames.is_video_recording_dir(path):
             path = path.parent
 
         for image in images:
@@ -162,7 +200,7 @@ class ProtocolPostProcessingHelper:
         image_names: list,
         protocol: Protocol,
         protocol_execution_record: ProtocolExecutionRecord,
-    ) -> pd.DataFrame | None:
+    ) -> pd.DataFrame:
 
         image_data = []
 
@@ -180,54 +218,90 @@ class ProtocolPostProcessingHelper:
                 logger.warning(f'No info found in protocol execution record for {image_name}')
                 continue
 
-            step_idx = file_data['Step Index']
-            step = protocol.step(idx=step_idx)
+            image_data.append(_raw_row(image_name, file_data, protocol, missing='', frames=1))
 
-            image_data.append(
-                {
-                    'Filepath': image_name,
-                    'Name': step['Name'],
-                    'Label': step['Label'],
-                    'Scan Count': file_data['Scan Count'],
-                    'Step Index': step_idx,
-                    'X': step['X'],
-                    'Y': step['Y'],
-                    'Z': step['Z'],
-                    'Z-Slice': step['Z-Slice'],
-                    'Well': step['Well'],
-                    'Color': step['Color'],
-                    'Objective': step['Objective'],
-                    'Tile': step['Tile'],
-                    'Tile Group ID': step['Tile Group ID'],
-                    'Z-Stack Group ID': step['Z-Stack Group ID'],
-                    'Custom Step': step['Custom Step'],
-                    'Timestamp': file_data['Timestamp'],
-                }
+        return pd.DataFrame(image_data)
+
+    @staticmethod
+    def _get_missing_images(
+        protocol: Protocol,
+        protocol_execution_record: ProtocolExecutionRecord,
+        root_path: pathlib.Path,
+        include_subpaths: list[str],
+    ) -> list[dict]:
+        """A marked row for each frame the run recorded that the folder lacks.
+
+        Two kinds: a recorded file that is not in the folder (``Missing`` is
+        ``'not_on_disk'``), and a capture the run recorded as leaving no
+        file (``Missing`` is the reason word the run wrote). Only what the
+        disk walk would have taken counts: a TIFF or a recording's frames
+        folder, in the selected subfolder when one is selected; a capture
+        that left no file belongs to a subfolder named for its channel.
+        ``Frames`` is how many frames the row stands for, so a missing
+        recording is a group's worth, not one.
+        """
+        rows = []
+        for entry in protocol_execution_record.saved_entries():
+            reason = entry['No File']
+            if reason is None:
+                recorded = pathlib.Path(entry['Filename'])
+                takes = (
+                    recorded.suffix.lower() in image_utils.TIFF_SUFFIXES
+                    or recording_frames.is_video_recording_dir_name(recorded.name)
+                )
+                if not takes or (root_path / recorded).exists():
+                    continue
+                if include_subpaths and str(recorded.parent) not in include_subpaths:
+                    continue
+                missing = 'not_on_disk'
+            else:
+                recorded = pathlib.Path(reason)
+                color = protocol.step_row(step_index=entry['Step Index'])['Color']
+                if include_subpaths and color not in include_subpaths:
+                    continue
+                missing = reason
+            rows.append(
+                _raw_row(
+                    recorded,
+                    entry,
+                    protocol,
+                    missing=missing,
+                    frames=max(1, entry['Frame Count']),
+                )
             )
-
-        df = pd.DataFrame(image_data)
-        df = df.fillna('')
-
-        return df
+        return rows
 
     def _get_post_images_df(
         self,
         image_names: list[pathlib.Path],
         protocol_post_record: ProtocolPostRecord,
+        *,
+        include_subpaths: list[str],
     ) -> pd.DataFrame | None:
+        """The record's derived images the build may take, as rows.
 
+        An image the disk walk found is taken. One the record names and the
+        folder lacks is taken too, marked ``Missing`` ``'not_on_disk'`` as a
+        raw frame the run recorded is, so the group it belongs to fails
+        instead of building short -- under the walk's own filters: only an
+        image the walk would have taken (a TIFF), and only in the selected
+        subfolder when one is selected.
+        """
         df = protocol_post_record.records()
         if len(df) == 0:
             return df
 
-        # Filter out any images that are missing from the filesystem
-        # This is not strictly needed since the following filter using 'image_names'
-        # will also inherently remove non-existent files
-        df = df[df['File Exists'] == True]  # noqa: E712 -- pandas mask
+        def walk_would_take(path) -> bool:
+            path = pathlib.Path(path)
+            return path.suffix.lower() in image_utils.TIFF_SUFFIXES and (
+                not include_subpaths or str(path.parent) in include_subpaths
+            )
 
-        # Filter out any images that are not path of the selected images provided
-        df = df[df['Filepath'].isin(image_names)]
-
+        found = df['Filepath'].isin(image_names)
+        gone = ~df['File Exists'].astype(bool) & df['Filepath'].map(walk_would_take).astype(bool)
+        df = df[found | gone].copy()
+        df['Missing'] = gone[found | gone].map({True: 'not_on_disk', False: ''})
+        df['Frames'] = 1
         return df
 
     @staticmethod
@@ -241,7 +315,7 @@ class ProtocolPostProcessingHelper:
     def load_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
     ) -> dict:
         selected_path = pathlib.Path(path)
         logger.info(f'{self._name}: Loading folder {selected_path}')
@@ -280,13 +354,13 @@ class ProtocolPostProcessingHelper:
         """)
 
         try:
-            # The run's record, read for its steps and never run or edited:
-            # a period saved before the floor, or a step cell a run would
-            # refuse, does not refuse it here.
+            # The run's record, read for its steps in the names its files
+            # carry and never run or edited: a period saved before the floor,
+            # or a step cell a run would refuse, does not refuse it here.
             protocol = Protocol.from_file(
                 file_path=protocol_tsvs['protocol'],
-                tiling_configs_file_loc=tiling_configs_file_loc,
-                runnable=False,
+                tiling_grids=tiling_grids,
+                unit=StoredNames.KEPT,
             )
         except Exception as e:
             msg = f'Unable to load protocol file: {e}'
@@ -348,10 +422,9 @@ class ProtocolPostProcessingHelper:
             include_subpaths = [selected_path.name]
 
         # A selected video recording folder scans itself for images
-        # instead of the root folder. Tested on the final path component
-        # only -- a root that carries the token elsewhere in its path
-        # must keep the normal root scan.
-        if recording_frames.is_video_recording_dir_name(path.name):
+        # instead of the root folder. Told from the frames it holds -- a
+        # root whose name carries the token must keep the normal root scan.
+        if recording_frames.is_video_recording_dir(path):
             image_names = self._get_image_filenames_from_folder(
                 path=path, exclude_subpaths=[], include_subpaths=[]
             )
@@ -360,20 +433,29 @@ class ProtocolPostProcessingHelper:
                 path=root_path, exclude_subpaths=[], include_subpaths=include_subpaths
             )
 
-        raw_images_df = self._get_raw_images_df(
+        raw_images = self._get_raw_images_df(
             image_names=image_names['raw'],
             protocol=protocol,
             protocol_execution_record=protocol_execution_record,
-        )
+        ).to_dict('records')
+        # A selected recording folder is its frames only; any other
+        # selection also takes what the run recorded and the folder lacks.
+        if not recording_frames.is_video_recording_dir(path):
+            raw_images += self._get_missing_images(
+                protocol=protocol,
+                protocol_execution_record=protocol_execution_record,
+                root_path=root_path,
+                include_subpaths=include_subpaths,
+            )
+        raw_images_df = pd.DataFrame(raw_images).fillna('')
 
         raw_images_df['Raw'] = True
-
-        post_processing_names = PostFunction.list_values()
-        raw_images_df[post_processing_names] = False
+        raw_images_df = raw_images_df.assign(**post_derivation.raw_columns())
 
         post_images_df = self._get_post_images_df(
             image_names=image_names['post'],
             protocol_post_record=protocol_post_record,
+            include_subpaths=include_subpaths,
         )
         post_images_df['Raw'] = False
 
@@ -387,8 +469,11 @@ class ProtocolPostProcessingHelper:
                 'message': user_msg,
             }
 
+        # Renumbered: each frame arrives with its own 0-based index, and a
+        # label shared by a raw row and a post-processed row lets a caller
+        # that finds rows by label mistake one for the other.
         df_list = [raw_images_df, post_images_df]
-        images_df = pd.concat([df for df in df_list if not df.empty])
+        images_df = pd.concat([df for df in df_list if not df.empty], ignore_index=True)
 
         return {
             'status': True,

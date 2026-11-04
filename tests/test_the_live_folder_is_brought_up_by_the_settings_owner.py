@@ -8,7 +8,9 @@ not create with a default one, then saved the replacement over the person's
 folder. The settings owner now brings the folder up on both of its paths --
 the ordinary preparation and the late fall-back to the template -- and a
 folder it cannot create stays the person's: captures into it are refused by
-the location owner, naming it.
+the location owner, naming it. A loaded dict is prepared twice, at the load
+and again at ``ScopeSession.create``'s door, which every host's dict passes,
+so such a folder is warned about at that door alone, once.
 """
 
 import json
@@ -17,7 +19,9 @@ import os
 
 import pytest
 
-from modules import settings_init
+from modules import scope_session, settings_init
+from modules.scope_session import ScopeSession
+from tests.installation_fixtures import copy_installation_files
 
 _REPO_TEMPLATE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'settings.json'
@@ -28,12 +32,12 @@ def _data_dir(tmp_path, live_folder=None):
     """A data directory holding the shipped template and, if given, a current.json."""
     data = tmp_path / 'data'
     data.mkdir()
-    with open(_REPO_TEMPLATE) as f:
+    with open(_REPO_TEMPLATE, encoding='utf-8') as f:
         template = json.load(f)
-    with open(data / 'settings.json', 'w') as f:
+    with open(data / 'settings.json', 'w', encoding='utf-8') as f:
         json.dump(template, f)
     if live_folder is not None:
-        with open(data / 'current.json', 'w') as f:
+        with open(data / 'current.json', 'w', encoding='utf-8') as f:
             json.dump({**template, 'live_folder': live_folder}, f)
     return tmp_path
 
@@ -84,7 +88,62 @@ def test_a_folder_that_cannot_be_created_stays_the_persons(tmp_path, caplog):
 
     assert settings['live_folder'] == str(unreachable)
     assert not unreachable.exists()
-    assert [r for r in caplog.records if str(unreachable) in r.getMessage()]
+    # The load is not yet a session: create's door, which every host's dict
+    # passes, is the one that warns.
+    assert not [r for r in caplog.records if str(unreachable) in r.getMessage()]
+
+
+def _warnings_naming(caplog, folder):
+    """The warnings logged in the test that name *folder*."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and str(folder) in r.getMessage()
+    ]
+
+
+@pytest.mark.slow
+def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_path, caplog):
+    # Every host hands create the dict it loaded, so create's door is the
+    # load path too: an unplugged drive is the person's folder, not a refusal,
+    # and it is warned about once across the two preparations.
+    blocker = tmp_path / 'a_file'
+    blocker.write_text('')
+    unreachable = blocker / 'capture'
+    directory = _data_dir(tmp_path, live_folder=str(unreachable))
+    copy_installation_files(directory / 'data')
+    caplog.set_level(logging.DEBUG)
+    settings, _ = settings_init.prepare_settings(
+        scope_session.logger, str(directory), fall_back_to_template=False
+    )
+
+    session = ScopeSession.create(settings, source_path=str(directory), simulate=True)
+    try:
+        assert session.get_setting('live_folder') == str(unreachable)
+    finally:
+        session.shutdown()
+    assert len(_warnings_naming(caplog, unreachable)) == 1
+
+
+@pytest.mark.slow
+def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_path, caplog):
+    # A pin, not a red-first test: a dict a script builds and hands to create
+    # passes no load, so a warning said only at the load would never reach it.
+    blocker = tmp_path / 'a_file'
+    blocker.write_text('')
+    unreachable = blocker / 'capture'
+    directory = _data_dir(tmp_path)
+    copy_installation_files(directory / 'data')
+    caplog.set_level(logging.DEBUG)
+
+    session = ScopeSession.create(
+        {'live_folder': str(unreachable)}, source_path=str(directory), simulate=True
+    )
+    try:
+        assert session.get_setting('live_folder') == str(unreachable)
+    finally:
+        session.shutdown()
+    assert len(_warnings_naming(caplog, unreachable)) == 1
 
 
 def test_the_late_fall_back_to_the_template_brings_the_folder_up_too(tmp_path):

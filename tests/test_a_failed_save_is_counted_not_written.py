@@ -22,15 +22,17 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.stock_channels import LED0
 
 WAIT_S = 30.0
 
 
 @pytest.fixture
 def lane():
+    from modules.executor_registry import session_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    executor = SequentialIOExecutor(name='FILE_TEST')
+    executor = SequentialIOExecutor(closed_answer=session_lane_closed, name='FILE_TEST')
     executor.start()
     yield executor
     executor.shutdown()
@@ -107,12 +109,12 @@ class TestARunWhoseSaveFails:
         _fail_saves(monkeypatch)
         files = []
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
                 events=RunEvents(files_written=lambda _run_dir, files_: files.append(files_)),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             _wait_for(files)
 
             assert files == ['incomplete'], (
@@ -120,14 +122,15 @@ class TestARunWhoseSaveFails:
             )
 
     def test_its_composite_is_not_built_and_says_the_save_failed(self, tmp_path, monkeypatch):
-        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
+        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == LED0)
         with (
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             pytest.raises(CaptureError) as failed,
         ):
             runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        assert failed.value.reason == 'write_batch_save_failed'
+        assert failed.value.reason == 'merge_error'
+        assert failed.value.merge_failure == 'write_batch_save_failed'
         # The run's frames are named for the composite too, so the merged
         # artifact shows as an image beyond the one frame that saved.
         images = sorted(p.name for p in pathlib.Path(tmp_path).rglob('*.tif*'))

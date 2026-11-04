@@ -92,7 +92,6 @@ def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,), select
 def _prepare(executor, protocol, tmp_path):
     return executor.prepare(
         protocol=protocol,
-        run_trigger_source='scan',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='turret_objectives',
         image_capture_config=_make_image_capture_config(),

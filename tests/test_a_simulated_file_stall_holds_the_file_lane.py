@@ -19,9 +19,9 @@ import pytest
 import modules.sequenced_capture_runner as runner_module
 from drivers.simulated_camera import SimulatedStall
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -45,26 +45,12 @@ class TestAStallIsRefusedWhereItCannotHappen:
             ScopeSession.create(
                 complete_settings(live_folder=str(tmp_path)),
                 simulate=False,
-                sim_file_stall=SimulatedStall(0.0, 1.0),
+                simulated=SimulatedScope(file_stall=SimulatedStall(0.0, 1.0)),
             )
         assert (refused.value.reason, refused.value.argument) == (
             'needs_simulated_scope',
-            'sim_file_stall',
+            'simulated',
         )
-
-    def test_a_session_refuses_a_file_stall_beside_a_scope_it_was_given(self):
-        scope = build_scope(simulate=True)
-        try:
-            with pytest.raises(ArgumentRefusedError) as refused:
-                ScopeSession.create(
-                    complete_settings(), scope=scope, sim_file_stall=SimulatedStall(0.0, 1.0)
-                )
-            assert (refused.value.reason, refused.value.argument) == (
-                'refused_beside_scope',
-                'sim_file_stall',
-            )
-        finally:
-            scope.disconnect()
 
 
 class TestTheLaneIsHeld:
@@ -72,7 +58,7 @@ class TestTheLaneIsHeld:
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)),
             simulate=True,
-            sim_file_stall=SimulatedStall(after_s=0.3, for_s=0.8),
+            simulated=SimulatedScope(file_stall=SimulatedStall(after_s=0.3, for_s=0.8)),
         )
         try:
             assert not _held(session), 'held before its delay'
@@ -90,7 +76,7 @@ class TestTheLaneIsHeld:
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)),
             simulate=True,
-            sim_file_stall=SimulatedStall(after_s=0.0, for_s=5.0),
+            simulated=SimulatedScope(file_stall=SimulatedStall(after_s=0.0, for_s=5.0)),
         )
         try:
             assert _wait_for(lambda: _held(session), 3.0)
@@ -101,9 +87,9 @@ class TestTheLaneIsHeld:
             session.sequenced_capture_runner._write_batch = batch
 
             assert _wait_for(
-                lambda: any(n.reason == 'files_writing_stalled' for n in centre_posts), 5.0
+                lambda: any(n.reason == 'file_writer_stalled' for n in centre_posts), 5.0
             ), 'the stall behind the held lane was not reported'
-            stall = next(n for n in centre_posts if n.reason == 'files_writing_stalled')
+            stall = next(n for n in centre_posts if n.reason == 'file_writer_stalled')
             assert 'simulated_stuck_write' in stall.message
         finally:
             session.shutdown()

@@ -25,31 +25,34 @@ Layers covered:
 
 from __future__ import annotations
 
+import logging
 import pathlib
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
-from tests.protocol_drives import lent_run_claim
+from modules import post_derivation
 from modules.common_utils import PostFunction
-from modules.run_events import RunEvents
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
-from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
+from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
+from tests.log_capture import records_of
+from tests.stock_channels import LED0, LED1
+from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +67,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
     p = _make_protocol(
         [
             _valid_step(
-                Name='Control_Blue_Z0',
+                Name=f'Control_{LED0}_Z0',
                 Label='Control',
                 Well='A1',
                 X=60.0,
@@ -73,7 +76,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
                 **{'Tile Group ID': 0},
             ),
             _valid_step(
-                Name='Control_Blue_Z0',
+                Name=f'Control_{LED0}_Z0',
                 Label='Control',
                 Well='A2',
                 X=61.0,
@@ -92,14 +95,14 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
     assert len(collision_errors) == 1, errors
     msg = collision_errors[0]
     assert 'Steps 1, 2' in msg
-    assert "'Control_Blue_Z0_...'" in msg
+    assert f"'Control_{LED0}_Z0_...'" in msg
     assert 'Rename' in msg
 
 
 def test_validate_for_run_allows_image_and_video_step_sharing_name():
     # A video step renders with its 'video' post token, so an image step
     # and a video step may legitimately share a Name without colliding.
-    video_cfg = {'duration': 5.0, 'fps': 5}
+    video_cfg = {'duration': 5.0}
     p = _make_protocol(
         [
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Acquire='image'),
@@ -137,7 +140,9 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centr
     tsv = tmp_path / 'renamed_dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
     captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
@@ -160,7 +165,7 @@ def _insert_layer_config():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
 
 
@@ -168,23 +173,27 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
     rows = _step_row('custom0007_BF', '', '', -1, -1, 46.5, 34.6, 4972.9)
     tsv = tmp_path / 'custom7.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto.step(idx=0)['Label'] == 'custom0007'
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
+    assert proto.step_row(step_index=0)['Label'] == 'custom0007'
 
     returned_name = proto.insert_step(
+        channel_group_id=proto.new_channel_group_id(),
+        turret_slot=-1,
         step_name=None,
         layer='BF',
         layer_config=_insert_layer_config(),
-        plate_position={'x': 10.0, 'y': 10.0, 'z': 5000.0},
+        plate_position=PlateLocation(x_mm=10.0, y_mm=10.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=None,
-        after_step=0,
+        before_step_index=None,
+        after_step_index=0,
     )
     # A reset-to-zero counter would mint 'custom0000'; a counter that
     # resumed at the loaded step would re-mint 'custom0007' and collide.
     assert returned_name == 'custom0008_BF', returned_name
-    assert proto.step(idx=1)['Label'] == 'custom0008'
+    assert proto.step_row(step_index=1)['Label'] == 'custom0008'
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +219,13 @@ class _FakePostProcessor(ProtocolPostProcessor):
     def _filter_ignored_types(self, df):
         return df
 
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
+
+    def _places(self, group):
+        return None
+
     def _group_algorithm(self, path, df, **kwargs):
         self.algorithm_calls.append(df.iloc[0]['OutName'])
         actual = df.iloc[0].get('ActualOutPath')
@@ -233,7 +249,7 @@ def _fake_images_df(group_out_names):
                 'GroupKey': group_key,
                 'OutName': out_name,
             }
-            row.update(dict.fromkeys(PostFunction.list_values(), False))
+            row.update(post_derivation.raw_columns())
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -250,7 +266,9 @@ def _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
             'protocol': None,
         },
     )
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+    return processor.load_folder(
+        path=tmp_path, tiling_grids=shipped_grids(), channel_colors=release_colors()
+    )
 
 
 def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monkeypatch):
@@ -265,7 +283,7 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
         _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
     assert refused.value.reason == 'collision'
-    assert 'No ZProject was generated' in str(refused.value)
+    assert 'No Z-Projection was generated' in str(refused.value)
     assert processor.algorithm_calls == [], 'nothing may be generated when every group collides'
     assert processor.records_added == []
 
@@ -279,7 +297,7 @@ def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, 
     processor = _FakePostProcessor()
     post_record = MagicMock()
     post_record.file_exists_in_records.return_value = False
-    images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', 'B2_Green_zproj.tiff'])
+    images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', f'B2_{LED1}_zproj.tiff'])
 
     with pytest.raises(PostProcessingFailedError) as incomplete:
         _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
@@ -287,10 +305,12 @@ def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, 
     assert 'refused' in str(incomplete.value)
     assert 'A1_BF_zproj.tiff' in str(incomplete.value)
     assert len(incomplete.value.produced_paths) == 1
-    assert incomplete.value.produced_paths[0].endswith('B2_Green_zproj.tiff')
-    assert processor.algorithm_calls == ['B2_Green_zproj.tiff'], 'only the clean group may generate'
+    assert incomplete.value.produced_paths[0].endswith(f'B2_{LED1}_zproj.tiff')
+    assert processor.algorithm_calls == [f'B2_{LED1}_zproj.tiff'], (
+        'only the clean group may generate'
+    )
     assert len(processor.records_added) == 1
-    assert str(processor.records_added[0]).endswith('B2_Green_zproj.tiff')
+    assert str(processor.records_added[0]).endswith(f'B2_{LED1}_zproj.tiff')
     post_record.complete.assert_called_once()
 
 
@@ -318,9 +338,14 @@ def test_post_processor_records_writer_relocated_output(tmp_path, monkeypatch):
 def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monkeypatch):
     processor = _FakePostProcessor()
     post_record = MagicMock()
-    # Distinct names, both already in the record from a previous session.
+    # Distinct names, both already made by a previous session: in the
+    # record, and their files in the folder (a z-projection's land in
+    # ZProject/).
     post_record.file_exists_in_records.return_value = True
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A2_BF_zproj.tiff'])
+    (tmp_path / 'ZProject').mkdir()
+    for name in ('A1_BF_zproj.tiff', 'A2_BF_zproj.tiff'):
+        (tmp_path / 'ZProject' / name).write_bytes(b'')
 
     result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
@@ -332,7 +357,13 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
         # Everything was already in the record, so nothing was produced this
         # run -- the empty list is the honest answer, not a missing key.
         'artifact_paths': [],
+        # Each group's output, already made, in place of the two frames it
+        # was made from: what a chained build hands the next.
+        'carried_forward': frozenset(
+            {pathlib.Path('ZProject/A1_BF_zproj.tiff'), pathlib.Path('ZProject/A2_BF_zproj.tiff')}
+        ),
         'accounting_note': '',
+        'excluded_inputs': (),
     }
     assert processor.algorithm_calls == [], 'already-recorded outputs are skipped, not regenerated'
     post_record.complete.assert_called_once()
@@ -343,20 +374,11 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
 # ---------------------------------------------------------------------------
 
 
-def _patch_video_writer_logger(monkeypatch):
+def _video_writer_lines(caplog):
+    """(level, message) for each line the video writer's own code logged."""
     from modules import video_writer as vw_mod
 
-    captured: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            captured.append(('WARNING', msg % args if args else msg))
-
-        def info(self, msg, *args, **kwargs):
-            captured.append(('INFO', msg % args if args else msg))
-
-    monkeypatch.setattr(vw_mod, 'logger', _RecordingLogger())
-    return captured
+    return [(r.levelname, r.getMessage()) for r in records_of(caplog, vw_mod)]
 
 
 def _write_one_frame_and_close(writer):
@@ -371,20 +393,21 @@ def _write_one_frame_and_close(writer):
     writer.close()
 
 
-def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
+def test_video_writer_uniquifies_existing_output_path(tmp_path, caplog):
     # Collision resolution runs at encoder init -- after the backend (and
     # so the REAL container suffix) is known -- and writer.output_path is
     # the record authority. Pre-create the path the active backend will
     # actually open (.avi covers the cv2 fallback; .mp4 covers PyAV).
     from modules.video_writer import VideoWriter
 
-    captured = _patch_video_writer_logger(monkeypatch)
     requested = tmp_path / 'A1_BF_video.mp4'
     for suffix in ('.mp4', '.avi'):
         requested.with_suffix(suffix).write_bytes(b'previous recording')
 
-    writer = VideoWriter(output_path=requested, fps=5.0)
-    _write_one_frame_and_close(writer)
+    with caplog.at_level(logging.INFO):
+        writer = VideoWriter(output_path=requested, fps=5.0)
+        _write_one_frame_and_close(writer)
+    captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
     assert actual.stem == 'A1_BF_video_000001', (
@@ -400,14 +423,15 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
     )
 
 
-def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
+def test_video_writer_keeps_fresh_output_path(tmp_path, caplog):
     from modules.video_writer import VideoWriter
 
-    captured = _patch_video_writer_logger(monkeypatch)
     requested = tmp_path / 'A1_BF_video.mp4'
 
-    writer = VideoWriter(output_path=requested, fps=5.0)
-    _write_one_frame_and_close(writer)
+    with caplog.at_level(logging.INFO):
+        writer = VideoWriter(output_path=requested, fps=5.0)
+        _write_one_frame_and_close(writer)
+    captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
     # The backend may rewrite the container suffix (.avi fallback), but a
@@ -417,92 +441,45 @@ def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
     assert not any('collision' in msg for _, msg in captured)
 
 
-def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
+def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_scope):
     # The protocol video leg must record the file the writer landed on --
     # its collision-suffixed path -- in the execution row, not the
     # requested name.
-    import threading
-    import time as _time
-
-    import numpy as np
-
     import modules.protocol_recording as protocol_recording
-    from modules.protocol_recording import ProtocolVideoStep
+    from tests.video_step_drives import ElapsedClock, video_step_on
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
 
-    class _RelocatingWriter:
-        """Stands in for VideoWriter's collision suffixing: the landed
-        path differs from the request."""
+    # The first frame the writer takes ends the 1 s recording.
+    elapsed = ElapsedClock()
+    added = []
 
+    class _RelocatingWriter:
         dropped_frames = 0
 
         def __init__(self, **kwargs):
             self.output_path = kwargs['output_path'].with_name('clip_000001.mp4')
 
         def add_frame(self, **kwargs):
-            pass
+            added.append(kwargs)
+            elapsed.pass_duration()
 
         def close(self):
             pass
 
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _RelocatingWriter)
 
-    listeners = {}
-    scope = MagicMock()
-    answer_auto_gain_like_the_api(scope.imaging)
-    scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.active_cached = True
-    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
-    scope.capabilities.camera_model = 'sim'
-    scope.capabilities.camera_serial_number = '0'
-    scope.capabilities.camera_timestamp_tick_hz = None
-    scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
-    scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
-
-    clock = {'t': 1000.0}
     rows = []
-    recorder = ProtocolVideoStep(
-        scope=scope,
-        step={
-            'Video Config': {'fps': 5, 'duration': 1},
-            'Color': 'BF',
-            'False_Color': False,
-            'Auto_Gain': False,
-            'Exposure': 10.0,
-        },
-        save_folder=tmp_path,
-        name='clip',
+    recorder = video_step_on(
+        sim_scope,
+        tmp_path,
+        step={'Color': 'BF'},
         video_as_frames=False,
-        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
-        timestamp_overlay=True,
-        global_max_fps=0,
-        autogain_settings={},
-        events=RunEvents(),
-        aborted_event=threading.Event(),
-        is_run_in_progress=lambda: True,
-        abort_run_fatal=MagicMock(),
         record_step_row=lambda **kw: rows.append(kw),
-        record_dropped_capture=MagicMock(),
-        clock=lambda: clock['t'],
-        run_claim=lent_run_claim(),
-        to_plate=None,
+        elapsed_clock=elapsed,
     )
 
-    outcomes = []
-    worker = threading.Thread(target=lambda: outcomes.append(recorder.run_blocking()))
-    worker.start()
-    deadline = _time.monotonic() + 5.0
-    while 'cb' not in listeners and _time.monotonic() < deadline:
-        _time.sleep(0.01)
-    assert 'cb' in listeners, 'the step must register a frame listener'
-    # One frame past the first cadence slot (start 1000.0, 5 fps -> 1000.2),
-    # then advance the clock past the duration so the wait loop closes.
-    listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
-    clock['t'] = 1002.0
-    worker.join(timeout=10.0)
-    assert not worker.is_alive(), 'run_blocking must return after the duration'
-    assert outcomes == [protocol_recording.COMPLETED]
+    assert recorder.run_blocking() == protocol_recording.COMPLETED
     assert recorder.wait_until_finished(timeout=10.0), 'the finish thread must complete'
 
     assert rows, 'a completed video step must leave an execution row'
@@ -510,7 +487,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         'the row must carry the suffixed file the writer landed on; '
         f'got {rows[0]["capture_result_file_name"]}'
     )
-    assert rows[0]['frame_count'] == 1
+    assert rows[0]['frame_count'] == len(added)
 
 
 def test_video_builder_create_video_reports_actual_output_file(tmp_path):
@@ -542,12 +519,13 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     result = builder._create_video(
         path=frames_dir,
         df=df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         output_file_loc=requested,
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
     actual = pathlib.Path(str(result['actual_output_file_loc']))
@@ -572,7 +550,9 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.tiling() == '2x2'
 
 
@@ -589,35 +569,34 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     tsv = tmp_path / 'tile_shaped_names.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     # Anything but the no-tiling label means a tiling was faked from the names.
     assert proto.tiling() == '1x1'
     # The user text itself survives as the labels.
     assert list(proto.steps()['Label']) == ['Region_TA1', 'Region_TA2', 'Region_TB1', 'Region_TB2']
 
 
-def test_tiling_inference_skips_malformed_tile_cells_with_warning(monkeypatch):
+def test_tiling_inference_skips_malformed_tile_cells_with_warning(caplog):
     from modules import tiling_config as tc_mod
-    from modules.tiling_config import TilingConfig
 
-    warnings: list = []
+    def warnings():
+        return [r.getMessage() for r in records_of(caplog, tc_mod) if r.levelno == logging.WARNING]
 
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            warnings.append(msg % args if args else msg)
-
-    monkeypatch.setattr(tc_mod, 'logger', _RecordingLogger())
-    tc = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+    tc = shipped_grids()
 
     # Hand-edited / corrupt cells must be skipped with a warning, never
     # raise out of the load path.
-    assert tc.determine_tiling_label_from_tiles(['AA', 'A1B', 'A 1']) is None
-    assert warnings and 'malformed' in warnings[0].lower(), warnings
+    with caplog.at_level(logging.WARNING):
+        assert tc.determine_tiling_label_from_tiles(['AA', 'A1B', 'A 1']) is None
+    assert warnings() and 'malformed' in warnings()[0].lower(), warnings()
 
     # Valid cells still infer, with malformed ones contributing nothing.
-    warnings.clear()
-    assert tc.determine_tiling_label_from_tiles(['A1', 'A2', 'B1', 'B2', 'A 1']) == '2x2'
-    assert warnings and 'malformed' in warnings[0].lower(), warnings
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert tc.determine_tiling_label_from_tiles(['A1', 'A2', 'B1', 'B2', 'A 1']) == '2x2'
+    assert warnings() and 'malformed' in warnings()[0].lower(), warnings()
 
 
 # ---------------------------------------------------------------------------
@@ -648,32 +627,20 @@ def _v8_row(name, label, well, tile_group=0, x=1.0):
     )
 
 
-def _capture_protocol_logger(monkeypatch):
+def test_load_sanitizes_labels_loudly(tmp_path, caplog):
     from modules import protocol as protocol_mod
 
-    warnings: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            warnings.append(msg % args if args else msg)
-
-        def info(self, msg, *args, **kwargs):
-            pass
-
-        def error(self, msg, *args, **kwargs):
-            pass
-
-    monkeypatch.setattr(protocol_mod, 'logger', _RecordingLogger())
-    return warnings
-
-
-def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
-    warnings = _capture_protocol_logger(monkeypatch)
     tsv = tmp_path / 'dotted_label.tsv'
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    step = proto.step(idx=0)
+    with caplog.at_level(logging.WARNING):
+        proto = protocol_from_file(
+            file_path=tsv,
+        )
+    warnings = [
+        r.getMessage() for r in records_of(caplog, protocol_mod) if r.levelno == logging.WARNING
+    ]
+    step = proto.step_row(step_index=0)
     assert step['Label'] == 'A1', 'the stripped-character form is what the writer saves'
     assert step['Name'] == 'A1_BF'
     assert any('removed unsupported characters' in w for w in warnings), warnings
@@ -688,7 +655,9 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts)
         + _v8_row('A.1_BF', 'A.1', 'B2', tile_group=0, x=1.0)
         + _v8_row('A1_BF', 'A1', 'B3', tile_group=1, x=2.0)
     )
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert list(proto.steps()['Label']) == ['A1', 'A1']
     notified = [n.message for n in centre_posts]
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
@@ -714,7 +683,9 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts
     rows += _step_row('A1_BF', 'A1', '', -1, 1, 46.5, 34.6, 5001.7)
     tsv = tmp_path / 'objective_disambiguated.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.num_steps() == 2
     assert centre_posts == [], centre_posts
 
@@ -808,6 +779,23 @@ def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
         allocate_directory(tmp_path / 'does_not_exist' / 'Video_x')
 
     assert 'capture location' in str(excinfo.value)
+
+
+def test_allocator_refuses_a_location_the_system_refuses_in_the_systems_words(tmp_path):
+    # The person reads why the folder was refused, not Python's rendering
+    # of the error ("[Errno 13] ...: '<path>'").
+    from modules.path_utils import CaptureLocationError, allocate_directory
+
+    tmp_path.chmod(0o500)
+    try:
+        with pytest.raises(CaptureLocationError) as excinfo:
+            allocate_directory(tmp_path / 'Video_x')
+    finally:
+        tmp_path.chmod(0o700)
+
+    assert excinfo.value.reason == 'capture_location_unusable'
+    assert 'Permission denied' in str(excinfo.value)
+    assert '[Errno' not in str(excinfo.value)
 
 
 def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):

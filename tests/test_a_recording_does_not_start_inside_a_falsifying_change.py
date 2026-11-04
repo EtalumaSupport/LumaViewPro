@@ -20,18 +20,21 @@ import threading
 
 import pytest
 
+from drivers import host_clock
 from modules import settings_init
 from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
 from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
-from modules.recording_frames import resolve_recording_pixel_size
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.lumascope_api.frame_record import TimestampSource
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 _WAIT_S = 2.0
 
@@ -42,7 +45,7 @@ def claim():
 
 
 def _lane(claim, name):
-    ex = SequentialIOExecutor(name=name)
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name=name)
     ex.ask_claim(claim)
     ex.start()
     return ex
@@ -72,11 +75,17 @@ def _config(tmp_path):
         output_dir=tmp_path,
         filename_template='frame_{index}',
         timestamp_overlay=False,
+        timestamp_source=TimestampSource.HOST_ARRIVAL,
     )
 
 
 def _engine(claim):
-    return VideoRecordingEngine(write_frame=lambda *a, **k: None, claim=claim, clock=lambda: 0.0)
+    return VideoRecordingEngine(
+        write_frame=lambda *a, **k: None,
+        claim=claim,
+        clock=lambda: 0.0,
+        steady_clock=host_clock.steady_ns,
+    )
 
 
 class _Change:
@@ -117,7 +126,7 @@ class TestTheRecordingStart:
         fut, change = _run_inline_in_an_unmarked_task(io_lane)
         try:
             with pytest.raises(RecordingRefusedError) as refused:
-                _engine(claim).start(lambda: _config(tmp_path))
+                _engine(claim).start(lambda: (_config(tmp_path), None))
             assert refused.value.reason == 'falsifying_change_in_flight'
             assert claim.holder is None, 'a refused start leaves the claim free'
         finally:
@@ -132,7 +141,7 @@ class TestTheRecordingStart:
         fut, change = _run_top_level(lane, falsifies_recording=True)
         try:
             with pytest.raises(RecordingRefusedError) as refused:
-                _engine(claim).start(lambda: _config(tmp_path))
+                _engine(claim).start(lambda: (_config(tmp_path), None))
             assert refused.value.reason == 'falsifying_change_in_flight'
             assert claim.holder is None
         finally:
@@ -158,7 +167,7 @@ class TestTheRecordingStart:
     def test_the_change_it_was_refused_for_runs_to_its_end(self, claim, io_lane, tmp_path):
         fut, change = _run_inline_in_an_unmarked_task(io_lane)
         with pytest.raises(RecordingRefusedError):
-            _engine(claim).start(lambda: _config(tmp_path))
+            _engine(claim).start(lambda: (_config(tmp_path), None))
         change.release.set()
         assert fut.result(timeout=_WAIT_S) is None
 
@@ -167,7 +176,7 @@ class TestTheRecordingStart:
         change.release.set()
         fut.result(timeout=_WAIT_S)
         engine = _engine(claim)
-        engine.start(lambda: _config(tmp_path))
+        engine.start(lambda: (_config(tmp_path), None))
         try:
             assert claim.owner == 'recording'
         finally:
@@ -177,7 +186,7 @@ class TestTheRecordingStart:
         fut, change = _run_top_level(io_lane, falsifies_recording=False)
         engine = _engine(claim)
         try:
-            engine.start(lambda: _config(tmp_path))
+            engine.start(lambda: (_config(tmp_path), None))
             assert claim.owner == 'recording'
             engine.stop('user_stop')
         finally:
@@ -189,7 +198,7 @@ class TestTheRecordingStart:
 
         def _build():
             seen.append(claim.owner)
-            return _config(tmp_path)
+            return _config(tmp_path), None
 
         engine = _engine(claim)
         engine.start(_build)
@@ -243,12 +252,15 @@ class TestAnUnknownObjective:
     def test_it_refuses_a_recording_as_it_refuses_a_capture(self, turret_session):
         turret_session.scope.motion.move_turret(2)
         with pytest.raises(ObjectiveUnknownError) as unknown:
-            resolve_recording_pixel_size(turret_session.scope)
+            turret_session.manual_recording.start()
         assert unknown.value.reason == 'slot_unassigned'
+        assert not turret_session.manual_recording.is_recording
 
-    def test_a_known_objective_gives_the_scale(self, turret_session):
+    def test_a_known_objective_lets_it_start(self, turret_session):
         turret_session.scope.motion.move_turret(1)
-        assert resolve_recording_pixel_size(turret_session.scope) > 0
+        operation = turret_session.manual_recording.start()
+        assert turret_session.manual_recording.is_recording
+        operation.stop()
 
 
 class TestTheObjectiveQuestionDuringAHold:
@@ -285,26 +297,26 @@ class TestTheObjectiveQuestionDuringAHold:
 
 class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
     def test_frame_size_and_objective_are_read_while_the_recording_holds(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, post_processing
     ):
         from modules.manual_recording import ManualRecordingController
         from tests.test_manual_recording_controller import (
             FakeClock,
             ManualFireScheduler,
-            _FakeImaging,
+            _FakeCamera,
             _FakeScope,
             make_settings,
         )
 
         claim = ActivityClaim()
         read_under = {}
-        frame_size = _FakeImaging.frame_size_cached.fget
+        frame_size = _FakeCamera.frame_size.fget
 
-        def _frame_size_read(imaging):
+        def _frame_size_read(camera):
             read_under['frame_size'] = claim.owner
-            return frame_size(imaging)
+            return frame_size(camera)
 
-        monkeypatch.setattr(_FakeImaging, 'frame_size_cached', property(_frame_size_read))
+        monkeypatch.setattr(_FakeCamera, 'frame_size', property(_frame_size_read))
         scope = _FakeScope()
         resolve = scope.runtime_state.resolve_current_objective
 
@@ -313,12 +325,17 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
             return resolve()
 
         scope.runtime_state.resolve_current_objective = _objective_read
+        clock = FakeClock()
         controller = ManualRecordingController(
             scope=scope,
-            settings=make_settings(tmp_path),
+            settings_snapshot=lambda: make_settings(tmp_path),
+            shown_layer=lambda: 'BF',
             activity_claim=claim,
             scheduler=ManualFireScheduler(),
-            clock=FakeClock(),
+            clock=clock,
+            steady_clock=scope.imaging.steady_clock(clock),
+            channel_colors=release_colors,
+            post_processing=post_processing,
         )
         controller.start()
         controller.stop()

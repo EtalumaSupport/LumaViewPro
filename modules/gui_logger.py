@@ -14,41 +14,6 @@ import logging
 
 _log = logging.getLogger('LVP.gui_interactions')
 
-_write_backs: dict = {}
-
-
-def note_write_back(name: str, value: object) -> None:
-    """Declare that the APP is about to write, or has just written, ``value``.
-
-    A widget cannot tell the difference between a user operating it and the app
-    assigning to it -- both dispatch the same event, so the handler runs and a
-    record comes out either way. Two shapes of that produce records nobody did:
-
-    - a spinner whose options or text are set during panel setup, which
-      dispatches once per assignment;
-    - a text box whose handler corrects a typed value and writes the correction
-      back into the box, so a record carrying the corrected value is the app's
-      write and not the user's entry.
-
-    The writer declares the value; the next record for that name carrying
-    exactly it is recognised as the app's own and dropped. Exactly one is
-    absorbed, so a user who then does the same thing deliberately still records.
-
-    Declare BEFORE a write that dispatches synchronously (the spinner case) and
-    AFTER one whose echo arrives later (the text case).
-    """
-    _write_backs[name] = str(value)
-
-
-def consume_write_back(name: str, value: object) -> bool:
-    """True when this record is the app's own write rather than a user action.
-
-    Consumes the declaration either way, so a declaration that never matched
-    cannot linger and swallow a later genuine record.
-    """
-    expected = _write_backs.pop(name, None)
-    return expected is not None and str(value) == expected
-
 
 def button(name, detail=''):
     """Log a button press."""
@@ -84,14 +49,11 @@ def slider(name, value):
 
 
 def select(name: str, value: object) -> None:
-    """Log a selection change (spinner, dropdown, etc.).
+    """Log a person's selection (spinner, dropdown, etc.).
 
-    Spinners dispatch their text-change event on a programmatic assignment as
-    well as on a user pick, so a panel that populates its own options would
-    otherwise record a selection at every app start.
+    Written from the pick itself (``PickSpinner``), never from a text-change
+    event, which an app write to the spinner fires as well.
     """
-    if consume_write_back(name, value):
-        return
     _log.info(f'SELECT {name} {value}')
 
 
@@ -135,9 +97,8 @@ def notification(severity: str, title: str, message: str, source: str = '') -> N
     Pipe character separates fields so log-scrapers can split cleanly
     when titles or messages contain colons.
     """
-    sev_str = severity if isinstance(severity, str) else str(severity)
     src_suffix = f' from={source}' if source else ''
-    _log.info(f'NOTIFICATION {sev_str} | {one_line(title)} | {one_line(message)}{src_suffix}')
+    _log.info(f'NOTIFICATION {severity} | {one_line(title)} | {one_line(message)}{src_suffix}')
 
 
 def dialog(title: str, body: str) -> None:
@@ -149,6 +110,16 @@ def dialog(title: str, body: str) -> None:
     by ``notification``.
     """
     _log.info(f'DIALOG | {one_line(title)} | {one_line(body)}')
+
+
+def dialog_closed(title: str) -> None:
+    """Log a dialog leaving the screen, however it closed.
+
+    Pairs with ``dialog``: written from the one place every dialog opens, so
+    the app closing it, a person's answer, the title-bar X, a click outside
+    and Escape all leave the same line, once per opening.
+    """
+    _log.info(f'DIALOG_CLOSED | {one_line(title)}')
 
 
 def popup_response(title: str, response: str) -> None:
@@ -164,7 +135,7 @@ def popup_response(title: str, response: str) -> None:
 def text_input(name: str, value: object) -> None:
     """Log a text field's final committed value.
 
-    Call this once per commit, from the handler the box's ``on_focus`` binding
+    Call this once per commit, from the handler the box's ``on_commit`` binding
     reaches, with what the box holds BEFORE the handler transforms it. The
     emit is synchronous and unconditional: the record lands in the file ahead
     of whatever the entry goes on to do, so a bundle reads in the order the
@@ -200,25 +171,27 @@ def walk_scripted(source: str) -> None:
 _shown: dict[str, str] = {}
 
 
-def display(name: str, value: object) -> None:
+def display(name: str, value: object, *, stage: str | None = None) -> None:
     """Log a change in what the window shows, as it changes.
 
     A press is recorded where the person made it; what the window then shows
     -- the controls greyed, the homing banner, the title's event text -- is
     decided by the app and was in no record, so whether it appeared could only
-    be asked of whoever was watching. Recorded only when the value differs from
-    the last one recorded for ``name``, so a writer that runs on every edge
-    adds a line only when the screen changed.
+    be asked of whoever was watching. Recorded only when it differs from the
+    last one recorded for ``name``, so a writer that runs on every edge adds a
+    line only when the screen changed.
 
-    A count inside the value (a recording's elapsed seconds, a drain's files
-    left) is progress, not a change of what is shown: it is compared with its
-    digits blanked, so the record names each stage once.
+    ``value`` is what the window shows, compared whole: a step number or a
+    well is what is shown, and each change of it is a line. A caller showing
+    progress -- a recording's elapsed seconds, a drain's files left -- names
+    the stage that progress belongs to in ``stage``, which is compared in
+    place of ``value``, so the record names each stage once.
     """
     shown = one_line(value)
-    stage = ''.join('#' if c.isdigit() else c for c in shown)
-    if _shown.get(name) == stage:
+    compared = shown if stage is None else stage
+    if _shown.get(name) == compared:
         return
-    _shown[name] = stage
+    _shown[name] = compared
     _log.info(f'DISPLAY {name} {shown}')
 
 

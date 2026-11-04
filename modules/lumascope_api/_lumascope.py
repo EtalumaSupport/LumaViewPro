@@ -3,8 +3,10 @@
 
 import copy
 import dataclasses
+import functools
 import pathlib
 import sys
+import threading
 import warnings
 
 from lvp_logger import logger
@@ -12,6 +14,7 @@ from lvp_logger import logger
 # Import Lumascope Hardware files
 from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
+import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 
 # FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
@@ -27,7 +30,14 @@ except ImportError as _fx2_exc:
     # Same silent-degradation shape as the IDS guard below: without this
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
+from drivers import camera_profiles, host_clock
 from drivers.camera import Camera
+from drivers.exceptions import (
+    BoardNoReplyError,
+    CameraFirmwareMissingError,
+    CameraUsbDriverUnusableError,
+    HardwareError,
+)
 
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
@@ -44,44 +54,59 @@ from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
-from drivers.registry import DriverNotLiveError, motor_registry, led_registry, camera_registry
+from drivers.registry import (
+    DriverNotLiveError,
+    NoLiveDriverError,
+    camera_registry,
+    led_registry,
+    motor_registry,
+)
 import modules.binning as binning
 from modules.exceptions import (
     ArgumentRefusedError,
     BinningSubstitutedNotice,
+    CameraConfigNotAppliedNotice,
+    CameraFeatureAbsentNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
     ConfigurationDefectError,
+    DisconnectPart,
     FrameRefittedNotice,
+    HardwareCommandRefusedError,
     InstallationFileError,
+    LaneCallStillRunningError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MissingPart,
+    MotorBoardUnavailableError,
     NoHardwareDetectedNotice,
-    PartialHardwareError,
     ScopeDisconnectError,
 )
 from modules.lumascope_api.bring_up import (
-    CAMERA,
-    LED,
-    MOTOR,
     BringUpRecord,
+    Part,
     PartStatus,
     Substitution,
 )
+from modules.frame_validity import FrameValidity, FrameValiditySource
+from modules.fx2_driver_step import repair_refusal
+from modules.layer_record import LedBoardFamily, MotorBoardFamily
+from modules.lvp_lock import take_scope_lock
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.activity_claim import ActivityClaim
 from modules.sequential_io_executor import SequentialIOExecutor
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import os
 
     from drivers.simulated_camera import SimulatedStall
+    from modules.labware import Labware
     from modules.labware_loader import WellPlateLoader
-    from modules.layer_record import LayerIdentity
+    from modules.layer_record import ChannelIdentity, ScopeModel
+    from modules.lumascope_api.camera import CameraAPI
     from modules.lumascope_api.diagnostics import DiagnosticsAPI
     from modules.lumascope_api.illumination import IlluminationAPI
     from modules.lumascope_api.imaging import ImagingAPI
@@ -89,7 +114,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.protocols import ProtocolsAPI
     from modules.lumascope_api.runtime_state import RuntimeState
     from modules.lumascope_api.simulation import SimulationAPI
-    from modules.objectives_loader import ObjectiveLoader
+    from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
@@ -99,6 +124,15 @@ from modules.notification_center import notifications
 from modules.api_surface import api, api_fields
 
 _api_log = _logging.getLogger('LVP.api')
+
+
+def scope_lane_closed(member: str) -> HardwareCommandRefusedError:
+    """What a call the scope's IO and CAMERA lanes will not run is told once they have closed.
+
+    They close only as the scope disconnects, so the scope takes no command
+    until the application restarts.
+    """
+    return HardwareCommandRefusedError('scope_disconnected', member)
 
 
 def _register_ids_camera(platform: str):
@@ -126,10 +160,13 @@ def _register_ids_camera(platform: str):
 
 IDSCamera = _register_ids_camera(sys.platform)
 
-# The boards a catalogue row may name that the simulator can stand in for.
-# An FX2 drives its scope's camera and LEDs; an EL-0940 is a board of its own.
-_SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
-_SIMULATED_MOTOR_BOARDS = ('EL-0940', 'TMCM-6110')
+
+def _camera_timing(sim_tier: str) -> str:
+    """How the simulated camera delivers on a tier: with a real camera's
+    transfer time on the realistic tier, the tier the shipped settings
+    choose, so the app and REST simulate a camera's timing; at once on the
+    others, which tests run."""
+    return 'realistic' if sim_tier == 'realistic' else 'fast'
 
 
 def _wire_timing(sim_tier: str) -> str:
@@ -140,16 +177,15 @@ def _wire_timing(sim_tier: str) -> str:
 
 # PRE-RELEASE warning bundle: this is the runtime FutureWarning
 # piece. The other two are the README banner and the
-# LumascopeSkills.md preface. All three retire together in one
+# lumascope-skills.md preface. All three retire together in one
 # commit at the freeze trigger; do not retire this one without the
 # bundle.
 _PRE_RELEASE_WARNING_FIRED = False
 _PRE_RELEASE_WARNING_TEXT = (
     'The Lumascope SDK API is PRE-RELEASE and subject to breaking '
-    'changes through LVP 4.2 (Wave 7 sub-API decomposition, capability '
-    '+ wire-contract changes, REST endpoint conventions). See '
-    'LumaViewPro/docs/LumascopeSkills.md preface for the migration '
-    'plan. Contact Etaluma support if you depend on this API.'
+    'changes until 4.0.0 ships. See the LumaViewPro/docs/lumascope-skills.md '
+    'preface for what is still fluid. Contact Etaluma support if you '
+    'depend on this API.'
 )
 
 
@@ -183,25 +219,76 @@ AxisState = _api_constants.AxisState
 # ---------------------------------------------------------------------------
 
 
+def _torn_down_if_it_raises(construct: Callable) -> Callable:
+    """``construct``, a scope's constructor, undone when it raises.
+
+    A real scope takes the installation's instance lock in ``_init_minimal``,
+    which also starts the scope's lanes; its drivers open and its motion
+    monitor starts after. A raise after that would leave a scope no caller
+    holds alive under its monitor thread, its ports open and the lock taken,
+    so every later real scope in the process would be refused. The raise
+    goes on to the caller once ``_abandon_construction`` has run.
+    """
+
+    @functools.wraps(construct)
+    def guarded(self: 'Lumascope', *args, **kwargs) -> None:
+        try:
+            construct(self, *args, **kwargs)
+        except BaseException:
+            self._abandon_construction()
+            raise
+
+    return guarded
+
+
 def _camera_failure_cause(exc: BaseException) -> str:
     """The record's cause for a camera that raised while connecting.
 
-    The camera registry raises whatever the backend raised (pypylon,
-    ids_peak, FX2, simulated). pypylon's RuntimeException for "camera already
-    open in another application" is the frequent case -- Pylon Viewer or a
-    second LVP -- and gets its own cause. Matched by type name so pypylon is
-    not imported on a host without it.
+    The camera registry raises the fault a driver raised for a camera it
+    found and could not bring up (``CameraUsbOpenFailedError``, which also
+    covers a camera another application holds, or the driver's own typed
+    fault). When no driver raised, the registry raises the cause it found:
+    no camera, or a port held, with any driver that did not load on this
+    installation beside it. Anything outside the hardware's family is
+    LumaViewPro's own failure, never the cable's.
     """
-    if type(exc).__name__ in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
-        return 'camera_in_use'
+    if isinstance(exc, NoLiveDriverError):
+        fallback = exc.fallback
+        if fallback.cause == 'port_in_use':
+            return 'port_in_use'
+        if fallback.cause in ('not_detected', 'no_driver') and fallback.declined:
+            return 'camera_driver_unavailable'
+        if fallback.cause == 'not_detected':
+            return 'not_detected'
+        return 'camera_not_initialized'
+    if isinstance(exc, CameraFirmwareMissingError):
+        return 'camera_firmware_missing'
+    if isinstance(exc, CameraUsbDriverUnusableError):
+        return 'camera_driver_unusable'
     if isinstance(exc, PermissionError):
-        return 'camera_port_in_use'
-    if isinstance(exc, FileNotFoundError):
-        return 'camera_not_detected'
-    return 'camera_not_initialized'
+        return 'port_in_use'
+    if isinstance(exc, HardwareError):
+        return 'camera_not_initialized'
+    return 'camera_bring_up_failed'
 
 
-def _board_status(part: str, board, fallback) -> 'PartStatus':
+# The causes a camera that came up can meet coming up, the one a person acts
+# on first last: a camera that has gone outranks a stream that did not
+# start, which outranks a setting it did not take.
+_CAMERA_CAUSE_ORDER = ('settings_not_applied', 'stream_not_started', 'camera_left')
+
+
+def _host_fx2_bindings(identity: str) -> list | None:
+    from drivers.fx2driver import host_bindings  # local-import: loaded where it is read
+
+    return host_bindings(identity)
+
+
+def _no_fx2_bindings(identity: str) -> None:
+    return None
+
+
+def _board_status(part: Part, board, fallback) -> 'PartStatus':
     """The record of a board the registry built, real or null.
 
     A real LED board reports a connect-time LEDS_OFF that did not complete
@@ -218,47 +305,88 @@ def _board_status(part: str, board, fallback) -> 'PartStatus':
 
 
 @api_fields(
+    'camera',
     'capabilities',
+    'channel_identity',
     'diagnostics',
     'illumination',
     'imaging',
-    'layer_identity',
     'motion',
-    'objective_helper',
-    'protocols',
     'runtime_state',
-    'wellplate_loader',
 )
 class Lumascope:
+    """The microscope: its boards and camera, reached through its sub-APIs.
+
+    Attributes:
+        capabilities: What this scope has (``ScopeCapabilities``), read
+            once when the scope is built and fixed for its life.
+        channel_identity: Which model this scope is and the channels it
+            has (``ChannelIdentity``).
+    """
+
     # --- Input validation constants ---
     # There is no LED current cap on this class: the connected LED driver
     # publishes its own through `scope.capabilities.led_max_ma`, and a
     # constant here would be a second copy that drifts.
-    # LED channel set comes from self._led_driver.available_channels() -- varies by
-    # Canonical home for these is `_constants.py`; alias on the class so
-    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope._MOTOR_POSITION_LIMIT`)
-    # keep working. Sub-API modules import from `_constants.py` directly
-    # to avoid a circular dep with this file.
-    _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
-    _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+    # Nor a channel set: the LED driver's available_channels() answers it, and
+    # it varies by board.
+
+    # How long the exit hook waits for a disconnect already in flight -- the
+    # session's close, on its own thread -- before the process exits without
+    # it. Past the 11 s a Basler StopGrabbing has taken on the bench, short
+    # of hanging an exit that has no window to show why.
+    _EXIT_WAIT_S = 15.0
 
     # What the scope holds, set during construction.
+    camera: 'CameraAPI'
     capabilities: 'ScopeCapabilities'
+    channel_identity: 'ChannelIdentity'
     diagnostics: 'DiagnosticsAPI'
     illumination: 'IlluminationAPI'
     imaging: 'ImagingAPI'
-    layer_identity: 'LayerIdentity'
     motion: 'MotionAPI'
-    objective_helper: 'ObjectiveLoader'
-    protocols: 'ProtocolsAPI'
     runtime_state: 'RuntimeState'
+    # The catalogues' readers: the scope's own, not published. A caller reads
+    # the records, ``labware`` and ``objectives``.
+    objective_helper: 'ObjectiveLoader'
     wellplate_loader: 'WellPlateLoader'
+    # The protocol engine's seams, not published: a caller reads and edits
+    # a protocol through the Session.
+    protocols: 'ProtocolsAPI'
+
+    def _read_camera_timing(self) -> dict | None:
+        """The camera's measured timing record, read once at bring-up and checked.
+
+        The record is the one its profile names (``timing_model``); a camera
+        with none, or no camera, has none. Which rule each frame-validity
+        source runs comes from it (``capabilities.frame_rules``), so a record
+        written wrong is refused where the installation is read
+        (``FrameValidity.check_timing_record``), not where a frame is judged.
+
+        Raises:
+            InstallationFileError: the profile names a record that is
+                missing, unreadable, of another schema, or holds a value
+                that is not a measurement.
+        """
+        camera = self._camera_driver
+        if camera is None or not camera.active:
+            return None
+        path = camera_profiles.timing_record_path(camera.profile)
+        try:
+            record = camera_profiles.timing_record(camera.profile)
+            if record is None:
+                return None
+            FrameValidity.check_timing_record(record)
+        except (OSError, ValueError) as e:
+            raise InstallationFileError(path, f'could not be read ({e})') from e
+        logger.info(f'[SCOPE API ] Camera timing record {path} checked')
+        return record
 
     def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
 
-        The scope is the one owner of the labware, objective and model
-        catalogues. Its runtime state, protocol construction, the session,
+        The scope is the one owner of the labware, objective, model and
+        tiling catalogues. Its runtime state, protocol construction, the session,
         the run and the GUI all read these objects, so no two parts of one
         session can disagree about which plates, objectives or models
         exist. All are read-only after construction, so every thread may
@@ -286,26 +414,46 @@ class Lumascope:
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
         # What every setting is: the shipped template, which the Session's
-        # settings writer checks a path and a value's kind against.
-        self._settings_template = read_installation_file(
-            resolve_data_file('settings.json', source_path=source_path)
+        # settings writer checks a path and a value's kind against. Read
+        # through the template's one reader, so this copy is the one every
+        # host prepares settings against.
+        from modules.settings_init import load_template
+
+        self._settings_template = load_template(
+            logger, str(resolve_data_file('settings.json', source_path=source_path))
+        )
+        # The grids ProtocolsAPI.tiling_config answers and every protocol lays
+        # its tiles out against. A tiling.json edited while the program runs
+        # is seen at the next start, as every catalogue is: one session never
+        # offers two sets of grids.
+        from modules.tiling_config import TilingGrids
+
+        self._tiling_grids = TilingGrids(
+            tiling_configs_file_loc=resolve_data_file('tiling.json', source_path=source_path)
         )
         return motorconfig_defaults
 
     def _init_minimal(self, simulated: bool) -> None:
-        """Shared init for state slots both __init__ and create_diagnostic need.
+        """The state slots every scope carries, set before its drivers connect.
 
         Sets the non-driver state that every Lumascope instance must
         carry: transformers, locks, camera cache, objective state slots,
-        the scope's two lanes. Both __init__ and
-        create_diagnostic call this first; each then does its
+        the scope's two lanes. __init__ calls this first, then does its
         driver-connection-specific work.
 
-        Pre-#35, create_diagnostic open-coded a subset of these
-        assignments and left ~12 attributes unset, which made diagnostic
-        instances second-class. Centralizing here makes the slot list
-        the single point of truth.
+        A real scope takes its installation's instance lock first, before
+        a lane starts or a driver opens a port, so a scope refused here has
+        opened nothing, and no real scope is built without it; a simulated
+        scope takes none.
+
+        Raises:
+            ScopeInUseError: another process, or another real scope in this
+                one, holds the lock.
         """
+        self._instance_lock = None if simulated else take_scope_lock(self.source_path)
+        # One disconnect() at a time. Re-entrant: the exit hook holds it
+        # while it calls disconnect().
+        self._disconnect_lock = threading.RLock()
         self._simulated = simulated
         # Whether this scope's model has a motor board. Until initialize()
         # reads the model's catalogue entry, a missing board counts as
@@ -314,9 +462,13 @@ class Lumascope:
         self._motion_expected = True
 
         # Driver slot defaults -- __init__ overrides _camera_driver with
-        # the real driver; create_diagnostic leaves it None.
+        # the driver bring-up connects.
         self._camera_driver = None
         self._settings_reader: Callable[[str], Any] | None = None
+        self._settings_writer: Callable[[dict[str, Any]], None] | None = None
+        # Where the FX2's USB bindings are read, whether or not an FX2 came
+        # up: the host's, unless bring-up simulates the scope.
+        self._read_fx2_bindings: Callable[[str], list | None] = _host_fx2_bindings
 
         # The labware, stage offset, turret map, selected objective and
         # whether the scale bar is drawn are the session's settings, held
@@ -324,9 +476,16 @@ class Lumascope:
         # reader a session binds (bind_settings), so there is no second copy
         # to fall out of step. None until bound.
         #
-        # _state_lock + _cam_lock + ImagingAPI's
-        # own caches live on self.imaging. _last_turret_position lives
-        # on self.motion. engineering_mode lives on the session.
+        # The camera's state, its locks and its caches live on self.camera,
+        # the capture's on self.imaging. _last_turret_position lives on
+        # self.motion. engineering_mode lives on the session.
+
+        # Frame validity -- ground-truth for "is this frame ready to score /
+        # save?" One instance for the scope: the camera, the LEDs and motion
+        # invalidate it, and the capture drains it. Built before any sub-API,
+        # so each is handed it or reaches it here. The frame count is read
+        # late, through the method: the driver slot is assigned after this.
+        self.frame_validity = FrameValidity(self._frames_delivered)
 
         # The scope's two lanes, built and started here and shut by
         # disconnect(). Every LED, motion and camera command goes through
@@ -334,8 +493,8 @@ class Lumascope:
         # script's bare scope -- run one at a time per bus, in order, and a
         # run holding the scope can refuse what is not its own. A session
         # composed over this scope asks the lanes its activity claim.
-        self._io_executor = SequentialIOExecutor(name='IO')
-        self._camera_executor = SequentialIOExecutor(name='CAMERA')
+        self._io_executor = SequentialIOExecutor(name='IO', closed_answer=scope_lane_closed)
+        self._camera_executor = SequentialIOExecutor(name='CAMERA', closed_answer=scope_lane_closed)
         self._io_executor.start()
         self._camera_executor.start()
         # The key the camera lane's claim returned to the session, which
@@ -348,11 +507,22 @@ class Lumascope:
         # else there can hold the scope, so its homes take no claim.
         self._activity_claim: ActivityClaim | None = None
 
+    def _frames_delivered(self) -> int:
+        """Frames the camera's driver has handed over so far, for frame validity.
+
+        Zero with no driver attached: no frame has arrived, which is what
+        the number says. A write recorded against 0 is then satisfied by the
+        first frame that ever arrives, which is the correct reading of "the
+        camera had delivered nothing when this was written".
+        """
+        driver = self._camera_driver
+        return driver.frames_delivered if driver else 0
+
     @staticmethod
     def _build_simulated_motor_board(
         model: str,
         axes: frozenset[str],
-        motor_board: str | None,
+        motor_board: MotorBoardFamily | None,
         sim_tier: str,
         motorconfig_defaults: dict,
     ) -> tuple[MotorBoardProtocol, object | None]:
@@ -378,7 +548,7 @@ class Lumascope:
         if motor_board is None:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard(), None
-        if motor_board == 'TMCM-6110':
+        if motor_board == MotorBoardFamily.TMCM_6110:
             from drivers.simulated_tmcm6110 import (
                 SCOPE_SPEEDUP,
                 SimulatedTmcm6110,
@@ -422,31 +592,29 @@ class Lumascope:
         )
         return board, backend.motor_board
 
-    def _simulated_boards(self, model: str, axes: frozenset[str]) -> tuple[str, str | None]:
+    def _simulated_boards(
+        self, model: str, axes: frozenset[str]
+    ) -> tuple[LedBoardFamily, MotorBoardFamily | None]:
         """The LED and motor boards a simulated ``model`` has, as its catalogue row names them.
 
         The row names an ``LEDBoard`` always and a ``MotorBoard`` exactly
-        when it has motor axes. Production never reads either -- the
-        bring-up finds the boards it has -- so this is the one place the
-        rule is checked: a row that breaks it, or names a board the
-        simulator cannot stand in for, would build a scope unlike the one
-        the row describes. ``axes`` are the row's, from ``model_axes``.
+        when it has motor axes; the catalogue's reader has refused a board
+        outside each family, and the simulator stands in for every member.
+        Production never reads either -- the bring-up finds the boards it
+        has -- so this is the one place the pairing is checked: a row that
+        breaks it would build a scope unlike the one the row describes.
+        ``axes`` are the row's, from ``model_axes``.
 
         Raises:
-            InstallationFileError: the row breaks the rule or names a board
-                the simulator has no stand-in for, naming the catalogue.
+            InstallationFileError: the row names a motor board without motor
+                axes or motor axes without one, naming the catalogue.
         """
         entry = self._scope_models[model]
-        led_board = entry.get('LEDBoard')
-        motor_board = entry.get('MotorBoard')
-        if led_board not in _SIMULATED_LED_BOARDS:
-            problem = f'names LEDBoard {led_board!r}; the simulator has {_SIMULATED_LED_BOARDS}'
-        elif axes and motor_board not in _SIMULATED_MOTOR_BOARDS:
-            problem = (
-                f'gives motor axes and names MotorBoard {motor_board!r}; '
-                f'the simulator has {_SIMULATED_MOTOR_BOARDS}'
-            )
-        elif not axes and 'MotorBoard' in entry:
+        led_board = entry.led_board
+        motor_board = entry.motor_board
+        if axes and motor_board is None:
+            problem = 'gives motor axes but names no MotorBoard'
+        elif not axes and motor_board is not None:
             problem = f'gives no motor axes but names MotorBoard {motor_board!r}'
         else:
             return led_board, motor_board
@@ -477,6 +645,7 @@ class Lumascope:
         logger.info(f'[SCOPE API ] Using the LED FIRMWARE in simulation (model={model})')
         return board, backend.led_board
 
+    @_torn_down_if_it_raises
     def __init__(
         self,
         simulate: bool = False,
@@ -521,7 +690,8 @@ class Lumascope:
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
                 False; defaults to ``configured_model``, then the
-                'microscope' setting, then 'LS850T'.
+                'microscope' setting (the shipped template's when no
+                settings are bound).
             configured_model: The scope model selected in settings, for
                 units whose hardware cannot report one (the Classic/FX2
                 line has no motor board to ask). Optional: a
@@ -545,7 +715,8 @@ class Lumascope:
                 ``'realistic'`` is the firmware tier with its motors moving
                 at the ramp fitted to bench moves, so a move or a home takes
                 seconds rather than none; a home starts mid-travel, so it is
-                shorter than a stage's.
+                shorter than a stage's, and the simulated camera takes a
+                real camera's transfer time to deliver each frame.
                 Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
@@ -576,6 +747,10 @@ class Lumascope:
                 ``'needs_simulated_camera'``, ``sim_camera_stall`` or a
                 ``sim_focal_spread_um`` given for a scope whose camera is not
                 the simulated camera.
+            ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
+                another LumaViewPro, REST server or script drives the
+                microscope, or while another real scope in this process is
+                open. Nothing was opened.
         """
         for argument, value, given in (
             ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
@@ -584,7 +759,9 @@ class Lumascope:
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
         if warn_pre_release:
-            _fire_pre_release_warning()
+            # One frame deeper than the helper's default: the constructor
+            # runs inside _torn_down_if_it_raises.
+            _fire_pre_release_warning(stacklevel=4)
         self._fx2_debug_wire = fx2_debug_wire
 
         # Read before anything is started, so a missing or unusable
@@ -603,7 +780,7 @@ class Lumascope:
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
-            if sim_led_board == 'FX2':
+            if sim_led_board == LedBoardFamily.FX2:
                 for argument, value, given in (
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
@@ -634,10 +811,10 @@ class Lumascope:
         # _led_state_lock, _led_listeners_lock, _led_lock) live on
         # IlluminationAPI.
 
-        # Camera state slots (_camera_listeners + lock, _frame_buffer,
-        # _focusing_event, _suppress_value_warnings, _scale_bar,
-        # _camera_cache + lock, _camera_temp_event,
-        # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI.
+        # Camera state slots (_gain_listeners, _exposure_listeners + lock,
+        # _suppress_value_warnings, _camera_cache + lock) live on CameraAPI;
+        # the capture's (_focusing_event, _camera_temp_event,
+        # _camera_temp_unschedule_fn) on ImagingAPI; frame_validity here.
 
         # ----- Motion Control Board -----
         # Constructed BEFORE MotionAPI so MotionAPI._driver resolves on
@@ -656,19 +833,19 @@ class Lumascope:
             )
             # A simulated manual scope gets the null board, as the bench
             # finds none: not up, and not missing once the model says so.
-            parts[MOTOR] = PartStatus(MOTOR, up=sim_motor_board is not None)
+            parts[Part.MOTOR] = PartStatus(Part.MOTOR, up=sim_motor_board is not None)
         else:
             self._motion_driver, fallback = motor_registry.create_with_fallback(
                 'auto',
                 absence_expected=motor_absence_expected,
                 motorconfig_defaults=motorconfig_defaults,
             )
-            parts[MOTOR] = _board_status(MOTOR, self._motion_driver, fallback)
+            parts[Part.MOTOR] = _board_status(Part.MOTOR, self._motion_driver, fallback)
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
-        # _init_axes() sizes per-axis dicts to detect_present_axes() and seeds
-        # each axis known/unknown from detect_homed_axes(); then
+        # _init_axes() sizes per-axis dicts to detect_present_axes(), reads
+        # each axis's position, and seeds known only a homed axis it read; then
         # _start_monitor() spawns the background poll thread. NullMotionBoard
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
@@ -686,25 +863,121 @@ class Lumascope:
         # its device model is the one simulation. Built by name, since the
         # registry lists no FX2 on a host without libusb.
         sim_fx2 = None
-        if simulate and sim_led_board == 'FX2':
+
+        def _sim_light_of(address: int) -> float:
+            """The light per mA-second the layer ``address`` lights renders in
+            the simulators through the current objective: the catalogue's,
+            falling with the objective's magnification by the layer's power;
+            the catalogue's own when no objective is known, as
+            ``_sim_pixel_size`` draws at no scale then. 0 for an address no
+            layer names or a layer with no LED. Read while a frame is made,
+            after the illumination API, the identity and runtime_state exist."""
+            from modules.layer_record import SIM_LIGHT_MAGNIFICATION, release_layer
+
+            name = self.illumination.ch2color(address)
+            if name is None:
+                return 0.0
+            layer = release_layer(name)
+            if layer.sim_light_per_ma_s is None:
+                return 0.0
+            objective = self.runtime_state.get_current_objective()
+            if objective is None:
+                return layer.sim_light_per_ma_s
+            return (
+                layer.sim_light_per_ma_s
+                * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
+                ** layer.sim_light_magnification_power
+            )
+
+        def _sim_stage_xy() -> tuple[float | None, float | None]:
+            """Where the stage stands, so the simulated sample follows it; an
+            axis the scope lacks answers None and holds still."""
+            return (
+                self.motion.get_current_position('X'),
+                self.motion.get_current_position('Y'),
+            )
+
+        def _sim_sensor_inputs() -> dict[str, tuple[object, int | None]]:
+            """Z, the stage's (X, Y) and the light on the simulated sample, each
+            with when this scope recorded it changing, as frame validity holds
+            it: a move when its axis came to rest, the LED when it was written.
+            None for a time it cannot say (a move still under way). Read as
+            each exposure starts, so a change recorded on a loaded host after a
+            delay is still timed by its record.
+
+            Light reaches the simulated sensor this way, not from the board:
+            the composition root is the only object holding both halves and no
+            driver may reach into a peer, and the illumination API is where
+            which channel is lit is decided; the board holds no state.
+
+            Ordering: this reads the sub-APIs built further down, and is safe
+            because it runs only while a frame is being made and nothing starts
+            the camera grabbing during construction."""
+            # Imported here like the other illumination references in this
+            # file: at module scope it closes an import cycle.
+            from modules.lumascope_api.illumination import live_lit_pairs
+
+            changes = self.frame_validity.changes()
+
+            def settled_at(source: FrameValiditySource) -> int | None:
+                change = changes.get(source)
+                return None if change is None else change.in_force_ns
+
+            led = changes.get(FrameValiditySource.LED)
+            lit = live_lit_pairs(self.illumination)
+            return {
+                'z_um': (
+                    self.motion.get_current_position('Z'),
+                    settled_at(FrameValiditySource.Z_MOVE),
+                ),
+                'stage_xy': (_sim_stage_xy(), settled_at(FrameValiditySource.XY_MOVE)),
+                'illumination': (
+                    (
+                        sum(ma for _, ma in lit),
+                        sum(ma * _sim_light_of(address) for address, ma in lit),
+                    ),
+                    None if led is None else led.written_ns,
+                ),
+            }
+
+        def _sim_pixel_size() -> float | None:
+            """The image scale the simulators draw the sample at: the one every
+            saved image carries, for the current objective at binning 1 (a
+            simulated camera bins what it draws, as a sensor does). None when
+            no objective is known or the scope cannot report its optics.
+            Read while a frame is made, after runtime_state and the
+            capabilities exist."""
+            objective_id = self.runtime_state.get_current_objective_id()
+            if objective_id is None:
+                return None
+            return common_utils.get_pixel_size(
+                self.objectives[objective_id].focal_length_mm, 1, capabilities=self.capabilities
+            )
+
+        if simulate and sim_led_board == LedBoardFamily.FX2:
             from drivers.fx2driver import FX2LEDController
             from drivers.simulated_fx2 import SimulatedFX2
 
-            sim_fx2 = SimulatedFX2()
+            sim_fx2 = SimulatedFX2(
+                light_of=_sim_light_of, stage_xy=_sim_stage_xy, pixel_size=_sim_pixel_size
+            )
             self._led_driver: LEDBoardProtocol = FX2LEDController(
                 connection=sim_fx2.connection, debug_wire=fx2_debug_wire
             )
             logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
-            parts[LED] = PartStatus(LED, up=True)
+            parts[Part.LED] = PartStatus(Part.LED, up=True)
             simulated_led = simulated_camera = sim_fx2
+            self._read_fx2_bindings = sim_fx2.transport.bindings
         elif simulate:
             self._led_driver, simulated_led = self._build_simulated_led_board(model, sim_tier)
-            parts[LED] = PartStatus(LED, up=True)
+            parts[Part.LED] = PartStatus(Part.LED, up=True)
+            # A simulated scope never reads the host's bus.
+            self._read_fx2_bindings = _no_fx2_bindings
         else:
             self._led_driver, fallback = led_registry.create_with_fallback(
                 'auto', debug_wire=fx2_debug_wire
             )
-            parts[LED] = _board_status(LED, self._led_driver, fallback)
+            parts[Part.LED] = _board_status(Part.LED, self._led_driver, fallback)
 
         # ----- Camera -----
         # Driver selection via camera_registry. `camera_type` accepts:
@@ -717,25 +990,11 @@ class Lumascope:
         # overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
-            camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
-            # Light reaches the simulated sensor the same way Z does: the
-            # composition root hands it over, because it is the only object
-            # holding both halves and no driver may reach into a peer. The
-            # illumination API is asked rather than the board -- it is where
-            # which channel is lit is decided, and the board holds no state.
-            # Imported here like the other illumination references in this
-            # file: at module scope it closes an import cycle.
-            #
-            # Ordering: this reads self.illumination, which is built further
-            # down, and is safe because the callable only runs while a frame
-            # is being generated and nothing starts the camera grabbing
-            # during construction. Anything that begins streaming before the
-            # sub-APIs exist breaks that, so start it after them.
-            from modules.lumascope_api.illumination import live_lit_pairs
-
-            camera_kwargs['illumination_func'] = lambda: sum(
-                ma for _, ma in live_lit_pairs(self.illumination)
-            )
+            camera_kwargs['timing'] = _camera_timing(sim_tier)
+            # The sample follows the stage and the light, at the objective's
+            # image scale.
+            camera_kwargs['scope_inputs'] = _sim_sensor_inputs
+            camera_kwargs['pixel_size_func'] = _sim_pixel_size
 
             # Focus falls off as the objective's depth of field says, asked
             # the same way and under the same ordering: runtime_state is
@@ -744,7 +1003,7 @@ class Lumascope:
                 objective_id = self.runtime_state.get_current_objective_id()
                 if objective_id is None:
                     return None
-                return float(self.runtime_state.get_objective_info(objective_id)['DOF'])
+                return float(self.objectives[objective_id].depth_of_field_um)
 
             camera_kwargs['depth_of_field_func'] = _depth_of_field
             camera_kwargs['focal_spread_um'] = sim_focal_spread_um
@@ -764,14 +1023,13 @@ class Lumascope:
                     camera_type, simulate=simulate, **camera_kwargs
                 )
                 if simulate:
-                    self._camera_driver.load_specimen()
                     simulated_camera = self._camera_driver
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
-            parts[CAMERA] = PartStatus(CAMERA, up=True)
+            parts[Part.CAMERA] = PartStatus(Part.CAMERA, up=True)
         except Exception as _cam_exc:
             self._camera_failure = _cam_exc
-            parts[CAMERA] = PartStatus(
-                CAMERA,
+            parts[Part.CAMERA] = PartStatus(
+                Part.CAMERA,
                 up=False,
                 cause=_camera_failure_cause(_cam_exc),
                 detail=f'{type(_cam_exc).__name__}: {_cam_exc}',
@@ -782,13 +1040,13 @@ class Lumascope:
         # ----- Layer identity -----
         # What the layers on this unit ARE (names, LED addresses,
         # excitations, filterset) -- resolved from the unit's motorconfig
-        # LED block or the model's scopes.json rows, here at construction
+        # Channels block or the model's scopes.json rows, here at construction
         # so every caller (GUI, headless session, script) holds identity
         # without any separate initialize step. Distinct from the live
         # LED state the illumination API keeps: identity says what a
         # layer IS, state says what is lit now.
         self._configured_model = configured_model
-        self.layer_identity = self._resolve_layer_identity()
+        self.channel_identity = self._resolve_layer_identity()
 
         # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
@@ -801,14 +1059,17 @@ class Lumascope:
             motion=self._motion_driver,
             led=self._led_driver,
             camera=self._camera_driver,
-            layer_identity=self.layer_identity,
+            channel_identity=self.channel_identity,
             scope_models=self._scope_models,
+            timing_record=self._read_camera_timing(),
         )
+        self.frame_validity.use_rules(self.capabilities.frame_rules)
 
         # ----- Sub-API wiring -----
         # motion was already constructed above (it needs earlier
         # construction so _init_axes / _start_monitor can run before the
         # LED/camera drivers are set up). Remaining sub-APIs:
+        from modules.lumascope_api.camera import CameraAPI
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
@@ -817,7 +1078,8 @@ class Lumascope:
         from modules.lumascope_api.simulation import SimulationAPI
 
         self.illumination = IlluminationAPI(self, self._led_driver)
-        self.imaging = ImagingAPI(self, self._camera_driver)
+        self.camera = CameraAPI(self, self.frame_validity)
+        self.imaging = ImagingAPI(self, self.camera, self.frame_validity)
         self.diagnostics = DiagnosticsAPI(self)
         self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
@@ -837,51 +1099,42 @@ class Lumascope:
         # account of what came up, so this and the report cannot disagree.
         self._no_hardware = not simulate and not any(status.up for status in parts.values())
 
-        # Most per-instance state lives on the sub-APIs: imaging owns
-        # camera-stream state + locks, motion owns per-axis state +
+        # Most per-instance state lives on the sub-APIs: camera owns the
+        # camera's state + locks, imaging the capture's and the stream's,
+        # motion owns per-axis state +
         # _last_turret_position, illumination owns LED state,
         # runtime_state owns settings-host state (labware / objective /
         # turret_config / stage_offset). Lumascope holds driver slots,
         # its two lanes, its data folder and the catalogues read from it.
 
-        # Frame validity, camera_cache, scale_bar, +
-        # _camera_listeners/_frame_buffer/_focusing_event/
-        # _suppress_value_warnings/
-        # _camera_temp_event init live on ImagingAPI.__init__.
-        # _load_camera_timing + _populate_camera_cache are ImagingAPI
-        # methods and run automatically during ImagingAPI.__init__.
+        # camera_cache, the camera listeners and _suppress_value_warnings init
+        # live on CameraAPI.__init__, which populates the cache;
+        # _focusing_event and _camera_temp_event on ImagingAPI.__init__.
         # Lumascope wires up the motion-settle check against the
         # frame_validity instance below.
-        def _motion_settle_check(source: str) -> bool:
+        def _motion_settle_check(source: FrameValiditySource) -> bool:
+            # No motion change settles while a several-move command is open:
+            # between two of its moves every axis can be at rest, and a frame
+            # taken there is of neither where the command began nor where it
+            # ends.
+            if source in FrameValidity.MOTION_SOURCES and self.motion._command_open():
+                return False
             # For absent axes (e.g., LS820 has no X/Y), treat UNKNOWN as settled.
             # Axes that were never homed or moved stay UNKNOWN -- they shouldn't
             # block frame validity for sources that don't apply.
             idle_or_absent = (AxisState.IDLE, AxisState.UNKNOWN)
-            if source == 'z_move':
+            if source == FrameValiditySource.Z_MOVE:
                 return self.motion.get_axis_state('Z') in idle_or_absent
-            elif source == 'xy_move':
+            elif source == FrameValiditySource.XY_MOVE:
                 return (
                     self.motion.get_axis_state('X') in idle_or_absent
                     and self.motion.get_axis_state('Y') in idle_or_absent
                 )
-            elif source == 'turret':
+            elif source == FrameValiditySource.TURRET:
                 return self.motion.get_axis_state('T') in idle_or_absent
             return True
 
-        self.imaging.frame_validity.set_settle_check(_motion_settle_check)
-        # _load_camera_timing relocated to ImagingAPI; called during
-        # ImagingAPI.__init__ via the settle-check setup completion.
-        self.imaging._load_camera_timing()
-
-        # Populate position cache from firmware so get_current_position()
-        # returns correct values immediately (not 0.0 from empty cache).
-        # Critical for standalone scripts that read position right after
-        # creating Lumascope (e.g., backlash characterization).
-        if self.motor_connected:
-            try:
-                self.motion._refresh_position_cache()
-            except Exception:
-                pass  # OK -- cache stays at 0.0 if firmware unresponsive
+        self.frame_validity.set_settle_check(_motion_settle_check)
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI
@@ -899,27 +1152,27 @@ class Lumascope:
 
     def _resolve_layer_identity(self, override_model: str | None = None):
         """Run the identity resolver against the current drivers and config."""
-        from modules.layer_record import release_catalogue, resolve_layer_identity
+        from modules.layer_record import release_layers, resolve_layer_identity
 
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
         read_ok = motorconfig.board_config_read_ok if motorconfig is not None else True
-        try:
-            motor_model = self._motion_driver.get_microscope_model()
-        except Exception as e:
-            logger.warning(f'[SCOPE API ] motor model unavailable for layer identity: {e}')
-            motor_model = None
+        # The board's cached record, read with no exchange.
+        motor_model = self._motion_driver.get_microscope_model()
         return resolve_layer_identity(
             board_block=board_block,
             board_config_read_ok=read_ok,
             motor_model=motor_model,
             configured_model=self._configured_model,
             models=self._scope_models,
-            catalogue=release_catalogue(),
+            catalogue=release_layers(),
+            report=lambda notice: notifications.report_outcome(
+                notice, solicited=False, category='Illumination'
+            ),
             override_model=override_model,
         )
 
-    def refresh_layer_identity(self, override_model: str | None = None) -> 'LayerIdentity':
+    def refresh_layer_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
         """Re-resolve layer identity and atomically replace the snapshot.
 
         Not how a model selection takes effect: the capabilities are fixed
@@ -937,10 +1190,10 @@ class Lumascope:
                 persisted anywhere.
 
         Returns:
-            The new LayerIdentity snapshot (also on `self.layer_identity`).
+            The new ChannelIdentity snapshot (also on `self.channel_identity`).
         """
-        self.layer_identity = self._resolve_layer_identity(override_model=override_model)
-        return self.layer_identity
+        self.channel_identity = self._resolve_layer_identity(override_model=override_model)
+        return self.channel_identity
 
     def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
@@ -951,32 +1204,43 @@ class Lumascope:
         for the active layer.
 
         Ends by releasing the camera start gate, so the live feed starts
-        once the capture pixel format is on the camera.
+        once the capture pixel format is on the camera. A start that fails
+        is recorded on the camera's part (cause ``'stream_not_started'``)
+        and reported once; the scope is initialized all the same, its camera
+        connected and not streaming. A geometry or feature setting the
+        camera does not take is recorded and reported the same way (cause
+        ``'settings_not_applied'``), and so is a camera that leaves during
+        those writes (``'camera_left'``). A motor controller that does not take
+        the stored acceleration limit is recorded the same way, on its part
+        (cause ``'acceleration_not_set'``), and moves at the limit it holds.
 
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._motion_expected = config.expects_motion
-        self._report_bring_up(config)
         # The safety-off is the scope's own write, never the public
         # dispatcher: bring-up is the scope configuring itself, not a command
         # from a caller, so it takes no lane and asks no claim. It asks
         # presence first, so with no board connected it writes nothing. The
         # write is bounded by the serial layer's own read and write timeouts;
-        # nothing else holds the LED lock at bring-up.
-        self.illumination._leds_off_if_present()
-        # A saved slot carried over from a turret scope means nothing here.
+        # nothing else holds the LED lock at bring-up. A board that did not
+        # answer leaves every address unknown and the scope comes up: the
+        # failure is the LED part's safety off not taken, on the record
+        # before the report so it is told once whichever off it was.
+        try:
+            self.illumination._leds_off_if_present()
+        except BoardNoReplyError as e:
+            self._bring_up_parts[Part.LED] = dataclasses.replace(
+                self._bring_up_parts[Part.LED], cause='safety_off_failed', detail=str(e)
+            )
+        self._report_bring_up(config)
         if self.capabilities.has_turret:
-            self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
-        self.runtime_state.set_turreted(config.turreted)
-        if config.turreted:
             # The objective is the one assigned to the slot in the light
             # path, derived on every read. An assignment the catalogue does
             # not hold reads as unknown whenever its slot is in the light
             # path; said once here, not raised per read.
-            catalogue = set(self.runtime_state.get_available_objectives())
             for slot, objective_id in self.runtime_state.get_turret_config().items():
-                if objective_id is not None and objective_id not in catalogue:
+                if objective_id is not None and objective_id not in self.objectives:
                     logger.warning(
                         f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
                         'which is not in the objective catalogue; its objective reads '
@@ -996,10 +1260,16 @@ class Lumascope:
         # capability values must not masquerade as a camera's answer.
         frame_width, frame_height = config.frame_width, config.frame_height
         binning_size = config.binning_size
+        if self.camera_connected and self._camera_driver.config_not_applied:
+            notifications.report_outcome(
+                CameraConfigNotAppliedNotice(self._camera_driver.config_not_applied),
+                solicited=False,
+                category='Camera',
+            )
         if self.camera_connected:
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
-                camera_binning = self.imaging.get_binning_size()
+                camera_binning = self.camera._held_or_read('binning')
                 # The persisted frame is a DISPLAYED size at the persisted
                 # factor; at a different factor it would come up as a
                 # fraction-area ROI (driver clamping only protects against
@@ -1008,14 +1278,14 @@ class Lumascope:
                 native = binning.displayed_to_native(
                     {'width': frame_width, 'height': frame_height},
                     binning_size,
-                    self.imaging._max_frame_unbinned()
+                    self.camera._max_frame_unbinned()
                     or {
                         'width': frame_width * binning_size,
                         'height': frame_height * binning_size,
                     },
                 )
                 refit = binning.native_to_displayed(
-                    native, camera_binning, self.imaging.get_pixel_alignment()
+                    native, camera_binning, self.camera.get_pixel_alignment()
                 )
                 logger.info(
                     f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '
@@ -1037,8 +1307,8 @@ class Lumascope:
             # binning applied (a frame saved on another model; the LS560's lens
             # images 1700 of the sensor's 1900): it is refitted to the maximum,
             # as the API would refuse it, and the replacement is on the record
-            # and reported once. The session stores the frame that ran.
-            maximum = self.imaging._max_frame_unbinned()
+            # and reported once. The frame that ran is saved below.
+            maximum = self.camera._max_frame_unbinned()
             if maximum:
                 fitted = (
                     min(frame_width, maximum['width'] // binning_size),
@@ -1089,44 +1359,177 @@ class Lumascope:
             # In this order: the frame limits depend on the binning, and the
             # format follows the geometry it is applied at.
             applies = [
-                lambda: self.imaging._set_binning_size_impl(binning_size),
-                lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
+                lambda: self.camera._set_binning_impl(binning_size),
+                lambda: self.camera._set_frame_size_impl(frame_width, frame_height),
             ]
             if pixel_format is not None:
-                applies.append(lambda: self.imaging._set_pixel_format_impl(pixel_format))
-            # Each toggle only where the camera has it: the impl refuses a
-            # mode the camera lacks with CameraSettingUnsupportedError, which
-            # is not a CameraSettingRejected and would abort bring-up.
-            if self.capabilities.camera_supports_conversion_gain_mode:
-                mode = 'High' if config.high_conversion_gain else 'Low'
-                applies.append(lambda: self.imaging._set_conversion_gain_mode_impl(mode))
-            if self.capabilities.camera_supports_line_noise_reduction:
-                applies.append(
-                    lambda: self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
-                )
+                applies.append(lambda: self.camera._set_pixel_format_impl(pixel_format))
+            # A camera without a toggle is at its standard setting, which is
+            # applied as its state (nothing is written, and the camera holds
+            # it): the impl refuses the other setting on such a camera with
+            # CameraSettingUnsupportedError, which is not a
+            # CameraSettingRejected and would abort bring-up.
+            caps = self.capabilities
+            mode = (
+                'High'
+                if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode
+                else 'Low'
+            )
+            applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
+            filtered = config.line_noise_reduction and caps.camera_supports_line_noise_reduction
+            applies.append(lambda: self.camera._set_line_noise_reduction_impl(filtered))
+            # Bring-up continues at the value the camera holds. A refused
+            # conversion gain or line-noise value stays saved: no driver
+            # reads either back, so what the camera holds instead is not
+            # known. A camera that left has nothing to apply the rest to,
+            # and each would be refused again.
             for apply_fn in applies:
-                try:
-                    apply_fn()
-                except CameraSettingRejected as ex:
-                    # Bring-up continues at the value the camera holds.
-                    notifications.report_outcome(ex, solicited=False, category='Camera')
+                if not self.write_camera_at_bring_up(apply_fn):
+                    break
+            # What the camera took is saved, through the session's writer: the
+            # binning and frame it delivers, and the standard setting of a
+            # feature it does not have.
+            self.camera._store_delivered_geometry()
+            self._store_absent_camera_features(config)
         # Asked first: a scope with no motor controller has no limit to set.
+        # A board that did not take it is what bring-up found about the motor
+        # controller, kept on its part as a camera stream that did not start
+        # is, and told once; it moves at the limit it holds.
         if self.motor_connected:
-            self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
+            try:
+                self.motion._set_acceleration_limit_impl(limit_pct=config.acceleration_pct)
+            except HardwareError as fault:
+                self._bring_up_parts[Part.MOTOR] = dataclasses.replace(
+                    self._bring_up_parts[Part.MOTOR],
+                    cause='acceleration_not_set',
+                    detail=f'{type(fault).__name__}: {fault}',
+                )
+                notifications.report_outcome(fault, solicited=False, category='Motion')
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
-        self.imaging._start_streaming_impl()
+        # A start that fails is what bring-up found about the camera, kept
+        # on its part as a connect failure is.
+        try:
+            self.imaging._enable_streaming_impl()
+        except HardwareError as fault:
+            self._camera_failure = fault
+            self._record_camera_problem('stream_not_started', fault)
+        self._report_camera()
         logger.info('[SCOPE API ] Scope initialized')
 
-    def bind_settings(self, reader: 'Callable[[str], Any]') -> None:
-        """Read the configuration this scope acts on from a session's settings.
+    def write_camera_at_bring_up(self, write: Callable[[], object]) -> bool:
+        """Make one of bring-up's camera writes; a problem the camera meets does not stop bring-up.
+
+        Composition wiring, not part of the L2 API surface: ``initialize``'s
+        geometry and feature writes and the session's BF hold each come
+        through here, so bring-up's camera writes have one rule. Bring-up is
+        where their flight stops -- nobody waits on one, and a raise would
+        tear the whole session down over a camera with a flaky link -- so a
+        setting the camera refuses or does not answer, a write that
+        outlasts the camera lane's bound (it may still finish), and a
+        camera that leaves are each kept on the camera's part of the
+        bring-up record and told once. Anything else is raised.
+
+        Args:
+            write: The write, run on the calling thread.
+
+        Returns:
+            False when the camera left, so nothing more can be written to
+            it; else True.
+        """
+        try:
+            write()
+        except (CameraSettingRejected, LaneCallStillRunningError) as fault:
+            self._record_camera_problem('settings_not_applied', fault)
+            notifications.report_outcome(fault, solicited=False, category='Camera')
+        except HardwareCommandRefusedError as refusal:
+            if refusal.missing is not MissingPart.CAMERA:
+                raise
+            self._record_camera_problem('camera_left', refusal)
+            notifications.report_outcome(refusal, solicited=False, category='Camera')
+            return False
+        return True
+
+    def _record_camera_problem(self, cause: str, fault: BaseException) -> None:
+        """Keep a problem the camera met coming up on its part of the bring-up record.
+
+        Kept before it is told, so a client reading the record when it
+        hears it reads it there. The part keeps one cause, the one a person
+        acts on first (``_CAMERA_CAUSE_ORDER``), and every problem's words
+        in its detail. Nothing is reported here: whoever caught the fault
+        tells it.
+
+        Args:
+            cause: ``'settings_not_applied'``, ``'stream_not_started'`` or
+                ``'camera_left'``.
+            fault: What the camera's write or start raised.
+        """
+        camera = self._bring_up_parts[Part.CAMERA]
+        words = f'{type(fault).__name__}: {fault}'
+        held = camera.cause
+        if held is not None and _CAMERA_CAUSE_ORDER.index(held) > _CAMERA_CAUSE_ORDER.index(cause):
+            cause = held
+        self._bring_up_parts[Part.CAMERA] = dataclasses.replace(
+            camera,
+            cause=cause,
+            detail=f'{camera.detail}; {words}' if camera.detail else words,
+        )
+
+    def _store_absent_camera_features(self, config: 'ScopeInitConfig') -> None:
+        """Save off a conversion gain or line-noise filter saved on that this camera does not have.
+
+        Such a camera is at its standard setting, which is known, so the
+        saved value is replaced by it, recorded and reported once, as a
+        substituted binning is.
+        """
+        caps = self.capabilities
+        absent = []
+        if config.high_conversion_gain and not caps.camera_supports_conversion_gain_mode:
+            absent.append(('camera.high_conversion_gain', 'high conversion gain'))
+        if config.line_noise_reduction and not caps.camera_supports_line_noise_reduction:
+            absent.append(('camera.line_noise_reduction', 'line noise reduction'))
+        if not absent:
+            return
+        self.store_settings({path: False for path, _feature in absent})
+        for path, feature in absent:
+            self._bring_up_substitutions.append(Substitution(path, saved=True, used=False))
+            notifications.report_outcome(
+                CameraFeatureAbsentNotice(feature), solicited=False, category='Camera'
+            )
+
+    def bind_settings(
+        self, reader: 'Callable[[str], Any]', writer: 'Callable[[dict[str, Any]], None]'
+    ) -> None:
+        """Read and save the configuration this scope acts on in a session's settings.
 
         Composition wiring, not part of the L2 API surface: a session binds
         every scope it composes, once, before bring-up, after its lanes have
         refused a second session over the same scope. ``reader`` answers a
-        copy of the setting at a dotted path (``ScopeSession.get_setting``).
+        copy of the setting at a dotted path, as the session stores it;
+        ``writer`` saves a batch of dotted paths to values at once, as the
+        session's own members save them.
         """
         self._settings_reader = reader
+        self._settings_writer = writer
+
+    def store_settings(self, updates: dict[str, Any]) -> None:
+        """Save ``updates``, dotted paths to values, to the session this scope is bound to.
+
+        A consult seam for the sub-APIs, not part of the L2 API surface: the
+        camera saves the settings it changes through it, so the saved
+        settings and the camera never disagree.
+
+        Raises:
+            ConfigError: No session has bound this scope, so it has no
+                settings to save to.
+        """
+        if self._settings_writer is None:
+            raise ConfigurationDefectError(
+                'scope_not_composed',
+                f'this scope has no settings to save {sorted(updates)} to: compose it into a '
+                'ScopeSession (ScopeSession.create) before using it',
+            )
+        self._settings_writer(updates)
 
     def read_setting(self, path: str) -> Any:
         """A copy of the setting at ``path``, from the session this scope is bound to.
@@ -1135,10 +1538,12 @@ class Lumascope:
         L2 caller reads settings through its session.
 
         Raises:
-            ConfigError: No session has bound this scope, so it has no
-                settings to act on: a bare scope that would capture, convert
-                a plate position or draw a scale bar is composed into a
-                ``ScopeSession`` first.
+            ArgumentRefusedError: ``'not_a_setting'``, ``path`` names no
+                setting.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has
+                bound this scope, so it has no settings to act on: a bare
+                scope that would capture, convert a plate position or draw a
+                scale bar is composed into a ``ScopeSession`` first.
         """
         if self._settings_reader is None:
             raise ConfigurationDefectError(
@@ -1168,28 +1573,27 @@ class Lumascope:
         The model's expectations arrive with the config: an LS620 with no
         motor board is the manual scope it is, not a failure, so only a part
         the model has is missing. A camera that failed is reported whatever
-        the model, with the backend's own traceback behind it. When nothing
-        came up the person is told once, not once per part. A simulated part
-        is never reported: the simulator is what it stands in for.
+        the model (``_report_camera``). Each missing board is told once, by
+        its own notice with the advice its cause needs; a client wanting the
+        whole list reads the record's ``missing``. When nothing came up the
+        person is told once, not once per part. A simulated board is never
+        reported: the simulator is what it stands in for.
         """
         parts = self._bring_up_parts
-        parts[MOTOR] = dataclasses.replace(parts[MOTOR], expected=config.expects_motion)
-        parts[LED] = dataclasses.replace(parts[LED], expected=config.expects_led)
+        parts[Part.MOTOR] = dataclasses.replace(parts[Part.MOTOR], expected=config.expects_motion)
+        parts[Part.LED] = dataclasses.replace(parts[Part.LED], expected=config.expects_led)
         if self._no_hardware:
+            # The one notice says the camera too.
+            self._camera_failure = None
             notifications.report_outcome(
                 NoHardwareDetectedNotice(), solicited=False, category='Hardware'
             )
             return
-        camera = parts[CAMERA]
-        if not camera.up:
-            failed = CameraNotAvailableError(camera.cause)
-            failed.__cause__ = self._camera_failure
-            self._camera_failure = None
-            notifications.report_outcome(failed, solicited=False, category='Camera')
+        self._report_camera()
         if self._simulated:
             return
-        led = parts[LED]
-        if not led.up:
+        led = parts[Part.LED]
+        if led.missing:
             notifications.report_outcome(
                 LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
             )
@@ -1197,13 +1601,36 @@ class Lumascope:
             notifications.report_outcome(
                 LedSafetyOffNotTakenError(led.detail), solicited=False, category='Illumination'
             )
-        missing = self.bring_up_record().missing
-        if missing:
+        motor = parts[Part.MOTOR]
+        if motor.missing:
             notifications.report_outcome(
-                PartialHardwareError(status.describe() for status in missing),
-                solicited=False,
-                category='Hardware',
+                MotorBoardUnavailableError(motor.cause), solicited=False, category='Motion'
             )
+
+    def _report_camera(self) -> None:
+        """Report, once, the camera failure bring-up kept beside its part.
+
+        A camera that did not come up is reported as unavailable, with the
+        backend's own error behind it; one that came up and whose stream did
+        not start is reported as the start's own fault. The kept failure is
+        cleared as it is reported, so each is told once: bring-up asks at
+        its start, for the connect, and after the gate release, for the
+        stream.
+        """
+        failure = self._camera_failure
+        if failure is None:
+            return
+        self._camera_failure = None
+        camera = self._bring_up_parts[Part.CAMERA]
+        if camera.up:
+            reported = failure
+        else:
+            reported = CameraNotAvailableError(
+                camera.cause,
+                repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,
+            )
+            reported.__cause__ = failure
+        notifications.report_outcome(reported, solicited=False, category='Camera')
 
     # --- The scope's lanes, for the session that composes around it ---
 
@@ -1249,46 +1676,100 @@ class Lumascope:
     # forwarders have been retired. Callers use scope.illumination.
 
     # --- Camera command API ---
-    # All camera/imaging methods + state slots + change-listener registry
-    # live on ImagingAPI; forwarders have been retired. Callers use
-    # scope.imaging.
+    # The camera's settings, reads and state live on CameraAPI, the capture
+    # on ImagingAPI; forwarders have been retired. Callers use scope.camera
+    # and scope.imaging.
 
-    @api(in_process=True)
+    @api
     @property
     def simulation(self) -> 'SimulationAPI':
         """The faults a simulated scope presents, switched on by name.
 
-        In-process only: the faults belong to the simulator, not to a wire.
-        Every member refuses on a real scope.
+        On the wire as in-process, but for two members that take or hand
+        out an in-process object. Every member refuses on a real scope.
+
+        Raises:
+            Nothing.
         """
         return self._simulation
 
+    def host_steady_ns(self) -> int:
+        """The host's steady time now, in nanoseconds, on the clock of every steady stamp the scope takes.
+
+        A frame's ``arrived_ns``, a change's ``written_ns``, ``earliest_ns``
+        and ``in_force_ns``, and a clock mapping's ``host_ns`` are read from
+        this clock (``drivers.host_clock.steady_ns``); a caller setting its
+        own "now" against them reads it here, never from a clock of its own.
+        In-process only: a steady time means nothing in another process.
+
+        Raises:
+            Nothing.
+        """
+        return host_clock.steady_ns()
+
     @api
     @property
-    def scope_models(self) -> dict:
-        """The model catalogue (scopes.json's ``Models``), as the caller's own copy.
+    def objectives(self) -> 'Mapping[str, Objective]':
+        """The installation's objectives, by id, read once at bring-up.
 
-        A copy because the scope reads its own: a caller that changed what
-        it was given would otherwise change every later reader's catalogue.
+        Read-only, as each record is: no caller can change what another
+        reads. Which one is in the light path is
+        ``runtime_state.resolve_current_objective``'s answer.
+
+        Raises:
+            Nothing.
         """
-        return copy.deepcopy(self._scope_models)
+        return self.objective_helper.objectives
+
+    @api
+    @property
+    def labware(self) -> 'Mapping[str, Labware]':
+        """The installation's plates, by name, read once at bring-up.
+
+        Read-only, as each record is: no caller can change what another
+        reads. Which one is selected is ``ScopeSession.labware_id``.
+        Slides and Petri dishes are not offered yet.
+
+        Raises:
+            Nothing.
+        """
+        return self.wellplate_loader.plates
+
+    @api
+    @property
+    def scope_models(self) -> 'Mapping[str, ScopeModel]':
+        """The model catalogue (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
+
+        Read-only, as each record is: no caller can change what another
+        reads.
+
+        Raises:
+            Nothing.
+        """
+        return self._scope_models
 
     @api
     @property
     def settings_template(self) -> dict:
         """The shipped settings template: which settings exist, and their shipped values.
 
-        The caller's own copy, for the reason ``scope_models`` gives.
+        The caller's own copy: a caller that changed what it was given
+        would otherwise change every later reader's template.
+
+        Raises:
+            Nothing.
         """
         return copy.deepcopy(self._settings_template)
 
-    @api
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.
 
         Returns:
             bool: True if a real (non-Null) motor board is connected.
+
+        Raises:
+            Nothing.
         """
         return (
             not isinstance(self._motion_driver, NullMotionBoard)
@@ -1303,59 +1784,48 @@ class Lumascope:
         False for a manual scope (an LS620 or LS560): it is complete
         without one, so its absence is not a disconnection. Set from the
         model's catalogue entry by ``initialize()``; True before that.
+
+        Raises:
+            Nothing.
         """
         return self._motion_expected
 
-    @api
     @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected.
 
         Returns:
             bool: True if a real (non-Null) LED board is connected.
+
+        Raises:
+            Nothing.
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
-    def _camera_is_connected(self) -> bool:
-        """Answer the camera half of every connection question, raising.
+    @property
+    def camera_connected(self) -> bool:
+        """Whether the camera is connected and active.
 
-        One predicate with two callers that need opposite things from a
-        driver that throws: the display paths below want a bool and get
-        it from the property, while the run gate wants the throw, because
-        "the USB tree went away mid-question" is a different refusal from
-        "the camera is not plugged in" and the user has to be told which.
+        The camera half of every connection question, ``unconnected_parts``
+        and the display paths alike: two copies once drifted, the run gate's
+        testing is_connected() alone while the display's tested active as
+        well, and no camera in the tree told them apart, so the drift was
+        invisible rather than harmless. The driver reads its own flags,
+        with no SDK call (``Camera.is_connected``).
 
-        It exists because the two were written out separately and drifted:
-        the run gate's copy tested is_connected() alone while the property
-        tested active as well. No camera in the tree tells them apart --
-        all three make is_connected() False whenever active is unset -- so
-        the drift was invisible rather than harmless, which is the worse
-        of the two states to leave a predicate in.
+        Returns:
+            bool: True if a real camera driver is connected and active; a
+                real bool, not the falsy operand that ended the chain: a
+                Pylon camera holds None in ``active`` once it is gone, and
+                the display paths log this value.
 
-        Returns a real bool rather than the falsy operand that ended the
-        chain: a Pylon camera holds None in ``active`` once it is gone,
-        and the display paths log this value.
+        Raises:
+            Nothing.
         """
         driver = getattr(self, '_camera_driver', None)
         if driver is None or not getattr(driver, 'active', False):
             return False
         return driver.is_connected()
-
-    @api
-    @property
-    def camera_connected(self) -> bool:
-        """Whether the camera is connected and active.
-
-        Returns:
-            bool: True if a real camera driver is connected and active.
-                A driver that raises reads as not connected: the callers
-                here are display and metrics paths, where the question is
-                asked per frame and has no answer but False.
-        """
-        try:
-            return self._camera_is_connected()
-        except Exception:
-            return False
 
     def disconnect(self) -> None:
         """Disconnect from all hardware (LED, motion, camera) and stop the scope's lanes.
@@ -1364,20 +1834,81 @@ class Lumascope:
         to the Null variants and `_invalidate_camera_cache` always runs, so
         a partial failure cannot leave the API holding a stale connected
         driver. Repeatable: a second call finds nothing left to tear down.
+        One runs at a time: a call on another thread while one runs waits
+        for it, then finds nothing left.
 
         Raises:
             ScopeDisconnectError: after every step has run, naming each part
-                that did not shut down cleanly (the motor STOP, the LED
-                board, the motor board, the camera), chained from the first
+                that did not shut down cleanly (the LEDs' off, the motor STOP,
+                the LED board, the motor board, the camera), chained from the first
                 part's error. Nothing is logged or shown here; the caller
                 reports it where it stops.
         """
+        with self._disconnect_lock:
+            try:
+                self._disconnect()
+            finally:
+                # After the teardown, whatever it raised: it has swapped
+                # every driver for its Null variant, so no part of this
+                # scope still drives the microscope. A host recomposing
+                # after a failed teardown is not refused by this scope.
+                if self._instance_lock is not None:
+                    self._instance_lock.close()
+
+    def _abandon_construction(self) -> None:
+        """Undo a constructor that raised: stop what it started, close what it opened, give back the lock.
+
+        ``disconnect`` turns the scope off through its sub-APIs, which a
+        constructor that raised may not have built yet; nothing was lit or
+        moved while it ran, so this stops the lanes and the motion monitor
+        and closes each driver it opened. A raise before ``_init_minimal``
+        took the lock has nothing to undo. A step whose teardown fails is
+        logged and the rest still run: the constructor's own raise is the
+        one the caller handles.
+        """
+        built = vars(self)
+        if '_instance_lock' not in built:
+            return
+        # The lanes are waited for, unlike disconnect's: nothing is lit to
+        # turn off first, and the constructor ran on the caller's thread, so
+        # they are idle and their threads end within the bounded join.
+        steps = [
+            lane.shutdown
+            for lane in (built.get('_io_executor'), built.get('_camera_executor'))
+            if lane is not None
+        ]
+        if 'motion' in built:
+            steps.append(self.motion._disconnect)
+        steps += [
+            driver.disconnect
+            for driver in (
+                built.get('_led_driver'),
+                built.get('_motion_driver'),
+                built.get('_camera_driver'),
+            )
+            if not isinstance(driver, (NullLEDBoard, NullMotionBoard))
+            and hasattr(driver, 'disconnect')
+        ]
+        try:
+            for step in steps:
+                try:
+                    step()
+                except Exception:
+                    logger.exception(
+                        f'[SCOPE API ] {step.__qualname__} failed after the scope was not built'
+                    )
+        finally:
+            if self._instance_lock is not None:
+                self._instance_lock.close()
+
+    def _disconnect(self) -> None:
+        """disconnect()'s teardown, run under its lock."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
         # Stop watching the stream first: the teardown below stops it on
         # purpose, and a stall check still running would report that as a
-        # camera fault. Best-effort, like the LED shutoff below: a failure is
-        # logged and the teardown carries on.
+        # camera fault. Best-effort: a failure is logged and the teardown
+        # carries on.
         try:
             self.imaging.stop_stream_check()
         except Exception as ex:
@@ -1407,12 +1938,14 @@ class Lumascope:
         # Bounded acquire (the emergency variant) because an in-flight LED
         # write holding the lock must not be able to wedge teardown; it runs
         # first so the ordering the atexit hook relies on is unchanged.
-        # Best-effort like every other step here: a failure is logged and
-        # the port teardown still proceeds.
+        # A failure is recorded as the motor stop's is, since the sample may
+        # be left lit, and the port teardown still proceeds.
+        failures: dict[DisconnectPart, BaseException] = {}
         try:
             self.illumination._leds_off_emergency()
         except Exception as ex:
             logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
+            failures[DisconnectPart.LEDS_OFF] = ex
 
         # LVP-A-1: stop motors before tearing down the serial port so we
         # don't leave a stage/turret moving against an end-stop after
@@ -1423,12 +1956,11 @@ class Lumascope:
         # Asked first, as the scope's own write: with no motor controller
         # connected -- a manual scope, a pulled cable, a second disconnect --
         # there is nothing to stop.
-        failures: dict[str, BaseException] = {}
         if self.motor_connected:
             try:
                 self.motion._stop()
             except Exception as e:
-                failures['motor stop'] = e
+                failures[DisconnectPart.MOTOR_STOP] = e
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
@@ -1450,7 +1982,7 @@ class Lumascope:
             try:
                 self._led_driver.disconnect()
             except Exception as ex:
-                failures['LED board'] = ex
+                failures[DisconnectPart.LED_BOARD] = ex
         self._led_driver = NullLEDBoard()
         # The emergency off above leaves the state store as it was; with the
         # board gone nothing is lit, and the listeners hear it here (a
@@ -1463,7 +1995,7 @@ class Lumascope:
             try:
                 self._motion_driver.disconnect()
             except Exception as ex:
-                failures['motor board'] = ex
+                failures[DisconnectPart.MOTOR_BOARD] = ex
         self._motion_driver = NullMotionBoard()
 
         if self._camera_driver is not None and hasattr(self._camera_driver, 'disconnect'):
@@ -1475,13 +2007,13 @@ class Lumascope:
             try:
                 self._camera_driver.disconnect()
             except Exception as ex:
-                failures['camera'] = ex
+                failures[DisconnectPart.CAMERA] = ex
             self._camera_driver = None
         elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
             # clear the slot but don't claim success on a real teardown.
             self._camera_driver = None
-        self.imaging._invalidate_camera_cache()
+        self.camera._invalidate_camera_cache()
         # This scope's periodic camera-temp schedule dies WITH the scope:
         # the tick deliberately never self-cancels (a transient
         # connectivity False must not end logging), so the lifecycle edge
@@ -1505,6 +2037,8 @@ class Lumascope:
             logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
         if failures:
+            for part, error in failures.items():
+                logger.error(f'[SCOPE API ] {part} did not disconnect: {error!r}', exc_info=error)
             raise ScopeDisconnectError(failures) from next(iter(failures.values()))
 
     def _emergency_shutdown(self):
@@ -1520,11 +2054,27 @@ class Lumascope:
         its first step, using the same bounded acquire, so there is one
         place that darkens the channels on the way down rather than two
         that have to be kept in agreement.
+
+        A disconnect already in flight -- the session's close, on its own
+        thread when the process ended -- is waited for up to `_EXIT_WAIT_S`,
+        and then nothing is left to tear down; past the bound the process
+        exits without it.
         """
+        if not self._disconnect_lock.acquire(timeout=self._EXIT_WAIT_S):
+            try:
+                logger.warning(
+                    f'[SCOPE API ] _emergency_shutdown: a disconnect still in flight after '
+                    f'{self._EXIT_WAIT_S:.0f} s; exiting without it'
+                )
+            except Exception:
+                pass
+            return
         try:
             self.disconnect()
         except Exception:
             pass
+        finally:
+            self._disconnect_lock.release()
         try:
             logger.info('[SCOPE API ] _emergency_shutdown complete (LEDs off, disconnected)')
         except Exception:
@@ -1537,13 +2087,16 @@ class Lumascope:
 
         Returns:
             bool: True when all three subsystems are absent or stubbed.
+
+        Raises:
+            Nothing.
         """
         return self._no_hardware
 
     def move_to_simulated_sample_plane(self) -> None:
         """Place the stage where the simulated sample is (not part of the L2 API surface).
 
-        Bring-up's own step, called by ``ScopeSession.start_application_session``.
+        Bring-up's own step, called by the startup motion (``ScopeSession.start_application_session``).
         An L2 caller has no reason to reach it: on real hardware it does
         nothing, and on a simulator bring-up has already run it.
 
@@ -1571,7 +2124,7 @@ class Lumascope:
             return
         if not self.capabilities.has_focus:
             return
-        if not self.motion.position_is_known('Z'):
+        if 'Z' in self.motion.axes_without_position():
             logger.info(
                 '[SCOPE API ] Simulated sample plane not applied: Z has no reference position'
             )
@@ -1583,11 +2136,11 @@ class Lumascope:
         focal_plane = getattr(self._camera_driver, 'get_nominal_focal_z', None)
         if focal_plane is None:
             return
-        # Waited, like the home before it: move_absolute returns only once Z
+        # Waited, like the home before it: move_z returns only once Z
         # has arrived, and raises if it did not. Bring-up reports the stage
         # ready, and a caller that starts a sweep against a Z still in flight
         # reads a position that is not where the sample is.
-        self.motion.move_absolute('Z', focal_plane())
+        self.motion.move_z(focal_plane())
 
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
@@ -1599,28 +2152,31 @@ class Lumascope:
         """
         return not self.unconnected_parts()
 
-    @api
-    def unconnected_parts(self) -> tuple[str, ...]:
-        """The parts this scope needs that are not connected, by name.
+    @api(reads=True)
+    def unconnected_parts(self) -> tuple[Part, ...]:
+        """The parts this scope needs that are not connected.
 
         Each term is the one the matching single-board question asks, so
         a run gate and a per-board gate cannot disagree about the same
-        hardware. A driver that RAISES propagates: the run gate that asks
-        this converts it into a refusal that says the state could not be
-        read, which is not the same answer as "not connected".
+        hardware. Each term reads its driver's own flags, with no exchange
+        with the board or the camera (``drivers/protocols.py``,
+        ``Camera.is_connected``).
 
         A scope whose model has no motor board is not asked for one: a
         manual scope is complete without it.
 
         Returns:
-            Each of ``'LED controller'``, ``'motor controller'`` and
-            ``'camera'`` that is not connected, in that order; empty when
-            all are.
+            Each of ``LED``, ``MOTOR`` and ``CAMERA`` that is not
+            connected, in that order; empty when all are. A sentence names
+            each by its ``noun``.
+
+        Raises:
+            Nothing.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
         led = self.led_connected
         motion = self.motor_connected or not self._motion_expected
-        camera = self._camera_is_connected()
+        camera = self.camera_connected
 
         if not led:
             logger.info('[SCOPE API ] Connection Check: LED Board not connected')
@@ -1633,116 +2189,10 @@ class Lumascope:
             logger.debug('[SCOPE API ] Connection Check: All components connected')
 
         return tuple(
-            name
-            for name, connected in (
-                (MissingPart.LED_CONTROLLER.name, led),
-                (MissingPart.MOTOR_CONTROLLER.name, motion),
-                (MissingPart.CAMERA.name, camera),
-            )
+            part
+            for part, connected in ((Part.LED, led), (Part.MOTOR, motion), (Part.CAMERA, camera))
             if not connected
         )
-
-    @classmethod
-    def create_diagnostic(cls, source_path: 'str | os.PathLike | None' = None) -> 'Lumascope':
-        """Create a minimal Lumascope for diagnostics (no camera init).
-
-        Internal degraded-mode constructor for support reports -- not
-        part of the L2 API surface.
-
-        Connects to LED and motor boards only. For use by tools like
-        the tech support report that need board access without the full
-        application stack.
-
-        Args:
-            source_path: The data folder to read the catalogues from; None
-                (default) is the installation's own folder.
-
-        Returns:
-            Lumascope: Instance with led/motion connected, camera=None.
-        """
-        instance = cls.__new__(cls)
-        # The same read __init__ makes, first, before anything is started:
-        # one construction path for the installation's files on every
-        # scope, and a missing one stops the diagnostic with nothing to
-        # tear down.
-        motorconfig_defaults = instance._read_catalogues(get_source_root(source_path))
-        # Shared state-slot init (audit #35) -- same call __init__ makes.
-        instance._init_minimal(simulated=False)
-
-        # Connect boards through the registries, as __init__ does -- motion
-        # driver first so MotionAPI._driver resolves correctly at
-        # construction time. The diagnostic has no settings to say what the
-        # model expects, so it is held to every board, and it reports
-        # nothing: its record is on the scope for whoever asks.
-        instance._led_driver, led_fallback = led_registry.create_with_fallback('auto')
-        instance._motion_driver, motor_fallback = motor_registry.create_with_fallback(
-            'auto', motorconfig_defaults=motorconfig_defaults
-        )
-        instance._bring_up_parts = {
-            MOTOR: _board_status(MOTOR, instance._motion_driver, motor_fallback),
-            LED: _board_status(LED, instance._led_driver, led_fallback),
-        }
-        instance._bring_up_substitutions = []
-        instance._camera_failure = None
-
-        # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
-        from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
-
-        instance.motion = MotionAPI(instance, instance._motion_driver)
-        present_axes = instance._motion_driver.detect_present_axes()
-        instance.motion._init_axes(present_axes, instance._motion_driver.detect_homed_axes())
-        instance.motion._start_monitor()
-
-        instance._frame_buffer = None
-
-        # Diagnostic instances have no settings to name a configured
-        # model, so identity resolves from the motor-reported model alone
-        # -- empty (and loud on LED use) when the hardware reports none.
-        # That is the honest answer for a support tool: it must never
-        # invent an identity for a unit it is diagnosing.
-        instance._configured_model = None
-        instance._fx2_debug_wire = False
-        instance.layer_identity = instance._resolve_layer_identity()
-
-        # Build capabilities -- diagnostic instances still need this so
-        # any code that reads scope.capabilities.* works.
-        instance.capabilities = ScopeCapabilities.from_drivers(
-            motion=instance._motion_driver,
-            led=instance._led_driver,
-            camera=None,
-            layer_identity=instance.layer_identity,
-            scope_models=instance._scope_models,
-        )
-
-        # Sub-API wiring -- diagnostic instances are first-class enough
-        # that disconnect / scope.imaging / scope.illumination do not
-        # raise AttributeError. ImagingAPI tolerates camera=None (per
-        # its docstring); IlluminationAPI gets the connected LED driver
-        # (real or NullLEDBoard).
-        from modules.lumascope_api.illumination import IlluminationAPI
-        from modules.lumascope_api.imaging import ImagingAPI
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-        from modules.lumascope_api.protocols import ProtocolsAPI
-        from modules.lumascope_api.runtime_state import RuntimeState
-        from modules.lumascope_api.simulation import SimulationAPI
-
-        instance.illumination = IlluminationAPI(instance, instance._led_driver)
-        instance.imaging = ImagingAPI(instance, None)
-        instance.diagnostics = DiagnosticsAPI(instance)
-        instance.protocols = ProtocolsAPI(instance)
-        instance.runtime_state = RuntimeState(instance)
-        instance._simulation = SimulationAPI(instance)
-
-        # No hardware when neither board came up, read from the record as
-        # __init__ reads it; the diagnostic probes no camera.
-        instance._no_hardware = not any(status.up for status in instance._bring_up_parts.values())
-
-        logger.info(
-            '[SCOPE API ] Diagnostic scope created '
-            f'(LED={instance.led_connected}, '
-            f'Motor={instance.motor_connected})'
-        )
-        return instance
 
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

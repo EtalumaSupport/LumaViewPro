@@ -12,26 +12,12 @@ whole frames for mono). Output dtype matches the input dtype, except that a
 Sum of uint8 frames is uint16: its counts pass 255.
 """
 
-import enum
-
 import numpy as np
 
 import modules.image_utils as image_utils
+from modules.zproject_method import ZProjectMethod
 
 from lvp_logger import logger
-
-
-class ZProjectMethod(enum.Enum):
-    Min = 'min'
-    Max = 'max'
-    Average = 'avg'
-    Median = 'median'
-    Sum = 'sum'
-    StdDev = 'sd'
-
-    @classmethod
-    def list(cls):
-        return [c.name for c in cls]
 
 
 def projected_dtype(method: ZProjectMethod, input_dtype: np.typing.DTypeLike) -> np.dtype:

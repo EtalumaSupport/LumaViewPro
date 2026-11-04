@@ -1,0 +1,130 @@
+"""A Basler grab stop is logged with the state it stopped from and how long it took.
+
+The contract is the pylon driver's ``stop_grabbing``: the camera log carries,
+before the stop, what was in flight, and after it, the stop's elapsed time,
+a WARNING at ``_SLOW_GRAB_STOP_S`` or more so a slow stop reaches the errors
+log and stands out in a support bundle. The log is the product here: it is
+what a bench run on a stalling camera is read from.
+
+A stand-in by design: no simulated Pylon camera exists, so the SDK camera is
+``camera_fakes.bare_pylon_camera``'s MagicMock; the camera log is read
+from ``caplog``, the driver's own ``LVP.camera`` lines.
+"""
+
+import logging
+import time
+import types
+from unittest import mock
+
+from pypylon import genicam
+
+from drivers.camera import ImageHandlerBase
+from tests.camera_fakes import bare_pylon_camera
+from tests.log_capture import records_of
+
+
+def _stop_with_log(caplog, cam, stop_takes_s, during_stop=None):
+    """Run ``cam.stop_grabbing()`` with a clock the stop advances by ``stop_takes_s``.
+
+    ``during_stop``, when given, runs inside the stop, as the SDK's own
+    counters would move while it waits.
+    """
+    from drivers import pyloncamera
+
+    clock = [100.0]
+
+    def stop():
+        clock[0] += stop_takes_s
+        if during_stop is not None:
+            during_stop()
+
+    if cam.active is not None:
+        cam.active.StopGrabbing.side_effect = stop
+    fake_time = types.SimpleNamespace(
+        perf_counter=lambda: clock[0], monotonic=time.monotonic, sleep=time.sleep
+    )
+    caplog.set_level(logging.DEBUG, logger='LVP.camera')
+    caplog.clear()
+    with mock.patch.object(pyloncamera, 'time', fake_time):
+        cam.stop_grabbing()
+    return [r for r in records_of(caplog, pyloncamera) if r.name == 'LVP.camera']
+
+
+def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopped_from(caplog):
+    cam = bare_pylon_camera()
+    # The real handler, so the fake's teardown at GC finds every member it calls.
+    cam.cam_image_handler = ImageHandlerBase()
+    cam.cam_image_handler._frames_handed_over = 42
+    cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value.GetValue.return_value = 7
+    cam.active.GetInstantCameraNodeMap.return_value.GetNode.return_value.GetValue.return_value = 3
+    cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.return_value = 'Complete'
+    write_timeouts = [0]
+    tl_value = cam.active.GetTLNodeMap.return_value.GetNode.return_value.GetValue
+    tl_value.side_effect = lambda: write_timeouts[0]
+
+    def a_write_times_out():
+        write_timeouts[0] += 1
+
+    records = _stop_with_log(caplog, cam, stop_takes_s=11.02, during_stop=a_write_times_out)
+
+    cam.active.StopGrabbing.assert_called_once_with()
+    pre = [r.getMessage() for r in records if r.getMessage().startswith('pylon StopGrabbing() [')]
+    assert len(pre) == 1, [r.getMessage() for r in records]
+    for field in (
+        'frames_delivered=42 ',
+        'grabber_status=7 ',
+        'Statistic_Total_Buffer_Count=7 ',
+        'NumQueuedBuffers=3 ',
+        'BslAcquisitionStopMode=Complete ',
+        'StatisticReadWriteTimeoutCount=0 ',
+        'AcquisitionActive=Complete ExposureActive=Complete live_read_ms=0.0',
+    ):
+        assert field in pre[0], f'{field} missing from the pre-stop line: {pre[0]}'
+    # The transport layer's timeout and retry settings are not read: a
+    # daA3840-45um under pylon 11.5 has none of them on macOS or Windows.
+    for setting in ('ReadTimeout=', 'WriteTimeout=', 'MaxRetryCountRead=', 'MaxRetryCountWrite='):
+        assert setting not in pre[0], f'{setting} in the pre-stop line: {pre[0]}'
+    warnings = [r.getMessage() for r in records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, warnings
+    assert warnings[0].startswith('pylon StopGrabbing [stop_grabbing] returned after 11020.0 ms: ')
+    assert 'StatisticReadWriteTimeoutCount=1 ' in warnings[0], warnings[0]
+
+
+def test_a_fast_stop_logs_its_elapsed_time_and_no_warning(caplog):
+    cam = bare_pylon_camera()
+
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.02)
+
+    assert not [r for r in records if r.levelno >= logging.WARNING]
+    assert any(
+        r.getMessage().startswith('pylon StopGrabbing [stop_grabbing] returned after 20.0 ms: ')
+        for r in records
+    ), [r.getMessage() for r in records]
+
+
+def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs(caplog):
+    cam = bare_pylon_camera()
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = genicam.LogicalErrorException(
+        'Node not existing'
+    )
+
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.02)
+
+    cam.active.StopGrabbing.assert_called_once_with()
+    pre = next(
+        r.getMessage() for r in records if r.getMessage().startswith('pylon StopGrabbing() [')
+    )
+    assert 'BslAcquisitionStopMode=<missing>' in pre, pre
+
+
+def test_a_stop_with_no_camera_logs_its_failure_and_raises_nothing(caplog):
+    cam = bare_pylon_camera()
+    cam.active = None
+
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.0)
+
+    messages = [r.getMessage() for r in records]
+    assert 'pylon StopGrabbing() [stop_grabbing]: no camera' in messages
+    assert any(
+        r.levelno == logging.WARNING and 'FAILED after' in r.getMessage() for r in records
+    ), messages

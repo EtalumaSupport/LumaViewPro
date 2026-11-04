@@ -14,12 +14,18 @@ moves control onto the stream's handle and back.
 from __future__ import annotations
 
 import ast
+import logging
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from drivers import fx2driver
+from drivers.camera import ImageHandlerBase
+from drivers.exceptions import CameraNoAnswerError, CameraStreamStartFailedError
+from tests.camera_fakes import fx2_stream
 
 DRIVER = Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
 
@@ -37,17 +43,19 @@ _FRAME = [fx2driver.FRAME_DELIM] + [_BODY[i : i + _STEP] for i in range(0, len(_
 
 
 def test_the_grab_loop_stores_every_frame_a_reader_hands_on_after_its_first_take():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(
-        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+        stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
     )
     cam._grabbing = True
     cam._width, cam._height = W, H
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, significant_bits, wire_bytes: stored.append(image.shape)
+        _store_frame=lambda image, handed_over, significant_bits, wire_bytes: stored.append(
+            image.shape
+        )
     )
 
     loop = threading.Thread(target=cam._grab_loop, daemon=True)
@@ -145,6 +153,10 @@ class _Context:
         pass
 
 
+class _Usb1Error(Exception):
+    """python-libusb1's ``USBError``, which is not an ``OSError``."""
+
+
 def _connection_on_libusb(monkeypatch, events):
     """A real _FX2Connection on a real _LibusbTransport, over stand-in libraries.
 
@@ -157,7 +169,9 @@ def _connection_on_libusb(monkeypatch, events):
         fx2driver,
         'usb',
         SimpleNamespace(
-            core=SimpleNamespace(find=lambda **kw: next(found), USBError=OSError),
+            core=SimpleNamespace(
+                find=lambda **kw: next(found), USBError=OSError, USBTimeoutError=TimeoutError
+            ),
             util=SimpleNamespace(
                 claim_interface=lambda dev, i: None, dispose_resources=lambda dev: None
             ),
@@ -170,6 +184,8 @@ def _connection_on_libusb(monkeypatch, events):
             USBContext=lambda: _Context(handle),
             TRANSFER_COMPLETED=object(),
             TRANSFER_CANCELLED=object(),
+            USBError=_Usb1Error,
+            USBErrorTimeout=TimeoutError,
         ),
     )
     return fx2driver._FX2Connection(fx2driver._LibusbTransport())
@@ -181,7 +197,7 @@ def test_control_goes_through_the_stream_while_it_runs_and_back_after(monkeypatc
     write = fx2driver.VR_I2C_WRITE
 
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
-    conn.start_stream()
+    conn.start_stream(ImageHandlerBase().hand_over)
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
     conn.stop_stream()
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
@@ -199,7 +215,7 @@ def test_control_goes_through_the_stream_while_it_runs_and_back_after(monkeypatc
 def test_the_iso_transfers_are_pending_before_the_device_starts_streaming(monkeypatch):
     events = []
     conn = _connection_on_libusb(monkeypatch, events)
-    conn.start_stream()
+    conn.start_stream(ImageHandlerBase().hand_over)
     conn.stop_stream()
 
     start = events.index(('iso', fx2driver.VR_START_STREAMING))
@@ -219,6 +235,10 @@ def test_a_connection_that_cannot_connect_closes_its_transport_and_raises_its_ow
     class NoDevice:
         closed = False
 
+        @staticmethod
+        def bindings(identity):
+            return None
+
         def find(self, pid):
             raise RuntimeError('no FX2 on the bus')
 
@@ -236,7 +256,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     class Device:
         def control_transfer(self, request_type, request, value, index, data=b''):
             if request == fx2driver.VR_START_STREAMING:
-                raise RuntimeError('ControlTransfer OUT failed: 31')
+                raise OSError('ControlTransfer OUT failed: 31')
             return len(data)
 
     readers = []
@@ -265,12 +285,225 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     )
     transport = fx2driver._WinUsbTransport()
     try:
-        transport.start_stream(fx2driver._ByteStream(), on_gone=lambda: None)
-    except RuntimeError:
+        transport.start_stream(fx2_stream(), on_gone=lambda: None)
+    except OSError:
         pass
     transport.stop_stream()
     assert len(readers) == 1
     assert readers[0].running is False
+
+
+# ---------------------------------------------------------------------------
+# A start that fails leaves nothing open, whatever step it failed at
+# ---------------------------------------------------------------------------
+
+
+def test_a_windows_start_that_fails_leaves_no_reader_and_the_next_runs_one(monkeypatch):
+    """The camera stops only what it started, so a connection whose start
+    raised and stayed marked streaming kept its WinUSB reader running where
+    no stop reached it; the next start then opened a second reader beside
+    it, which on real WinUSB fails to open the device the first one holds."""
+    readers = []
+
+    class Device:
+        def __init__(self, refuses_start):
+            self._refuses_start = refuses_start
+
+        def control_transfer(self, request_type, request, value, index, data=b''):
+            if request == fx2driver.VR_START_STREAMING and self._refuses_start:
+                raise OSError('ControlTransfer OUT failed: 31')
+            return len(data)
+
+    class Reader:
+        def __init__(self, vid, pid, **kwargs):
+            self.device = Device(refuses_start=not readers)
+            self.running = False
+            readers.append(self)
+
+        def start(self):
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
+    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
+    monkeypatch.setattr(
+        fx2driver,
+        'usb',
+        SimpleNamespace(
+            core=SimpleNamespace(
+                find=lambda **kw: _PyusbDevice([], 'idle'),
+                USBError=OSError,
+                USBTimeoutError=TimeoutError,
+            ),
+            util=SimpleNamespace(
+                claim_interface=lambda dev, i: None, dispose_resources=lambda dev: None
+            ),
+        ),
+    )
+    conn = fx2driver._FX2Connection(fx2driver._WinUsbTransport())
+
+    with pytest.raises(CameraStreamStartFailedError, match='failed: 31'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+    running_after_the_failure = [r.running for r in readers]
+    conn.start_stream(ImageHandlerBase().hand_over)
+    running_after_the_retry = [r.running for r in readers]
+    conn.stop_stream()
+
+    assert running_after_the_failure == [False]
+    assert running_after_the_retry == [False, True]
+    assert [r.running for r in readers] == [False, False]
+
+
+def test_a_stream_start_the_fx2_does_not_answer_is_no_answer(monkeypatch):
+    """START is a vendor write sent while the stream is being set up; a
+    timeout on it is the camera not answering, as on any other write."""
+
+    class Device:
+        def control_transfer(self, request_type, request, value, index, data=b''):
+            raise TimeoutError('ControlTransfer OUT (request=0xBD) timed out: 121')
+
+    class Reader:
+        def __init__(self, vid, pid, **kwargs):
+            self.device = Device()
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
+    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
+    monkeypatch.setattr(
+        fx2driver,
+        'usb',
+        SimpleNamespace(
+            core=SimpleNamespace(
+                find=lambda **kw: _PyusbDevice([], 'idle'),
+                USBError=OSError,
+                USBTimeoutError=TimeoutError,
+            ),
+            util=SimpleNamespace(
+                claim_interface=lambda dev, i: None, dispose_resources=lambda dev: None
+            ),
+        ),
+    )
+    conn = fx2driver._FX2Connection(fx2driver._WinUsbTransport())
+
+    with pytest.raises(CameraNoAnswerError, match='timed out: 121'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+
+
+def test_a_libusb_start_whose_claim_fails_closes_the_handle_and_context_it_opened(monkeypatch):
+    """A claim that raised left the opened handle unstored and the context
+    open, so nothing ever closed either. The interface was never claimed, so
+    its release is refused, as libusb refuses it; the handle closes anyway."""
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+    closed = []
+
+    def refuse_claim(interface):
+        raise _Usb1Error('LIBUSB_ERROR_BUSY')
+
+    def refuse_release(interface):
+        raise _Usb1Error('LIBUSB_ERROR_NOT_FOUND')
+
+    handle.claimInterface = refuse_claim
+    handle.releaseInterface = refuse_release
+    handle.close = lambda: closed.append('handle')
+
+    class Context(_Context):
+        def close(self):
+            closed.append('context')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: Context(handle))
+
+    with pytest.raises(CameraStreamStartFailedError, match='BUSY'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+
+    assert sorted(closed) == ['context', 'handle']
+
+
+def test_a_libusb_start_whose_context_does_not_open_raises_its_own_failure(monkeypatch):
+    """With no context opened, the stop that undoes the start has nothing
+    to close; it used to raise AttributeError on the missing context in
+    place of the start's own error."""
+    conn = _connection_on_libusb(monkeypatch, [])
+
+    def no_context():
+        raise _Usb1Error('LIBUSB_ERROR_NO_MEM')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', no_context)
+
+    with pytest.raises(CameraStreamStartFailedError, match='NO_MEM'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+
+
+def test_a_defect_in_a_libusb_start_leaves_as_itself_and_the_start_is_undone(monkeypatch):
+    """Only the USB library's failure is a stream that did not start; the
+    driver's own defect leaves as itself, and the start is undone either way."""
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+    closed = []
+
+    def defect(interface):
+        raise TypeError('a defect in the stream set-up')
+
+    handle.claimInterface = defect
+    handle.close = lambda: closed.append('handle')
+
+    class Context(_Context):
+        def close(self):
+            closed.append('context')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: Context(handle))
+
+    with pytest.raises(TypeError, match='a defect in the stream set-up'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+
+    assert sorted(closed) == ['context', 'handle']
+
+
+def _pump(monkeypatch, failure):
+    """A libusb transport streaming on a context whose first event call raises ``failure``.
+
+    The second call ends the stream, so a pump that rides the failure out returns.
+    """
+    _connection_on_libusb(monkeypatch, [])
+    transport = fx2driver._LibusbTransport()
+    calls = []
+
+    def handle_events(tv):
+        calls.append(tv)
+        if len(calls) == 1:
+            raise failure
+        transport._streaming = False
+
+    transport._ctx = SimpleNamespace(handleEventsTimeout=handle_events)
+    transport._streaming = True
+    return transport, calls
+
+
+def test_the_event_pump_rides_out_a_libusb_failure(monkeypatch):
+    transport, calls = _pump(monkeypatch, _Usb1Error('LIBUSB_ERROR_IO'))
+
+    transport._usb_event_loop()
+
+    assert len(calls) == 2
+
+
+def test_a_defect_in_the_event_pump_ends_it_as_itself(monkeypatch):
+    transport, calls = _pump(monkeypatch, TypeError('a defect in the event pump'))
+
+    with pytest.raises(TypeError, match='a defect in the event pump'):
+        transport._usb_event_loop()
+    assert len(calls) == 1
 
 
 _USB_NAMES = {'usb', 'usb1', 'WinUsbIsoReader', 'winusb_iso'}
@@ -312,3 +545,83 @@ def test_neither_fx2_driver_reaches_the_connections_private_state():
             ):
                 found.append(f'{name}:{node.lineno} _fx2.{node.attr}')
     assert found == []
+
+
+# ---------------------------------------------------------------------------
+# The stream's start and stop are bounded, and a stop not taken is said
+# ---------------------------------------------------------------------------
+
+
+class _TimedIsoHandle(_IsoHandle):
+    """An ``_IsoHandle`` that records the timeout each control write was given."""
+
+    def __init__(self, events):
+        super().__init__(events)
+        self.timeouts = {}
+
+    def controlWrite(self, request_type, request, value, index, data, timeout=0):
+        self.timeouts[request] = timeout
+        return super().controlWrite(request_type, request, value, index, data, timeout)
+
+
+def test_the_streams_start_and_stop_wait_no_longer_than_any_control_write(monkeypatch):
+    # libusb1's default, 0, waits forever, and the stop runs at the close.
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _TimedIsoHandle(events)
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: _Context(handle), raising=False)
+
+    conn.start_stream(ImageHandlerBase().hand_over)
+    conn.stop_stream()
+
+    assert handle.timeouts == {
+        fx2driver.VR_START_STREAMING: fx2driver.CONTROL_TIMEOUT_MS,
+        fx2driver.VR_STOP_STREAMING: fx2driver.CONTROL_TIMEOUT_MS,
+    }
+
+
+def test_a_stop_the_camera_did_not_take_is_said(monkeypatch, caplog):
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+
+    def refuse_the_stop(request_type, request, value, index, data, timeout=0):
+        if request == fx2driver.VR_STOP_STREAMING:
+            raise OSError('LIBUSB_ERROR_TIMEOUT')
+        return len(data)
+
+    handle.controlWrite = refuse_the_stop
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: _Context(handle), raising=False)
+    with caplog.at_level(logging.WARNING):
+        conn.start_stream(ImageHandlerBase().hand_over)
+        conn.stop_stream()
+
+    said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert [line for line in said if 'VR_STOP_STREAMING' in line] == [
+        '[FX2 Conn  ] VR_STOP_STREAMING not taken: LIBUSB_ERROR_TIMEOUT'
+    ]
+
+
+def test_a_start_that_raised_is_tried_again_by_the_next_start():
+    cam = object.__new__(fx2driver.FX2Camera)
+    cam._state_lock = threading.Lock()
+    cam._grab_wanted = False
+    cam._grabbing = False
+    cam._grab_thread = None
+    cam.stream_stats = fx2driver.StreamStats()
+    cam.cam_image_handler = ImageHandlerBase()
+    cam._grab_loop = lambda: None
+    starts = []
+
+    def start_stream(hand_over):
+        starts.append(len(starts))
+        if len(starts) == 1:
+            raise OSError('the start was not answered')
+
+    cam._fx2 = SimpleNamespace(start_stream=start_stream)
+
+    with pytest.raises(OSError):
+        cam.start_grabbing()
+    cam.start_grabbing()
+
+    assert starts == [0, 1], 'the second start was skipped as already grabbing'

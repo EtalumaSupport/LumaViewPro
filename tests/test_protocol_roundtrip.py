@@ -16,9 +16,9 @@ These tests verify that:
 3. Step validation catches invalid configs before execution
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
-import pathlib
 import json
 import threading
 import time
@@ -26,22 +26,32 @@ import time
 import pandas as pd
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
+from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
     StepHeartbeat,
     wait_for_run_end,
 )
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import configure_turret_like_bringup, measure_delivery_like_a_session
+from modules.acquire_mode import AcquireMode
 from unittest.mock import MagicMock
+from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1, LED2
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -52,15 +62,12 @@ COMPLETION_TIMEOUT = 20  # seconds
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
 FILES_WAIT_S = 60
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-
 
 def _make_autogain_settings():
     return {
         'target_brightness': 0.3,
         'min_gain_db': 0.0,
         'max_gain_db': 20.0,
-        'max_duration': datetime.timedelta(seconds=1),
     }
 
 
@@ -70,21 +77,21 @@ def _make_image_capture_config():
 
 def _default_stim_config():
     return {
-        'Red': {
+        LED2: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
-        'Green': {
+        LED1: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
-        'Blue': {
+        LED0: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
@@ -94,7 +101,7 @@ def _default_stim_config():
     }
 
 
-def _stim_config_enabled(channels=('Green',)):
+def _stim_config_enabled(channels=(LED1,)):
     """Stim config with specified channels enabled."""
     cfg = _default_stim_config()
     for ch in channels:
@@ -107,7 +114,7 @@ def _stim_config_enabled(channels=('Green',)):
 
 
 def _default_video_config():
-    return {'duration': 1.0, 'fps': 5}
+    return {'duration': 1.0}
 
 
 def _make_step(
@@ -161,6 +168,9 @@ def _make_step(
         'Step Index': 0,
         'Auto_Named': auto_named,
         'Label': label,
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
@@ -176,8 +186,7 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+    return protocol_of(
         config=config,
     )
 
@@ -190,9 +199,8 @@ def _save_and_reload(protocol, tmp_path):
     assert result is None, f'to_file failed: {result}'
     assert filepath.exists(), 'Protocol file not created'
 
-    reloaded = Protocol.from_file(
+    reloaded = protocol_from_file(
         file_path=filepath,
-        tiling_configs_file_loc=TILING_CONFIGS,
     )
     return reloaded
 
@@ -213,7 +221,7 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
     # lane would be refused once the test's own lanes are shut.
@@ -225,10 +233,10 @@ def executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='RT_IO'),
-        'file_io': SequentialIOExecutor(name='RT_FILE'),
-        'camera': SequentialIOExecutor(name='RT_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='RT_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='RT_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_AF'),
     }
     for e in execs.values():
         e.start()
@@ -265,6 +273,8 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -293,6 +303,8 @@ def real_executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -311,9 +323,13 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     heartbeat = StepHeartbeat(events.step_started)
 
+    if AcquireMode.VIDEO in set(protocol.steps()['Acquire']):
+        # A video step with no Recording max FPS is sized at the camera's
+        # delivered rate, which only the stream check a session starts
+        # measures; this harness's scope has none of its own.
+        measure_delivery_like_a_session(executor._scope)
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
         sequence_name='test_run',
         image_capture_config=run_kwargs.pop('image_capture_config', _make_image_capture_config()),
@@ -328,7 +344,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # The images and the record are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
     if completed:
-        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+        assert handle.files.result(timeout=FILES_WAIT_S) is not None, (
             'the run never finished its files'
         )
     return completed, result_holder
@@ -346,58 +362,58 @@ class TestRoundTripBasic:
         proto = _build_protocol([_make_step(color='BF', acquire='image')])
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 1
-        step = reloaded.step(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Color'] == 'BF'
         assert step['Acquire'] == 'image'
 
     def test_single_fluor_step(self, tmp_path):
-        proto = _build_protocol([_make_step(color='Green', illumination=200.0)])
+        proto = _build_protocol([_make_step(color=LED1, illumination=200.0)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
-        assert step['Color'] == 'Green'
+        step = reloaded.step_row(step_index=0)
+        assert step['Color'] == LED1
         assert step['Illumination'] == 200.0
 
     def test_video_step_config_preserved(self, tmp_path):
-        vc = {'duration': 5.0, 'fps': 30}
+        vc = {'duration': 5.0}
         proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict), (
             f'Video Config is {type(step["Video Config"])}, not dict'
         )
         assert step['Video Config']['duration'] == 5.0
-        assert step['Video Config']['fps'] == 30
 
     def test_stim_config_preserved(self, tmp_path):
-        sc = _stim_config_enabled(channels=['Green', 'Blue'])
+        sc = _stim_config_enabled(channels=[LED1, LED0])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict), (
             f'Stim_Config is {type(step["Stim_Config"])}, not dict'
         )
-        assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Blue']['enabled'] is True
-        assert step['Stim_Config']['Red']['enabled'] is False
-        assert step['Stim_Config']['Green']['frequency'] == 5.0
+        assert step['Stim_Config'][LED1]['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
+        assert step['Stim_Config'][LED2]['enabled'] is False
+        assert step['Stim_Config'][LED1]['frequency'] == 5.0
 
     def test_stim_disabled_preserved(self, tmp_path):
         sc = _default_stim_config()
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict)
-        for ch in ('Red', 'Green', 'Blue'):
+        for ch in (LED2, LED1, LED0):
             assert step['Stim_Config'][ch]['enabled'] is False
 
     def test_legacy_python_repr_tsv_parses(self, tmp_path):
         """Legacy TSVs written with Python dict repr (single quotes, True/False)
         must still load. Pandas' default CSV stringification produced this format
         in older versions; json.loads rejects it. Before the fix, legacy TSVs
-        came back with DEFAULT_STIM_CONFIG (enabled=False, ill=100) on every
+        came back with a stand-in stimulation (enabled=False, ill=100) on every
         step instead of the saved stim values -- stim ran but fired no pulses
-        because every channel was read as disabled.
+        because every channel was read as disabled. Its old colour keys are
+        read on a stock unit as the stock keys.
         """
         stim_legacy = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
@@ -426,29 +442,27 @@ class TestRoundTripBasic:
             f'20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_legacy}\t{stim_legacy}\t0\n'
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        step = proto.step(idx=0)
+        step = proto.step_row(step_index=0)
 
         assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Green']['illumination_ma'] == 500.0
-        assert step['Stim_Config']['Green']['frequency'] == 0.8
-        assert step['Stim_Config']['Green']['pulse_count'] == 10
-        assert step['Stim_Config']['Red']['enabled'] is False
-        assert step['Stim_Config']['Blue']['enabled'] is False
+        assert step['Stim_Config'][LED1]['enabled'] is True
+        assert step['Stim_Config'][LED1]['illumination_ma'] == 500.0
+        assert step['Stim_Config'][LED1]['frequency'] == 0.8
+        assert step['Stim_Config'][LED1]['pulse_count'] == 10
+        assert step['Stim_Config'][LED2]['enabled'] is False
+        assert step['Stim_Config'][LED0]['enabled'] is False
 
         assert isinstance(step['Video Config'], dict)
         assert step['Video Config']['duration'] == 8
 
-    def test_legacy_video_config_without_fps_defaults(self, tmp_path):
+    def test_legacy_video_config_of_its_duration_alone_loads_and_validates(self, tmp_path):
         """Legacy TSVs from older LVP versions stored Video Config with only
-        'duration' and no 'fps' key. Without defaults merged on load, validate_steps
-        reads fps=0 and blocks every video step with 'fps must be > 0'. The loader
-        must merge DEFAULT_VIDEO_CONFIG so missing keys fall back to current defaults.
+        'duration'. That is the whole of a step's Video Config now: it loads as
+        stored and validates, with no rate merged in.
         """
         stim_config = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
@@ -460,7 +474,7 @@ class TestRoundTripBasic:
         )
         video_only_duration = "{'duration': 8}"
 
-        tsv = tmp_path / 'legacy_no_fps.tsv'
+        tsv = tmp_path / 'legacy_duration_only.tsv'
         tsv.write_text(
             'LumaViewPro Protocol\n'
             'Version\t5\n'
@@ -477,23 +491,20 @@ class TestRoundTripBasic:
             f'20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_only_duration}\t{stim_config}\t0\n'
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        step = proto.step(idx=0)
+        step = proto.step_row(step_index=0)
 
         vc = step['Video Config']
         assert isinstance(vc, dict)
-        assert vc['duration'] == 8, 'loader must preserve stored duration'
-        assert 'fps' in vc, 'loader must merge default fps when missing'
-        assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
+        assert vc == {'duration': 8}, 'loader must keep the stored duration, and only it'
 
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        fps_errors = [e for e in errors if 'Video Config fps' in e]
-        assert fps_errors == [], (
-            f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
+        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        video_errors = [e for e in errors if 'Video Config' in e]
+        assert video_errors == [], (
+            f'legacy-format Video Config must not produce Video Config errors; got {video_errors}'
         )
 
     def test_legacy_labware_alias_is_canonical_once_loaded(self, tmp_path):
@@ -526,12 +537,11 @@ class TestRoundTripBasic:
             "'frequency': 1, 'pulse_width': 10, 'pulse_count': 1}}\t0\n"
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        assert proto.labware() == '384 well microplate'
+        assert proto.labware_id() == '384 well microplate'
 
         errors = proto.validate_for_run(
             objective_helper=ObjectiveLoader(),
@@ -551,31 +561,31 @@ class TestRoundTripMultiStep:
     def test_bf_plus_fluor(self, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF', illumination=50.0),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step(idx=0)['Color'] == 'BF'
-        assert reloaded.step(idx=1)['Color'] == 'Green'
-        assert reloaded.step(idx=2)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
+        assert reloaded.step_row(step_index=1)['Color'] == LED1
+        assert reloaded.step_row(step_index=2)['Color'] == LED2
 
     def test_mixed_image_and_video(self, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Green_vid',
-                color='Green',
+                name=f'A1_{LED1}_vid',
+                color=LED1,
                 acquire='video',
-                video_config={'duration': 3.0, 'fps': 10},
+                video_config={'duration': 3.0},
             ),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Acquire'] == 'image'
-        assert reloaded.step(idx=1)['Acquire'] == 'video'
-        assert reloaded.step(idx=1)['Video Config']['duration'] == 3.0
+        assert reloaded.step_row(step_index=0)['Acquire'] == 'image'
+        assert reloaded.step_row(step_index=1)['Acquire'] == 'video'
+        assert reloaded.step_row(step_index=1)['Video Config']['duration'] == 3.0
 
     def test_multi_well(self, tmp_path):
         steps = [
@@ -586,33 +596,32 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step(idx=0)['Well'] == 'A1'
-        assert reloaded.step(idx=1)['Well'] == 'A2'
-        assert reloaded.step(idx=2)['Well'] == 'B1'
+        assert reloaded.step_row(step_index=0)['Well'] == 'A1'
+        assert reloaded.step_row(step_index=1)['Well'] == 'A2'
+        assert reloaded.step_row(step_index=2)['Well'] == 'B1'
 
     def test_video_with_stim(self, tmp_path):
         """OG protocol pattern: video capture with stimulation enabled."""
-        sc = _stim_config_enabled(channels=['Green'])
-        vc = {'duration': 5.0, 'fps': 30}
+        sc = _stim_config_enabled(channels=[LED1])
+        vc = {'duration': 5.0}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Red_stim', color='Red', acquire='video', video_config=vc, stim_config=sc
+                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
             ),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
 
         # Verify video config survived
-        vid_step = reloaded.step(idx=1)
+        vid_step = reloaded.step_row(step_index=1)
         assert vid_step['Acquire'] == 'video'
         assert isinstance(vid_step['Video Config'], dict)
-        assert vid_step['Video Config']['fps'] == 30
 
         # Verify stim config survived
         assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config']['Green']['enabled'] is True
-        assert vid_step['Stim_Config']['Green']['frequency'] == 5.0
+        assert vid_step['Stim_Config'][LED1]['enabled'] is True
+        assert vid_step['Stim_Config'][LED1]['frequency'] == 5.0
 
     def test_tiled_steps(self, tmp_path):
         """Tiled protocol steps preserve tile labels and group IDs."""
@@ -626,9 +635,9 @@ class TestRoundTripMultiStep:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 4
         for i in range(4):
-            assert reloaded.step(idx=i)['Tile Group ID'] == 1
-        assert reloaded.step(idx=0)['Tile'] == 'T00'
-        assert reloaded.step(idx=3)['Tile'] == 'T11'
+            assert reloaded.step_row(step_index=i)['Tile Group ID'] == 1
+        assert reloaded.step_row(step_index=0)['Tile'] == 'T00'
+        assert reloaded.step_row(step_index=3)['Tile'] == 'T11'
 
     def test_nonsquare_tiling_3x1(self, tmp_path):
         """Non-square tiling (3 columns, 1 row)."""
@@ -651,20 +660,18 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step(idx=0)['Z'] == pytest.approx(4900.0)
-        assert reloaded.step(idx=2)['Z'] == pytest.approx(5100.0)
-        assert reloaded.step(idx=0)['Z-Slice'] == 0
-        assert reloaded.step(idx=2)['Z-Slice'] == 2
+        assert reloaded.step_row(step_index=0)['Z'] == pytest.approx(4900.0)
+        assert reloaded.step_row(step_index=2)['Z'] == pytest.approx(5100.0)
+        assert reloaded.step_row(step_index=0)['Z-Slice'] == 0
+        assert reloaded.step_row(step_index=2)['Z-Slice'] == 2
 
     def test_double_save_load(self, tmp_path):
         """Save -> load -> save -> load preserves data (no drift)."""
-        sc = _stim_config_enabled(channels=['Red', 'Blue'])
-        vc = {'duration': 2.0, 'fps': 15}
+        sc = _stim_config_enabled(channels=[LED2, LED0])
+        vc = {'duration': 2.0}
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(
-                name='A1_vid', color='Green', acquire='video', video_config=vc, stim_config=sc
-            ),
+            _make_step(name='A1_vid', color=LED1, acquire='video', video_config=vc, stim_config=sc),
         ]
         proto = _build_protocol(steps)
 
@@ -674,11 +681,10 @@ class TestRoundTripMultiStep:
         # Second round-trip
         r2 = _save_and_reload(r1, tmp_path / 'round2')
 
-        step = r2.step(idx=1)
-        assert step['Video Config']['fps'] == 15
-        assert step['Stim_Config']['Red']['enabled'] is True
-        assert step['Stim_Config']['Blue']['enabled'] is True
-        assert step['Stim_Config']['Green']['enabled'] is False
+        step = r2.step_row(step_index=1)
+        assert step['Stim_Config'][LED2]['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
+        assert step['Stim_Config'][LED1]['enabled'] is False
 
 
 class TestRoundTripEdgeCases:
@@ -686,38 +692,38 @@ class TestRoundTripEdgeCases:
 
     def test_all_channels(self, tmp_path):
         """Protocol with every channel type."""
-        colors = ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']
+        colors = release_catalogue()
         steps = [_make_step(name=f'A1_{c}', color=c) for c in colors]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 6
+        assert reloaded.num_steps() == len(colors)
         for i, c in enumerate(colors):
-            assert reloaded.step(idx=i)['Color'] == c
+            assert reloaded.step_row(step_index=i)['Color'] == c
 
     def test_high_illumination(self, tmp_path):
         proto = _build_protocol([_make_step(illumination=1000.0)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Illumination'] == 1000.0
+        assert reloaded.step_row(step_index=0)['Illumination'] == 1000.0
 
     def test_sum_averaging(self, tmp_path):
         proto = _build_protocol([_make_step(sum_count=10)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Sum'] == 10
+        assert reloaded.step_row(step_index=0)['Sum'] == 10
 
     def test_autofocus_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_focus=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_auto_gain_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_gain=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
 
     def test_false_color_flag(self, tmp_path):
-        proto = _build_protocol([_make_step(false_color=True, color='Green')])
+        proto = _build_protocol([_make_step(false_color=True, color=LED1)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
         # The user's text lives in Label; Name is a derived rendering of
@@ -736,11 +742,11 @@ class TestRoundTripEdgeCases:
         )
         reloaded = _save_and_reload(proto, tmp_path)
         # Allowed specials (dash, underscore) survive byte-exact.
-        assert reloaded.step(idx=0)['Label'] == 'test_step-1'
-        assert reloaded.step(idx=0)['Name'] == 'test_step-1_BF_Z0'
+        assert reloaded.step_row(step_index=0)['Label'] == 'test_step-1'
+        assert reloaded.step_row(step_index=0)['Name'] == 'test_step-1_BF_Z0'
         # Characters the writer strips normalize at the load boundary.
-        assert reloaded.step(idx=1)['Label'] == 'teststep2'
-        assert reloaded.step(idx=1)['Name'] == 'teststep2_BF_Z0'
+        assert reloaded.step_row(step_index=1)['Label'] == 'teststep2'
+        assert reloaded.step_row(step_index=1)['Name'] == 'teststep2_BF_Z0'
 
 
 # ===========================================================================
@@ -758,13 +764,13 @@ class TestExecuteSingleStep:
         assert completed, 'BF image protocol did not complete'
 
     def test_fluor_image(self, executor, scope, tmp_path):
-        steps = [_make_step(color='Green', illumination=200.0)]
+        steps = [_make_step(color=LED1, illumination=200.0)]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Fluorescence image protocol did not complete'
 
     def test_video_capture(self, executor, scope, tmp_path):
-        vc = {'duration': 0.5, 'fps': 5}
+        vc = {'duration': 0.5}
         steps = [_make_step(acquire='video', video_config=vc)]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
@@ -783,8 +789,8 @@ class TestExecuteMultiStep:
     def test_bf_plus_two_fluor(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
@@ -835,10 +841,10 @@ class TestExecuteMultiStep:
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Green_vid',
-                color='Green',
+                name=f'A1_{LED1}_vid',
+                color=LED1,
                 acquire='video',
-                video_config={'duration': 0.5, 'fps': 5},
+                video_config={'duration': 0.5},
             ),
         ]
         proto = _build_protocol(steps)
@@ -850,13 +856,13 @@ class TestExecuteWithStim:
     """Protocol execution with stimulation configs."""
 
     def test_video_with_stim_enabled(self, executor, scope, tmp_path):
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         steps = [
             _make_step(
-                name='A1_Red_stim',
-                color='Red',
+                name=f'A1_{LED2}_stim',
+                color=LED2,
                 acquire='video',
-                video_config={'duration': 0.5, 'fps': 5},
+                video_config={'duration': 0.5},
                 stim_config=sc,
             ),
         ]
@@ -884,22 +890,22 @@ class TestExecuteSaveLoadRun:
 
     def test_video_stim_save_load_run(self, executor, scope, tmp_path):
         """OG protocol pattern: save with stim+video, reload, run."""
-        sc = _stim_config_enabled(channels=['Green'])
-        vc = {'duration': 0.5, 'fps': 5}
+        sc = _stim_config_enabled(channels=[LED1])
+        vc = {'duration': 0.5}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Red_stim', color='Red', acquire='video', video_config=vc, stim_config=sc
+                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
             ),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path / 'save')
 
         # Verify configs survived reload
-        vid_step = reloaded.step(idx=1)
+        vid_step = reloaded.step_row(step_index=1)
         assert isinstance(vid_step['Video Config'], dict)
         assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config']['Green']['enabled'] is True
+        assert vid_step['Stim_Config'][LED1]['enabled'] is True
 
         # Run the reloaded protocol
         completed, _ = _run_and_wait(executor, reloaded, tmp_path)
@@ -922,7 +928,7 @@ class TestExecuteSaveLoadRun:
         proto_a = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF'),
-                _make_step(name='A1_Green', color='Green'),
+                _make_step(name=f'A1_{LED1}', color=LED1),
             ]
         )
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
@@ -930,7 +936,7 @@ class TestExecuteSaveLoadRun:
 
         proto_b = _build_protocol(
             [
-                _make_step(name='B1_Red', color='Red', acquire='image'),
+                _make_step(name=f'B1_{LED2}', color=LED2, acquire='image'),
             ]
         )
         completed_b, _ = _run_and_wait(executor, proto_b, tmp_path / 'run_b')
@@ -948,7 +954,7 @@ class TestRoundTripMetadata:
     def test_period_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], period_min=5.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(minutes=5)
+        assert reloaded.period_s() == 5 * 60
 
     def test_period_zero_accepted_as_single_scan(self, tmp_path):
         """Z-stack and single-shot capture write Period=0 in their TSV;
@@ -958,7 +964,7 @@ class TestRoundTripMetadata:
         protocol_time_estimator already treats period_s == 0 as 1 scan."""
         proto = _build_protocol([_make_step()], period_min=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(0)
+        assert reloaded.period_s() == 0
 
     def test_period_negative_still_rejected(self, tmp_path):
         """Period < 0 stays a hard error -- meaningless and likely a
@@ -977,9 +983,8 @@ class TestRoundTripMetadata:
         filepath.write_text(patched, encoding='utf-8')
 
         with pytest.raises(ProtocolFormatError):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=filepath,
-                tiling_configs_file_loc=TILING_CONFIGS,
             )
 
     def test_period_none_round_trips_as_zero(self, tmp_path):
@@ -998,15 +1003,14 @@ class TestRoundTripMetadata:
             'capture_root': '',
             'tiling': '1x1',
         }
-        proto = Protocol(
-            tiling_configs_file_loc=TILING_CONFIGS,
+        proto = protocol_of(
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(0), (
-            f'period=None must round-trip as timedelta(0) (the single-'
+        assert reloaded.period_s() == 0, (
+            f'period=None must round-trip as 0 (the single-'
             f'scan marker accepted by the loader). Got '
-            f'{reloaded.period()!r}.'
+            f'{reloaded.period_s()!r}.'
         )
 
     def test_duration_none_round_trips_as_zero(self, tmp_path):
@@ -1022,13 +1026,12 @@ class TestRoundTripMetadata:
             'capture_root': '',
             'tiling': '1x1',
         }
-        proto = Protocol(
-            tiling_configs_file_loc=TILING_CONFIGS,
+        proto = protocol_of(
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(0), (
-            f'duration=None must round-trip as timedelta(0). Got {reloaded.duration()!r}.'
+        assert reloaded.duration_s() == 0, (
+            f'duration=None must round-trip as 0. Got {reloaded.duration_s()!r}.'
         )
 
     def test_duration_zero_accepted_as_single_scan(self, tmp_path):
@@ -1038,17 +1041,17 @@ class TestRoundTripMetadata:
         by an adjacent Duration check (issue #669)."""
         proto = _build_protocol([_make_step()], duration_hrs=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(0)
+        assert reloaded.duration_s() == 0
 
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(hours=12)
+        assert reloaded.duration_s() == 12 * 3600
 
     def test_labware_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.labware() == '96 well microplate'
+        assert reloaded.labware_id() == '96 well microplate'
 
     def test_capture_root_preserved(self, tmp_path):
         steps = [_make_step()]
@@ -1057,50 +1060,42 @@ class TestRoundTripMetadata:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.capture_root() == 'experiment_42'
 
-    def test_video_config_various_fps(self, tmp_path):
-        """Different fps values round-trip correctly."""
-        for fps in [0.5, 1, 5, 10, 30, 60]:
-            vc = {'duration': 2.0, 'fps': fps}
-            proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
-            reloaded = _save_and_reload(proto, tmp_path / f'fps_{fps}')
-            assert reloaded.step(idx=0)['Video Config']['fps'] == fps
-
     def test_video_config_various_durations(self, tmp_path):
         """Different duration values round-trip correctly."""
         for dur in [0.1, 1.0, 10.0, 60.0, 300.0]:
-            vc = {'duration': dur, 'fps': 5}
+            vc = {'duration': dur}
             proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
             reloaded = _save_and_reload(proto, tmp_path / f'dur_{dur}')
-            assert reloaded.step(idx=0)['Video Config']['duration'] == dur
+            assert reloaded.step_row(step_index=0)['Video Config']['duration'] == dur
 
     def test_stim_multi_channel_enabled(self, tmp_path):
         """Stim config with all 3 channels enabled."""
-        sc = _stim_config_enabled(channels=['Red', 'Green', 'Blue'])
+        sc = _stim_config_enabled(channels=[LED2, LED1, LED0])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
-        for ch in ('Red', 'Green', 'Blue'):
+        step = reloaded.step_row(step_index=0)
+        for ch in (LED2, LED1, LED0):
             assert step['Stim_Config'][ch]['enabled'] is True
 
     def test_stim_per_channel_values(self, tmp_path):
         """Each stim channel can have different parameter values."""
         sc = _default_stim_config()
-        sc['Red']['enabled'] = True
-        sc['Red']['frequency'] = 10.0
-        sc['Red']['pulse_width'] = 5
-        sc['Red']['pulse_count'] = 200
-        sc['Green']['enabled'] = True
-        sc['Green']['frequency'] = 20.0
-        sc['Green']['pulse_width'] = 50
-        sc['Green']['pulse_count'] = 10
+        sc[LED2]['enabled'] = True
+        sc[LED2]['frequency'] = 10.0
+        sc[LED2]['pulse_width'] = 5
+        sc[LED2]['pulse_count'] = 200
+        sc[LED1]['enabled'] = True
+        sc[LED1]['frequency'] = 20.0
+        sc[LED1]['pulse_width'] = 50
+        sc[LED1]['pulse_count'] = 10
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step(idx=0)
-        assert step['Stim_Config']['Red']['frequency'] == 10.0
-        assert step['Stim_Config']['Red']['pulse_count'] == 200
-        assert step['Stim_Config']['Green']['frequency'] == 20.0
-        assert step['Stim_Config']['Green']['pulse_count'] == 10
-        assert step['Stim_Config']['Blue']['enabled'] is False
+        step = reloaded.step_row(step_index=0)
+        assert step['Stim_Config'][LED2]['frequency'] == 10.0
+        assert step['Stim_Config'][LED2]['pulse_count'] == 200
+        assert step['Stim_Config'][LED1]['frequency'] == 20.0
+        assert step['Stim_Config'][LED1]['pulse_count'] == 10
+        assert step['Stim_Config'][LED0]['enabled'] is False
 
 
 class TestRoundTripCombinations:
@@ -1131,7 +1126,7 @@ class TestRoundTripCombinations:
         """Multi-well x multi-channel protocol."""
         steps = []
         for well, x, y in [('A1', 10, 20), ('A2', 30, 20), ('B1', 10, 40)]:
-            for color, ill in [('BF', 50), ('Green', 200), ('Red', 150)]:
+            for color, ill in [('BF', 50), (LED1, 200), (LED2, 150)]:
                 steps.append(
                     _make_step(
                         name=f'{well}_{color}',
@@ -1145,10 +1140,10 @@ class TestRoundTripCombinations:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 9
-        assert reloaded.step(idx=0)['Well'] == 'A1'
-        assert reloaded.step(idx=0)['Color'] == 'BF'
-        assert reloaded.step(idx=8)['Well'] == 'B1'
-        assert reloaded.step(idx=8)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Well'] == 'A1'
+        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
+        assert reloaded.step_row(step_index=8)['Well'] == 'B1'
+        assert reloaded.step_row(step_index=8)['Color'] == LED2
 
     def test_tiling_1x3(self, tmp_path):
         """1 row x 3 columns tiling."""
@@ -1183,7 +1178,7 @@ class TestRoundTripCombinations:
         steps = []
         for well, wx, wy in [('A1', 10, 20), ('A2', 30, 20)]:
             for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0), (0, 5), (5, 5)]):
-                for color in ['BF', 'Green']:
+                for color in ['BF', LED1]:
                     steps.append(
                         _make_step(
                             name=f'{well}_{color}_T{tile_idx:02d}',
@@ -1214,9 +1209,9 @@ class TestRoundTripCombinations:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Objective'] == '4x Oly'
-        assert reloaded.step(idx=1)['Objective'] == '10x Oly'
-        assert reloaded.step(idx=2)['Objective'] == '20x Oly'
+        assert reloaded.step_row(step_index=0)['Objective'] == '4x Oly'
+        assert reloaded.step_row(step_index=1)['Objective'] == '10x Oly'
+        assert reloaded.step_row(step_index=2)['Objective'] == '20x Oly'
 
 
 # ===========================================================================
@@ -1236,7 +1231,7 @@ class TestExecuteMultiScan:
     def test_three_scan_multichannel(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green'),
+            _make_step(name=f'A1_{LED1}', color=LED1),
         ]
         proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=3)
@@ -1258,7 +1253,7 @@ class TestExecuteDisabledSaving:
         assert completed, 'Protocol with saving disabled did not complete'
 
     def test_no_saving_video(self, executor, scope, tmp_path):
-        steps = [_make_step(acquire='video', video_config={'duration': 0.3, 'fps': 5})]
+        steps = [_make_step(acquire='video', video_config={'duration': 0.3})]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(
             executor,
@@ -1286,7 +1281,7 @@ class TestExecuteSeparateFolders:
     def test_separate_folders(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green'),
+            _make_step(name=f'A1_{LED1}', color=LED1),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(
@@ -1323,7 +1318,7 @@ class TestExecuteCombinations:
     def test_multiwell_multichannel(self, executor, scope, tmp_path):
         steps = []
         for well, x, y in [('A1', 10, 20), ('A2', 30, 20)]:
-            for color in ['BF', 'Green']:
+            for color in ['BF', LED1]:
                 steps.append(
                     _make_step(
                         name=f'{well}_{color}',
@@ -1337,12 +1332,13 @@ class TestExecuteCombinations:
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Multi-well multi-channel protocol did not complete'
 
+    @pytest.mark.slow
     def test_multiwell_tiled_multichannel(self, executor, scope, tmp_path):
         """The full real-world protocol pattern."""
         steps = []
         for well, wx, wy in [('A1', 10, 20), ('A2', 30, 20)]:
             for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0)]):
-                for color in ['BF', 'Green']:
+                for color in ['BF', LED1]:
                     steps.append(
                         _make_step(
                             name=f'{well}_{color}_T{tile_idx:02d}',
@@ -1445,7 +1441,6 @@ class TestExecuteCancellation:
 
         plan = executor.prepare(
             protocol=proto,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_cancel',
             image_capture_config=_make_image_capture_config(),
@@ -1480,7 +1475,7 @@ class TestRealPathExecution:
     and simulated MotorBoard. These catch init/config bugs that mocked tests miss.
 
     The axes_config AttributeError (2026-03-27) would have been caught here
-    because _default_move -> scope.move_absolute -> motion.move_abs_pos
+    because _default_move -> scope.motion.move_xy -> motion.move_abs_pos
     accesses self.axes_config, which must be initialized in __init__.
     """
 
@@ -1506,8 +1501,8 @@ class TestRealPathExecution:
         """BF + fluorescence with real LED and motor paths."""
         steps = [
             _make_step(name='A1_BF', color='BF', illumination=50.0),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
@@ -1540,7 +1535,7 @@ class TestRealPathExecution:
         """Full pipeline: create -> save -> reload -> run with real motion."""
         steps = [
             _make_step(name='A1_BF', color='BF', x=10.0, y=20.0, z=5000.0),
-            _make_step(name='A1_Green', color='Green', x=10.0, y=20.0, z=5000.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, x=10.0, y=20.0, z=5000.0),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path / 'save')
@@ -1552,7 +1547,7 @@ class TestRealPathExecution:
         steps = [
             _make_step(
                 acquire='video',
-                video_config={'duration': 0.3, 'fps': 5},
+                video_config={'duration': 0.3},
             )
         ]
         proto = _build_protocol(steps)
@@ -1567,7 +1562,7 @@ class TestRealPathExecution:
 
         proto_b = _build_protocol(
             [
-                _make_step(name='B1_Green', color='Green', x=30.0, y=30.0),
+                _make_step(name=f'B1_{LED1}', color=LED1, x=30.0, y=30.0),
             ]
         )
         completed_b, _ = _run_and_wait(real_executor, proto_b, tmp_path / 'run_b')
@@ -1584,7 +1579,7 @@ class TestProtocolValidation:
 
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
+        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
 
@@ -1594,8 +1589,8 @@ class TestProtocolModification:
 
     def test_modify_step_z_height(self):
         proto = _build_protocol([_make_step(z=5000.0)])
-        proto.modify_step_z_height(step_idx=0, z=6000.0)
-        assert proto.step(idx=0)['Z'] == pytest.approx(6000.0)
+        proto.modify_step_z_height(step_index=0, z=6000.0)
+        assert proto.step_row(step_index=0)['Z'] == pytest.approx(6000.0)
 
     def test_modify_time_params(self):
         proto = _build_protocol([_make_step()])
@@ -1603,8 +1598,7 @@ class TestProtocolModification:
             period=datetime.timedelta(minutes=5),
             duration=datetime.timedelta(hours=2),
         )
-        assert proto.period() == datetime.timedelta(minutes=5)
-        assert proto.duration() == datetime.timedelta(hours=2)
+        assert (proto.period_s(), proto.duration_s()) == (5 * 60, 2 * 3600)
 
     def test_num_steps(self):
         steps = [_make_step(name=f's{i}') for i in range(5)]
@@ -1614,17 +1608,17 @@ class TestProtocolModification:
     def test_step_access_by_index(self):
         steps = [
             _make_step(name='first', color='BF'),
-            _make_step(name='second', color='Green'),
-            _make_step(name='third', color='Red'),
+            _make_step(name='second', color=LED1),
+            _make_step(name='third', color=LED2),
         ]
         proto = _build_protocol(steps)
-        assert proto.step(idx=0)['Color'] == 'BF'
-        assert proto.step(idx=1)['Color'] == 'Green'
-        assert proto.step(idx=2)['Color'] == 'Red'
+        assert proto.step_row(step_index=0)['Color'] == 'BF'
+        assert proto.step_row(step_index=1)['Color'] == LED1
+        assert proto.step_row(step_index=2)['Color'] == LED2
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
-        assert proto.labware() == '96 well microplate'
+        assert proto.labware_id() == '96 well microplate'
 
     def test_capture_root_accessor(self):
         proto = _build_protocol([_make_step()])
@@ -1651,7 +1645,7 @@ class TestProtocolNumStepsCache:
     def test_cache_invalidated_after_delete_step(self):
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(5)])
         assert proto.num_steps() == 5  # prime the cache
-        proto.delete_step(step_idx=2)
+        proto.delete_step(step_index=2)
         assert proto.num_steps() == 4
 
     def test_cache_invalidated_after_optimize_ordering(self):
@@ -1674,7 +1668,7 @@ class TestProtocolNumStepsCache:
         # copy should compute its own count, not reuse original's cached value
         assert copy.num_steps() == 3
         # mutating the copy must not affect the original
-        copy.delete_step(step_idx=0)
+        copy.delete_step(step_index=0)
         assert copy.num_steps() == 2
         assert proto.num_steps() == 3
 
@@ -1698,8 +1692,8 @@ class TestProtocolSaveLoadFieldLevel:
 
     def test_every_field_preserved(self, tmp_path):
         """Check that ALL 21 step fields round-trip correctly."""
-        sc = _stim_config_enabled(channels=['Red'])
-        vc = {'duration': 3.5, 'fps': 15}
+        sc = _stim_config_enabled(channels=[LED2])
+        vc = {'duration': 3.5}
         step = _make_step(
             name='Test_Step_1',
             label='Test_Step_1',
@@ -1707,7 +1701,7 @@ class TestProtocolSaveLoadFieldLevel:
             x=12.345,
             y=67.89,
             z=4567.0,
-            color='Green',
+            color=LED1,
             illumination=234.5,
             gain=3.7,
             exposure=42.0,
@@ -1728,16 +1722,16 @@ class TestProtocolSaveLoadFieldLevel:
         proto = _build_protocol([step])
         reloaded = _save_and_reload(proto, tmp_path)
 
-        s = reloaded.step(idx=0)
+        s = reloaded.step_row(step_index=0)
         # Name is derived at load from the structured columns: the user label
         # base plus the channel/tile/z tokens. The user's text itself
         # round-trips in Label.
-        assert s['Name'] == 'Test_Step_1_Green_TT02_Z3'
+        assert s['Name'] == f'Test_Step_1_{LED1}_TT02_Z3'
         assert s['Label'] == 'Test_Step_1'
         assert s['X'] == pytest.approx(12.345)
         assert s['Y'] == pytest.approx(67.89)
         assert s['Z'] == pytest.approx(4567.0)
-        assert s['Color'] == 'Green'
+        assert s['Color'] == LED1
         assert s['Illumination'] == pytest.approx(234.5)
         assert s['Gain'] == pytest.approx(3.7)
         assert s['Exposure'] == pytest.approx(42.0)
@@ -1754,9 +1748,8 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['Acquire'] == 'video'
         assert isinstance(s['Video Config'], dict)
         assert s['Video Config']['duration'] == 3.5
-        assert s['Video Config']['fps'] == 15
         assert isinstance(s['Stim_Config'], dict)
-        assert s['Stim_Config']['Red']['enabled'] is True
+        assert s['Stim_Config'][LED2]['enabled'] is True
 
 
 # ===========================================================================
@@ -1775,7 +1768,6 @@ class TestExecutorEdgeCases:
         with pytest.raises(ProtocolRunRefusedError):
             real_executor.prepare(
                 protocol=proto,
-                run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
                 sequence_name='empty_test',
                 image_capture_config=_make_image_capture_config(),
@@ -1801,8 +1793,8 @@ class TestExecutorEdgeCases:
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""
-        original_gain = scope.imaging.get_gain_db()
-        original_exposure = scope.imaging.get_exposure_ms()
+        original_gain = scope.camera.read_gain_db()
+        original_exposure = scope.camera.read_exposure_ms()
 
         proto = _build_protocol([_make_step(gain=5.0, exposure=50.0)])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
@@ -1811,8 +1803,8 @@ class TestExecutorEdgeCases:
 
         time.sleep(0.5)
 
-        restored_gain = scope.imaging.get_gain_db()
-        restored_exposure = scope.imaging.get_exposure_ms()
+        restored_gain = scope.camera.read_gain_db()
+        restored_exposure = scope.camera.read_exposure_ms()
         assert restored_gain == pytest.approx(original_gain, abs=0.1), (
             f'Gain not restored: {restored_gain} vs {original_gain}'
         )
@@ -1847,7 +1839,7 @@ def _layer_config(
         'exposure_ms': exposure,
         'sum': sum,
         'acquire': acquire,
-        'video_config': video_config or {'duration': 1, 'fps': 5},
+        'video_config': video_config or {'duration': 1},
     }
 
 
@@ -1857,39 +1849,43 @@ class TestProtocolInsertStep:
     def test_insert_first_step(self):
         proto = _build_protocol([_make_step(name='existing')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='new_step',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 30.0, 'y': 40.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=30.0, y_mm=40.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=0,
+            before_step_index=0,
         )
         assert proto.num_steps() == 2
         # The typed name becomes the step's Label; the derived Name renders
         # it with the channel token.
-        assert proto.step(idx=0)['Label'] == 'new_step'
-        assert proto.step(idx=0)['Name'] == 'new_step_Green'
-        assert proto.step(idx=0)['Color'] == 'Green'
-        assert proto.step(idx=1)['Name'] == 'existing'
+        assert proto.step_row(step_index=0)['Label'] == 'new_step'
+        assert proto.step_row(step_index=0)['Name'] == f'new_step_{LED1}'
+        assert proto.step_row(step_index=0)['Color'] == LED1
+        assert proto.step_row(step_index=1)['Name'] == 'existing'
 
     def test_insert_after_last_step(self):
         proto = _build_protocol([_make_step(name='first')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='appended',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(illumination=150.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 2
-        assert proto.step(idx=0)['Name'] == 'first'
-        assert proto.step(idx=1)['Label'] == 'appended'
-        assert proto.step(idx=1)['Name'] == 'appended_Red'
-        assert proto.step(idx=1)['Color'] == 'Red'
+        assert proto.step_row(step_index=0)['Name'] == 'first'
+        assert proto.step_row(step_index=1)['Label'] == 'appended'
+        assert proto.step_row(step_index=1)['Name'] == f'appended_{LED2}'
+        assert proto.step_row(step_index=1)['Color'] == LED2
 
     def test_insert_between_steps(self):
         proto = _build_protocol(
@@ -1899,74 +1895,81 @@ class TestProtocolInsertStep:
             ]
         )
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='middle',
             layer='BF',
             layer_config=_layer_config(),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 3
-        assert proto.step(idx=0)['Name'] == 'step_0'
-        assert proto.step(idx=1)['Label'] == 'middle'
-        assert proto.step(idx=1)['Name'] == 'middle_BF'
-        assert proto.step(idx=2)['Name'] == 'step_1'
+        assert proto.step_row(step_index=0)['Name'] == 'step_0'
+        assert proto.step_row(step_index=1)['Label'] == 'middle'
+        assert proto.step_row(step_index=1)['Name'] == 'middle_BF'
+        assert proto.step_row(step_index=2)['Name'] == 'step_1'
 
     def test_insert_with_video_config(self):
         proto = _build_protocol([_make_step()])
-        vc = {'duration': 5.0, 'fps': 30}
+        vc = {'duration': 5.0}
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='video_step',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video', video_config=vc),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
-        step = proto.step(idx=1)
+        step = proto.step_row(step_index=1)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict)
-        assert step['Video Config']['fps'] == 30
 
     def test_insert_with_stim_config(self):
         proto = _build_protocol([_make_step()])
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='stim_step',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video'),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=sc,
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
-        step = proto.step(idx=1)
+        step = proto.step_row(step_index=1)
         assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config']['Green']['enabled'] is True
+        assert step['Stim_Config'][LED1]['enabled'] is True
 
     def test_insert_save_load_run(self, real_executor, scope, tmp_path):
         """Insert a step, save, reload, and run -- full pipeline."""
         proto = _build_protocol([_make_step(name='original', color='BF')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='added_green',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 2
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
         assert reloaded.num_steps() == 2
-        assert reloaded.step(idx=1)['Color'] == 'Green'
+        assert reloaded.step_row(step_index=1)['Color'] == LED1
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed, 'Inserted-step protocol did not complete'
@@ -1977,7 +1980,7 @@ class TestProtocolDeleteStep:
 
     def test_delete_only_step(self):
         proto = _build_protocol([_make_step()])
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 0
 
     def test_delete_first_of_three(self):
@@ -1988,10 +1991,10 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 2
-        assert proto.step(idx=0)['Name'] == 'b'
-        assert proto.step(idx=1)['Name'] == 'c'
+        assert proto.step_row(step_index=0)['Name'] == 'b'
+        assert proto.step_row(step_index=1)['Name'] == 'c'
 
     def test_delete_middle(self):
         proto = _build_protocol(
@@ -2001,10 +2004,10 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=1)
+        proto.delete_step(step_index=1)
         assert proto.num_steps() == 2
-        assert proto.step(idx=0)['Name'] == 'a'
-        assert proto.step(idx=1)['Name'] == 'c'
+        assert proto.step_row(step_index=0)['Name'] == 'a'
+        assert proto.step_row(step_index=1)['Name'] == 'c'
 
     def test_delete_last(self):
         proto = _build_protocol(
@@ -2014,9 +2017,9 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=2)
+        proto.delete_step(step_index=2)
         assert proto.num_steps() == 2
-        assert proto.step(idx=1)['Name'] == 'b'
+        assert proto.step_row(step_index=1)['Name'] == 'b'
 
     def test_delete_all_one_by_one(self):
         proto = _build_protocol(
@@ -2025,67 +2028,74 @@ class TestProtocolDeleteStep:
                 _make_step(name='b'),
             ]
         )
-        proto.delete_step(step_idx=1)
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=1)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 0
 
 
 class TestProtocolModifyStep:
-    """Test modify_step -- simulates user editing a step in the UI."""
+    """Test modify_step -- simulates user editing a step in the UI.
+
+    Each step is in no z-stack: a slice of one keeps its channel.
+    """
 
     def test_modify_color_and_illumination(self):
-        proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
+        proto = _build_protocol(
+            [_make_step(color='BF', illumination=50.0, z_slice=-1, zstack_group_id=-1)]
+        )
         proto.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             label='modified',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=300.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )
-        step = proto.step(idx=0)
-        assert step['Color'] == 'Green'
+        step = proto.step_row(step_index=0)
+        assert step['Color'] == LED1
         assert step['Illumination'] == 300.0
         # A rename via modify_step stores the label and derives the display
         # Name with the (new) channel token.
         assert step['Label'] == 'modified'
-        assert step['Name'] == 'modified_Green_Z0'
+        assert step['Name'] == f'modified_{LED1}'
         assert not step['Auto_Named']
 
     def test_modify_to_video_with_stim(self):
-        proto = _build_protocol([_make_step(acquire='image')])
-        sc = _stim_config_enabled(channels=['Blue'])
-        vc = {'duration': 3.0, 'fps': 15}
+        proto = _build_protocol([_make_step(acquire='image', z_slice=-1, zstack_group_id=-1)])
+        sc = _stim_config_enabled(channels=[LED0])
+        vc = {'duration': 3.0}
         proto.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             label='now_video',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video', video_config=vc),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=sc,
         )
-        step = proto.step(idx=0)
+        step = proto.step_row(step_index=0)
         assert step['Acquire'] == 'video'
-        assert step['Video Config']['fps'] == 15
-        assert step['Stim_Config']['Blue']['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
 
     def test_modify_save_load_run(self, real_executor, scope, tmp_path):
         """Modify a step, save, reload, run."""
-        proto = _build_protocol([_make_step(color='BF')])
+        proto = _build_protocol([_make_step(color='BF', z_slice=-1, zstack_group_id=-1)])
         proto.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             label='modified_red',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
-        assert reloaded.step(idx=0)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Color'] == LED2
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed
@@ -2096,8 +2106,8 @@ class TestProtocolAutofocusModification:
 
     def test_modify_autofocus_single_step(self):
         proto = _build_protocol([_make_step(auto_focus=False)])
-        proto.modify_autofocus(step_idx=0, enabled=True)
-        assert proto.step(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+        proto.modify_autofocus(step_index=0, enabled=True)
+        assert proto.step_row(step_index=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_modify_autofocus_all_steps(self):
         proto = _build_protocol(
@@ -2109,11 +2119,11 @@ class TestProtocolAutofocusModification:
         )
         proto.modify_autofocus_all_steps(enabled=True)
         for i in range(3):
-            assert proto.step(idx=i)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+            assert proto.step_row(step_index=i)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
         proto.modify_autofocus_all_steps(enabled=False)
         for i in range(3):
-            assert proto.step(idx=i)['Auto_Focus'] == False  # noqa: E712 -- exact bool check
+            assert proto.step_row(step_index=i)['Auto_Focus'] == False  # noqa: E712 -- exact bool check
 
 
 # ===========================================================================
@@ -2125,56 +2135,46 @@ class TestLumascapeAPILed:
     """Direct tests on Lumascope LED API with simulated hardware."""
 
     def test_led_on_off(self, scope):
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.get_led_state('Blue')['enabled']
-        scope.illumination.led_off(channel=0)
-        assert not scope.illumination.get_led_state('Blue')['enabled']
+        scope.illumination.led_on_by_address(0, 100)
+        assert channel_reading(scope.illumination, LED0).state is LedState.LIT
+        scope.illumination.led_off_by_address(0)
+        assert channel_reading(scope.illumination, LED0).state is LedState.DARK
 
     def test_led_on_by_color_name(self, scope):
-        scope.illumination.led_on(channel='Green', illumination_ma=200)
-        state = scope.illumination.get_led_state('Green')
-        assert state['enabled']
-        assert state['illumination_ma'] == 200
+        scope.illumination.led_on(channel=LED1, illumination_ma=200)
+        state = channel_reading(scope.illumination, LED1)
+        assert (state.state, state.illumination_ma) == (LedState.LIT, 200)
 
     def test_leds_off(self, scope):
         scope.illumination.led_on(channel='BF', illumination_ma=50)
-        scope.illumination.led_on(channel='Red', illumination_ma=100)
+        scope.illumination.led_on(channel=LED2, illumination_ma=100)
         scope.illumination.leds_off()
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after leds_off'
+        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert not_dark == [], f'LEDs not dark after leds_off: {not_dark}'
 
     def test_led_states_snapshot(self, scope):
-        scope.illumination.led_on(channel='Green', illumination_ma=200)
-        scope.illumination.led_on(channel='Red', illumination_ma=150)
-        states = scope.illumination.get_led_states()
-        assert states['Green']['enabled']
-        assert states['Green']['illumination_ma'] == 200
-        assert states['Red']['enabled']
-        assert not states['BF']['enabled']
+        scope.illumination.led_on(channel=LED1, illumination_ma=200)
+        scope.illumination.led_on(channel=LED2, illumination_ma=150)
+        states = {r.name: r for r in scope.illumination.get_led_states()}
+        assert (states[LED1].state, states[LED1].illumination_ma) == (LedState.LIT, 200)
+        assert states[LED2].state is LedState.LIT
+        assert states['BF'].state is LedState.DARK
 
 
 class TestLumascapeAPIMotor:
     """Direct tests on Lumascope motor API with simulated hardware."""
 
-    def test_move_absolute_z(self, scope):
-        scope.motion.move_absolute('Z', 3000.0)
+    def test_move_z(self, scope):
+        scope.motion.move_z(3000.0)
         # Simulated motor moves instantly in fast mode
-        pos = scope.motion.get_target_position('Z')
+        pos = scope.motion.get_target_positions()['Z']
         assert pos == pytest.approx(3000.0, abs=1.0)
 
-    def test_get_target_position_from_cache(self, scope):
-        """get_target_position uses cache -- zero serial I/O."""
-        scope.motion.move_absolute('Z', 5000.0)
-        pos = scope.motion.get_target_position('Z')
+    def test_get_target_positions_from_cache(self, scope):
+        """get_target_positions uses cache -- zero serial I/O."""
+        scope.motion.move_z(5000.0)
+        pos = scope.motion.get_target_positions()['Z']
         assert pos == pytest.approx(5000.0, abs=1.0)
-
-    def test_all_axes_have_target(self, scope):
-        """All axes return a position (even if 0)."""
-        positions = scope.motion.get_target_position(axis=None)
-        assert isinstance(positions, dict)
-        for ax in ('X', 'Y', 'Z'):
-            assert ax in positions
 
 
 class TestLumascapeAPICamera:
@@ -2191,18 +2191,12 @@ class TestLumascapeAPICamera:
         assert img.ndim == 2  # grayscale
 
     def test_set_gain(self, scope):
-        scope.imaging.set_gain_db(5.0)
-        assert scope.imaging.get_gain_db() == pytest.approx(5.0, abs=0.1)
+        scope.camera.set_gain_db(5.0)
+        assert scope.camera.read_gain_db() == pytest.approx(5.0, abs=0.1)
 
     def test_set_exposure(self, scope):
-        scope.imaging.set_exposure_ms(25.0)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(25.0, abs=0.1)
-
-    def test_capture_and_wait(self, scope):
-        import numpy as np
-
-        result = scope.imaging.capture_and_wait()
-        assert isinstance(result, np.ndarray), f'capture_and_wait returned {type(result)}'
+        scope.camera.set_exposure_ms(25.0)
+        assert scope.camera.read_exposure_ms() == pytest.approx(25.0, abs=0.1)
 
 
 # ===========================================================================
@@ -2224,8 +2218,8 @@ class TestPerRowConfigParsing:
         steps = [_make_step(name='A'), _make_step(name='B')]
         proto = _build_protocol(steps)
         with pytest.raises(TypeError):
-            proto.step(idx=0)['Video Config']['duration'] = 999
-        assert proto.step(idx=1)['Video Config']['duration'] != 999
+            proto.step_row(step_index=0)['Video Config']['duration'] = 999
+        assert proto.step_row(step_index=1)['Video Config']['duration'] != 999
 
 
 # ---------------------------------------------------------------------------
@@ -2253,24 +2247,24 @@ class TestV6LayerSettings:
                     exposure=2.0,
                 ),
                 _make_step(
-                    name='A1_Blue',
-                    color='Blue',
+                    name=f'A1_{LED0}',
+                    color=LED0,
                     acquire='image',
                     illumination=150.0,
                     gain=0.0,
                     exposure=100.0,
                 ),
                 _make_step(
-                    name='A1_Green',
-                    color='Green',
+                    name=f'A1_{LED1}',
+                    color=LED1,
                     acquire='image',
                     illumination=250.0,
                     gain=20.0,
                     exposure=100.0,
                 ),
                 _make_step(
-                    name='A1_Red',
-                    color='Red',
+                    name=f'A1_{LED2}',
+                    color=LED2,
                     acquire='image',
                     illumination=350.0,
                     gain=48.0,
@@ -2281,23 +2275,25 @@ class TestV6LayerSettings:
         # Save WITHOUT layer_settings (legacy save path)
         filepath = tmp_path / 'v5_shape.tsv'
         proto.to_file(filepath)
-        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        inferred = reloaded.layer_settings()
+        reloaded = protocol_from_file(
+            filepath,
+        )
+        inferred = reloaded.channel_settings()
 
-        assert set(inferred.keys()) == {'BF', 'Blue', 'Green', 'Red'}
-        for layer in ('BF', 'Blue', 'Green', 'Red'):
-            assert inferred[layer]['Acquire'] == 'image'
-        assert float(inferred['Blue']['Illumination']) == 150.0
-        assert float(inferred['Green']['Gain']) == 20.0
-        assert float(inferred['Red']['Exposure']) == 100.0
+        assert set(inferred.keys()) == {'BF', LED0, LED1, LED2}
+        for layer in ('BF', LED0, LED1, LED2):
+            assert inferred[layer].acquire == 'image'
+        assert inferred[LED0].illumination_ma == 150.0
+        assert inferred[LED1].gain_db == 20.0
+        assert inferred[LED2].exposure_ms == 100.0
 
     def test_explicit_block_round_trips(self, tmp_path):
         """Save with layer_settings kwarg, reload, expect identical values
-        back from layer_settings(), each typed by the protocol's one reader."""
+        back from channel_settings(), each typed by the protocol's one reader."""
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
-                _make_step(name='A1_Blue', color='Blue', acquire='image', illumination=150.0),
+                _make_step(name=f'A1_{LED0}', color=LED0, acquire='image', illumination=150.0),
             ]
         )
         ls_in = {
@@ -2312,8 +2308,8 @@ class TestV6LayerSettings:
                 'Sum': 1,
                 'Stim_Enabled': '',
             },
-            'Blue': {
-                'Layer': 'Blue',
+            LED0: {
+                'Layer': LED0,
                 'Acquire': 'image',
                 'Illumination': 150.0,
                 'Gain': 0.0,
@@ -2332,13 +2328,15 @@ class TestV6LayerSettings:
         assert 'Layer Settings' in text
         assert 'Stim_Enabled' in text
 
-        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls_out = reloaded.layer_settings()
-        assert set(ls_out.keys()) == {'BF', 'Blue'}
-        assert ls_out['BF']['Acquire'] == 'image'
-        assert ls_out['Blue']['Illumination'] == 150.0
-        assert ls_out['Blue']['False_Color'] is True
-        assert ls_out['Blue']['Stim_Enabled'] is False
+        reloaded = protocol_from_file(
+            filepath,
+        )
+        ls_out = reloaded.channel_settings()
+        assert set(ls_out.keys()) == {'BF', LED0}
+        assert ls_out['BF'].acquire == 'image'
+        assert ls_out[LED0].illumination_ma == 150.0
+        assert ls_out[LED0].false_color is True
+        assert ls_out[LED0].stim_enabled is False
 
     def test_disabled_layers_omitted(self, tmp_path):
         """Layers with Acquire not in (image, video) should NOT be written
@@ -2355,15 +2353,17 @@ class TestV6LayerSettings:
                 'False_Color': False,
                 'Sum': 1,
             },
-            'Blue': {'Layer': 'Blue', 'Acquire': None, 'Illumination': 150.0},  # disabled
+            LED0: {'Layer': LED0, 'Acquire': None, 'Illumination': 150.0},  # disabled
             'PC': {'Layer': 'PC', 'Acquire': '', 'Illumination': 5.0},  # disabled
         }
         filepath = tmp_path / 'v6_partial.tsv'
         proto.to_file(filepath, layer_settings=ls_in)
-        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls_out = reloaded.layer_settings()
+        reloaded = protocol_from_file(
+            filepath,
+        )
+        ls_out = reloaded.channel_settings()
         assert 'BF' in ls_out
-        assert 'Blue' not in ls_out
+        assert LED0 not in ls_out
         assert 'PC' not in ls_out
 
     def test_to_file_falls_back_to_stored_layer_settings(self, tmp_path):
@@ -2388,17 +2388,21 @@ class TestV6LayerSettings:
             },
         )
 
-        reloaded1 = Protocol.from_file(filepath1, tiling_configs_file_loc=TILING_CONFIGS)
+        reloaded1 = protocol_from_file(
+            filepath1,
+        )
         filepath2 = tmp_path / 'v6_second.tsv'
         # No layer_settings kwarg this time
         reloaded1.to_file(filepath2)
 
         text = filepath2.read_text()
         assert 'Layer Settings' in text
-        reloaded2 = Protocol.from_file(filepath2, tiling_configs_file_loc=TILING_CONFIGS)
-        ls = reloaded2.layer_settings()
-        assert ls.get('BF', {}).get('Acquire') == 'image'
-        assert float(ls['BF']['Illumination']) == 7.5
+        reloaded2 = protocol_from_file(
+            filepath2,
+        )
+        ls = reloaded2.channel_settings()
+        assert ls['BF'].acquire == 'image'
+        assert ls['BF'].illumination_ma == 7.5
 
     def test_no_layer_settings_no_block_written(self, tmp_path):
         """Saving without layer_settings AND with no stored block should
@@ -2431,15 +2435,17 @@ class TestV6LayerSettings:
             'A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t"{""duration"": 5}"\t"{""Blue"": {""enabled"": false}}"\n'
         )
         with pytest.raises(ProtocolFormatError) as refused:
-            Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+            protocol_from_file(
+                filepath,
+            )
         assert refused.value.file == filepath
 
 
 class TestFeedLossEndsVideoStep:
     """E2E: a silently dead feed ends a video step within the stall bound.
 
-    Production-path injection: stop_streaming halts the sim camera's
-    callback pump WITHOUT flipping active_cached -- exactly the shape of
+    Production-path injection: disable_streaming halts the sim camera's
+    callback pump WITHOUT flipping active -- exactly the shape of
     a feed that dies with no disconnect event. The run must survive (the
     step strikes, the run completes) and the recording's manifest must
     say camera_stalled.
@@ -2449,15 +2455,18 @@ class TestFeedLossEndsVideoStep:
     def test_mid_step_feed_death_ends_step_and_run_completes(self, executor, scope, tmp_path):
         # Duration far past the 5 s stall floor so the wall cap cannot
         # be the thing that ends the step.
-        vc = {'duration': 60, 'fps': 5}
+        vc = {'duration': 60}
         steps = [_make_step(acquire='video', video_config=vc)]
         proto = _build_protocol(steps)
+        # Measured before the feed is killed: the run's start sizes the step
+        # at the delivered rate.
+        measure_delivery_like_a_session(scope)
 
         def _kill_feed_soon():
             time.sleep(1.5)
             # The body, not the member: the run holds the camera lane, and a
             # feed that dies asks no one's leave.
-            scope.imaging._stop_streaming_impl()
+            scope.imaging._disable_streaming_impl()
 
         killer = threading.Thread(target=_kill_feed_soon, daemon=True)
         killer.start()
@@ -2472,6 +2481,3 @@ class TestFeedLossEndsVideoStep:
         assert manifests, 'the recording manifest must exist'
         manifest = json.loads(manifests[0].read_text())
         assert manifest['end_reason'] == 'camera_stalled'
-        # The dead feed means the recording never reached the frames the
-        # configured rate promised over the configured duration.
-        assert manifest['frames_written'] < vc['fps'] * vc['duration']

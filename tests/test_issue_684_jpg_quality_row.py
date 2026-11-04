@@ -5,7 +5,7 @@ Two reported defects:
   1. The quality slider rendered larger than every other slider in the app
      because it omitted the standard cursor / track styling that the sibling
      ModSlider controls all carry. The fix gives it the same cursor_image +
-     track_width + value_track so it matches.
+     value_track_width + value_track so it matches.
   2. The quality row was always present (merely disabled) when the live format
      was not JPG, wasting space in an already-crowded panel. The fix collapses
      the row's height and hides it unless the Live Image Format spinner reads
@@ -54,7 +54,7 @@ def test_slider_matches_sibling_styling():
     block = _jpg_row_block()
     # Part 1: the styling that makes it match every other ModSlider.
     assert 'cursor_image:' in block
-    assert 'track_width:' in block
+    assert 'value_track_width:' in block
     assert 'value_track:' in block
 
 

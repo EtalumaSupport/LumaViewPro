@@ -1,20 +1,20 @@
 # Copyright Etaluma, Inc.
 import logging
 
-import numpy as np
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
 from ui.image_settings import AccordionItemXyStageControl
+from modules.coord_transformations import PlateLocation
 from ui.ui_helpers import (
-    move_absolute,
+    go_to_bookmark,
     move_home,
-    move_relative,
+    jog,
+    move_to_plate,
     resort_accordion,
     run_reported,
     typed_number,
@@ -178,11 +178,10 @@ class MotionSettings(BoxLayout):
 
     def set_turret_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['verticalcontrol_id']
-        for turret_id in ('turret_selection_label', 'turret_btn_box'):
+        for turret_id in ('turret_selection_label', 'turret_btn_box', 'turret_objective_btn_box'):
             vert_control.ids[turret_id].visible = visible
-
-        vert_control.ids['reset_turret_objective_btn'].disabled = not visible
-        vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
+        # Without the turret rows, the objective is assigned by its own button.
+        vert_control.ids['assign_objective_box'].visible = not visible
 
     def set_focus_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['verticalcontrol_id']
@@ -190,21 +189,14 @@ class MotionSettings(BoxLayout):
             vert_control.ids[focus_id].visible = visible
 
     def set_tiling_control_visibility(self, visible: bool) -> None:
+        # The row's own disabled holds its children disabled, whatever their
+        # run_lockout binding says: disabling the spinner and the button
+        # themselves lasted only until the next lockout change re-enabled
+        # them, invisible but clickable.
         vert_control = self.ids['protocol_settings_id']
-
-        if visible:
-            vert_control.ids['tiling_size_spinner'].disabled = False
-            vert_control.ids['tiling_size_spinner'].opacity = 1
-            vert_control.ids['tiling_size_apply_id'].disabled = False
-            vert_control.ids['tiling_size_apply_id'].opacity = 1
-            vert_control.ids['tiling_box_label_id'].opacity = 1
-        else:
+        vert_control.ids['tiling_box_layout_id'].visible = visible
+        if not visible:
             vert_control.ids['tiling_size_spinner'].text = '1x1'
-            vert_control.ids['tiling_size_spinner'].disabled = True
-            vert_control.ids['tiling_size_spinner'].opacity = 0
-            vert_control.ids['tiling_size_apply_id'].disabled = True
-            vert_control.ids['tiling_size_apply_id'].opacity = 0
-            vert_control.ids['tiling_box_label_id'].opacity = 0
 
     # Hide (and unhide) motion settings
     def toggle_settings(self) -> None:
@@ -225,9 +217,6 @@ class MotionSettings(BoxLayout):
         else:
             self.x = 0
 
-        # if scope_display.play == True:
-        #     scope_display.start()
-
     def update_xy_stage_control_gui(self, *args, full_redraw: bool = False):
         self._accordion_item_xystagecontrol.update_gui(full_redraw=full_redraw)
 
@@ -246,51 +235,43 @@ class MotionSettings(BoxLayout):
 
 class XYStageControl(BoxLayout):
     def update_gui(self, dt=0, full_redraw: bool = False):
-        # The targets are a cache and config read with no serial I/O, so they
-        # are read here, on the GUI thread, whether or not a run is going.
-        self.get_targets_ui_callback(result=self.get_xy_targets())
+        """Draw the X and Y boxes: the plate position of where the stage is, or ``--``.
 
-    def get_xy_targets(self):
-        ctx = _app_ctx.ctx
-        scope = ctx.lumaview.scope
-        # A cold start without a motor has no X/Y travel, and no limits to
-        # read.
+        Both boxes show ``--`` while the API does not know X or Y -- before
+        the stage homes, while it homes, after a disconnect, with the motor
+        board lost -- because a plate position is converted from X and Y
+        together, and converting with a known number in place of the unknown
+        one would show a position nobody established. A cold start without
+        a motor has no X/Y travel and is left as it is. The read is a cache
+        read with no serial I/O, so it runs here, on the GUI thread, whether
+        or not a run is going. A box the user is in holds what is written
+        until it is left (CommitInput).
+        """
+        scope = _app_ctx.ctx.lumaview.scope
         if not scope.capabilities.has_xy_stage:
+            return
+        plate = self.get_xy_positions()
+        if plate is None:
+            x_text = y_text = '--'
+        else:
+            x_text, y_text = format(plate.x_mm, '.2f'), format(plate.y_mm, '.2f')
+        self.ids['x_pos_id'].text = x_text
+        self.ids['y_pos_id'].text = y_text
+
+    def get_xy_positions(self):
+        """The plate position of where the stage is, on the selected plate; None while X or Y is not known.
+
+        X and Y are read from ``axis_positions`` because it answers no
+        position for an axis that homes or has lost its reference (a lost
+        motor board and a disconnect included), where the target and
+        current-position reads still answer its last number.
+        """
+        scope = _app_ctx.ctx.lumaview.scope
+        stage = scope.motion.axis_positions()
+        x_um, y_um = stage['X'].position_um, stage['Y'].position_um
+        if x_um is None or y_um is None:
             return None
-        x_target = scope.motion.get_target_position('X')
-        y_target = scope.motion.get_target_position('Y')
-        # After disconnect() the null board is installed and there is no
-        # target to show; a position listener can still tick here then.
-        if x_target is None or y_target is None:
-            return None
-        x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
-        y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
-        return (x_target, y_target)
-
-    def get_targets_ui_callback(self, result=None, exception=None):
-        ctx = _app_ctx.ctx
-        if result is not None:
-            x_target = result[0]
-            y_target = result[1]
-
-            # Convert from plate position to stage position
-            _, labware = get_selected_labware()
-            settings = ctx.settings
-            coordinate_transformer = ctx.coordinate_transformer
-            plate_x, plate_y = coordinate_transformer.stage_to_plate(
-                labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
-            )
-
-            if not self.ids['x_pos_id'].focus:
-                # Cache text to prevent redundant ScrollView updates
-                new_x_text = format(plate_x, '.2f')
-                if self.ids['x_pos_id'].text != new_x_text:
-                    self.ids['x_pos_id'].text = new_x_text  # Update x position text box
-
-            if not self.ids['y_pos_id'].focus:
-                new_y_text = format(plate_y, '.2f')
-                if self.ids['y_pos_id'].text != new_y_text:
-                    self.ids['y_pos_id'].text = new_y_text  # Update y position text box
+        return scope.runtime_state.stage_to_plate(x_um, y_um)
 
     def _xy_jog(self, axis: str, direction: int, coarse: bool):
         """Shared XY-axis jog handler.
@@ -300,18 +281,11 @@ class XYStageControl(BoxLayout):
             direction: +1 or -1.
             coarse: True for coarse step, False for fine step.
         """
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         dir_names = {('X', 1): 'RIGHT', ('X', -1): 'LEFT', ('Y', 1): 'FWD', ('Y', -1): 'BACK'}
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
-        run_reported(
-            lambda: move_relative(axis, direction * ctx.scope.motion.jog_step(axis, coarse)),
-            redraw=None,
-            label=label,
-        )
+        jog(axis, direction, coarse)
 
     @debounce(0.2)
     def fine_left(self):
@@ -346,9 +320,6 @@ class XYStageControl(BoxLayout):
         self._xy_jog('Y', +1, coarse=True)
 
     def set_xposition(self, x_pos):
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         typed = x_pos
         x_pos = typed_number(typed, float, self.update_gui)
@@ -364,12 +335,9 @@ class XYStageControl(BoxLayout):
         # The typed number goes to the API in the frame it was typed in;
         # the API owns both the conversion and the bound, so a refusal can
         # name the number the user entered instead of its stage equivalent.
-        move_absolute('X', x_pos, frame='plate')
+        move_to_plate('MOVE_X', PlateLocation(x_mm=x_pos, y_mm=None, z_um=None))
 
     def set_yposition(self, y_pos):
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
         typed = y_pos
         y_pos = typed_number(typed, float, self.update_gui)
@@ -382,7 +350,7 @@ class XYStageControl(BoxLayout):
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
-        move_absolute('Y', y_pos, frame='plate')
+        move_to_plate('MOVE_Y', PlateLocation(x_mm=None, y_mm=y_pos, z_um=None))
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -402,27 +370,13 @@ class XYStageControl(BoxLayout):
 
     def goto_xbookmark(self):
         gui_logger.button('GOTO_X_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
-
-        settings = ctx.settings
-
-        # Get bookmark plate x-position in mm
-        x_pos = settings['bookmark']['x']
-
-        move_absolute('X', x_pos, frame='plate')
+        go_to_bookmark('GOTO_X_BOOKMARK', ('X',))
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
-
-        settings = ctx.settings
-
-        # Get bookmark plate y-position in mm
-        y_pos = settings['bookmark']['y']
-
-        move_absolute('Y', y_pos, frame='plate')
+        go_to_bookmark('GOTO_Y_BOOKMARK', ('Y',))
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -430,7 +384,7 @@ class XYStageControl(BoxLayout):
     #     x_pos = lumaview.scope.get_current_position('X')  # Get current x position in um
     #     y_pos = lumaview.scope.get_current_position('Y')  # Get current x position in um
 
-    #     _, labware = get_selected_labware()
+    #     labware = lumaview.scope.runtime_state.get_labware()
     #     x_plate_offset = labware.plate['offset']['x']*1000
     #     y_plate_offset = labware.plate['offset']['y']*1000
 
@@ -441,9 +395,6 @@ class XYStageControl(BoxLayout):
     @debounce(1.0)
     def home(self):
         gui_logger.button('HOME_XY')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.home()')
         # The home's display shows every axis, the turret included: the
         # firmware's home returns the turret to position 1. With no motor

@@ -7,17 +7,16 @@ Provides live_capture() and composite_capture() methods inherited by MainDisplay
 
 import logging
 
-from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
@@ -33,7 +32,7 @@ logger = logging.getLogger('LVP.ui.composite_capture')
 class CompositeCapture(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
-    _composite_run: 'RunHandle | None' = None
+    _composite_run: 'Operation | None' = None
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     composite_pending = BooleanProperty(False)
@@ -54,25 +53,20 @@ class CompositeCapture(FloatLayout):
         looking at, read here on the main thread. A second press while a
         still is in flight, and a press while a run holds the camera, are
         the member's refusals; the reporter shows them, and whatever the
-        still's Future settles with, like any other outcome.
+        still's operation settles with, like any other outcome.
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        false_color_on = (
-            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
-            if layer is not None
-            else False
-        )
+        layer = ctx.session.shown_channel.channel
+        false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
         run_reported(
             lambda: ctx.session.manual_capture.capture(
-                layer=layer,
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
-            ).add_done_callback(lambda done: Clock.schedule_once(lambda _dt: _still_settled(done))),
+            ).add_done_callback(lambda done: schedule_ui(lambda _dt: _still_settled(done))),
             None,
             'LIVE_CAPTURE',
         )
@@ -97,13 +91,13 @@ class CompositeCapture(FloatLayout):
         """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
-        runner = ctx.session.create_protocol_runner()
+        runner = ctx.session.protocol_runner()
         run = self._composite_run
         # The button is disabled until this request's own redraw, so a
         # second press cannot race the first one to the pool.
         self.composite_pending = True
 
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             submit_reported(
                 run.stop,
                 self._composite_request_done,
@@ -118,12 +112,11 @@ class CompositeCapture(FloatLayout):
             started = runner.start_composite(
                 sequence_name='composite',
                 events=events,
-                run_trigger_source='composite',
             )
             self._composite_run = started
             # Only reachable once the run is committed, so the saved
             # folder can only ever name THIS run's directory.
-            set_last_save_folder(dir=started.run_dir)
+            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._composite_request_done, 'COMPOSITE_CAPTURE')
 
@@ -144,8 +137,11 @@ class CompositeCapture(FloatLayout):
         ctx = _app_ctx.ctx
         self.composite_held = ctx.session.held_by_other(self._composite_run)
         run = self._composite_run
-        live = run is not None and run.is_live
+        live = run is not None and run.progress().is_live
         self.ids['composite_btn'].state = 'down' if live else 'normal'
+        gui_logger.display(
+            'COMPOSITE_BUTTON', f'{"Stop" if live else "Composite"} held={self.composite_held}'
+        )
         if live:
             set_title_event_text('Compositing...')
 
@@ -153,7 +149,7 @@ class CompositeCapture(FloatLayout):
 def _still_settled(done) -> None:
     """Read the settled still on the Kivy thread: its folder, or its failure to the reporter."""
     run_reported(
-        lambda: set_last_save_folder(dir=done.result()[0].parent),
+        lambda: set_last_save_folder(dir=done.result()[0].file.parent),
         None,
         'LIVE_CAPTURE',
     )

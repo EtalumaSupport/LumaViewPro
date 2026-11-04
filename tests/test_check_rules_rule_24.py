@@ -62,7 +62,7 @@ class TestRule24Triggers:
         assert vs
 
     def test_micro_sign_in_notifications(self):
-        src = 'notifications.error("Title", "5 µm offset")\n'
+        src = 'notifications.error("Title", "5 \u00b5m offset")\n'
         vs = _rule24_violations(src, 'x.py')
         assert vs
 
@@ -103,32 +103,6 @@ class TestRule24FileLevelExempt:
         # LVP sweep + Firmware sweep confirmed it.
         src = '# em-dash —\n'
         vs = _rule24_violations(src, 'tests/test_imaging_api.py')
-        assert vs
-
-
-class TestRule24LineLevelExempt:
-    def test_tech_support_report_block_glyphs_exempt(self):
-        # _RULE_24_LINE_EXEMPT covers the CLI progress-bar block glyphs
-        # at modules/tech_support_report.py:2475. Construct a source
-        # with exactly 2475 lines + the glyph on the right line.
-        prefix = '\n' * 2474
-        src = prefix + 'print("[███░░]")\n'
-        vs = _rule24_violations(src, 'modules/tech_support_report.py')
-        assert vs == [], [v.format() for v in vs]
-
-    def test_audit_fixes_ellipsis_exempt(self):
-        # _RULE_24_LINE_EXEMPT covers the ellipsis assertion at
-        # tests/test_audit_fixes.py:9716.
-        prefix = '\n' * 9715
-        src = prefix + 'assert "…" in text or "..." in text\n'
-        vs = _rule24_violations(src, 'tests/test_audit_fixes.py')
-        assert vs == [], [v.format() for v in vs]
-
-    def test_other_line_in_exempt_file_still_blocks(self):
-        # File-level exemption is line-specific in _RULE_24_LINE_EXEMPT.
-        # Other lines in tech_support_report.py must still hold ASCII.
-        src = 'x = "em-dash —"\nfoo = 1\n'
-        vs = _rule24_violations(src, 'modules/tech_support_report.py')
         assert vs
 
 

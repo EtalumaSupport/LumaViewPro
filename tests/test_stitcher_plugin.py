@@ -29,6 +29,8 @@ from unittest.mock import patch
 
 from modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
+from modules.layer_record import release_colors
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
@@ -117,15 +119,20 @@ def test_processor_returns_processor_result_on_missing_folder(
     # A path that exists but has no protocol files -> the stitch refuses,
     # and the shim must wrap that in ProcessorResult, NOT propagate it.
     from modules.post_processing_api import PostProcessingAPI
+    from modules.executor_registry import session_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    lane = SequentialIOExecutor(name='POSTPROC_TEST')
+    lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='POSTPROC_TEST')
     lane.start()
     harness_ctx.post_processing = PostProcessingAPI(
         lane=lane,
-        tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         has_turret=lambda: False,
         settings_snapshot=dict,
+        channel_colors=release_colors,
+        # a stand-in by design: no scope here holds anything or drains files.
+        scope_holder=lambda: None,
+        files_draining=lambda: False,
     )
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')
@@ -141,7 +148,6 @@ def test_processor_returns_processor_result_on_missing_folder(
     assert result.success is False
     assert isinstance(result.message, str)
     assert result.message != ''
-    assert result.metadata['input_dir'] == str(empty_dir)
 
 
 def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
@@ -209,7 +215,9 @@ def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):
     processor = harness_ctx.plugins.post_processing.get('stitcher')
     assert processor is not None
 
-    direct_result = Stitcher._simple_position_stitcher(tmp_path, df)
+    direct_result = Stitcher._simple_position_stitcher(
+        tmp_path, df, channel_colors=release_colors()
+    )
     assert direct_result['status'] is True
     assert direct_result['image'].shape == (80, 80)
 
@@ -234,7 +242,10 @@ def test_an_installed_plugin_with_its_name_keeps_it(harness_ctx):
     # the one reported as not loaded, and the app carries on.
     installed = types.ModuleType('installed_stitcher')
     installed.spec = stitcher_plugin.spec
-    installed_processor = object()
+
+    def installed_processor(input_dir, manifest, output_dir):
+        return ProcessorResult(success=True)
+
     installed.register = lambda ctx: ctx.plugins.post_processing.register(
         installed.spec, installed_processor
     )

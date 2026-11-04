@@ -17,7 +17,7 @@ from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
-def recorded(monkeypatch):
+def recorded(turret_session, monkeypatch):
     seen = []
     monkeypatch.setattr(
         config_helpers,
@@ -39,6 +39,10 @@ def turret_session(tmp_path):
         simulate=True,
     )
     home_sim_scope(session.scope)
+    # The home put slot 1 in the light path, a change whose record waits for
+    # the first reader -- a test's read, or any frame the camera starts. Read
+    # here, so the change a test watches is its own.
+    assert _read(session) == '4x Oly'
     yield session
     session.shutdown()
 
@@ -48,21 +52,21 @@ def _read(session):
 
 
 def test_a_turret_move_records_the_new_objective_once(turret_session, recorded):
-    turret_session.scope.motion.move_turret(1)
-    assert _read(turret_session) == '4x Oly'
     turret_session.scope.motion.move_turret(2)
     assert _read(turret_session) == '10x Oly'
     assert _read(turret_session) == '10x Oly'
+    turret_session.scope.motion.move_turret(1)
+    assert _read(turret_session) == '4x Oly'
 
-    assert recorded == ['4x Oly', '10x Oly']
+    assert recorded == ['10x Oly', '4x Oly']
 
 
 def test_answering_the_question_records_the_answer(turret_session, recorded):
     turret_session.scope.motion.move_turret(3)
     question = turret_session.objective_question()
-    assert question is not None and question.turret_position == 3
+    assert question is not None and question.turret_slot == 3
 
-    turret_session.confirm_objective('20x Oly', turret_position=question.turret_position)
+    turret_session.confirm_objective('20x Oly', slot=question.turret_slot)
 
     assert _read(turret_session) == '20x Oly'
     assert recorded == ['20x Oly']

@@ -10,7 +10,9 @@ raised a bare ``ValueError``; an empty X made the stage's right-click raise.
 
 Now every cell is read by its column's reader where the frame is taken, and
 a cell of the wrong type refuses the load in one message naming the file,
-the step and the column. The in-place writers read their values the same
+the step and the column. A blank X, Y or Z is not of the wrong type: it is
+a step with no position on that axis (``test_a_step_may_have_no_position``),
+and a focus writer still refuses a Z that is no number. The in-place writers read their values the same
 way, since a pandas frame does not hold its own schema. Post-processing,
 which reads a finished run's record and never runs it, keeps a blank cell
 blank and refuses any other cell its column cannot hold.
@@ -21,9 +23,12 @@ import pathlib
 
 import pytest
 
-from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError
+from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
 from tests.ast_seams import parse_module, walk_defs
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.case_walk import failing_cases
+from tests.protocol_fixtures import protocol_from_file
+from modules.coord_transformations import PlateLocation
 
 
 def _saved(tmp_path, steps) -> pathlib.Path:
@@ -34,18 +39,19 @@ def _saved(tmp_path, steps) -> pathlib.Path:
 
 def _with_cell(path: pathlib.Path, step: int, column: str, text: str) -> pathlib.Path:
     """The saved file with one step cell replaced by ``text``, as a hand edit would."""
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding='utf-8').splitlines()
     header_at = next(i for i, line in enumerate(lines) if line.split('\t')[0] == 'Steps') + 1
     header = lines[header_at].split('\t')
     row = lines[header_at + 1 + step].split('\t')
     row[header.index(column)] = text
     lines[header_at + 1 + step] = '\t'.join(row)
-    path.write_text('\n'.join(lines) + '\n')
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return path
 
 
-def _load(path, **kwargs):
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS, **kwargs)
+def _load(path, unit=None):
+    """``path`` read to run on a stock unit, or as ``unit`` says."""
+    return protocol_from_file(path, unit=unit)
 
 
 TWO_STEPS = [
@@ -58,9 +64,7 @@ TWO_STEPS = [
     ('column', 'text'),
     [
         ('X', 'left'),
-        ('X', ''),
-        ('Y', ''),
-        ('Z', ''),
+        ('Z', 'high'),
         ('Exposure', '10 ms'),
         ('Sum', '2.5'),
         ('Z-Slice', 'top'),
@@ -97,8 +101,8 @@ def test_a_saved_false_autofocus_is_false_once_the_file_is_typed(tmp_path):
     fixed = _with_cell(path, 0, 'Auto_Focus', 'True')
     protocol = _load(fixed)
 
-    assert protocol.step(idx=0)['Auto_Focus'] is True
-    assert protocol.step(idx=1)['Auto_Focus'] is False
+    assert protocol.step_row(step_index=0)['Auto_Focus'] is True
+    assert protocol.step_row(step_index=1)['Auto_Focus'] is False
 
 
 def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):
@@ -109,7 +113,7 @@ def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):
 
 @pytest.mark.parametrize(
     ('column', 'value'),
-    [('X', None), ('Exposure', 'ten'), ('Auto_Focus', 'True?'), ('Objective', None)],
+    [('X', 'left'), ('Exposure', 'ten'), ('Auto_Focus', 'True?'), ('Objective', None)],
 )
 def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
     with pytest.raises(ProtocolFormatError) as refused:
@@ -122,9 +126,9 @@ def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
 WRITES = {
     'modify_autofocus': (
         'Auto_Focus',
-        lambda p, v: p.modify_autofocus(step_idx=0, enabled=v),
+        lambda p, v: p.modify_autofocus(step_index=0, enabled=v),
     ),
-    'modify_step_z_height': ('Z', lambda p, v: p.modify_step_z_height(step_idx=0, z=v)),
+    'modify_step_z_height': ('Z', lambda p, v: p.modify_step_z_height(step_index=0, z=v)),
     'apply_zstack_group_focus': (
         'Z',
         lambda p, v: p.apply_zstack_group_focus(reference_step_idx=0, z=v),
@@ -136,7 +140,8 @@ WRITES = {
     'modify_step': (
         'Exposure',
         lambda p, v: p.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             layer='BF',
             layer_config={
                 'autofocus': False,
@@ -147,9 +152,9 @@ WRITES = {
                 'exposure_ms': v,
                 'sum': 1,
                 'acquire': 'image',
-                'video_config': {'fps': 5, 'duration': 5},
+                'video_config': {'duration': 5},
             },
-            plate_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
             stim_configs={},
         ),
@@ -160,17 +165,20 @@ WRITES = {
 @pytest.mark.parametrize('value', [None, 'tall'])
 # modify_autofocus is an API member: its argument door refuses a value that
 # is no bool before the writer runs.
-@pytest.mark.parametrize('writer', [writer for writer in WRITES if writer != 'modify_autofocus'])
-def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(writer, value):
-    column, write = WRITES[writer]
-    protocol = _build_protocol(TWO_STEPS)
-    before = protocol.steps()
+def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(value):
+    def check(writer):
+        column, write = WRITES[writer]
+        protocol = _build_protocol(TWO_STEPS)
+        before = protocol.steps()
 
-    with pytest.raises(StepEditRefusedError) as refused:
-        write(protocol, value)
+        with pytest.raises(StepEditRefusedError) as refused:
+            write(protocol, value)
 
-    assert column in str(refused.value)
-    assert protocol.steps().equals(before)
+        assert column in str(refused.value)
+        assert protocol.steps().equals(before)
+
+    failed = failing_cases([writer for writer in WRITES if writer != 'modify_autofocus'], check)
+    assert not failed, failed
 
 
 def test_no_step_frame_write_sits_outside_the_typed_writers():
@@ -187,6 +195,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol.modify_name',
         'Protocol._regenerate_step_name',
         'Protocol.insert_step',
+        'Protocol.set_turret_slot',
     }
     writing = set()
     for qualname, node in walk_defs(parse_module('modules/protocol.py').body):
@@ -207,7 +216,7 @@ def test_post_processing_refuses_a_runs_record_with_a_cell_its_column_cannot_hol
     path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Auto_Focus', 'maybe')
 
     with pytest.raises(ProtocolFormatError) as refused:
-        _load(path, runnable=False)
+        _load(path, StoredNames.KEPT)
 
     words = str(refused.value)
     assert str(path) in words
@@ -218,14 +227,14 @@ def test_post_processing_refuses_a_runs_record_with_a_cell_its_column_cannot_hol
 def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_path):
     path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Z-Slice', '')
 
-    protocol = _load(path, runnable=False)
+    protocol = _load(path, StoredNames.KEPT)
 
     assert protocol.steps()['Z-Slice'].tolist() == [-1, 0]
     assert protocol.steps()['Auto_Focus'].tolist() == [True, False]
-    assert protocol.step(idx=0)['X'] == 10.0
+    assert protocol.step_row(step_index=0)['X'] == 10.0
 
 
-def test_the_post_processing_reader_is_not_runnable():
+def test_the_post_processing_reader_keeps_the_stored_names_and_is_not_runnable():
     node = next(
         node
         for _, node in walk_defs(parse_module('modules/protocol_post_processing_helper.py').body)
@@ -235,9 +244,7 @@ def test_the_post_processing_reader_is_not_runnable():
         and node.func.attr == 'from_file'
         and getattr(node.func.value, 'id', None) == 'Protocol'
     )
-    assert {(k.arg, getattr(k.value, 'value', None)) for k in node.keywords} >= {
-        ('runnable', False)
-    }
+    assert {(k.arg, ast.unparse(k.value)) for k in node.keywords} >= {('unit', 'StoredNames.KEPT')}
 
 
 def test_a_runs_copy_reads_its_cells_as_its_source_does():
@@ -248,6 +255,8 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
 
     with pytest.raises(ProtocolFormatError, match='Auto_Focus'):
         copy.insert_step(
+            channel_group_id=copy.new_channel_group_id(),
+            turret_slot=-1,
             step_name='added',
             layer='BF',
             layer_config={
@@ -259,11 +268,11 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
                 'exposure_ms': 10.0,
                 'sum': 1,
                 'acquire': 'image',
-                'video_config': {'fps': 5, 'duration': 5},
+                'video_config': {'duration': 5},
                 'focus': None,
             },
-            plate_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
             stim_configs={},
-            after_step=1,
+            after_step_index=1,
         )

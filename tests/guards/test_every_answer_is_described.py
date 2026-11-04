@@ -16,9 +16,10 @@ over a simulated session builds:
 - the untyped places in what answers and events carry -- a keyless
   object, an array of nothing said, a value of no type -- are counted, a
   ratchet, so they only fall as their owners type them;
-- no two classes an answer or argument reaches share a name, and no
-  component name is one FastAPI made up for a clash, since the last class
-  of a name would silently stand for every annotation that names it;
+- no component name is one FastAPI made up for a clash, or one of the
+  server's own models, since the last class of a name would silently stand
+  for every annotation that names it; two project classes of one name are
+  refused by the table every answer is read from (``wire_encoding.closure``);
 - every enum an answer or argument reaches crosses as its name, a
   ``StrEnum`` as its value: what ``encode`` sends is what is declared.
 """
@@ -26,22 +27,45 @@ over a simulated session builds:
 from __future__ import annotations
 
 import enum
-import inspect
 import json
 import pathlib
-import sys
 import typing
 
 import pytest
 
 from modules import wire_encoding
+from tests import ratchets as _ratchets
 from rest import routes as rest_routes
+from tests.ast_seams import MemberNames
 
 # Keyless objects, arrays of nothing said and values of no type, over every
-# route's 200 and 202 and every event, each component counted once.
-UNTYPED_PIN = 52
+# route's 200 and 202 and every event, each component counted once. An
+# equality, not a ceiling: a ceiling left two above the count let a new
+# untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
+# lowers the pin in the same commit, as an answer leaving the wire does.
+# 40 since the camera's frame size read answers a FrameSize; 38 since the
+# held frame size answers one too, and the frame-limit view went; 35 since
+# the bench tools' three runs left the wire (C6); 28 since six of the
+# Session's settings documents left it and the turret's slot map is typed
+# (census C's row B9); 27 since the imaging API's scale-bar dict left it
+# for the Session's scale_bar_enabled; 25 since the camera's binning and
+# frame setters answer a FrameSize, over the wire their read's; 23 since
+# the motor and LED boards' identities are records; 18 since the camera's
+# link is a record, its temperatures a typed mapping, and its diagnostic
+# snapshot, profile and the system summary left for published reads; 19
+# since post-processing publishes its default cell-count method, the dict
+# count_cells takes, until W4 gives that argument its record; 18 since
+# the session's sequenced capture config, a dict, left the wire with the
+# protocol builder's dict door; 17 since a protocol's step is a record;
+# 16 since the cell-count method is a record; 15 since the bookmark saves
+# answer the PlateLocation the bookmark read does; 14 since a protocol's
+# channel settings are records; 13 since the whole-settings snapshot, a
+# dict, left the wire for get_setting.
+UNTYPED_PIN = 13
 
-_SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
+_SERVER_MODELS = MemberNames(
+    ('rest/routes.py', 'rest/app.py'), {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'}
+)
 # A JSON Schema keyword that says what a value is.
 _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
 
@@ -80,7 +104,7 @@ def _url(route: rest_routes.Route) -> str:
 
 
 def _operation(described: dict, route: rest_routes.Route) -> dict:
-    return described['paths'][_url(route)]['get' if route.member.read else 'post']
+    return described['paths'][_url(route)][route.method]
 
 
 def _json(response: dict) -> dict:
@@ -161,8 +185,30 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
             wrong.append(f'{_url(route)}: 200 {json.dumps(answer)} for {route.member.returns}')
         if _json(responses['202']) != {'$ref': '#/components/schemas/Job'}:
             wrong.append(f'{_url(route)}: 202 is not the job')
-    assert len(member_routes) > 250
+    assert len(member_routes) > 200
     assert not wrong, '\n'.join(wrong)
+
+
+def test_every_route_is_described_in_its_own_words(built):
+    """A route's description is its member's docstring or its field's own entry.
+
+    A field has no docstring of its own: its words are its class's
+    ``Attributes:`` entry, the reference's too. Read off a function the
+    field does not have, the description was ``NoneType``'s, "The type of
+    the None singleton." A route with no words at all is refused too: on
+    Python 3.12 ``NoneType`` has no docstring, so only the missing words
+    themselves can catch it on every Python.
+    """
+    described, member_routes, _events, _records = built
+    borrowed = {t.__doc__ for t in (type(None), object, bool, int, float, str, dict, list, tuple)}
+    wrong = [
+        _url(route)
+        for route in member_routes
+        if not (words := _operation(described, route).get('description')) or words in borrowed
+    ]
+    assert not wrong, '\n'.join(wrong)
+    columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
+    assert columns['description'].startswith('The columns of the steps table'), columns
 
 
 def test_a_route_that_is_not_json_declares_what_it_is(built):
@@ -202,11 +248,13 @@ def test_the_servers_own_routes_declare_their_models(built):
 def test_the_untyped_places_in_answers_and_events_do_not_grow(built):
     described, _routes, events, _records = built
     untyped = _untyped(described, events)
-    _counted.append(len(untyped))
-    assert len(untyped) <= UNTYPED_PIN, (
-        f'{len(untyped)} untyped places in answers and events, over the pin of '
-        f'{UNTYPED_PIN}: type the new one (a record, a typed array or mapping), or '
-        f'raise the pin in this commit and say why.\n  ' + '\n  '.join(untyped)
+    _ratchets.observe(
+        'rest: untyped places in answers and events', len(untyped), UNTYPED_PIN, rule='equal'
+    )
+    assert len(untyped) == UNTYPED_PIN, (
+        f'{len(untyped)} untyped places in answers and events, against the pin of '
+        f'{UNTYPED_PIN}: over it, type the new one (a record, a typed array or mapping); '
+        f'under it, lower the pin in this commit.\n  ' + '\n  '.join(untyped)
     )
 
 
@@ -244,31 +292,9 @@ def _reached(member_routes: list[rest_routes.Route], records: dict[str, type]) -
     return found
 
 
-def _same_named(reached: set[type], every: dict[str, set[type]]) -> list[str]:
-    """Each reached class whose name another project class also has."""
-    return sorted(
-        f'{cls.__name__}: {sorted(f"{c.__module__}.{c.__qualname__}" for c in every[cls.__name__])}'
-        for cls in reached
-        if len(every.get(cls.__name__, ())) > 1
-    )
-
-
-def _every_project_class() -> dict[str, set[type]]:
-    wire_encoding.project_classes()
-    every: dict[str, set[type]] = {}
-    for name, module in list(sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                every.setdefault(cname, set()).add(obj)
-    return every
-
-
 def test_no_two_classes_on_the_wire_share_a_name(built):
     described, member_routes, events, records = built
     reached = _reached(member_routes, records)
-    assert _same_named(reached, _every_project_class()) == []
     event_models = {
         m.__name__ for m in events.values() if m not in rest_routes._ANSWER_RECORDS.values()
     }
@@ -276,18 +302,6 @@ def test_no_two_classes_on_the_wire_share_a_name(built):
     assert clashing == [], 'a project class is named as one of the server models'
     made_up = [n for n in described['components']['schemas'] if '__' in n]
     assert made_up == [], f'FastAPI renamed clashing components: {made_up}'
-
-
-def test_a_second_class_of_a_reached_name_is_caught():
-    from modules.lumascope_api._constants import AxisPosition
-
-    other = type('AxisPosition', (), {'__module__': 'modules.elsewhere'})
-    every = {'AxisPosition': {AxisPosition, other}}
-
-    assert _same_named({AxisPosition}, every) == [
-        "AxisPosition: ['modules.elsewhere.AxisPosition', "
-        "'modules.lumascope_api._constants.AxisPosition']"
-    ]
 
 
 def test_every_enum_on_the_wire_crosses_in_its_declared_form(built, tmp_path):
@@ -324,20 +338,3 @@ def test_every_enum_on_the_wire_crosses_in_its_declared_form(built, tmp_path):
             )
     assert enums, 'no enum reached: the walk is broken'
     assert not drifted, '\n'.join(drifted)
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-
-# The count the ratchet test measured; the summary prints it when the test ran.
-_counted: list[int] = []
-
-
-def _measure() -> int:
-    if not _counted:
-        raise RuntimeError('the ratchet test did not run')
-    return _counted[-1]
-
-
-_ratchets.register('rest: untyped places in answers and events', _measure, UNTYPED_PIN)

@@ -9,13 +9,15 @@ standalone autofocus keeps the arm: it focuses the field the user is
 watching, and its lock scans at what that arm achieved.
 """
 
+import pytest
+
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 
 # The one step _AfRig's protocol holds asks for these.
 STEP_GAIN_DB = 1.0
-STEP_EXPOSURE_MS = 10.0
+STEP_EXPOSURE_MS = 2.5
 
 
 def _sweep_targets(tmp_path, run_mode):
@@ -30,7 +32,7 @@ def _sweep_targets(tmp_path, run_mode):
         return source
 
     rig.af_runner._apply_sweep_camera_targets = record
-    rig.scope.imaging._apply_layer_camera_settings_impl(
+    rig.scope.camera._apply_settings_impl(
         layer='BF',
         gain_db=7.0,
         exposure_ms=40.0,
@@ -39,17 +41,16 @@ def _sweep_targets(tmp_path, run_mode):
         resume_after_capture=True,
     )
     try:
-        plan = rig.prepare_autofocus(
-            tmp_path / 'af', save_data=False, run_trigger_source='autofocus', run_mode=run_mode
-        )
+        plan = rig.prepare_autofocus(tmp_path / 'af', save_data=False, run_mode=run_mode)
         pending = rig.runner.start(plan)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the autofocus run did not complete'
-        pending.wait(timeout_s=COMPLETION_TIMEOUT)
+        pending.result(timeout=COMPLETION_TIMEOUT)
     finally:
         rig.close()
     return sweeps
 
 
+@pytest.mark.slow
 def test_an_autofocus_scan_sweeps_at_the_steps_values_under_a_live_arm(tmp_path):
     sweeps = _sweep_targets(tmp_path, SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN)
     assert sweeps == [('step', STEP_GAIN_DB, STEP_EXPOSURE_MS)]

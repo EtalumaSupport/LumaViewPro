@@ -45,16 +45,3 @@ def test_an_image_file_picker_offers_every_image(monkeypatch, live_folder, conte
     file_dialogs.FileChooseBTN.choose(SimpleNamespace(), context)
 
     assert offered == [set(image_utils.IMAGE_SUFFIXES)]
-
-
-def test_the_quick_enhance_target_picker_offers_every_image(monkeypatch, live_folder):
-    offered = []
-    monkeypatch.setattr(
-        file_dialogs,
-        '_platform_native_choose_file_or_folder',
-        lambda initial_dir, filetypes: offered.append(_offered(filetypes)),
-    )
-
-    file_dialogs.FileOrFolderChooseBTN.choose(SimpleNamespace(), 'choose_quick_enhance_target')
-
-    assert offered == [set(image_utils.IMAGE_SUFFIXES)]

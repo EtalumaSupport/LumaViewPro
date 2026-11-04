@@ -25,6 +25,9 @@ from modules import config_helpers
 from tests.settings_fixtures import complete_settings
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
+from modules.image_mode import OutputFormat
+from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 # pin-justified: kv is declarative source with no headless seam; the kv
 # text is the contract.
@@ -37,18 +40,15 @@ def _jpg_row_block() -> str:
     return _KV[start : start + 1600]
 
 
-def _sequenced_spinner_block() -> str:
-    start = _KV.index('id: sequenced_image_output_format_spinner')
-    return _KV[start : start + 400]
-
-
 # --- Part 1: UI offers JPG for sequenced + one shared quality control -------
 
 
 def test_sequenced_format_offers_jpg():
-    block = _sequenced_spinner_block()
-    assert "'JPG'" in block
-    assert 'values:' in block
+    # The sequenced spinner's values are every label of the panel's table,
+    # built at the load rather than repeated in the kv.
+    from ui.microscope_settings import OUTPUT_FORMAT_LABELS
+
+    assert OUTPUT_FORMAT_LABELS[OutputFormat.JPG] == 'JPG'
 
 
 def test_quality_row_shared_across_live_and_sequenced():
@@ -85,7 +85,7 @@ def _make_composite():
 
 
 def _stub_helper(post_processor, df, record=None):
-    def _fake_load_folder(path, tiling_configs_file_loc):
+    def _fake_load_folder(path, tiling_grids):
         return {
             'status': True,
             'images_df': df,
@@ -99,33 +99,35 @@ def _stub_helper(post_processor, df, record=None):
 
 def test_composite_rejects_jpg_source_with_clear_message():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.jpg', 'A1_Red_0000.jpg']})
+    df = pd.DataFrame({'Filepath': [f'A1_{LED1}_0000.jpg', f'A1_{LED2}_0000.jpg']})
     # No record stub needed: the JPG guard returns before the record is used.
     _stub_helper(comp, df)
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
     assert refused.value.reason == 'unsupported_source_format'
     assert 'JPG' in str(refused.value)
     assert 'TIFF' in str(refused.value)
-    assert 'A1_Green_0000.jpg' in str(refused.value)
+    assert f'A1_{LED1}_0000.jpg' in str(refused.value)
 
 
 def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']})
+    df = pd.DataFrame(
+        {'Filepath': [f'A1_{LED1}_0000.tiff', f'A1_{LED2}_0000.jpg', f'A1_{LED0}_0000.jpg']}
+    )
     _stub_helper(comp, df)
 
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
 
     assert refused.value.reason == 'unsupported_source_format'
-    assert 'A1_Red_0000.jpg' in str(refused.value)
-    assert 'A1_Blue_0000.jpg' not in str(refused.value)
+    assert f'A1_{LED2}_0000.jpg' in str(refused.value)
+    assert f'A1_{LED0}_0000.jpg' not in str(refused.value)
 
 
 def test_composite_does_not_trip_guard_for_tiff_source():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.tiff']})
+    df = pd.DataFrame({'Filepath': [f'A1_{LED1}_0000.tiff', f'A1_{LED2}_0000.tiff']})
     _stub_helper(comp, df, record=_RecordStub())
     # Isolate the format guard from downstream grouping: a TIFF scan must get
     # PAST the guard. Stub the grouping so the test asserts only that the
@@ -134,5 +136,5 @@ def test_composite_does_not_trip_guard_for_tiff_source():
     comp._filter_ignored_types = lambda df: df
     comp._get_groups = lambda df: []
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
     assert refused.value.reason != 'unsupported_source_format'

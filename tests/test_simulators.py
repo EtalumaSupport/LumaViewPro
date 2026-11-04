@@ -10,24 +10,29 @@ Verifies that simulators are drop-in replacements for real hardware:
 """
 
 import itertools
+import re
+import logging
 import pytest
 import threading
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+from drivers import host_clock
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, CameraWriteFailedError
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, Specimen
 from tests.camera_fakes import grab_a_frame_made_after_now
 
-# Imported for its side effect, not its name: drivers/motorboard.py installs
-# the AMAX/DMAX probe-warning filter at import time, and
+# Imported for its side effect too: drivers/motorboard.py installs the
+# AMAX/DMAX probe-warning filter at import time, and
 # test_amax_dmax_probe_warning_suppressed measures that filter.
-from drivers.motorboard import MotorBoard  # noqa: F401
+from drivers.motorboard import MotorBoard
 from tests.scope_fakes import build_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -52,23 +57,12 @@ class TestSimulatedLEDBoard:
         assert resp is not None
         assert 'STATUS' in resp
 
-    def test_disconnect_reconnect(self):
+    def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedLEDBoard()
         board.disconnect()
+        with pytest.raises(BoardPortFailedError, match=r'^STATUS: the port is closed'):
+            board.exchange_command('STATUS')
         assert not board.is_connected()
-        # exchange_command should auto-reconnect
-        resp = board.exchange_command('STATUS')
-        assert resp is not None
-        assert board.is_connected()
-
-    def test_color_channel_conversion(self):
-        board = SimulatedLEDBoard()
-        assert board.color2ch('Blue') == 0
-        assert board.color2ch('Green') == 1
-        assert board.color2ch('Red') == 2
-        assert board.color2ch('BF') == 3
-        assert board.ch2color(0) == 'Blue'
-        assert board.ch2color(3) == 'BF'
 
     def test_thread_safety(self):
         """Concurrent LED on/off should not corrupt state."""
@@ -83,18 +77,51 @@ class TestSimulatedLEDBoard:
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=toggle, args=(ch, 50)) for ch in range(6)]
+        threads = [
+            threading.Thread(target=toggle, args=(ch, 50)) for ch in board.available_channels()
+        ]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=10)
 
         assert not errors, f'Thread safety errors: {errors}'
-        # All LEDs should be off after all toggles complete; check the
-        # driver-internal cache (now Phase-3d.5 dead state) directly
-        # since the protocol-level reader was retired.
-        for color, illumination_ma in board.led_ma.items():
-            assert illumination_ma == -1, f'{color} not reset after concurrent toggle'
+        # All LEDs should be off after all toggles complete, as the
+        # simulated board's own current read reports them.
+        lit = {ch: board.read_led_current(ch) for ch in board.available_channels()}
+        assert set(lit.values()) == {0.0}, f'not reset after concurrent toggle: {lit}'
+
+
+def test_a_simulated_exchange_logs_its_true_duration_on_a_coarse_clock(monkeypatch, caplog):
+    """The simulated boards write serial.log's exchange line as the boards
+    do, its duration the true one even when ``time.monotonic`` is coarse
+    (Windows under Python 3.12 reads it 15.6 ms a step; a second here, so
+    a duration read from it is 0 or a whole second). The fast tier's 1 ms
+    command delay is the duration."""
+    import drivers.simulated_ledboard as led_module
+    import drivers.simulated_motorboard as motor_module
+
+    for module in (led_module, motor_module):
+        monkeypatch.setattr(
+            module,
+            'time',
+            SimpleNamespace(monotonic=lambda: time.perf_counter() // 1.0, sleep=time.sleep),
+        )
+    with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        SimulatedLEDBoard().exchange_command('STATUS')
+        SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS).exchange_command('INFO')
+    stated = {
+        label: [
+            float(m.group(1))
+            for r in caplog.records
+            if r.name == 'LVP.serial' and label in r.getMessage()
+            for m in [re.search(r'\(([\d.]+)ms\)$', r.getMessage())]
+            if m
+        ]
+        for label in ('[LED Sim] STATUS', '[XYZ Sim] INFO')
+    }
+    wrong = {k: v for k, v in stated.items() if not v or any(not 1.0 <= ms < 900 for ms in v)}
+    assert not wrong, f'durations off the true one: {wrong}'
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +130,24 @@ class TestSimulatedLEDBoard:
 
 
 class TestSimulatedMotorBoard:
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_a_home_raises_as_the_driver_does(self, method, monkeypatch):
+        """SimulatedMotorBoard mirrors the MotorBoard exception contract
+        so sim-backed tests exercise the same raise path as production."""
+        from drivers.exceptions import HardwareError
+
+        command = method.upper()
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={command}
+        )
+        with pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'):
+            getattr(board, method)()
+        # a stand-in by design: the simulated board has no member that answers
+        # a home with a firmware error
+        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed')
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
+
     def test_initial_state(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.found is True
@@ -199,13 +244,12 @@ class TestSimulatedMotorBoard:
         resp = board.exchange_command('INFO')
         assert 'SIMULATED' in resp
 
-    def test_disconnect_reconnect(self):
+    def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.disconnect()
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed'):
+            board.exchange_command('INFO')
         assert not board.is_connected()
-        resp = board.exchange_command('INFO')
-        assert resp is not None
-        assert board.is_connected()
 
     def test_acceleration_stubs(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
@@ -429,6 +473,7 @@ class TestATravelHold:
         self._arrives(board)
         assert board.current_pos('X') == pytest.approx(5000, abs=1)
 
+    @pytest.mark.slow
     def test_a_home_ends_the_hold(self):
         board = self._board()
         self._held(board, axis='Z')
@@ -622,11 +667,11 @@ class TestScaleBarObjectiveInit:
     def test_the_selected_objective_is_the_settings(self):
         """With no turret, the objective is the one the settings select."""
 
-        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session
 
-        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope, objective_id='20x Oly')
-        assert scope.runtime_state.get_current_objective()['magnification'] == 20
+        assert scope.runtime_state.get_current_objective().magnification == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective -> use_scale_bar forced False."""
@@ -635,17 +680,17 @@ class TestScaleBarObjectiveInit:
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope, scale_bar={'enabled': True})
-        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.read_setting('scale_bar.enabled') is True
         assert scope.runtime_state.get_current_objective() is None
 
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
 
-        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session
 
-        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope, objective_id='20x Oly', scale_bar={'enabled': True})
-        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.read_setting('scale_bar.enabled') is True
         assert scope.runtime_state.get_current_objective() is not None
 
 
@@ -785,12 +830,10 @@ class TestSimulatedCamera:
     def test_grab_returns_image(self):
         cam = SimulatedCamera()
         cam.open_and_start()
-        result, ts, _seq = grab_a_frame_made_after_now(cam)
-        assert result is True
-        assert ts is not None
-        assert isinstance(cam.array, np.ndarray)
-        assert cam.array.shape == (2160, 3840)
-        assert cam.array.dtype == np.uint8
+        frame = grab_a_frame_made_after_now(cam)
+        assert isinstance(frame.image, np.ndarray)
+        assert frame.image.shape == (2160, 3840)
+        assert frame.image.dtype == np.uint8
 
     def test_grab_new_capture(self):
         cam = SimulatedCamera()
@@ -798,17 +841,16 @@ class TestSimulatedCamera:
         # drivers). `timeout=1000` here would have been 1000 seconds and
         # passed only because the simulator doesn't honor the timeout.
         cam.open_and_start()
-        result, ts, _seq = cam.grab_new_capture(timeout_s=5.0)
-        assert result is True
-        assert ts is not None
-        assert isinstance(cam.array, np.ndarray)
+        frame = cam.grab_new_capture(timeout_s=5.0)
+        assert frame is not None
+        assert isinstance(frame.image, np.ndarray)
 
     def test_grab_respects_binning(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_binning_size(2)
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.shape == (1080, 1920)
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.shape == (1080, 1920)
 
     def test_a_format_change_stores_no_frame_made_under_the_old_format(self):
         """A pixel-format change stops the stream, applies and restarts it, as
@@ -823,9 +865,9 @@ class TestSimulatedCamera:
         cam.open_and_start()
         grab_a_frame_made_after_now(cam)
         assert cam.set_pixel_format('Mono12') is True
-        ok, _ts, _seq = cam.grab_new_capture(timeout_s=5.0)
-        assert ok is True
-        assert cam.array.dtype == np.uint16, (
+        frame = cam.grab_new_capture(timeout_s=5.0)
+        assert frame is not None
+        assert frame.image.dtype == np.uint16, (
             'a frame made under the old format was stored after the change'
         )
 
@@ -833,25 +875,24 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_pixel_format('Mono12')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.dtype == np.uint16
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.dtype == np.uint16
 
     def test_grab_not_grabbing_returns_false(self):
         cam = SimulatedCamera()
         cam.stop_grabbing()
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        assert cam.grab() is None
 
     def test_image_brightness_varies_with_exposure(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.exposure_t(1.0)  # 1ms -- dim
-        grab_a_frame_made_after_now(cam)
-        dim = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        dim = frame.image.mean()
 
         cam.exposure_t(100.0)  # 100ms -- bright
-        grab_a_frame_made_after_now(cam)
-        bright = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        bright = frame.image.mean()
 
         assert bright > dim
 
@@ -859,12 +900,12 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.gain(0.1)
-        grab_a_frame_made_after_now(cam)
-        low = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        low = frame.image.mean()
 
         cam.gain(20.0)
-        grab_a_frame_made_after_now(cam)
-        high = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        high = frame.image.mean()
 
         assert high > low
 
@@ -876,12 +917,12 @@ class TestSimulatedCamera:
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.exposure_t(1.0)
         cam.gain(0.0)
-        grab_a_frame_made_after_now(cam)
-        unity = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        unity = frame.image.mean()
 
         cam.gain(20.0)
-        grab_a_frame_made_after_now(cam)
-        amplified = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        amplified = frame.image.mean()
 
         assert amplified / unity == pytest.approx(10.0, rel=0.05)
 
@@ -891,32 +932,32 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.max() == 0
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.max() == 0
 
     def test_white_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='White')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.max() == 255
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.max() == 255
 
     def test_noise_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Noise')
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # Noise should have some variance
-        assert cam.array.std() > 0
+        assert frame.image.std() > 0
 
     def test_disable_pattern_returns_the_specimen(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # The specimen field has variation; the black pattern it replaced does not
-        assert cam.array.std() > 0
+        assert frame.image.std() > 0
 
 
 class TestNoPatternRequestedRendersTheSpecimen:
@@ -932,33 +973,41 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
-        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        frames = [
+            np.asarray(
+                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            )
+            for _ in range(4)
+        ]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(f.std() for f in frames) > 0
         assert min(diffs) > 0, 'consecutive frames are identical -- this is a static image'
 
-    def test_a_fresh_camera_renders_the_specimen_without_load_specimen(self):
+    def test_a_fresh_camera_renders_the_moving_specimen(self):
         cam = SimulatedCamera(width=480, height=300)
-        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        frames = [
+            np.asarray(
+                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            )
+            for _ in range(4)
+        ]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(diffs) > 0, 'the constructor default is a static image'
 
-    def test_an_unknown_pattern_name_warns_and_still_renders(self):
-        # The suite mocks lvp_logger, so the driver's `logger` is a MagicMock
-        # and no handler or caplog capture can see the call -- assert on the
-        # mock, which is how the rest of the suite checks driver logging.
-        import drivers.simulated_camera as sim_cam
-
+    def test_an_unknown_pattern_name_warns_and_still_renders(self, caplog):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='NotAPattern')
-        sim_cam.logger.warning.reset_mock()
-        img = np.asarray(cam._generate_image(), dtype=float)
+        caplog.clear()
+        img = np.asarray(
+            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+        )
 
         assert img.std() > 0, 'a bad name must still produce a usable frame'
-        sim_cam.logger.warning.assert_called()
         # set_test_pattern lowercases the name, so the message carries it lowercased
-        emitted = ' '.join(str(c) for c in sim_cam.logger.warning.call_args_list).lower()
+        emitted = ' '.join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ).lower()
         assert 'notapattern' in emitted, (
             'an unrecognized pattern name must say so, not fall back silently'
         )
@@ -970,7 +1019,9 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera()
         cam.set_test_pattern(enabled=False)
         cam._pixel_format = 'Mono12'
-        img = np.asarray(cam._generate_image(), dtype=float)
+        img = np.asarray(
+            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+        )
         assert img.max() > 255, (
             f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
         )
@@ -1047,20 +1098,20 @@ class TestNoPatternRequestedRendersTheSpecimen:
     # -- Z-dependent focus simulation --
 
     def test_focus_target_pattern(self):
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # Focus target should have features -- not uniform
-        assert cam.array.std() > 5
+        assert frame.image.std() > 5
 
     def test_set_get_z_position(self):
-        cam = SimulatedCamera(grab_delay=0)
+        cam = SimulatedCamera()
         cam.set_z_position(3000.0)
         assert cam.get_z_position() == 3000.0
 
     def test_set_get_focal_z(self):
-        cam = SimulatedCamera(grab_delay=0)
+        cam = SimulatedCamera()
         cam.set_focal_z(7000.0)
         assert cam.get_focal_z() == 7000.0
 
@@ -1068,7 +1119,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Vollath F4 focus score should be highest at the focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
@@ -1076,8 +1127,8 @@ class TestNoPatternRequestedRendersTheSpecimen:
         scores = {}
         for z in [3000, 4000, 4500, 4800, 5000, 5200, 5500, 6000, 7000]:
             cam.set_z_position(float(z))
-            grab_a_frame_made_after_now(cam)
-            scores[z] = focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            scores[z] = focus_vollath4_original(image=frame.image)
 
         # Best score should be at z=5000 (focal point)
         best_z = max(scores, key=scores.get)
@@ -1087,7 +1138,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Focus score should decrease as we move away from focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
@@ -1095,16 +1146,16 @@ class TestNoPatternRequestedRendersTheSpecimen:
         # Get scores at increasing distances from focus, in depths of field
         # (a camera built on its own renders with a 10 um depth of field)
         cam.set_z_position(5000.0)
-        grab_a_frame_made_after_now(cam)
-        score_at_focus = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_at_focus = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5010.0)
-        grab_a_frame_made_after_now(cam)
-        score_near = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_near = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5040.0)
-        grab_a_frame_made_after_now(cam)
-        score_far = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_far = focus_vollath4_original(image=frame.image)
 
         assert score_at_focus > score_near > score_far, (
             f'Scores should decrease: focus={score_at_focus}, near={score_near}, far={score_far}'
@@ -1114,39 +1165,37 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Focus scores should be roughly symmetric around focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
 
         cam.set_z_position(4980.0)
-        grab_a_frame_made_after_now(cam)
-        score_below = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_below = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5020.0)
-        grab_a_frame_made_after_now(cam)
-        score_above = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_above = focus_vollath4_original(image=frame.image)
 
         # Within 20% of each other (both 20 um, two depths of field, from focus)
         ratio = score_below / score_above if score_above != 0 else float('inf')
         assert 0.8 < ratio < 1.2, f'Asymmetric: below={score_below}, above={score_above}'
 
-    def test_z_position_func_callback(self):
-        """Camera auto-queries Z from callback when generating focus_target."""
-        z_val = [5000.0]
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0, z_position_func=lambda: z_val[0])
+    def test_a_z_told_to_the_sensor_is_where_the_next_frames_are_exposed(self):
+        """The scope tells the sensor where Z stands; frames exposed after it are made there."""
+        cam = SimulatedCamera(width=480, height=300)
+        cam.set_z_position(5000.0)
         cam.open_and_start()
-        cam.set_test_pattern(enabled=True, pattern='focus_target')
-        cam.set_focal_z(5000.0)
+        try:
+            at_focus = grab_a_frame_made_after_now(cam)
+            cam.set_z_position(3000.0)
+            moved = grab_a_frame_made_after_now(cam)
+        finally:
+            cam.stop_grabbing()
 
-        # At focus
-        grab_a_frame_made_after_now(cam)
-        assert cam.get_z_position() == 5000.0
-
-        # Move via callback
-        z_val[0] = 3000.0
-        grab_a_frame_made_after_now(cam)
-        assert cam.get_z_position() == 3000.0
+        assert cam.exposed_under(at_focus.chunks['FrameID']).z_um == 5000.0
+        assert cam.exposed_under(moved.chunks['FrameID']).z_um == 3000.0
 
     def test_the_specimen_is_sharpest_at_the_focal_plane(self):
         """The specimen a live view shows blurs with defocus, so a sweep's
@@ -1161,8 +1210,8 @@ class TestNoPatternRequestedRendersTheSpecimen:
         scores = {}
         for z in [4995.0, 4999.0, 5003.0, 5005.0, 5007.0, 5009.0, 5011.0, 5015.0, 5019.0]:
             cam.set_z_position(z)
-            grab_a_frame_made_after_now(cam)
-            scores[z] = focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            scores[z] = focus_vollath4_original(image=frame.image)
 
         best_z = max(scores, key=scores.get)
         assert best_z == 5007.0, f'best focus at {best_z}, not the focal plane. Scores: {scores}'
@@ -1176,26 +1225,26 @@ class TestNoPatternRequestedRendersTheSpecimen:
             cam.open_and_start()
             cam.set_focal_z(5000.0)
             cam.set_z_position(5010.0)
-            grab_a_frame_made_after_now(cam)
-            return focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            return focus_vollath4_original(image=frame.image)
 
         assert score_10_um_off(dof=55.5) > score_10_um_off(dof=1.7)
 
     def test_no_blur_at_focal_point(self):
         """Image at focal point should be identical to unblurred target."""
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
 
         cam.set_z_position(5000.0)
-        grab_a_frame_made_after_now(cam)
-        sharp = cam.array.copy()
+        frame = grab_a_frame_made_after_now(cam)
+        sharp = frame.image.copy()
 
         # Defocused image should differ
         cam.set_z_position(7000.0)
-        grab_a_frame_made_after_now(cam)
-        blurred = cam.array
+        frame = grab_a_frame_made_after_now(cam)
+        blurred = frame.image
 
         assert not np.array_equal(sharp, blurred)
         # Blurred image should have lower variance (smoother)
@@ -1360,50 +1409,135 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert cam.is_grabbing() is False
 
 
+def _held_by_the_specimen() -> int:
+    """Bytes allocated in the specimen's module since tracemalloc started, and still held.
+
+    A frame a camera cuts from the sample is allocated there too, so a
+    count of the drawn sample is taken with no camera connected.
+    """
+    import tracemalloc
+
+    import drivers.simulated_specimen as specimen_module
+
+    snapshot = tracemalloc.take_snapshot().filter_traces(
+        [tracemalloc.Filter(True, specimen_module.__file__)]
+    )
+    return sum(stat.size for stat in snapshot.statistics('filename'))
+
+
+def _a_frame_at(x_um: float, y_um: float) -> SimulatedCamera:
+    """A connected simulated camera that has made a frame at (``x_um``, ``y_um``)."""
+    cam = SimulatedCamera(width=1920, height=1200)
+    cam.set_stage_xy(x_um, y_um)
+    cam.open_and_start()
+    grab_a_frame_made_after_now(cam)
+    return cam
+
+
+class TestTheSampleIsDrawnOncePerProcess:
+    """Every simulated camera in a process draws from one sample.
+
+    A camera that built its own sample drew every region again from cold,
+    and on a slow host that drawing, between a frame's hand-over and its
+    store, outlasted a capture's wait. The positions are far from any
+    other test's, so the tiles each test draws are its own.
+    """
+
+    def test_a_second_camera_draws_no_region_the_first_drew(self, monkeypatch):
+        # Counted at the drawing itself: no public surface sees a drawing
+        # but its time, and a wall-time bound is what this fix removes.
+        # Only this test's region is counted, so a camera another test
+        # left streaming elsewhere does not count.
+        drawn = []
+        draw = Specimen._draw
+
+        def counted(specimen, top, left, scale):
+            if left * scale < -800_000.0:
+                drawn.append((top, left, scale))
+            return draw(specimen, top, left, scale)
+
+        monkeypatch.setattr(Specimen, '_draw', counted)
+        _a_frame_at(-900_000.0, 0.0).disconnect()
+        by_the_first = len(drawn)
+        drawn.clear()
+        _a_frame_at(-900_000.0, 0.0).disconnect()
+        assert by_the_first > 0, 'the first camera drew nothing: the count sees no drawing'
+        assert drawn == [], f'the second camera drew {len(drawn)} of the regions the first drew'
+
+    @pytest.mark.slow
+    def test_the_drawn_sample_is_capped_however_many_cameras_come_and_go(self):
+        import tracemalloc
+
+        # 20 frames of 1920 x 1200 at distinct places draw about 1000
+        # tiles. A tile keeps its 264 x 264 drawing with the margin, so the
+        # cap of 512 holds about 36 MB, with the cells of the grid squares
+        # beside it; 1000 kept would be about 70 MB. Every camera is
+        # disconnected before the count, so no frame cut from the sample is
+        # held.
+        tracemalloc.start()
+        try:
+            for i in range(20):
+                _a_frame_at(900_000.0 + 4000.0 * i, 0.0).disconnect()
+            held = _held_by_the_specimen()
+        finally:
+            tracemalloc.stop()
+        assert held < 50 * 2**20, f'the drawn sample holds {held} bytes past its cap'
+        assert held > 30 * 2**20, f'the drawing held only {held} bytes, never reaching the cap'
+
+
 class TestTheSpecimenField:
-    """The specimen is one field, drifting one pixel around a circle.
+    """The specimen is one sample on the stage, drifting one pixel around a circle.
 
     A field that changed from frame to frame changed what a focus metric
     scored at one Z, so a sweep found its peak wherever the change put it.
     """
 
     def test_never_fully_black_or_blown_out(self):
-        field = specimen_field(600, 800)
+        field = Specimen().view(0.0, 0.0, 600, 800, None)
         assert field.min() > 0, 'a crushed field reads as a dead camera'
         assert field.max() < 255, 'a blown field hides the exposure control'
 
-    def test_deterministic_for_a_fixed_seed(self):
-        assert np.array_equal(specimen_field(600, 800), specimen_field(600, 800))
+    def test_the_same_place_is_the_same_sample_every_time(self):
+        assert np.array_equal(
+            Specimen().view(1500.0, -700.0, 600, 800, 0.75),
+            Specimen().view(1500.0, -700.0, 600, 800, 0.75),
+        )
 
     def test_matches_requested_size(self):
-        field = specimen_field(1200, 1920)
+        field = Specimen().view(0.0, 0.0, 1200, 1920, None)
         assert field.shape == (1200, 1920)
         assert field.dtype == np.uint8
 
     def test_the_drift_moves_the_frame_one_pixel_a_step_including_the_wrap(self):
-        frames = drift_frames(specimen_field(600, 800), 600, 800)
+        specimen = Specimen()
+        frames = [specimen.view(0.0, 0.0, 600, 800, None, shift=step) for step in DRIFT_STEPS]
         assert len({f.tobytes() for f in frames}) == len(frames), (
             'identical frames make a running stream indistinguishable from a frozen one'
         )
-        field = specimen_field(600, 800)
         # One pixel of shift on this field changes about 4 grey levels on
         # average; a larger drift would show as more.
         for a, b in zip(frames, frames[1:] + frames[:1], strict=True):
             change = float(np.abs(a.astype(int) - b.astype(int)).mean())
             assert 0 < change < 6.0, f'a drift step changed {change} grey levels'
-        assert all(f.shape == field.shape for f in frames)
 
     def test_the_drift_does_not_move_a_focus_score(self):
         """A sweep's scores differ by focus, not by which drift step a frame was."""
         from modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: 4.0)
-        cam.open_and_start()
         cam.set_focal_z(5000.0)
         cam.set_z_position(5000.0)
-        at_focus = [focus_vollath4_original(image=cam._generate_image()) for _ in range(4)]
-        cam.set_z_position(5001.0)
-        quarter_dof_off = focus_vollath4_original(image=cam._generate_image())
+        cam.open_and_start()
+        try:
+            # Four frames, each its own drift step.
+            at_focus = [
+                focus_vollath4_original(image=grab_a_frame_made_after_now(cam).image)
+                for _ in range(4)
+            ]
+            cam.set_z_position(5001.0)
+            quarter_dof_off = focus_vollath4_original(image=grab_a_frame_made_after_now(cam).image)
+        finally:
+            cam.stop_grabbing()
         drift_spread = max(at_focus) - min(at_focus)
         assert drift_spread < (min(at_focus) - quarter_dof_off) / 10
 
@@ -1572,6 +1706,58 @@ class TestTimingModes:
         time.sleep(0.005)
         assert m.target_status('Z') is True
 
+    @staticmethod
+    def _waits_of_a_full_home(monkeypatch, timing):
+        """Every wait the board takes through a full home on ``timing``.
+
+        A simulated home's duration is the wait the board takes for it, so
+        the waits are read from the driver's own ``time`` name rather than
+        timed on the wall: a real-time bound would be the clock of a loaded
+        machine, and the realistic home is seconds of it.
+        """
+        import types
+
+        import drivers.simulated_motorboard as simulated_motorboard
+
+        waits = []
+        clock = types.SimpleNamespace(sleep=waits.append, monotonic=time.monotonic)
+        monkeypatch.setattr(simulated_motorboard, 'time', clock)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing=timing)
+        board.home()
+        return board, waits
+
+    def test_a_home_on_the_fast_timing_waits_no_longer_than_a_fast_move(self, monkeypatch):
+        """The fast tier homes as it moves, in its own brief time, never the
+        bench's homing durations (it slept those from 2026-03-31 to 10-12)."""
+        board, waits = self._waits_of_a_full_home(monkeypatch, 'fast')
+
+        assert board.has_homed()
+        assert waits and max(waits) <= board._fast_move_duration
+
+    def test_a_home_on_the_realistic_timing_waits_the_benchs_homing_time(self, monkeypatch):
+        """The realistic timing keeps the bench's home: an XYZ home waits its
+        homing duration."""
+        board, waits = self._waits_of_a_full_home(monkeypatch, 'realistic')
+
+        assert board.has_homed()
+        assert SimulatedMotorBoard.HOMING_DURATIONS['XYZ'] in waits
+
+    def test_the_fast_timing_fan_spins_no_longer_than_a_fast_move(self):
+        """A support report's fan test waits the board's spin times; on the
+        fast tier they are its own brief time, not the real fan's 5 s."""
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
+
+        assert board.fan_spin_up_s <= board._fast_move_duration
+        assert board.fan_spin_down_s <= board._fast_move_duration
+
+    def test_the_realistic_timing_fan_spins_as_the_real_boards(self):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
+
+        assert (board.fan_spin_up_s, board.fan_spin_down_s) == (
+            MotorBoard.fan_spin_up_s,
+            MotorBoard.fan_spin_down_s,
+        )
+
     def test_led_instant_mode(self):
         led = SimulatedLEDBoard(timing='instant')
         assert led._delay == 0.0
@@ -1607,28 +1793,14 @@ class TestFailureInjection:
 
     # --- Motor board ---
 
-    def test_motor_fail_after_disconnects(self):
-        """Motor board should return None after N commands."""
-        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=3)
-        assert m.exchange_command('INFO') is not None  # cmd 1
-        assert m.exchange_command('INFO') is not None  # cmd 2
-        assert m.exchange_command('INFO') is not None  # cmd 3
-        assert m.exchange_command('INFO') is None  # cmd 4 -- disconnected
-        assert m.driver is None
-
-    def test_motor_fail_after_sets_found_false(self):
-        """After injected disconnect, found should be False."""
-        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=1)
-        assert m.found is True
-        m.exchange_command('INFO')  # cmd 1 -- succeeds
-        m.exchange_command('INFO')  # cmd 2 -- fails
-        assert m.found is False
-
     def test_motor_fail_on_specific_command(self):
-        """Motor board should return None for targeted commands only."""
+        """Motor board goes unanswered for targeted commands only."""
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_on={'ZHOME'})
         assert m.exchange_command('INFO') is not None  # OK
-        assert m.exchange_command('ZHOME') is None  # targeted failure
+        with pytest.raises(
+            BoardNoReplyError, match=r'^ZHOME: no reply from the board'
+        ):  # targeted failure
+            m.exchange_command('ZHOME')
         assert m.exchange_command('INFO') is not None  # still connected
         assert m.driver is not None  # not disconnected
 
@@ -1639,8 +1811,10 @@ class TestFailureInjection:
             fail_on={'ZHOME', 'THOME'},
             timing='instant',
         )
-        assert m.exchange_command('ZHOME') is None
-        assert m.exchange_command('THOME') is None
+        with pytest.raises(BoardNoReplyError, match=r'^ZHOME: no reply from the board'):
+            m.exchange_command('ZHOME')
+        with pytest.raises(BoardNoReplyError, match=r'^THOME: no reply from the board'):
+            m.exchange_command('THOME')
         assert m.exchange_command('HOME') is not None  # not in fail set
 
     def test_motor_no_failure_by_default(self):
@@ -1649,40 +1823,15 @@ class TestFailureInjection:
         for _ in range(100):
             assert m.exchange_command('INFO') is not None
 
-    def test_motor_fail_after_affects_move(self):
-        """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
-        )
-        m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # cmd 2: one leg, one target write
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 3
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
-        assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth
-
     # --- LED board ---
 
-    def test_led_fail_after_disconnects(self):
-        """LED board should return None after N commands."""
-        led = SimulatedLEDBoard(fail_after=2)
-        assert led.exchange_command('LEDS_ENT') is not None  # cmd 1
-        assert led.exchange_command('LED0_100') is not None  # cmd 2
-        assert led.exchange_command('LEDS_OFF') is None  # cmd 3 -- disconnected
-        assert led.driver is None
-
-    def test_led_fail_after_sets_found_false(self):
-        """After injected disconnect, found should be False."""
-        led = SimulatedLEDBoard(fail_after=1)
-        assert led.found is True
-        led.exchange_command('LEDS_ENT')  # cmd 1 -- succeeds
-        led.exchange_command('LED0_100')  # cmd 2 -- fails
-        assert led.found is False
-
     def test_led_fail_on_specific_command(self):
-        """LED board should return None for targeted commands only."""
+        """LED board goes unanswered for targeted commands only."""
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
-        assert led.exchange_command('LEDS_ENT') is None  # targeted
+        with pytest.raises(
+            BoardNoReplyError, match=r'^LEDS_ENT: no reply from the board'
+        ):  # targeted
+            led.exchange_command('LEDS_ENT')
         assert led.exchange_command('LED0_100') is not None  # OK
         assert led.driver is not None  # still connected
 
@@ -1696,27 +1845,35 @@ class TestFailureInjection:
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.unplug()
         assert m.is_connected(), 'a pulled cable is found by a write, not before'
-        assert m.exchange_command('INFO') is None
+        with pytest.raises(
+            BoardPortFailedError, match=r'^INFO: the port failed: the cable is unplugged'
+        ):
+            m.exchange_command('INFO')
         assert (m.is_connected(), m.found) == (False, False)
         m.connect()
         assert not m.is_connected(), 'no port opens while the cable is out'
         m.replug()
-        assert m.exchange_command('INFO') is not None
-        assert m.is_connected()
+        # a replug is not reopened by a command
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed'):
+            m.exchange_command('INFO')
+        assert not m.is_connected()
 
     def test_a_counted_drop_takes_that_many_of_its_command(self):
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.drop_replies('ACTUAL_RZ', count=2)
         assert m.exchange_command('INFO') is not None
-        assert m.exchange_command('ACTUAL_RZ') is None
-        assert m.exchange_command('ACTUAL_RZ') is None
+        for _ in range(2):
+            with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RZ: no reply from the board'):
+                m.exchange_command('ACTUAL_RZ')
         assert m.exchange_command('ACTUAL_RZ') is not None
 
     def test_a_drop_of_any_command_lasts_until_lifted(self):
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.drop_replies()
-        assert m.exchange_command('INFO') is None
-        assert m.exchange_command('ACTUAL_RX') is None
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            m.exchange_command('INFO')
+        with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RX: no reply from the board'):
+            m.exchange_command('ACTUAL_RX')
         m.stop_dropping()
         assert m.exchange_command('INFO') is not None
 
@@ -1727,16 +1884,8 @@ class TestFailureInjection:
 
     def test_led_fail_on_matches_by_first_word_as_the_motor_board_does(self):
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
-        assert led.exchange_command('LEDS_ENT 1') is None
-
-    def test_led_fast_path_also_fails(self):
-        """_write_command_fast should also respect fail_after."""
-        led = SimulatedLEDBoard(fail_after=2)
-        led._write_command_fast('LED0_100')  # cmd 1
-        led._write_command_fast('LED1_100')  # cmd 2
-        led._write_command_fast('LED2_100')  # cmd 3 -- should disconnect
-        assert led.driver is None
-        assert led.found is False
+        with pytest.raises(BoardNoReplyError, match=r'^LEDS_ENT 1: no reply from the board'):
+            led.exchange_command('LEDS_ENT 1')
 
 
 class TestTheCamerasFaultDoors:
@@ -1758,8 +1907,24 @@ class TestTheCamerasFaultDoors:
     def test_a_raising_write_raises(self):
         cam = SimulatedCamera()
         cam.refuse_write('exposure', 'raise')
-        with pytest.raises(RuntimeError, match='exposure node write failed'):
+        with pytest.raises(CameraWriteFailedError, match='exposure node write failed'):
             cam.exposure_t(5.0)
+
+    def test_a_write_the_camera_does_not_answer_raises_and_keeps_the_camera(self):
+        # A timed-out write: the camera may answer the next one, so it is
+        # not taken for gone, and nothing moved.
+        from drivers.exceptions import CameraNoAnswerError
+
+        cam = SimulatedCamera()
+        cam.gain(2.0)
+        cam.refuse_write('gain', 'no_answer')
+        with pytest.raises(CameraNoAnswerError) as raised:
+            cam.gain(8.0)
+        assert raised.value.reason == 'camera_no_answer'
+        assert not cam.is_device_removed()
+        assert cam.get_gain() == pytest.approx(2.0)
+        cam.gain(8.0)
+        assert cam.get_gain() == pytest.approx(8.0)
 
     def test_a_refusal_no_write_met_is_taken_back(self):
         cam = SimulatedCamera()
@@ -1779,6 +1944,20 @@ class TestTheCamerasFaultDoors:
         cam.leave_bus()
         assert cam.is_device_removed()
 
+    def test_a_camera_that_leaves_the_bus_delivers_no_more_frames(self):
+        """A removed camera's stream ends, so a recording on it is lost, not completed."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        try:
+            handler = cam.cam_image_handler
+            assert handler.wait_for_frame_after(handler.frames_delivered, 2.0)
+            cam.leave_bus()
+            # A frame already on its way when the camera left may still land.
+            handler.wait_for_frame_after(handler.frames_delivered, 0.1)
+            assert not handler.wait_for_frame_after(handler.frames_delivered, 0.5)
+        finally:
+            cam.stop_grabbing()
+
 
 class TestAnUnlitFieldIsDark:
     """The simulated camera answers to light.
@@ -1792,16 +1971,16 @@ class TestAnUnlitFieldIsDark:
     """
 
     def test_the_same_camera_is_dark_unlit_and_bright_lit(self):
-        lit = {'on': False}
-        cam = SimulatedCamera(illumination_func=lambda: 50.0 if lit['on'] else 0.0)
+        cam = SimulatedCamera()
+        cam.set_illumination(0.0)
         cam.open_and_start()
 
-        grab_a_frame_made_after_now(cam)
-        dark = cam.array.max()
+        frame = grab_a_frame_made_after_now(cam)
+        dark = frame.image.max()
 
-        lit['on'] = True
-        grab_a_frame_made_after_now(cam)
-        bright = cam.array.max()
+        cam.set_illumination(50.0)
+        frame = grab_a_frame_made_after_now(cam)
+        bright = frame.image.max()
 
         assert dark == 0, f'an unlit field must be black, peaked at {dark}'
         assert bright > 0, 'a lit field must show the specimen'
@@ -1812,6 +1991,6 @@ class TestAnUnlitFieldIsDark:
         cam = SimulatedCamera()
         cam.open_and_start()
 
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
 
-        assert cam.array.max() > 0
+        assert frame.image.max() > 0

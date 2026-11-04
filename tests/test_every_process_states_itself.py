@@ -11,6 +11,7 @@ process was launched from, its data root, and its PID.
 from __future__ import annotations
 
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -27,8 +28,11 @@ print(os.getpid())
 def test_a_process_first_logs_its_version_runtime_roots_and_pid(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'lib', 'version.txt'):
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt'):
         (folder / item).symlink_to(REPO / item)
+    # The shipped settings an installation carries; the logger reads debug_mode from it.
+    (folder / 'data').mkdir()
+    shutil.copy(REPO / 'data' / 'settings.json', folder / 'data' / 'settings.json')
 
     pid = subprocess.run(
         [sys.executable, '-c', _CHILD],

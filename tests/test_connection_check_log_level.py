@@ -7,50 +7,40 @@ the main log (~1.2k/soak). Those happy-path lines are debug (routine, per
 Rule 5); the "<board> not connected" lines stay at info -- a board dropping
 out mid-run is a real degraded-path event the user should see.
 
-lvp_logger is mocked under the test conftest, so levels are asserted by
-swapping a recording logger into the module under test rather than caplog.
+Levels are read from caplog: the lines the scope module writes through
+its main logger, by the file that wrote them.
 """
+
+import logging
 
 import pytest
 
 from modules.lumascope_api import _lumascope as lumascope_mod
+from tests.log_capture import records_of
 from tests.scope_fakes import build_scope
 
 
-class _RecordingLogger:
-    """Minimal logger stand-in capturing (level, message) pairs."""
+class _ScopeLog:
+    """The levels of the scope module's main-logger lines that name a text."""
 
-    def __init__(self):
-        self.records = []
-
-    def debug(self, msg, *args, **kwargs):
-        self.records.append(('DEBUG', str(msg)))
-
-    def info(self, msg, *args, **kwargs):
-        self.records.append(('INFO', str(msg)))
-
-    def warning(self, msg, *args, **kwargs):
-        self.records.append(('WARNING', str(msg)))
-
-    def error(self, msg, *args, **kwargs):
-        self.records.append(('ERROR', str(msg)))
-
-    def exception(self, msg, *args, **kwargs):
-        self.records.append(('ERROR', str(msg)))
-
-    def critical(self, msg, *args, **kwargs):
-        self.records.append(('CRITICAL', str(msg)))
+    def __init__(self, caplog):
+        self._caplog = caplog
 
     def levels_for(self, substring):
-        return [lvl for lvl, msg in self.records if substring in msg]
+        return [
+            r.levelname
+            for r in records_of(self._caplog, lumascope_mod)
+            if r.name == lumascope_mod.logger.name and substring in r.getMessage()
+        ]
 
 
 @pytest.fixture
-def sim_scope_with_log(monkeypatch):
+def sim_scope_with_log(caplog):
     scope = build_scope(simulate=True)
-    recorder = _RecordingLogger()
-    monkeypatch.setattr(lumascope_mod, 'logger', recorder)
-    yield scope, recorder
+    caplog.clear()
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger=lumascope_mod.logger.name)
+    yield scope, _ScopeLog(caplog)
     scope.disconnect()
 
 

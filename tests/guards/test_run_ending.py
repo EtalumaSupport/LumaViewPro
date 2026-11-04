@@ -19,9 +19,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
-from modules.exceptions import RunAlreadyEndedError
 from modules.run_events import RunEvents
-from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
 from tests.protocol_drives import run_identity
 
@@ -36,8 +35,8 @@ MODULES = REPO_ROOT / 'modules'
 class TestEndingLatch:
     def test_the_first_ending_is_the_one_kept(self):
         latch = EndingLatch()
-        first = RunEnding('failed', 'motion_timeout', 'Timeout', 'the cause')
-        later = RunEnding('failed', 'run_loop_crashed', 'Crash', 'the consequence')
+        first = RunEnding('failed', 'position_lost', 'the cause')
+        later = RunEnding('failed', 'run_loop_crashed', 'the consequence')
 
         assert latch.set_if_unset(first) is True
         assert latch.set_if_unset(later) is False, (
@@ -53,10 +52,11 @@ class TestEndingLatch:
         latch = EndingLatch()
         start = threading.Barrier(8)
         wins = []
+        reasons = sorted(ENDING_TITLES)[:8]
 
         def race(i):
             start.wait()
-            if latch.set_if_unset(RunEnding('failed', f'code_{i}', 't', 'm')):
+            if latch.set_if_unset(RunEnding('failed', reasons[i], 'm')):
                 wins.append(i)
 
         threads = [threading.Thread(target=race, args=(i,)) for i in range(8)]
@@ -66,10 +66,10 @@ class TestEndingLatch:
             t.join()
 
         assert len(wins) == 1, f'{len(wins)} writers each believed they were first'
-        assert latch.get().reason == f'code_{wins[0]}'
+        assert latch.get().reason == reasons[wins[0]]
 
     def test_the_record_cannot_be_mutated_after_the_fact(self):
-        ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test')
+        ending = RunEnding('aborted', 'stopped', 'Stopped by test')
         with pytest.raises(dataclasses.FrozenInstanceError):
             ending.status = 'completed'
 
@@ -79,31 +79,11 @@ class TestEndingLatch:
 # site can state an ending without one.
 # ---------------------------------------------------------------------------
 
-# Every reason this codebase may record, with the site that owns it. A new
-# fault site fails this test until it appears here -- which is the point:
-# the vocabulary is a contract with REST and the SDK, not an ad-hoc string.
-COVERAGE = {
-    'led_channel_unavailable',
-    'camera_failure',
-    'file_writer_stalled',
-    'disk_space_critical',
-    'video_writer_died',
-    'motion_timeout',
-    'position_lost',
-    'interlock',
-    'hardware_disconnected',
-    'consecutive_scan_failures',
-    'run_loop_crashed',
-    'camera_lane_stalled',
-    'stopped',
-    'shutdown',
-    'capture_location_unusable',
-    'run_dir_init_failed',
-    'dispatch_refused',
-    'start_failed',
-    'completed',
-    'captures_failed',
-}
+# Every reason a run may end with is a row of the one table that titles it:
+# a new fault site fails this test until its reason has a row -- which is the
+# point: the vocabulary is a contract with REST and the SDK, not an ad-hoc
+# string, and it is kept in one place.
+COVERAGE = set(ENDING_TITLES)
 
 ENDING_FILES = [
     'protocol_run_loop.py',
@@ -111,6 +91,8 @@ ENDING_FILES = [
     'protocol_image_writer.py',
     'protocol_recording.py',
     'sequenced_capture_runner.py',
+    # The one builder of an ending more than one site makes.
+    'run_outcome.py',
 ]
 
 
@@ -129,7 +111,7 @@ def _recorded_reasons():
             fn = node.func
             label = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
             if label in ('abort_run_fatal', '_abort_run_fatal', 'end_run_fatally', 'RunStartError'):
-                # (reason, domain, title, message) on the writer's own funnel,
+                # (reason, domain, message) on the writer's own funnel,
                 # (reason, title, message) through the runner's two seams and on
                 # the typed start failure -- the cause is first in all four.
                 arg = node.args[0] if node.args else None
@@ -242,7 +224,7 @@ def test_every_error_state_write_aborts_the_run_in_the_same_function():
 # ---------------------------------------------------------------------------
 
 
-def _stop_stub(trigger='test', loop_ended=False):
+def _stop_stub(loop_ended=False):
     import concurrent.futures
 
     import modules.sequenced_capture_runner as scr
@@ -254,7 +236,7 @@ def _stop_stub(trigger='test', loop_ended=False):
     stub = SimpleNamespace(
         _run_lock=threading.RLock(),
         _is_run_live=lambda: True,
-        _run_identity=run_identity(trigger),
+        _run_identity=run_identity(),
         # The handle start() returned for the live run, which a stop names.
         _run_outcome=PendingRunOutcome(),
         _run_handle=None,
@@ -266,34 +248,45 @@ def _stop_stub(trigger='test', loop_ended=False):
         LOGGER_NAME='TEST',
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
-    stub._run_handle = scr.RunHandle(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
+    stub._run_handle = scr.EngineRun(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
-    stub._last_run_trigger = lambda: scr.SequencedCaptureRunner._last_run_trigger(stub)
+    stub._last_run_started_by = lambda: scr.SequencedCaptureRunner._last_run_started_by(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
 
 
 class TestTheRunnerRecordsTheStop:
-    def test_a_stop_records_that_the_run_was_stopped(self):
-        """A stop names the run, not the caller, so the ending records that
-        the run was stopped and nothing about who asked."""
+    def test_a_stop_records_that_the_run_was_stopped_and_by_whom(self):
+        """A stop names the run, not the caller; the ending records that the
+        run was stopped, and its sentence says who stopped it: the caller
+        stamped on the stopping thread, code in this process where no host
+        stamped it."""
         scr, stub, _cleaned = _stop_stub()
-        scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
+        scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
 
         ending = stub._ending.get()
         assert (ending.status, ending.reason, ending.message) == (
             'aborted',
             'stopped',
-            'Stopped',
+            'Stopped by code in this process.',
         )
+
+    def test_a_stop_the_gui_makes_says_the_gui_stopped_it(self):
+        """The sentence is the stopping thread's stamp, not the starter's."""
+        from modules.caller import Caller, calling
+
+        scr, stub, _cleaned = _stop_stub()
+        with calling(Caller.GUI):
+            scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
+
+        assert stub._ending.get().message == 'Stopped by LumaViewPro.'
 
     def test_a_stop_with_nothing_to_stop_records_nothing(self):
         """A Stop that finds its run already ended ended no run, so it must
         leave no reason behind for the NEXT run to report as its own."""
         scr, stub, _ = _stop_stub()
         stub._is_run_live = lambda: False
-        with pytest.raises(RunAlreadyEndedError):
-            scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
+        scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
         assert stub._ending.get() is None
 
     def test_the_shutdown_unwind_gets_the_same_record(self):
@@ -328,18 +321,21 @@ class TestAStartFailureCarriesItsCause:
             _cleanup=lambda ending, run: cleaned.append(ending),
             LOGGER_NAME='TEST',
         )
-        stub._unwind_undispatched_run = lambda ending, run: (
-            scr.SequencedCaptureRunner._unwind_undispatched_run(stub, ending, run)
+        stub._unwind_run_not_begun = lambda ending, run: (
+            scr.SequencedCaptureRunner._unwind_run_not_begun(stub, ending, run)
+        )
+        stub.end_run_not_begun = lambda ending, run: scr.SequencedCaptureRunner.end_run_not_begun(
+            stub, ending, run
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
-            RunStartError('capture_location_unusable', 'Run failed to start', 'Pick a folder.'),
+            RunStartError('capture_location_failed', 'Pick a folder.'),
             PendingRunOutcome(),
         )
 
         ending = stub._ending.get()
         assert ending.status == 'failed_at_start'
-        assert ending.reason == 'capture_location_unusable'
+        assert ending.reason == 'capture_location_failed'
         assert ending.message == 'Pick a folder.'
         # No loop ever ran to unwind it, so start()'s own unwind does, once.
         assert cleaned == [ending]
@@ -350,8 +346,11 @@ class TestAStartFailureCarriesItsCause:
         stub = SimpleNamespace(
             _run_dir=None,
             _ending=EndingLatch(),
-            _unwind_undispatched_run=lambda ending, run: None,
+            _unwind_run_not_begun=lambda ending, run: None,
             LOGGER_NAME='TEST',
+        )
+        stub.end_run_not_begun = lambda ending, run: scr.SequencedCaptureRunner.end_run_not_begun(
+            stub, ending, run
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
@@ -387,7 +386,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
 
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
-    stub._last_run.return_value = scr.RunHandle(
+    stub._last_run.return_value = scr.EngineRun(
         stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock())
     )
     stub._is_run_live = lambda: True
@@ -417,8 +416,8 @@ def _run_cleanup_args(monkeypatch, stub, stated):
     return seen
 
 
-COMPLETED = RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.')
-STOPPED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test')
+COMPLETED = RunEnding('completed', 'completed', 'The run finished normally.')
+STOPPED = RunEnding('aborted', 'stopped', 'Stopped by test')
 
 
 class TestTheLatchOutranksTheWordTheLoopStated:
@@ -428,9 +427,7 @@ class TestTheLatchOutranksTheWordTheLoopStated:
         reported as a completed run, because cleanup took the loop's word.
         """
         stub = _cleanup_stub(
-            latched=RunEnding(
-                'failed', 'video_writer_died', 'Video Writer Failed', 'the lane died'
-            ),
+            latched=RunEnding('failed', 'video_writer_died', 'the lane died'),
             forced_dark=True,
         )
         seen = _run_cleanup_args(monkeypatch, stub, COMPLETED)
@@ -469,32 +466,12 @@ class TestTheLatchOutranksTheWordTheLoopStated:
         )
 
 
-class TestAMotionTimeoutEndsTheRunAsAFault:
-    def test_it_aborts_through_the_funnel_naming_the_timeout(self):
-        """A timed-out move is a fault the instrument imposed: it force-darkens
-        and names itself, where the strike ceiling (a policy stop) does not.
-        """
-        import modules.protocol_step_runner as psr
-        from tests.protocol_drives import protocol_step, scan_ready_runner
-
-        runner = scan_ready_runner(protocol_step())
-        runner._scope.motion.is_moving.return_value = True
-        runner._motion_wait_start = 0.0  # already past the bound
-        runner.MOTION_TIMEOUT_SECONDS = 0.0
-
-        psr.ProtocolStepRunner(runner).scan_iterate()
-
-        aborts = runner._image_writer._abort_run_fatal.call_args_list
-        assert len(aborts) == 1, f'a motion timeout must end the run once; got {len(aborts)}'
-        reason, _domain, title, _message = aborts[0].args
-        assert reason == 'motion_timeout'
-        assert 'Motion Timeout' in title
-
-
 class TestTheRunLoopsOwnEndings:
-    def test_a_crashed_run_loop_records_the_exception_as_the_cause(self):
-        """The safety net used to hand cleanup the bare word 'failed'. The
-        exception it caught is the only thing that knows why."""
+    def test_a_crashed_run_loop_is_told_as_lumaviewpros_failure(self):
+        """The safety net used to hand cleanup the bare word 'failed', then
+        the exception's own text, a programmer's. The ending names the crash
+        and the person reads that LumaViewPro failed; the text stays in the
+        log."""
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
@@ -503,11 +480,17 @@ class TestTheRunLoopsOwnEndings:
 
         loop.run_loop(runner._last_run())
 
-        ending = runner._ending.get()
-        assert (ending.status, ending.reason) == ('failed', 'run_loop_crashed')
-        assert 'the loop died here' in ending.message
-        assert runner._cleanup.call_args.args[0] is ending, (
-            'cleanup was handed a different ending than the one recorded'
+        # Through the funnel, as every run-killing fault: it records the
+        # ending and shows it (the writer is this harness's mock).
+        ((reason, domain, message),) = [
+            c.args for c in runner._image_writer._abort_run_fatal.call_args_list
+        ]
+        assert (reason, domain) == ('run_loop_crashed', 'Protocol')
+        assert 'LumaViewPro failed' in message
+        assert 'the loop died here' not in message
+        ending = runner._cleanup.call_args.args[0]
+        assert (ending.reason, ending.message) == (reason, message), (
+            'cleanup was handed a different ending than the one the funnel recorded'
         )
 
     def test_the_disk_floor_aborts_outside_the_handler_that_swallows_probes(self, monkeypatch):
@@ -521,23 +504,21 @@ class TestTheRunLoopsOwnEndings:
         runner = run_loop_ready_runner(protocol_step())
         runner._parent_dir = '/tmp'
         # Real numbers: the estimate is compared with max() against a float, so
-        # a mock here raises and the probe's own handler would (correctly)
-        # proceed -- masking the case under test.
+        # a mock here raises and the run ends as a crash -- masking the case
+        # under test.
         runner._protocol.estimate_write_mb.return_value = 500.0
         runner._protocol.num_steps.return_value = 1
-        # start() always sets this; the bare harness does not, and without it
-        # the estimate raises and the probe's handler proceeds -- masking the
-        # case under test.
-        runner._video_max_fps = 30.0
+        # start() always sets this from the run's plan; the bare harness does
+        # not, and the run loop reads it to size the run.
+        runner._video_sizing_fps = 30.0
         monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
 
         runner._run_loop_executor.run_loop(runner._last_run())
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'
-        reason, _domain, title, message = aborts[0].args
+        reason, _domain, message = aborts[0].args
         assert reason == 'disk_space_critical'
-        assert title == 'Protocol Aborted'
         assert '12 MB free' in message, f'the message must name the shortfall; got {message!r}'
 
 
@@ -556,7 +537,7 @@ def _plain_scan_protocol(session):
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
         session.settings,
-        session.objective_helper,
+        session.scope.objective_helper,
         position=session.get_current_plate_position(),
     )
     return session.scope.protocols.create_protocol(input_config=input_config)
@@ -566,7 +547,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
     """The run's ending reaches the caller that asked for the run.
 
     Sixteen sites could end a run and none of the answers left the
-    process: run_single_scan dropped what it started, and
+    process: start_single_scan dropped what it started, and
     wait_for_completion was one bit with three meanings ("completed",
     "timed out", "never started"). A caller could not tell a user Stop
     from a dead camera from a run that was refused.
@@ -577,17 +558,17 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
 
         reported = {}
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 _plain_scan_protocol(session),
                 sequence_name='ending_scan',
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda outcome, *_: reported.update(outcome=outcome)),
             )
             assert pending is not None, (
-                'run_single_scan committed a run and handed back nothing; the '
+                'start_single_scan committed a run and handed back nothing; the '
                 'caller has no way to learn how its own run ended'
             )
-            settled = pending.wait(timeout_s=60)
+            settled = pending.result(timeout=60)
 
         assert settled is not None, 'the committed run never settled its outcome'
         # The same fact through both channels. A caller that waits and a
@@ -606,12 +587,12 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
         from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 _plain_scan_protocol(session),
                 sequence_name='no_merge_scan',
                 parent_dir=str(tmp_path),
             )
-            settled = pending.wait(timeout_s=60)
+            settled = pending.result(timeout=60)
 
         assert settled is not None
         assert (settled.status, settled.merged, settled.merge_reason) == ('completed', False, ''), (

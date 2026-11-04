@@ -5,8 +5,10 @@ The line said "camera streaming" on every bring-up, so a launch with no
 camera logged a camera that was not there. It reads the imaging API now.
 """
 
+import logging
+
 import modules.scope_session as scope_session_mod
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 from tests.test_bring_up_is_a_record import _bring_up
 
 
@@ -16,14 +18,14 @@ def _completion_line(records):
     return lines[0]
 
 
-def test_a_bring_up_without_a_camera_does_not_say_it_streams(monkeypatch, tmp_path):
-    records = capture_module_log(monkeypatch, scope_session_mod)
+def test_a_bring_up_without_a_camera_does_not_say_it_streams(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
     _bring_up(monkeypatch, tmp_path, camera=FileNotFoundError('no camera'))
-    assert _completion_line(records).endswith('camera not streaming')
+    assert _completion_line(records_of(caplog, scope_session_mod)).endswith('camera not streaming')
 
 
-def test_a_bring_up_with_a_camera_says_it_streams(monkeypatch, tmp_path):
-    records = capture_module_log(monkeypatch, scope_session_mod)
+def test_a_bring_up_with_a_camera_says_it_streams(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
     session = _bring_up(monkeypatch, tmp_path)
     assert session.scope.imaging.is_streaming()
-    assert _completion_line(records).endswith('camera streaming')
+    assert _completion_line(records_of(caplog, scope_session_mod)).endswith('camera streaming')

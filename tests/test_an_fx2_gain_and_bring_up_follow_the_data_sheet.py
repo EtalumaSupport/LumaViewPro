@@ -85,16 +85,24 @@ def camera(sim, writes):
     cam.disconnect()
 
 
-@pytest.mark.parametrize('reg', TABLE_15)
-def test_every_table_15_setting_encodes_as_itself(reg):
-    assert fx2driver._gain_db_to_register(_db(reg)) == reg
+def test_every_table_15_setting_encodes_as_itself():
+    wrong = {
+        hex(reg): hex(fx2driver._gain_db_to_register(_db(reg)))
+        for reg in TABLE_15
+        if fx2driver._gain_db_to_register(_db(reg)) != reg
+    }
+    assert not wrong, f'a Table 15 setting encodes as another register: {wrong}'
 
 
-@pytest.mark.parametrize('db', [x / 10 for x in range(-50, 500, 3)])
-def test_every_request_encodes_as_the_nearest_table_15_setting(db):
-    reg = fx2driver._gain_db_to_register(db)
-    assert reg in TABLE_15
-    assert abs(_db(reg) - db) == min(abs(_db(r) - db) for r in TABLE_15)
+def test_every_request_encodes_as_the_nearest_table_15_setting():
+    wrong = {}
+    for db in (x / 10 for x in range(-50, 500, 3)):
+        reg = fx2driver._gain_db_to_register(db)
+        if reg not in TABLE_15:
+            wrong[db] = f'{hex(reg)} is not in Table 15'
+        elif abs(_db(reg) - db) != min(abs(_db(r) - db) for r in TABLE_15):
+            wrong[db] = f'{hex(reg)} is not the nearest setting'
+    assert not wrong, f'a gain request did not encode as the nearest Table 15 setting: {wrong}'
 
 
 @pytest.mark.parametrize('multiple', [4.0, 4.05, 4.1])

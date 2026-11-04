@@ -19,12 +19,12 @@ import numpy as np
 import pytest
 
 from modules.finite_number import is_finite_number
-from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from modules.labware_loader import WellPlateLoader
+from modules.lumascope_api.illumination import LedState
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 NOT_FINITE = [math.nan, math.inf, -math.inf]
@@ -73,28 +73,27 @@ def test_the_predicate(value, finite):
 
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_the_camera_setters_refuse_and_the_camera_keeps_its_values(session, value):
-    imaging = session.scope.imaging
-    before = (imaging.get_gain_db(), imaging.get_exposure_ms(), imaging.get_black_level())
+    camera = session.scope.camera
+    before = (camera.read_gain_db(), camera.read_exposure_ms(), camera.read_black_level())
 
-    _refused(lambda: imaging.set_gain_db(value), 'gain_db')
-    _refused(lambda: imaging.set_exposure_ms(value), 'exposure_ms')
-    _refused(lambda: imaging.set_black_level(value), 'black_level')
-    _refused(lambda: imaging.update_auto_gain_target_brightness(value), 'target_brightness')
-    assert (imaging.get_gain_db(), imaging.get_exposure_ms(), imaging.get_black_level()) == before
+    _refused(lambda: camera.set_gain_db(value), 'gain_db')
+    _refused(lambda: camera.set_exposure_ms(value), 'exposure_ms')
+    _refused(lambda: camera.set_black_level(value), 'black_level')
+    assert (camera.read_gain_db(), camera.read_exposure_ms(), camera.read_black_level()) == before
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_a_stored_camera_value_is_refused_not_applied_at_the_maximum(session, value):
-    imaging = session.scope.imaging
-    _refused(lambda: imaging.applied_gain_db_for(value), 'stored_gain_db')
-    _refused(lambda: imaging.applied_exposure_ms_for(value), 'stored_exposure_ms')
+    camera = session.scope.camera
+    _refused(lambda: camera.applied_gain_db_for(value), 'stored_gain_db')
+    _refused(lambda: camera.applied_exposure_ms_for(value), 'stored_exposure_ms')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_an_led_current_is_refused_and_nothing_lit(session, value):
     illumination = session.scope.illumination
     _refused(lambda: illumination.led_on('BF', value), 'illumination_ma')
-    assert not illumination.get_led_state('BF')['enabled']
+    assert channel_reading(illumination, 'BF').state is LedState.DARK
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
@@ -102,9 +101,9 @@ def test_a_move_is_refused_and_z_stays_homed_even_past_the_limits(session, value
     motion = session.scope.motion
     before = motion.get_current_position('Z')
 
-    _refused(lambda: motion.move_absolute('Z', value, ignore_limits=True), 'position')
-    _refused(lambda: motion.move_absolute('Z', value), 'position')
-    _refused(lambda: motion.move_relative('Z', value), 'distance')
+    _refused(lambda: motion.move_z(value, ignore_limits=True), 'z_um')
+    _refused(lambda: motion.move_z(value), 'z_um')
+    _refused(lambda: motion.move_z_by(value), 'dz_um')
 
     assert motion.get_axis_state('Z') == AxisState.IDLE
     assert motion.get_current_position('Z') == before
@@ -121,8 +120,8 @@ def test_a_camera_diagnostic_refuses_a_time(session, value):
     diagnostics = session.scope.diagnostics
     _refused(lambda: diagnostics.run_camera_bandwidth_test(2, timeout_s=value), 'timeout_s')
     _refused(
-        lambda: diagnostics.run_grab_lifecycle_benchmark(1, inter_cycle_delay_ms=value),
-        'inter_cycle_delay_ms',
+        lambda: diagnostics.run_grab_lifecycle_benchmark(1, inter_cycle_delay_s=value),
+        'inter_cycle_delay_s',
     )
     _refused(
         lambda: diagnostics.run_grab_lifecycle_benchmark(1, slow_threshold_s=value),
@@ -137,19 +136,18 @@ def test_a_capture_refuses_a_time(session, value):
     _refused(lambda: imaging.get_image(timeout_s=value), 'timeout_s')
     _refused(lambda: imaging.get_image(sum_delay_s=value), 'sum_delay_s')
     _refused(lambda: imaging.get_image(new_capture_timeout_s=value), 'new_capture_timeout_s')
-    _refused(lambda: imaging.capture_and_wait(timeout_s=value), 'timeout_s')
-    _refused(lambda: imaging.capture_and_wait(sum_delay_s=value), 'sum_delay_s')
+    _refused(lambda: imaging.capture_still(timeout_s=value), 'timeout_s')
+    _refused(lambda: imaging.capture_still(sum_delay_s=value), 'sum_delay_s')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
-def test_plate_coordinates_and_a_well_are_refused(value):
+def test_plate_coordinates_and_a_well_are_refused(session, value):
+    runtime_state = session.scope.runtime_state
     plate = WellPlateLoader().get_plate('96 well microplate')
-    transformer = CoordinateTransformer()
-    offset = {'x': 0.0, 'y': 0.0}
 
-    _refused(lambda: transformer.plate_to_stage(plate, offset, value, 10.0), 'px')
-    _refused(lambda: transformer.stage_to_plate(plate, offset, 10.0, value), 'sy')
-    _refused(lambda: plate.get_well_index(value, 10.0), 'x')
+    _refused(lambda: runtime_state.plate_to_stage(value, 10.0), 'x_mm')
+    _refused(lambda: runtime_state.stage_to_plate(10.0, value), 'y_um')
+    _refused(lambda: plate.get_well_index(value, 10.0), 'x_mm')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

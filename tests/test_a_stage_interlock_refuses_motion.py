@@ -24,7 +24,8 @@ import time
 
 import pytest
 
-from drivers.exceptions import MotionInterlockError
+from drivers.exceptions import MotionInterlockError, MotionNotCompletedError
+from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
     INTERLOCK_REASONS,
@@ -35,9 +36,10 @@ from modules.exceptions import (
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from modules.lumascope_api import AxisState
+from modules.lumascope_api import AxisState, Interlock
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope, home_sim_scope
+from tests.case_walk import failing_cases
 
 LID_WORDS = "The microscope's lid is open. Close it to move or home the stage."
 POWER_WORDS = "The stage has no power. Check the stage's power supply, then home."
@@ -59,15 +61,20 @@ def _refuse(reason, *, moved=False, stopped=True):
 
 class TestTheRefusalsWords:
     def test_each_interlock_reason_has_its_title_and_words(self):
-        lid = HardwareCommandRefusedError('lid_open', 'move_absolute')
-        power = HardwareCommandRefusedError('stage_unpowered', 'home')
+        lid = HardwareCommandRefusedError('lid_open_before_motion', 'move_xy')
+        power = HardwareCommandRefusedError('stage_unpowered_before_motion', 'home')
 
         assert (lid.title, str(lid)) == ('Lid Open', LID_WORDS)
         assert (power.title, str(power)) == ('No Stage Power', POWER_WORDS)
 
-    def test_the_hardware_state_reasons_are_no_board_and_the_interlocks(self):
-        assert {'lid_open', 'stage_unpowered'} == INTERLOCK_REASONS
-        assert {'not_connected', 'lid_open', 'stage_unpowered'} == HARDWARE_STATE_REASONS
+    def test_the_hardware_state_reasons_are_no_board_an_unread_position_and_the_interlocks(self):
+        assert {'lid_open_before_motion', 'stage_unpowered_before_motion'} == INTERLOCK_REASONS
+        assert {
+            'not_connected',
+            'position_unread',
+            'lid_open_before_motion',
+            'stage_unpowered_before_motion',
+        } == HARDWARE_STATE_REASONS
 
     def test_a_home_the_lid_ended_and_one_a_stop_ended_say_so(self):
         lid = HomingFaultError('ALL', 'lid_open', ('X', 'Y', 'Z'))
@@ -78,17 +85,17 @@ class TestTheRefusalsWords:
 
 
 class TestAMoveTheLidRefuses:
-    @pytest.mark.parametrize('member', ['move_absolute', 'move_relative'])
+    @pytest.mark.parametrize('member', ['move_xy', 'move_xy_by'])
     def test_is_refused_naming_the_lid_and_the_axis_stays_known(self, scope, monkeypatch, member):
         monkeypatch.setattr(scope._motion_driver, 'move_abs_pos', _refuse('lid_open'))
 
         with pytest.raises(HardwareCommandRefusedError) as raised:
-            getattr(scope.motion, member)('X', 1000.0)
+            getattr(scope.motion, member)(1000.0)
 
-        assert (raised.value.reason, raised.value.member) == ('lid_open', member)
+        assert (raised.value.reason, raised.value.member) == ('lid_open_before_motion', member)
         assert isinstance(raised.value.__cause__, MotionInterlockError)
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
-        assert scope.motion.position_is_known('X')
+        assert 'X' not in scope.motion.axes_without_position()
 
     def test_a_z_move_in_flight_that_the_refusal_stopped_ends_idle_where_it_stopped(
         self, scope, monkeypatch
@@ -96,7 +103,7 @@ class TestAMoveTheLidRefuses:
         board = scope._motion_driver
         board.set_timing_mode('realistic')
         start_z = scope.motion.get_current_position('Z')
-        scope.motion.start_move_absolute('Z', start_z + 2000.0)
+        scope.motion.start_move_z(start_z + 2000.0)
         assert scope.motion.get_axis_state('Z') == AxisState.MOVING
 
         def lid_open_stops_every_motor(*args, **kwargs):
@@ -109,7 +116,7 @@ class TestAMoveTheLidRefuses:
 
         monkeypatch.setattr(board, 'move_abs_pos', lid_open_stops_every_motor)
         with pytest.raises(HardwareCommandRefusedError):
-            scope.motion.move_absolute('X', 1000.0)
+            scope.motion.move_xy(x_um=1000.0)
 
         scope.motion.wait_until_finished_moving(timeout_s=10)
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -125,7 +132,7 @@ class TestAMoveTheLidRefuses:
         board = scope._motion_driver
         board.set_timing_mode('realistic')
         start_z = scope.motion.get_current_position('Z')
-        scope.motion.start_move_absolute('Z', start_z + 2000.0)
+        scope.motion.start_move_z(start_z + 2000.0)
         assert scope.motion.get_axis_state('Z') == AxisState.MOVING
 
         def lid_open_stops_every_motor(*args, **kwargs):
@@ -136,7 +143,7 @@ class TestAMoveTheLidRefuses:
 
         monkeypatch.setattr(board, 'move_abs_pos', lid_open_stops_every_motor)
         with pytest.raises(HardwareCommandRefusedError):
-            scope.motion.move_absolute('Z', start_z + 1000.0)
+            scope.motion.move_z(start_z + 1000.0)
 
         scope.motion.wait_until_finished_moving(timeout_s=5)
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -147,39 +154,63 @@ class TestAMoveTheLidRefuses:
         monkeypatch.setattr(scope._motion_driver, 'move_abs_pos', _refuse('lid_open', moved=True))
 
         with pytest.raises(MoveNotCompletedError) as raised:
-            scope.motion.move_absolute('X', 1000.0)
+            scope.motion.move_xy(x_um=1000.0)
 
         assert raised.value.reason == 'driver_failed'
         assert scope.motion.get_axis_state('X') == AxisState.UNKNOWN
 
 
 class TestAHomeTheInterlockRefuses:
-    @pytest.mark.parametrize('reason', sorted(INTERLOCK_REASONS))
     @pytest.mark.parametrize('route, call', [('ALL', 'home'), ('Z', 'zhome')])
     def test_before_anything_moved_is_refused_and_every_axis_keeps_its_state(
-        self, scope, monkeypatch, reason, route, call
+        self, scope, monkeypatch, route, call
     ):
-        before = {axis: scope.motion.get_axis_state(axis) for axis in scope.capabilities.axes}
-        monkeypatch.setattr(scope._motion_driver, call, _refuse(reason, stopped=False))
+        def check(reason):
+            before = {axis: scope.motion.get_axis_state(axis) for axis in scope.capabilities.axes}
+            monkeypatch.setattr(scope._motion_driver, call, _refuse(reason, stopped=False))
 
-        with pytest.raises(HardwareCommandRefusedError) as raised:
-            scope.motion.home(route)
+            with pytest.raises(HardwareCommandRefusedError) as raised:
+                scope.motion.home(route)
 
-        assert (raised.value.reason, raised.value.member) == (reason, 'home')
-        assert {axis: scope.motion.get_axis_state(axis) for axis in before} == before
+            assert (raised.value.reason, raised.value.member) == (
+                REFUSED_BEFORE_MOTION[reason],
+                'home',
+            )
+            assert {axis: scope.motion.get_axis_state(axis) for axis in before} == before
+
+        failed = failing_cases(sorted(INTERLOCK_TITLES), check)
+        assert not failed, failed
 
     def test_a_turret_keeps_its_slot(self, monkeypatch):
         scope = home_sim_scope(
             build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
         )
         try:
-            assert scope.motion.get_turret_slot() == 1
+            assert scope.motion.turret_status().slot == 1
             monkeypatch.setattr(scope._motion_driver, 'home', _refuse('lid_open', stopped=False))
 
             with pytest.raises(HardwareCommandRefusedError):
                 scope.motion.home('ALL')
 
-            assert scope.motion.get_turret_slot() == 1
+            assert scope.motion.turret_status().slot == 1
+        finally:
+            scope.disconnect()
+
+    def test_a_turret_home_whose_z_park_is_refused_keeps_the_turret_as_it_was(self, monkeypatch):
+        scope = home_sim_scope(
+            build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
+        )
+        try:
+            before = scope.motion.turret_status()
+            monkeypatch.setattr(
+                scope._motion_driver, 'move_abs_pos', _refuse('lid_open', stopped=False)
+            )
+
+            with pytest.raises(HardwareCommandRefusedError) as raised:
+                scope.motion.home('T')
+
+            assert raised.value.reason == 'lid_open_before_motion'
+            assert scope.motion.turret_status() == before
         finally:
             scope.disconnect()
 
@@ -217,7 +248,7 @@ class TestAHomeTheInterlockRefuses:
 
         def stopped_mid_home():
             scope.motion.stop_motion()
-            raise RuntimeError('the home was aborted')
+            raise MotionNotCompletedError('the home was aborted')
 
         monkeypatch.setattr(scope._motion_driver, call, stopped_mid_home)
 
@@ -237,8 +268,8 @@ class TestALidOpenedDuringAMove:
         try:
             ls720.motion.home()
             limits = ls720.motion.get_axis_limits('X')
-            start = ls720.motion.get_current_position()['X']
-            far = limits['min'] if start - limits['min'] > limits['max'] - start else limits['max']
+            start = ls720.motion.get_current_position('X')
+            far = limits.min_um if start - limits.min_um > limits.max_um - start else limits.max_um
             driver = ls720._motion_driver
             polled = driver.target_status
 
@@ -249,13 +280,13 @@ class TestALidOpenedDuringAMove:
             # The X move lasts about 0.5 s of wall time on the simulator; the
             # monitor polls at 50 Hz, so its first poll comes well before arrival.
             driver.target_status = lid_opens_at_the_first_poll
-            move = ls720.motion.start_move_absolute('X', far)
+            move = ls720.motion.start_move_xy(x_um=far)
 
             with pytest.raises(MoveStoppedError) as ended:
-                move.wait()
+                move.result()
 
             assert ended.value.reason == 'stopped'
-            stopped_at = ls720.motion.get_current_position()['X']
+            stopped_at = ls720.motion.get_current_position('X')
             assert abs(stopped_at - far) > 10_000
             assert ls720.motion.get_axis_state('X') == AxisState.IDLE
         finally:
@@ -265,6 +296,20 @@ class TestALidOpenedDuringAMove:
 class TestTheInterlocksRead:
     def test_a_board_without_interlocks_answers_none(self, scope):
         assert scope.motion.interlocks() == frozenset()
+
+    def test_an_open_interlock_is_answered_as_the_member(self):
+        ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+        try:
+            ls720.simulation.interlock(lid_open=True, powered=False)
+
+            answered = ls720.motion.interlocks()
+
+            assert sorted((type(i), i) for i in answered) == [
+                (Interlock, 'lid_open'),
+                (Interlock, 'stage_unpowered'),
+            ]
+        finally:
+            ls720.disconnect()
 
     def test_is_answered_while_the_io_lane_is_busy(self, scope, monkeypatch):
         monkeypatch.setattr(scope._motion_driver, 'interlocks', lambda: frozenset({'lid_open'}))

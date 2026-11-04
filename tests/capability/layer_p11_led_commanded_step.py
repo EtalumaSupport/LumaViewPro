@@ -9,7 +9,7 @@ light at the optics while it runs.
 
     python tests/capability/layer_p11_led_commanded_step.py             # an LS620 simulator
     python tests/capability/layer_p11_led_commanded_step.py --hardware  # the connected scope
-    ... --layer Green   # a channel other than BF (the default)
+    ... --layer <key>   # a channel other than BF (the default), e.g. LED 1's
 
 The frames are taken at the layer's own saved exposure and gain.
 """
@@ -20,16 +20,17 @@ import time
 
 from harness import HARDWARE, check, figure, hardware_session, report
 
+from modules.lumascope_api.illumination import LedState
+from tests.scope_fakes import channel_reading
+
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
 HOLD_S = 3.0  # time to look at the optics at each step
 
 
 def _frame(scope):
     imaging = scope.imaging
-    image = imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
-    record = (imaging.last_capture_info or {}).get('frame_record')
-    mean = None if image is None else round(float(image.mean()), 2)
-    return mean, record
+    still = imaging.capture_still(accept_dark=True, timeout_s=5.0)
+    return round(float(still.image.mean()), 2), still.record
 
 
 @contextlib.contextmanager
@@ -61,8 +62,8 @@ def main():
         figure('one step, mA', round(step, 4))
 
         saved = session.settings[LAYER]
-        figure(f'{LAYER} exposure ms', scope.imaging.set_exposure_ms(float(saved['exposure_ms'])))
-        figure(f'{LAYER} gain dB', scope.imaging.set_gain_db(float(saved['gain_db'])))
+        figure(f'{LAYER} exposure ms', scope.camera.set_exposure_ms(float(saved['exposure_ms'])))
+        figure(f'{LAYER} gain dB', scope.camera.set_gain_db(float(saved['gain_db'])))
 
         illumination.leds_off()
         dark, _ = _frame(scope)
@@ -72,20 +73,20 @@ def main():
         for request in (1.0, 5.0, 0.0):
             expected = illumination._driver.commanded_ma(request)
             print(f'--- {LAYER} {request} mA: look at the optics now ---', flush=True)
-            commanded = illumination.led_on(LAYER, request, block=True)
+            commanded = illumination.led_on(LAYER, request)
             time.sleep(HOLD_S)
-            state = illumination.get_led_state(LAYER)
+            state = channel_reading(illumination, LAYER)
             mean, record = _frame(scope)
             means[request] = mean
             figure(f'{request} mA: commanded', commanded)
             figure(f'{request} mA: state', state)
             figure(f'{request} mA: frame mean', mean)
-            recorded = None if record is None else record.illumination_ma.get(LAYER)
+            recorded = record.illumination_ma.get(illumination.color2ch(LAYER))
             figure(f'{request} mA: frame record', recorded)
             check(f'{request} mA is commanded on the step', commanded == expected, commanded)
             check(
                 f'{request} mA: the state holds the commanded current, on',
-                state == {'enabled': True, 'illumination_ma': expected},
+                (state.state, state.illumination_ma) == (LedState.LIT, expected),
                 state,
             )
             if request > 0:

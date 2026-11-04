@@ -12,6 +12,7 @@ template runs it, and the firmware tier the tests run stays instant.
 """
 
 import pathlib
+import logging
 import sys
 import time
 
@@ -30,21 +31,21 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import ScopeModelUnknownError, SettingRefusedError
 from modules.layer_record import load_scope_models, model_axes
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 MODELS = load_scope_models()
-_AXES_OF = {'Focus': 'Z', 'XYStage': 'XY', 'Turret': 'T'}
+_AXES_OF = {'has_focus': 'Z', 'has_xy_stage': 'XY', 'has_turret': 'T'}
 
 
 def _catalogue_axes(model: str) -> set[str]:
-    return {axis for flag, axes in _AXES_OF.items() if MODELS[model].get(flag) for axis in axes}
+    return {
+        axis for flag, axes in _AXES_OF.items() if getattr(MODELS[model], flag) for axis in axes
+    }
 
 
 def _scope(**kwargs) -> Lumascope:
@@ -56,12 +57,13 @@ def _scope(**kwargs) -> Lumascope:
     )
 
 
+# parametrize-justified: each model brings up its own firmware-tier scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
         assert set(scope.capabilities.axes) == _catalogue_axes(model)
-        motor_board = MODELS[model].get('MotorBoard')
+        motor_board = MODELS[model].motor_board
         if motor_board == 'TMCM-6110':
             assert isinstance(scope._motion_driver, Tmcm6110Board)
         elif motor_board == 'EL-0940':
@@ -106,11 +108,12 @@ def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch)
 # the production FX2 driver on a simulated FX2.
 
 
+# parametrize-justified: each model brings up its own firmware-tier scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
-        if MODELS[model]['LEDBoard'] == 'EL-0940':
+        if MODELS[model].led_board == 'EL-0940':
             assert isinstance(scope._led_driver, LEDBoard)
             assert scope._led_driver.firmware_date == '2024-06-05'
         else:
@@ -144,7 +147,7 @@ class TestTheSessionReadsTheTier:
     def test_the_template_ships_the_realistic_tier(self):
         import json
 
-        template = json.loads(pathlib.Path('data/settings.json').read_text())
+        template = json.loads(pathlib.Path('data/settings.json').read_text(encoding='utf-8'))
         assert template['simulator_tier'] == 'realistic'
 
     def test_a_setting_that_names_no_tier_is_refused(self):
@@ -165,15 +168,13 @@ class TestTheSessionReadsTheTier:
             session.shutdown()
 
     @pytest.mark.parametrize('asked', ['firmware', 'realistic'])
-    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(self, monkeypatch, asked):
-        import modules.scope_session as scope_session_module
-
-        # The suite's lvp_logger is a mock; its calls are the record.
-        scope_session_module.logger.warning.reset_mock()
+    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(
+        self, monkeypatch, caplog, asked
+    ):
         monkeypatch.setattr(sys, 'platform', 'win32')
         tier = ScopeSession._simulator_tier(complete_settings(simulator_tier=asked))
         assert tier == 'fast'
-        said = [str(c.args[0]) for c in scope_session_module.logger.warning.call_args_list]
+        said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any('no MicroPython runtime' in s for s in said), said
 
     def test_a_linux_machine_that_has_not_built_the_runtime_runs_the_fast_tier(self, monkeypatch):
@@ -201,10 +202,11 @@ class TestTheSessionReadsTheTier:
         try:
             led = session.scope._led_driver
             assert isinstance(led, LEDBoard)
-            session.scope.illumination.led_on(3, 100)
-            # The driver records a current only once the firmware answered.
-            assert led.led_ma[led.ch2color(3)] == 100
-            assert led.last_command_error is None
+            session.scope.illumination.led_on_by_address(3, 100)
+            # The firmware answered the write, or it would have raised, and
+            # the API's store reads the address lit at 100 mA.
+            reading = led_reading(session.scope, 3)
+            assert (reading.state, reading.illumination_ma) == (LedState.LIT, 100)
         finally:
             session.shutdown()
 

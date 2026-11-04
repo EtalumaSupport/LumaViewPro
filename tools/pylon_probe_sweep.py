@@ -52,6 +52,7 @@ import numpy as np
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
+from drivers.exceptions import CameraUsbOpenFailedError
 from drivers.pyloncamera import PylonCamera
 from lvp_logger import logger
 from modules.exceptions import CameraSettingRejected
@@ -368,9 +369,13 @@ def _connect_camera(serial_filter: str | None) -> PylonCamera:
     base-class success signal. Calling ``cam.connect()`` again would
     re-Open the same device and hit "Device is exclusively opened".
     """
-    cam = PylonCamera()
+    try:
+        cam = PylonCamera()
+    except CameraUsbOpenFailedError as e:
+        print(f'ERROR: PylonCamera connect failed: {e}')
+        sys.exit(1)
     if not getattr(cam, 'found', False):
-        print('ERROR: PylonCamera connect failed. See [ERROR] log lines above for the SDK reason.')
+        print('ERROR: PylonCamera connect failed: no Basler camera found.')
         sys.exit(1)
     if serial_filter:
         try:

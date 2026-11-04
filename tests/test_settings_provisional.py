@@ -28,6 +28,7 @@ import pytest
 
 from modules import settings_init
 from modules.exceptions import InstallationFileError
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -40,14 +41,14 @@ def appdata(tmp_path):
         'data',
         'settings.json',
     )
-    with open(repo_template) as f:
+    with open(repo_template, encoding='utf-8') as f:
         template = json.load(f)
-    with open(data / 'settings.json', 'w') as f:
+    with open(data / 'settings.json', 'w', encoding='utf-8') as f:
         json.dump(template, f, indent=4)
 
     user = dict(template)
     user['live_folder'] = '/the-users-own-folder'
-    with open(data / 'current.json', 'w') as f:
+    with open(data / 'current.json', 'w', encoding='utf-8') as f:
         json.dump(user, f, indent=4)
     return tmp_path
 
@@ -71,16 +72,16 @@ def _clean_module_state():
 def _break(appdata, how):
     current = appdata / 'data' / 'current.json'
     if how == 'unparseable':
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             f.write('{"live_folder": "/the-users-own-folder",,,')
     elif how == 'missing_required':
-        with open(current) as f:
+        with open(current, encoding='utf-8') as f:
             loaded = json.load(f)
         del loaded['microscope']
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(loaded, f)
     elif how == 'toplevel_list':
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(['not', 'a', 'settings', 'object'], f)
     return current
 
@@ -117,9 +118,9 @@ class TestTheFileSurvives:
 
         # Repair it and load again: the flag must clear, or the app would
         # refuse to save forever after one bad startup.
-        with open(appdata / 'data' / 'settings.json') as f:
+        with open(appdata / 'data' / 'settings.json', encoding='utf-8') as f:
             healthy = f.read()
-        with open(appdata / 'data' / 'current.json', 'w') as f:
+        with open(appdata / 'data' / 'current.json', 'w', encoding='utf-8') as f:
             f.write(healthy)
         settings_init.load_lvp_settings(log, str(appdata))
         assert not settings_init.settings_are_provisional()
@@ -144,32 +145,6 @@ class TestRetiring:
         assert settings_init.retire_rejected_current_json() is None
 
 
-class TestTheSaveGuard:
-    """The destination test, which is what keeps the guard honest."""
-
-    @pytest.mark.parametrize(
-        'path',
-        [
-            './data/current.json',
-            'data/current.json',
-            '/an/absolute/path/to/current.json',
-            './data/current',  # save_settings appends .json
-            'CURRENT.JSON',
-        ],
-    )
-    def test_recognises_the_live_configuration(self, path):
-        assert settings_init.targets_current_json(path)
-
-    @pytest.mark.parametrize(
-        'path',
-        ['./data/settings.json', '/tmp/somewhere/else.json', 'protocol.json'],
-    )
-    def test_leaves_other_destinations_alone(self, path):
-        # A caller writing somewhere else is not writing the user's live
-        # configuration and must not be blocked.
-        assert not settings_init.targets_current_json(path)
-
-
 class TestShapeValidation:
     """settings.json is the schema, because it cannot drift from itself.
 
@@ -183,10 +158,10 @@ class TestShapeValidation:
 
     def _write_current(self, appdata, mutate):
         current = appdata / 'data' / 'current.json'
-        with open(current) as f:
+        with open(current, encoding='utf-8') as f:
             loaded = json.load(f)
         mutate(loaded)
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(loaded, f)
         return current
 
@@ -238,7 +213,7 @@ class TestShapeValidation:
         def _retype(s):
             s['profiling']['metrics_interval_s'] = 60  # template ships null
             s['profiling']['enabled'] = 1  # template ships false
-            for layer in ('BF', 'Blue'):
+            for layer in ('BF', LED0):
                 if layer in s and isinstance(s[layer], dict):
                     s[layer]['gain_db'] = 3  # template ships a float
 
@@ -253,7 +228,7 @@ class TestShapeValidation:
         # and the refusal names the template.
         current = appdata / 'data' / 'current.json'
         before = current.read_bytes()
-        with open(appdata / 'data' / 'settings.json', 'w') as f:
+        with open(appdata / 'data' / 'settings.json', 'w', encoding='utf-8') as f:
             f.write('{"truncated": ')
 
         with pytest.raises(InstallationFileError) as refused:
@@ -275,7 +250,7 @@ class TestShapeValidation:
 
     def test_a_fresh_install_with_an_unreadable_template_is_refused(self, appdata):
         os.remove(appdata / 'data' / 'current.json')
-        with open(appdata / 'data' / 'settings.json', 'w') as f:
+        with open(appdata / 'data' / 'settings.json', 'w', encoding='utf-8') as f:
             f.write('{"truncated": ')
 
         with pytest.raises(InstallationFileError) as refused:

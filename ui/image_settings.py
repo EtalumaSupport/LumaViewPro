@@ -1,19 +1,16 @@
 # Copyright Etaluma, Inc.
+import functools
 import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
+from kivy.properties import ColorProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.layer_record as layer_record
 from modules import gui_logger
-from modules.config_ui_getters import (
-    camera_autogain_supported,
-    get_layer_exposure_slider_max,
-    get_layer_illumination_slider_max,
-)
 from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
@@ -32,37 +29,40 @@ class AccordionItemXyStageControl(LoggedAccordionItem):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
-class AccordionItemImageSettingsBase(LoggedAccordionItem):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class ChannelDrawer(LoggedAccordionItem):
+    """One layer's drawer: its controls, titled by the layer's label (a
+    fluorescence layer's as its excitation) beside a swatch of its colour.
 
-    def accordion_collapse(self):
-        _app_ctx.ctx.image_settings.accordion_collapse()
+    One class for every catalogue key. What differs between layers is the
+    layer's record, applied by ``ImageSettings.show_drawers``; a key added to
+    the catalogue gets a drawer with no code naming it.
+    """
 
-
-class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsDfControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsRedControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    layer = StringProperty('')
+    # The layer's display colour as RGBA, the title's swatch.
+    color_rgba = ColorProperty((0.5, 0.5, 0.5, 1.0))
+    # The controls' chrome: the display colour lightened, so a dark colour's
+    # headings stay legible on the panel's dark ground.
+    chrome_rgba = ColorProperty((0.5, 0.5, 0.5, 1.0))
 
 
-class AccordionItemImageSettingsGreenControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+# How far a drawer's chrome moves from its layer's colour toward white:
+# pure blue becomes (0.4, 0.4, 1.0), readable as text on the dark panel.
+_CHROME_LIGHTENING = 0.4
 
 
-class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+def _lightened(color: layer_record.Color) -> layer_record.Color:
+    return tuple(weight + (1.0 - weight) * _CHROME_LIGHTENING for weight in color)
+
+
+def _drawer_title(record: layer_record.ChannelRecord) -> str:
+    """A drawer's title: a fluorescence layer's label is a bare wavelength
+    (``'488 nm'``), so its drawer says what that wavelength is; any other
+    layer's label is already its name. The label itself is what files
+    record, so only the title says more."""
+    if record.modality == layer_record.Modality.FLUORESCENCE:
+        return f'{record.label} Excitation'
+    return record.label
 
 
 # ============================================================================
@@ -70,295 +70,109 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 # ============================================================================
 
 
-def layer_title(record) -> str:
-    """The accordion title for one layer: display name + excitation.
-
-    The 'Ex' marker is load-bearing: the layer name is the EMISSION
-    colour the operator sees, so a bare 'Green 488 nm' invites reading
-    the number as an emission wavelength. Broadband transmitted-light
-    layers and LED-less layers have no excitation (None) and get no
-    suffix.
-    """
-    if record.excitation_nm is None:
-        return record.display_name
-    return f'{record.display_name} Ex {record.excitation_nm:g} nm'
-
-
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
 
-    # Ownership boundary for the accordion LED/camera reconcile: the
-    # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
-    # expansion (manual step navigation) owns its entire LED + camera
-    # outcome through the LED authority, so while this is True the
-    # reconcile defers to that owner.
-    _suppress_reconcile_for_programmatic_expand = False
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
-        self._accordion_item_df_control_visible = False
-        self._accordion_item_df_control = AccordionItemImageSettingsDfControl()
-        self._accordion_item_lumi_control_visible = False
-        self._accordion_item_lumi_control = AccordionItemImageSettingsLumiControl()
-        # Per-layer, not one flag for the trio: which fluorescence
-        # channels exist comes from the unit's filterset, and a unit can
-        # carry any subset (a Green-only unit must not show dark Blue and
-        # Red drawers).
-        self._fluorescence_control_visible = {'Blue': False, 'Green': False, 'Red': False}
-        self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
-        self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
-        self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
-        # PC accordion item is defined inline in lumaviewpro.kv (unlike
-        # DF/Lumi/R/G/B which are Python class instances). Populated in
-        # _init_ui once self.ids is available. Visible-by-default here
-        # matches the kv starting state; set_phasecontrast_layer_control_visibility
-        # hides it for scopes that declare PhaseContrast=false
-        # (LS560/LS620 -- PC on those scopes is BF with a mechanical
-        # phase slider, not a separate LED channel).
-        self._accordion_item_pc_control = None
-        self._accordion_item_pc_control_visible = True
+        # One drawer per catalogue key, in display order; a drawer is in the
+        # accordion while the unit has its layer (show_drawers).
+        self._drawers = {layer: ChannelDrawer(layer=layer) for layer in common_utils.get_layers()}
+        self._shown_layers: frozenset[str] = frozenset()
         self._init_ui_retries = 0
-        # Debounce accordion_collapse -- Kivy fires multiple collapse events
-        # when switching tabs (one per item). Trigger collapses them into one.
-        self._accordion_collapse_trigger = Clock.create_trigger(
-            lambda dt: self._do_accordion_collapse(), 0
-        )
         Clock.schedule_once(self._init_ui, 0)
 
     def layer_lookup(self, layer: str):
-        LAYER_MAP = {
-            'DF': self._accordion_item_df_control,
-            'Lumi': self._accordion_item_lumi_control,
-            'Blue': self._accordion_item_blue_control,
-            'Red': self._accordion_item_red_control,
-            'Green': self._accordion_item_green_control,
-        }
-
-        if layer in LAYER_MAP:
-            return LAYER_MAP[layer].ids[layer]
-        else:
-            return self.ids[layer]
+        return self._drawers[layer].ids['control']
 
     def accordion_item_lookup(self, layer: str):
-        LAYER_MAP = {
-            'DF': self._accordion_item_df_control,
-            'Lumi': self._accordion_item_lumi_control,
-            'Blue': self._accordion_item_blue_control,
-            'Red': self._accordion_item_red_control,
-            'Green': self._accordion_item_green_control,
-        }
+        return self._drawers[layer]
 
-        if layer in LAYER_MAP:
-            return LAYER_MAP[layer]
-        else:
-            return self.ids[f'{layer}_accordion']
+    def draw_shown_channel(self, *largs) -> None:
+        """Open the drawer of the Session's shown channel and close the others.
 
-    def set_expanded_layer(self, layer: str, *largs) -> None:
+        The drawers display the shown channel, in a run too: this is their
+        one writer, called at start-up and by the listener bridge on each
+        change, and after a person's open in case the Session refused it.
         """
-        Expand the specified layer accordion and collapse all others.
-        Cleans up ScrollView viewport textures on collapse to prevent memory accumulation.
-        Accordion toggling is always disabled during protocol execution to prevent memory leaks.
+        layer = _app_ctx.ctx.session.shown_channel.channel
+        for a_layer in common_utils.get_layers():
+            accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
+            if layer == a_layer:
+                accordion_item_obj.collapse = False
+                continue
+            accordion_item_obj.collapse = True
+        gui_logger.display('OPEN_LAYER', layer)
+        self.layer_lookup(layer=layer).show_as_shown()
+
+    def _show_channel_for_person(self, layer: str) -> None:
+        """A person opened ``layer``'s drawer: the Session shows that layer.
+
+        The drawer opens at once; the Session's answer redraws it, so a
+        refused show puts the drawer back on the channel the Session shows.
         """
+        session = _app_ctx.ctx.session
+        from ui.ui_helpers import submit_reported
 
-        # Skip accordion toggling during protocol execution to prevent memory leaks
-        if _app_ctx.ctx.session.run_lockout:
-            return
+        submit_reported(
+            lambda: session.show_channel(layer),
+            self.draw_shown_channel,
+            f'SHOW_CHANNEL_{layer}',
+        )
 
-        # No gui_logger record: this is the app's expand, not a person's.
-        # A person's is recorded by LoggedAccordionItem.on_touch_down.
+    def show_drawers(self, identity) -> None:
+        """Show a drawer for each layer the unit has, drawn from its record,
+        and none for the others.
 
-        # Ordering invariant: the guard is set BEFORE the mutation loop
-        # (the collapse events it fires prime the reconcile trigger) and
-        # its CLEAR is scheduled in the finally AFTER the mutations --
-        # Kivy runs same-frame timeout-0 events in scheduling order, so a
-        # clear scheduled before priming would fire first and re-expose
-        # the reconcile race. try/finally: an exception mid-loop must not
-        # wedge the guard (that would permanently disable the user-click
-        # drawer reconcile). The next-tick clear also absorbs a user click
-        # landing on this same frame -- that click's reconcile is skipped
-        # once; the next real click re-fires.
-        self._suppress_reconcile_for_programmatic_expand = True
-        try:
-            for a_layer in common_utils.get_layers():
-                accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
-
-                # Check if we need to collapse this accordion
-                target_collapsed = layer != a_layer
-
-                if layer == a_layer:
-                    accordion_item_obj.collapse = False
-                else:
-                    # Before collapsing, clean up ScrollView to prevent memory leak
-                    if not accordion_item_obj.collapse and target_collapsed:
-                        layer_control = self.layer_lookup(layer=a_layer)
-                        # Find and clean up ScrollView in this layer control
-                        for child in layer_control.walk():
-                            if isinstance(child, ScrollView):
-                                # Schedule cleanup after collapse animation completes
-                                from ui.ui_helpers import cleanup_scrollview_viewport
-
-                                Clock.schedule_once(
-                                    lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
-                                )
-
-                    accordion_item_obj.collapse = True
-        finally:
-            Clock.schedule_once(
-                lambda dt: setattr(self, '_suppress_reconcile_for_programmatic_expand', False),
-                0,
-            )
-
-    def set_lumi_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_lumi_layer_control()
-        else:
-            self._hide_lumi_layer_control()
-
-    def _show_lumi_layer_control(self):
-        if not self._accordion_item_lumi_control_visible:
-            self._accordion_item_lumi_control_visible = True
-            self.ids['accordion_id'].add_widget(self._accordion_item_lumi_control, 0)
-            self._resort_accordion()
-
-    def _hide_lumi_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('Lumi', None)
-        if self._accordion_item_lumi_control_visible:
-            self._accordion_item_lumi_control.collapse = True
-            self._accordion_item_lumi_control_visible = False
-            self.ids['accordion_id'].remove_widget(self._accordion_item_lumi_control)
-
-    def set_df_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_df_layer_control()
-        else:
-            self._hide_df_layer_control()
-
-    def _show_df_layer_control(self):
-        if not self._accordion_item_df_control_visible:
-            self._accordion_item_df_control_visible = True
-            self.ids['accordion_id'].add_widget(self._accordion_item_df_control, 0)
-            self._resort_accordion()
-
-    def _hide_df_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('DF', None)
-        if self._accordion_item_df_control_visible:
-            self._accordion_item_df_control.collapse = True
-            self._accordion_item_df_control_visible = False
-            self.ids['accordion_id'].remove_widget(self._accordion_item_df_control)
-
-    def set_phasecontrast_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_pc_layer_control()
-        else:
-            self._hide_pc_layer_control()
-
-    def _resolve_pc_accordion(self):
-        """Return the PC_accordion widget, resolving from self.ids on
-        first use. `set_ui_features_for_scope()` runs during
-        load_settings before the Clock-scheduled _init_ui fires, so a
-        ref captured only in _init_ui arrives too late for the initial
-        hide. Lazy resolution keeps both code paths correct.
+        Visibility, titles and controls are per layer from the identity, so a
+        filterset carrying only some channels (an Ex488-only unit) shows
+        exactly what the unit has. A drawer is titled by its layer's label
+        (``_drawer_title``) beside a swatch of its colour, and has illumination controls where
+        the unit's row drives an LED. A layer the unit lacks stops being
+        acquired.
         """
-        if self._accordion_item_pc_control is None:
-            # Cache the REAL widget (`.__self__`), never the WeakProxy
-            # self.ids hands out: on scopes that hide this item,
-            # remove_widget drops the tree's only strong reference, and a
-            # proxy-cached item is garbage-collected with all its layer
-            # widgets -- every later deref of those ids then raises
-            # ReferenceError. The Python-constructed accordion items
-            # survive hiding precisely because their instance attributes
-            # are strong references; this cache must match.
-            proxy = self.ids.get('PC_accordion')
-            self._accordion_item_pc_control = proxy.__self__ if proxy is not None else None
-        return self._accordion_item_pc_control
-
-    def _show_pc_layer_control(self):
-        widget = self._resolve_pc_accordion()
-        if widget is not None and not self._accordion_item_pc_control_visible:
-            self._accordion_item_pc_control_visible = True
-            self.ids['accordion_id'].add_widget(widget)
-            self._resort_accordion()
-
-    def _hide_pc_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('PC', None)
-        widget = self._resolve_pc_accordion()
-        if widget is not None and self._accordion_item_pc_control_visible:
-            widget.collapse = True
-            self._accordion_item_pc_control_visible = False
-            self.ids['accordion_id'].remove_widget(widget)
-
-    def apply_layer_titles(self, layers) -> None:
-        """Retitle each layer accordion from its identity record.
-
-        Only layers present in the identity are retitled; a hidden
-        accordion keeps its last title and is refreshed the next time
-        its layer appears in identity. Every catalogue layer has a drawer
-        (tests/guards/test_every_layer_has_a_drawer.py).
-        """
-        for record in layers:
-            self.accordion_item_lookup(layer=record.key_name).title = layer_title(record)
+        records = {record.key_name: record for record in identity.channels}
+        colors = _app_ctx.ctx.session.channel_colors()
+        for layer, drawer in self._drawers.items():
+            record = records.get(layer)
+            if record is None:
+                _app_ctx.ctx.session.set_channel_acquire(layer, None)
+                drawer.collapse = True
+                continue
+            color = colors[layer]
+            drawer.color_rgba = (*color, 1.0)
+            drawer.chrome_rgba = (*_lightened(color), 1.0)
+            drawer.title = _drawer_title(record)
+            control = drawer.ids['control']
+            control.illumination_support = bool(record.led_addresses)
+            # Luminescence is long and dim: its exposure sums frames, and
+            # the camera's auto gain is not offered for it.
+            luminescence = record.modality == layer_record.Modality.LUMINESCENCE
+            control.exposure_summing_support = luminescence
+            control.autogain_support = not luminescence
+        self._shown_layers = frozenset(records)
+        self._resort_accordion()
 
     def set_layer_focus_visibility(self, visible: bool) -> None:
         for layer in common_utils.get_layers():
             self.layer_lookup(layer=layer).focus_support = visible
 
-    def set_fluorescence_layer_control_visibility(self, layer: str, visible: bool) -> None:
-        if layer not in self._fluorescence_control_visible:
-            raise ValueError(f'{layer!r} is not a fluorescence layer')
-        if visible:
-            self._show_fluorescence_layer_control(layer)
-        else:
-            self._hide_fluorescence_layer_control(layer)
-
-    def _show_fluorescence_layer_control(self, layer: str):
-        if not self._fluorescence_control_visible[layer]:
-            self._fluorescence_control_visible[layer] = True
-            self.ids['accordion_id'].add_widget(self.accordion_item_lookup(layer=layer), 0)
-            self._resort_accordion()
-
-    def _hide_fluorescence_layer_control(self, layer: str):
-        _app_ctx.ctx.session.set_layer_acquire(layer, None)
-        if self._fluorescence_control_visible[layer]:
-            item = self.accordion_item_lookup(layer=layer)
-            item.collapse = True
-            self._fluorescence_control_visible[layer] = False
-            self.ids['accordion_id'].remove_widget(item)
-
     def _resort_accordion(self):
         """Put the layer accordion back in catalogue order after a model switch.
 
-        Live scope-model transitions (LS620 -> LS850, etc.) re-add hidden
-        layer controls out of order; after every ``_show_*`` call the order
-        is restored. Display order IS the catalogue order (a layer's id is
-        its position there), so no second order is authored here.
+        Live scope-model transitions (LS620 -> LS850, etc.) change which
+        drawers are shown; each change puts them back in order. Display order
+        IS the catalogue order (a layer's id is its position there), so no
+        second order is authored here.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
             return
-        widget_for_layer = {
-            'BF': self.ids.get('BF_accordion'),
-            'PC': self._resolve_pc_accordion(),
-            'DF': self._accordion_item_df_control,
-            'Blue': self._accordion_item_blue_control,
-            'Green': self._accordion_item_green_control,
-            'Red': self._accordion_item_red_control,
-            'Lumi': self._accordion_item_lumi_control,
-        }
-        visible_for_layer = {
-            'BF': True,
-            'PC': self._accordion_item_pc_control_visible,
-            'DF': self._accordion_item_df_control_visible,
-            'Lumi': self._accordion_item_lumi_control_visible,
-            **self._fluorescence_control_visible,
-        }
         resort_accordion(
             accordion,
-            [
-                (widget_for_layer.get(layer), visible_for_layer.get(layer, False))
-                for layer in common_utils.get_layers()
-            ],
+            [(drawer, layer in self._shown_layers) for layer, drawer in self._drawers.items()],
         )
 
     def _init_ui(self, dt=0):
@@ -372,10 +186,10 @@ class ImageSettings(BoxLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
-        self.assign_led_button_down_images()
-        # Skip accordion_collapse during app initialization to prevent premature apply_settings
-        if not ctx.initializing:
-            self.accordion_collapse()
+        for layer in common_utils.get_layers():
+            self.accordion_item_lookup(layer=layer).person_opened = functools.partial(
+                self._show_channel_for_person, layer
+            )
         self.sync_camera_capability_ranges()
         self.enable_image_stats_if_needed()
 
@@ -388,32 +202,28 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
     def set_layer_exposure_ranges(self):
-        """Size each layer's exposure slider from the connected camera's cap,
-        through the getter that also applies the transmitted-layer policy.
-
-        The one owner of exp_slider.max. The policy numbers live beside the
-        illumination policy below the GUI rather than as literals here, so the
-        bound a non-GUI caller is held to and the bound the slider shows come
-        from the same place.
+        """Size each layer's exposure slider to the session's answer
+        (``channel_slider_maxima``), the one owner of exp_slider.max. With no
+        camera there is no maximum to show, and the camera controls are
+        disabled (set_camera_controls_support), so the slider keeps its own.
         """
-        camera_max_ms = _app_ctx.ctx.max_exposure
+        session = _app_ctx.ctx.session
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
-
-        for layer in common_utils.get_transmitted_layers():
-            layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
+
+        for layer in common_utils.get_layers():
+            maximum = session.channel_slider_maxima(layer).slider_max_exposure_ms
+            if maximum is not None:
+                self.layer_lookup(layer=layer).ids['exp_slider'].max = maximum
 
     def set_layer_gain_ranges(self):
         """Size each layer's gain slider to the connected camera's cap.
@@ -422,7 +232,7 @@ class ImageSettings(BoxLayout):
         was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
         image. `ctx.max_gain` is populated from
-        Lumascope.max_gain_db_cached in load_settings (and the same
+        capabilities.camera_limits in load_settings (and the same
         default-fallback pattern as exposure).
         """
         ctx = _app_ctx.ctx
@@ -431,41 +241,38 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
     def set_layer_illumination_ranges(self):
-        """Size each layer's illumination slider from the connected LED
-        driver's cap, through the getter that also applies the transmitted-
-        layer policy. The one owner of ill_slider.max; the .kv value is the
-        placeholder until the scope is built. A scope with no LED board has
-        no cap to size from, and its illumination controls are hidden
-        (set_layer_led_controller_support).
+        """Size each layer's illumination slider to the session's answer
+        (``channel_slider_maxima``), the one owner of ill_slider.max; the .kv
+        value is the placeholder until this runs. A scope with no LED board
+        has no maximum to show, and its illumination controls are hidden
+        (set_layer_led_controller_support), so the slider keeps its own.
         """
+        session = _app_ctx.ctx.session
         for layer in common_utils.get_layers():
-            layer_obj = self.layer_lookup(layer=layer)
-            if not layer_obj.led_controller_support:
-                continue
-            bound = get_layer_illumination_slider_max(layer)
-            if bound is None:
-                continue
-            layer_obj.ids['ill_slider'].max = bound
+            maximum = session.channel_slider_maxima(layer).slider_max_illumination_ma
+            if maximum is not None:
+                self.layer_lookup(layer=layer).ids['ill_slider'].max = maximum
 
     def set_layer_autogain_support(self):
-        """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
+        """Gate the Auto Gain/Exp control on the camera's hardware auto-gain.
 
-        The checkbox drives hardware auto-gain/exposure (imaging.set_auto_gain
-        -> driver.auto_gain), so on a camera without either (IDS U3-34Lx, FX2
-        LS620) the control is a no-op and is hidden. Parallel to
+        The checkbox drives hardware auto-gain (camera.set_auto_gain ->
+        driver.auto_gain), which CameraAPI refuses on a camera without it
+        (IDS U3-34Lx, FX2 LS620), so there the control is hidden. Auto-gain
+        and auto-exposure come together on every shipped camera. Parallel to
         set_layer_gain_ranges: runs at every capability-sync point (connect /
         scope-change). The per-layer static rule (Lumi has no autogain) is
         preserved -- this only drives the orthogonal camera_autogain_support
-        gate, AND-ed with autogain_support in the kv. Capability resolution +
-        fail-safe live in camera_autogain_supported() (the single gate).
+        gate, AND-ed with autogain_support in the kv. The answer is the
+        scope's capability, camera_supports_auto_gain.
 
         Only the visibility gate is set here; the persisted per-layer auto_gain
         is NOT mutated. The enable actually in force is the API's answer
-        (imaging.applied_auto_gain_for), read at the consumption point
+        (camera.applied_auto_gain_for), read at the consumption point
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
-        supported = camera_autogain_supported()
+        supported = _app_ctx.ctx.scope.capabilities.camera_supports_auto_gain
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported
@@ -476,7 +283,7 @@ class ImageSettings(BoxLayout):
         channels. Display of the API's answer, set where the capabilities
         are synced.
         """
-        present = _app_ctx.ctx.scope.capabilities.led_channels is not None
+        present = _app_ctx.ctx.scope.capabilities.led_addresses is not None
         for layer in common_utils.get_layers():
             self.layer_lookup(layer=layer).led_controller_support = present
 
@@ -498,8 +305,8 @@ class ImageSettings(BoxLayout):
         The single grouping of the per-layer capability setters, so the connect
         path (_init_ui) and the reconnect path apply the SAME set and can't
         drift to a subset (reconnect previously refreshed only exposure ranges).
-        Callers that change the camera (reconnect) must refresh ctx.max_gain /
-        ctx.max_exposure first -- these setters read those caps.
+        Callers that change the camera (reconnect) must refresh ctx.max_gain
+        first -- the gain setter reads that cap.
 
         The setters run with every layer marked initializing. Narrowing a
         slider's max makes Kivy clamp its value, which fires on_value into the
@@ -526,6 +333,16 @@ class ImageSettings(BoxLayout):
         finally:
             for layer_obj in layer_objs:
                 layer_obj._initializing = False
+        shown = layer_objs[0]
+        ctx = _app_ctx.ctx
+        limits = ctx.scope.capabilities.camera_limits
+        exposure_max = None if limits is None else limits.exposure_max_ms
+        gui_logger.display(
+            'CAMERA_CONTROLS',
+            f'camera={shown.camera_connected} led_board={shown.led_controller_support} '
+            f'autogain={shown.camera_autogain_support} '
+            f'gain_max={ctx.max_gain} exposure_max={exposure_max}',
+        )
         self.reconcile_layers_to_camera_caps()
 
     def reconcile_layers_to_camera_caps(self):
@@ -539,74 +356,41 @@ class ImageSettings(BoxLayout):
         instead destroyed the setting silently -- the periodic current.json
         flush persisted the shrunken value and nothing recorded the original.
 
-        The divergence itself is the trigger. Firing for every layer would
-        drive each one's LED state through apply_settings, changing what
-        startup does to the illuminators. Only the open layer is applied: the
-        camera holds one layer, and applying each capped layer in turn left it
-        on the last of them, not the one on screen; a closed layer reaches the
-        camera, capped, when it is next applied.
+        The divergence itself is the trigger. Nothing is applied here: the
+        Session caps each value as it puts a layer on the camera, and bring-up
+        has already put the shown layer there; another layer reaches the
+        camera, capped, when it is next shown.
 
         Runs BEFORE anything renders the store, on every path that reaches it,
         so the slider's pinned position and the box's stored value are in
         agreement the first time they are drawn.
 
-        The re-render and the apply are both explicit. They used to arrive as
-        side effects of writing the slider -- the layer's handler re-committed
-        the value (crediting the user with a drag it never made) and its
-        debounced trigger was what actually told the camera.
+        The re-render is explicit. It used to arrive as a side effect of
+        writing the slider -- the layer's handler re-committed the value
+        (crediting the user with a drag it never made).
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        imaging = ctx.lumaview.scope.imaging
-        opened = common_utils.get_opened_layer(self)
+        camera = ctx.lumaview.scope.camera
         for layer in common_utils.get_layers():
-            gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
-            exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
+            gain = camera.applied_gain_db_for(settings[layer]['gain_db'])
+            exposure = camera.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
-                layer_obj = self.layer_lookup(layer=layer)
-                layer_obj.render_layer_values_from_settings()
-                if layer == opened:
-                    layer_obj.apply_settings()
-
-    def open_or_default_layer(self):
-        """The layer whose accordion is expanded, or 'BF' when none is open.
-
-        Lets the reconnect path re-apply the VISIBLE layer's controls against
-        the new camera (so e.g. its gain/exposure sliders reflect it), instead
-        of only ever refreshing a hardcoded channel. Delegates the open-layer
-        scan to common_utils.get_opened_layer (which guards the accordion
-        lookup); BF is the default channel shown when every accordion is
-        collapsed.
-        """
-        layer = common_utils.get_opened_layer(self)
-        if layer is not None:
-            return layer
-        return 'BF'
-
-    def assign_led_button_down_images(self):
-        led_button_down_background_map = {
-            'Red': './data/icons/ToggleRR.png',
-            'Green': './data/icons/ToggleRG.png',
-            'Blue': './data/icons/ToggleRB.png',
-            'Lumi': './data/icons/ToggleRB.png',
-        }
-
-        for layer in common_utils.get_layers_with_led():
-            button_down_image = led_button_down_background_map.get(
-                layer, './data/icons/ToggleRW.png'
-            )
-            layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['enable_led_btn'].background_down = button_down_image
+                self.layer_lookup(layer=layer).render_layer_values_from_settings()
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        if not _app_ctx.ctx.session.run_lockout:
-            self.update_transmitted()
+        """A person pressed the panel's tab: record it, then place the panel."""
         # State after toggle reflects target visibility -- 'normal' = settings
         # tab going invisible (panel collapsing to side), 'down' = expanding.
-        state_down = self.ids['toggle_imagesettings'].state == 'down'
-        gui_logger.toggle('IMAGE_SETTINGS_PANEL', state_down)
-        logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
+        gui_logger.toggle('IMAGE_SETTINGS_PANEL', self.ids['toggle_imagesettings'].state == 'down')
+        self.place_settings()
+
+    def place_settings(self):
+        """Place the panel where its tab says: open beside the view, or folded to the side."""
+        if _app_ctx.ctx.session.controls_lock.run_named is None:
+            self.update_transmitted()
+        logger.info('[LVP Main  ] ImageSettings.place_settings()')
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
 
@@ -620,9 +404,6 @@ class ImageSettings(BoxLayout):
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.x = lumaview.width - self.settings_width
-
-        # if scope_display.play == True:
-        #     scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
@@ -652,84 +433,6 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['false_color'].color = (0.0,) * 4
 
             layer_obj.ids['ill_slider'].step = 1
-
-    def accordion_collapse(self):
-        """Called by Kivy on every accordion item collapse/expand.
-
-        Kivy fires this multiple times when switching tabs (once per item).
-        Debounced via Clock.create_trigger so the actual work runs once per frame.
-        """
-        self._accordion_collapse_trigger()
-
-    def _do_accordion_collapse(self):
-        logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-
-        ctx = _app_ctx.ctx
-
-        # Skip during app initialization - will be called explicitly after init completes
-        if ctx.initializing:
-            return
-
-        # Programmatic expansion (manual step navigation) owns its LED +
-        # camera outcome through the authority; the reconcile below is for
-        # genuine user drawer clicks. Checked at FIRE time so a trigger
-        # primed before the guard was set still no-ops.
-        if self._suppress_reconcile_for_programmatic_expand:
-            return
-
-        # Skip during protocol run: user clicking a different panel
-        # shouldn't override the layer the protocol is actively driving,
-        # and the "Protocol LEDs On" feature relies on step_navigation
-        # having just turned the step's LED on -- killing it here would
-        # negate that. The original guard checked protocol_led_on alone,
-        # but that setting persists across protocol runs; combined with
-        # the prior shape it incorrectly skipped LED cleanup during pure
-        # Live-mode accordion switches whenever the user had previously
-        # enabled Protocol LEDs On. Live-mode users then saw a
-        # previously-enabled channel's LED stay lit until they enabled
-        # the new channel (issue #659). Gating on the run lockout
-        # collapses both checks and matches the original intent.
-        # set_expanded_layer() already bails for programmatic paths; this
-        # covers the user-click path so a mid-capture click doesn't kill
-        # the running-step LED or apply a different layer's settings.
-        if ctx.session.run_lockout:
-            return
-
-        # Issue #637: opening/closing the drawer must not send anything to
-        # the camera or LEDs. Kivy's accordion auto-expands a different
-        # item when the active one collapses (default Accordion behavior),
-        # so a drawer-close event would otherwise trigger apply_settings
-        # for whichever item Kivy auto-expanded -- applying that layer's
-        # exposure/gain to the camera while the user's LED was still on a
-        # different channel. Saturated-image symptom in #637.
-        if self.ids['toggle_imagesettings'].state == 'normal':
-            return
-
-        # Reconcile each layer's LED to the open drawer: off the collapsed
-        # layers, apply the open one. Switching the others off individually
-        # (not a nuclear leds_off) avoids clearing the LED-state cache, which
-        # would force the open layer's own channel -- e.g. one a step just lit
-        # -- to re-fire and blink off then on. led_off self-skips a channel
-        # already off, and offing the collapsed layers here still clears a
-        # previously-lit channel when the drawer switches to a layer whose LED
-        # is off (which the open layer's apply_settings alone would not do).
-        from ui.ui_helpers import submit_reported
-
-        illumination = ctx.scope.illumination
-        for layer in common_utils.get_layers():
-            layer_accordion = self.accordion_item_lookup(layer=layer)
-            if layer_accordion.collapse:
-                # None with no LED board installed: nothing is lit.
-                state = illumination.get_led_state(channel=layer)
-                if state is not None and state['enabled']:
-                    submit_reported(
-                        lambda lit=layer: illumination.led_off(lit),
-                        None,
-                        f'LED_{layer}_OFF',
-                        lane=ctx.io_executor,
-                    )
-            else:
-                self.layer_lookup(layer=layer).apply_settings()
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')

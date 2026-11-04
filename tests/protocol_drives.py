@@ -17,23 +17,25 @@ Three layers of readiness:
 
 from __future__ import annotations
 
-import datetime
+import concurrent.futures
 import threading
 import time
 from unittest.mock import MagicMock
 
 from modules.activity_claim import ActivityClaim, RunIdentity
+from modules.caller import Caller
 from modules.image_mode import ImageCaptureConfig
 from modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
 from tests.settings_fixtures import complete_settings
+from modules.layer_record import release_colors
 
 
 def held_run_claim():
     """A run's activity claim, as the run holds it: what a top-level LED
     lease is taken under. Each call is a fresh claim, so two leases never
     share one; release() it to strand a lease taken under it."""
-    return ActivityClaim().try_claim('protocol', run=run_identity('test'))
+    return ActivityClaim().try_claim('protocol', run=run_identity())
 
 
 def lent_run_claim():
@@ -45,8 +47,8 @@ def lent_run_claim():
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """Wait for a finished run to release the activity claim.
 
-    `run_ended` and `handle.wait()` come only once the claim -- and
-    with it `session.is_protocol_running` -- is released, so after either
+    `run_ended` and `handle.wait()` come only once the claim's run --
+    `session.activity_claim.run_holder` -- is released, so after either
     this returns at once; it confirms the release for a test that asserts
     the state without having waited on the run itself.
 
@@ -54,7 +56,7 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     completed run, and a second copy is a second thing to drift.
     """
     deadline = time.monotonic() + timeout
-    while session.is_protocol_running:
+    while session.activity_claim.run_holder is not None:
         if time.monotonic() > deadline:
             return False
         time.sleep(0.02)
@@ -79,10 +81,10 @@ class StepHeartbeat:
         self._inner = inner
         self._last = time.monotonic()
 
-    def __call__(self, step_idx):
+    def __call__(self, step_index):
         self._last = time.monotonic()
         if self._inner is not None:
-            self._inner(step_idx)
+            self._inner(step_index)
 
     def idle_s(self) -> float:
         return time.monotonic() - self._last
@@ -125,9 +127,40 @@ def protocol_step(**overrides):
     return step
 
 
-def run_identity(trigger: str = 'test', words: str = 'scan') -> RunIdentity:
+def run_identity(started_by: Caller = Caller.API, words: str = 'scan') -> RunIdentity:
     """A run's identity for a test that takes or dispatches as a run."""
-    return RunIdentity(trigger=trigger, words=words)
+    return RunIdentity(started_by=started_by, words=words)
+
+
+def no_post_run_builds() -> MagicMock:
+    """The session's builds for an engine whose test drives no post-run build.
+
+    Each build a run's end puts on the lane is answered at once, having made
+    nothing, so the run's end settles as it would.
+    """
+    # a stand-in by design: the engine's own tests build its runs; the builds a
+    # run's end hands on are pinned through the Session's real lane.
+    builds = MagicMock()
+
+    def built_nothing(*_args, **_kwargs):
+        settled = concurrent.futures.Future()
+        settled.set_result(
+            {
+                'message': 'Nothing was built.',
+                'degraded': False,
+                'new_count': 0,
+                'output_root': '',
+                'accounting_note': '',
+                'artifact_paths': [],
+            }
+        )
+        return settled
+
+    builds.run_hyperstack.side_effect = built_nothing
+    builds.run_composite.side_effect = built_nothing
+    # Nothing is on the lane, so a run is never refused for a build.
+    builds.has_work.return_value = False
+    return builds
 
 
 def bare_capture_runner(**overrides):
@@ -141,6 +174,7 @@ def bare_capture_runner(**overrides):
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
+        'post_processing': no_post_run_builds(),
     }
     kwargs.update(overrides)
     if 'scope' not in overrides:
@@ -149,6 +183,9 @@ def bare_capture_runner(**overrides):
         # the default scope states the homed answer. A test about position
         # passes its own scope.
         kwargs['scope'].motion.axes_without_position.return_value = {}
+        # The run loop asks which parts are not connected; a bare mock's
+        # truthy answer would end every run as a disconnect.
+        kwargs['scope'].unconnected_parts.return_value = ()
     # The engine reads IO and CAMERA from its scope; a test that passes its
     # own lane puts it there.
     swap_lanes(
@@ -156,7 +193,7 @@ def bare_capture_runner(**overrides):
         io=kwargs.pop('io_executor', None),
         camera=kwargs.pop('camera_executor', None),
     )
-    runner = SequencedCaptureRunner(**kwargs)
+    runner = SequencedCaptureRunner(**kwargs, channel_colors=release_colors)
     # A run takes the camera only once the camera lane is idle; a bare mock
     # answers "busy" and "stalled" with truthy mocks, so the default lane
     # states the idle answer. A test about the lane passes its own executor.
@@ -174,18 +211,16 @@ def scr_run_kwargs(**overrides):
     protocol = MagicMock()
     protocol.num_steps.return_value = 1
     protocol.validate_for_run.return_value = []
-    # Real timedeltas: Protocol.period() never returns an int, and a stub
-    # that did once let a zero-period guard pass green against a type the
-    # production path never produces.
-    protocol.period.return_value = datetime.timedelta(0)
-    protocol.duration.return_value = datetime.timedelta(hours=1)
+    # Floats, as Protocol.period_s() answers; period 0 is one scan.
+    protocol.period_s.return_value = 0.0
+    protocol.duration_s.return_value = 3600.0
+    protocol.num_scans.return_value = 1
     protocol.copy_for_execution.return_value = protocol
     # The run hands its writer the plate the protocol names, so the plate
     # is a catalogue name, as a real protocol's is after validate_for_run.
-    protocol.labware.return_value = '96 well microplate'
+    protocol.labware_id.return_value = '96 well microplate'
     kwargs = {
         'protocol': protocol,
-        'run_trigger_source': 'test',
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
         'sequence_name': 'seq',
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
@@ -202,19 +237,24 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
 
     A mock scope's protocols API cannot convert a plate position (its plate
     catalogue is a mock); this answers every step's X/Y with
-    *plate_to_stage* and its Z from the step, with no turret slot.
+    *plate_to_stage* and its Z from the step, with no turret slot, and the
+    plate-position conversion the between-scan return to the first step
+    asks (``stage_targets``) the same way.
     """
     from modules.lumascope_api.protocols import StepTargets
 
-    scope.protocols.plate_to_stage.side_effect = lambda protocol, px, py, stage_offset=None: (
-        plate_to_stage
+    scope.protocols.stage_targets.side_effect = lambda protocol, px, py, z, stage_offset=None: (
+        plate_to_stage[0],
+        plate_to_stage[1],
+        z,
     )
-    scope.protocols.step_targets.side_effect = lambda protocol, step_idx, stage_offset=None: (
+
+    scope.protocols.step_targets.side_effect = lambda protocol, step_index, stage_offset=None: (
         StepTargets(
             turret_slot=None,
-            x=plate_to_stage[0],
-            y=plate_to_stage[1],
-            z=protocol.step(idx=step_idx)['Z'],
+            x_um=plate_to_stage[0],
+            y_um=plate_to_stage[1],
+            z_um=protocol.step_row(step_index=step_index)['Z'],
         )
     )
 
@@ -226,11 +266,16 @@ def scan_ready_runner(step, **state):
     from modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
 
     runner = bare_capture_runner()
-    runner._scope.motion.is_moving.return_value = False
+    runner._scope.motion.is_any_axis_moving.return_value = False
     runner._scope.led_connected = False
     protocol = MagicMock()
-    protocol.step.return_value = step
+    protocol.step_row.return_value = step
     protocol.num_steps.return_value = 1
+    # a stand-in by design: the one step is in no z-stack, where a step
+    # sweeps in its own light when its Auto_Focus is on.
+    protocol.focus_sweep_step.side_effect = lambda step_index: (
+        step_index if step.get('Auto_Focus') else None
+    )
     runner._protocol = protocol
     runner._n_scans = 1
     runner._scan_in_progress.set()
@@ -239,7 +284,9 @@ def scan_ready_runner(step, **state):
     runner._autogain_settings = {'target_brightness': 0.5}
     runner._image_writer = MagicMock()
     # This drive saves nothing, so its run is asked for no captures.
-    runner._image_writer.capture_tally = CaptureTally(asked=0, captured=0, failed=())
+    runner._image_writer.capture_tally = CaptureTally(
+        asked=0, captured=0, failed=(), saturated=(), dark=()
+    )
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
     runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
@@ -268,7 +315,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()
     runner._n_scans = n_scans
-    runner._protocol.period.return_value = datetime.timedelta(0)
+    runner._protocol.period_s.return_value = 0.0
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
     runner._events = RunEvents(step_started=MagicMock())
@@ -281,7 +328,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # takes the auto-gain arm out of that snapshot. A bare mock snapshot
     # answers the arm with a mock, which the arm take cannot apply, so the
     # default snapshot states the common case: no standing arm.
-    runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
+    runner._scope.camera.save_camera_state.return_value = {'auto_gain_arm': None}
     # The run the loop is dispatched for: every cleanup it asks for names it.
     runner._run_outcome = PendingRunOutcome()
     runner._set_state(ProtocolState.RUNNING)

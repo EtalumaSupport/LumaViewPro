@@ -15,32 +15,51 @@ loop consuming it must terminate instead of hanging or lying.
 import math
 
 
-def effective_recording_fps(requested_fps: float | None, global_max_fps: float) -> float | None:
+def effective_recording_fps(global_max_fps: float) -> float | None:
     """The one rate authority: the limit a recording samples at, or None.
 
-    A recording runs at the camera's own delivery rate unless a limit
-    applies: ``min(requested, global max if nonzero)``. The global
-    "Video max FPS" limit applies over a present per-caller request; a
-    global value of 0 means no global limit. None means no limit at all
-    -- every delivered frame is kept, so the camera's maximum is recorded
-    without anything having to know it in advance. A camera slower than
-    the limit simply records slower; the manifest's measured rate says so.
+    One limit governs every recording, manual or a protocol's video step:
+    the user's global "Recording max FPS". A value above 0 is the limit;
+    0 means none, and None is returned -- every delivered frame is kept,
+    so the camera's maximum is recorded without anything having to know
+    it in advance. A camera slower than the limit simply records slower;
+    the manifest's measured rate says so.
 
     Args:
-        requested_fps: The caller's rate -- a protocol step's Video
-            Config fps -- or None when the caller asks for none (manual
-            recording, which is limited only by the global setting).
         global_max_fps: The user's global limit (``video.max_fps``); 0
             means none.
 
     Returns:
         The limit in frames per second, or None to keep every frame.
     """
-    if requested_fps is None:
-        return global_max_fps if global_max_fps > 0 else None
-    if global_max_fps > 0:
-        return min(requested_fps, global_max_fps)
-    return requested_fps
+    return global_max_fps if global_max_fps > 0 else None
+
+
+def video_sizing_fps(global_max_fps: float, delivered_fps: float) -> float | None:
+    """The rate a video recording is sized at for the disk it will write.
+
+    The recording keeps the limit's frames when one is set and every
+    delivered frame when not, so it is sized at the limit, else at the rate
+    the camera is delivering now. The delivered rate reflects the camera's
+    current exposure and frame size, which a step may change, so the size
+    can err either way; the running recording's disk floor catches an
+    under-estimate.
+
+    Args:
+        global_max_fps: The user's global limit (``video.max_fps``); 0
+            means none.
+        delivered_fps: The camera's delivered rate
+            (``ImagingAPI.get_delivered_rate().frame_rate_fps``); 0 when it
+            is delivering nothing.
+
+    Returns:
+        The rate in frames per second, or None when no limit is set and the
+        camera is delivering nothing, so a recording cannot be sized.
+    """
+    limit = effective_recording_fps(global_max_fps)
+    if limit is not None:
+        return limit
+    return delivered_fps if delivered_fps > 0 else None
 
 
 # Feed-death detection bounds; PERFORMANCE_BUDGETS.md rows
@@ -63,7 +82,11 @@ def stall_threshold_s(effective_fps: float | None, exposure_s: float) -> float:
     exposure alone when no rate limit applies (None: every delivered
     frame is kept, so selection never waits longer than delivery). This
     detects DEATH, not degradation: a trickling feed below the configured
-    rate ends at the wall cap as an honest short delivery, by design.
+    rate ends at its duration on its frames' clock as an honest short
+    delivery, by design. The same bound is the margin past the duration at
+    which the recording controllers' steady-clock backstop ends a recording
+    whose frames never reach that end: no legitimate last frame arrives
+    later than one such gap.
 
     Raises:
         ValueError: If ``effective_fps`` is present and not positive, or
@@ -94,9 +117,10 @@ def prologue_stall_threshold_s(exposure_s: float) -> float:
 class StallWatch:
     """Fires when an observed progress value stops changing for too long.
 
-    The one silent-feed-death detector for loops that consume camera
-    frames: the caller polls with its progress signal (a frame counter,
-    an arrival count) and its own clock; ANY change in the value resets
+    The one progress-stall detector: the loops that consume camera frames,
+    and the motion monitor's watch on each move. The caller polls with its
+    progress signal (a frame counter, an arrival count, an axis's
+    microstep reading) and its own clock; ANY change in the value resets
     the timer, and the anchor starts at the first call so "no progress
     ever" also fires at the threshold. Loop-local by design -- the
     consuming loop owns the response (abort, refuse, notify), so the

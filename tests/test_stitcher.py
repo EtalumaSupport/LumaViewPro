@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
+import datetime
 import logging
 import pathlib
 import re
+import time
 
 import cv2
 import numpy as np
@@ -13,142 +15,17 @@ import tifffile
 
 
 # ---------------------------------------------------------------------------
-# stitch_algorithms.py -- feature-based stitching, color transfer, border crop
+# stitch_algorithms.py -- overlap registration
 # ---------------------------------------------------------------------------
 
+from modules import post_derivation
+from modules.stitch_mode import StitchMode
 from modules.stitch_algorithms import (
-    _image_stats,
     align_tile_positions,
-    color_transfer,
+    estimate_overlap_offset,
     estimate_phase_offset,
-    _grab_contours,
-    crop_to_content,
     stitch_registered_tiles,
 )
-
-
-class TestImageStats:
-    """Test _image_stats -- computes L*a*b* channel statistics."""
-
-    def test_uniform_image(self):
-        # Uniform gray -> known LAB values
-        img = np.full((100, 100, 3), 128, dtype=np.uint8)
-        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        stats = _image_stats(lab)
-        assert len(stats) == 6  # (lMean, lStd, aMean, aStd, bMean, bStd)
-        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
-        assert l_std == 0.0  # uniform -> zero std
-        assert a_std == 0.0
-        assert b_std == 0.0
-
-    def test_random_image_has_nonzero_std(self):
-        rng = np.random.RandomState(42)
-        img = rng.randint(0, 256, (50, 50, 3), dtype=np.uint8)
-        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        stats = _image_stats(lab)
-        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
-        assert l_std > 0
-        assert a_std > 0
-        assert b_std > 0
-
-
-class TestColorTransfer:
-    """Test color_transfer -- LAB color distribution transfer (Reinhard et al.)."""
-
-    def test_output_shape_matches_target(self):
-        source = np.full((50, 50, 3), 200, dtype=np.uint8)
-        target = np.full((80, 60, 3), 100, dtype=np.uint8)
-        result = color_transfer(source, target)
-        assert result.shape == target.shape
-        assert result.dtype == np.uint8
-
-    def test_identical_images_unchanged(self):
-        # Uniform images have zero std -- division guard returns identity-like result
-        img = np.full((50, 50, 3), 128, dtype=np.uint8)
-        result = color_transfer(img.copy(), img.copy())
-        assert result.shape == img.shape
-        assert result.dtype == np.uint8
-        # With zero-std guard, uniform -> uniform (LAB round-trip may shift slightly)
-        assert np.allclose(result, result[0, 0], atol=1)  # all pixels same
-
-    def test_varied_identical_images(self):
-        # Non-uniform identical images -> result ~= input
-        rng = np.random.RandomState(7)
-        img = rng.randint(80, 180, (50, 50, 3), dtype=np.uint8)
-        result = color_transfer(img.copy(), img.copy())
-        assert np.allclose(result, img, atol=5)
-
-    def test_different_colors_shifts_target(self):
-        # Bright source, dark target -> result should be brighter than original target
-        source = np.full((50, 50, 3), 220, dtype=np.uint8)
-        target = np.full((50, 50, 3), 50, dtype=np.uint8)
-        result = color_transfer(source, target)
-        # Result's mean brightness should be closer to source than original target
-        assert result.mean() > target.mean()
-
-    def test_handles_color_images(self):
-        rng = np.random.RandomState(123)
-        source = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
-        target = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
-        result = color_transfer(source, target)
-        assert result.shape == target.shape
-        # Values should be valid uint8
-        assert result.min() >= 0
-        assert result.max() <= 255
-
-
-class TestGrabContours:
-    """Test _grab_contours -- OpenCV 4.x contour extraction."""
-
-    def test_two_element_tuple(self):
-        # OpenCV 4.x returns (contours, hierarchy)
-        contours = [np.array([[0, 0], [1, 0], [1, 1]])]
-        hierarchy = np.array([[[0, 0, 0, 0]]])
-        result = _grab_contours((contours, hierarchy))
-        assert result is contours
-
-    def test_three_element_tuple(self):
-        # OpenCV 3.x returned (image, contours, hierarchy)
-        img = np.zeros((10, 10), dtype=np.uint8)
-        contours = [np.array([[0, 0], [1, 0], [1, 1]])]
-        hierarchy = np.array([[[0, 0, 0, 0]]])
-        result = _grab_contours((img, contours, hierarchy))
-        assert result is contours
-
-    def test_with_real_findcontours(self):
-        # Create a simple image with a white rectangle
-        img = np.zeros((100, 100), dtype=np.uint8)
-        cv2.rectangle(img, (20, 20), (80, 80), 255, -1)
-        raw = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = _grab_contours(raw)
-        assert len(contours) == 1
-        # Bounding rect should roughly match the rectangle
-        x, _y, w, _h = cv2.boundingRect(contours[0])
-        assert 15 <= x <= 25
-        assert 55 <= w <= 65
-
-
-class TestCropToContent:
-    """Test crop_to_content -- crops stitched image to content area."""
-
-    def test_crops_black_border(self):
-        # Create an image with content in the center and black border
-        img = np.zeros((200, 300, 3), dtype=np.uint8)
-        img[40:160, 60:240] = 128  # gray content area
-        result = crop_to_content(img)
-        # Result should be smaller than input (border removed)
-        assert result.shape[0] < img.shape[0]
-        assert result.shape[1] < img.shape[1]
-        # Content should be preserved
-        assert result.mean() > 0
-
-    def test_full_content_image(self):
-        # No border -> result ~= input size (only the 10px border padding matters)
-        img = np.full((100, 100, 3), 200, dtype=np.uint8)
-        result = crop_to_content(img)
-        # Should be close to original dimensions (+/-20 from the added border)
-        assert abs(result.shape[0] - 100) <= 22
-        assert abs(result.shape[1] - 100) <= 22
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +34,6 @@ class TestCropToContent:
 
 from modules.stitching_core import (
     _center_metadata,
-    _feature_stitch_bgr_tiles,
     channel_aware_stitcher,
     fft_phase_stitcher,
     infer_stage_overlap,
@@ -167,50 +43,34 @@ from modules.stitching_core import (
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-
-
-class TestFeatureStitchSharedRange:
-    """_feature_stitch_bgr_tiles normalizes deep tiles against a group-wide range."""
-
-    def test_deep_tiles_scaled_against_shared_group_range(self):
-        # A dim and a bright uint16 tile of the same group map against ONE shared
-        # lo/hi so the seam stays continuous; uint8 tiles pass through unscaled.
-        # This locks the group-wide behavior across the running-min/max refactor.
-        dim = np.full((3, 3), 200, dtype=np.uint16)
-        mid = np.full((3, 3), 2100, dtype=np.uint16)
-        bright = np.full((3, 3), 4000, dtype=np.uint16)
-        passthrough = np.full((3, 3), 128, dtype=np.uint8)
-        bgr = _feature_stitch_bgr_tiles([dim, mid, bright, passthrough])
-        # group lo=200 hi=4000: dim -> 0, bright -> 255, mid -> ~127
-        assert int(bgr[0].max()) == 0
-        assert int(bgr[2].max()) == 255
-        assert abs(int(bgr[1].max()) - 127) <= 1
-        assert int(bgr[3].max()) == 128
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 class TestStitchLoudDegradeOnMissingPixelSize:
     """When tiles lack pixel-size metadata the montage degrades loudly, not silently."""
 
-    def test_warns_by_name_when_pixel_size_missing(self):
+    def test_warns_by_name_when_pixel_size_missing(self, caplog):
         from unittest import mock
 
         import modules.stitcher as stitcher_mod
+        from tests.log_capture import records_of
 
         st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
-        df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1']})
+        df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1'], 'Channel Group ID': [0]})
         with (
-            mock.patch.object(
-                stitcher_mod.image_utils, 'read_postproc_input_metadata', return_value=None
-            ),
+            mock.patch.object(stitcher_mod.image_utils, 'read_file_record', return_value=None),
             mock.patch.object(
                 stitcher_mod, 'channel_aware_stitcher', return_value=mock.MagicMock()
             ),
             mock.patch.object(stitcher_mod, 'PostProcResult'),
-            mock.patch.object(stitcher_mod, 'logger') as log,
         ):
-            st._group_algorithm(pathlib.Path('/tmp'), df)
-        assert log.warning.called
-        assert 'PhysicalSizeX' in log.warning.call_args[0][0]
+            st._group_algorithm(pathlib.Path('/tmp'), df, channel_colors=release_colors())
+        warnings = [r for r in records_of(caplog, stitcher_mod) if r.levelno == logging.WARNING]
+        assert warnings
+        assert 'PhysicalSizeX' in warnings[-1].getMessage()
 
 
 class TestSimplePositionStitcher:
@@ -242,14 +102,18 @@ class TestSimplePositionStitcher:
         )
 
     def test_output_dimensions(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         assert result['status'] is True
         img = result['image']
         # 2x2 grid of 50x50 tiles -> 100x100
         assert img.shape == (100, 100)
 
     def test_center_metadata(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         center = result['metadata']['center']
         assert center['x'] == 0.5  # mean of [0.0, 1.0]
         assert center['y'] == 0.5
@@ -275,7 +139,9 @@ class TestSimplePositionStitcher:
         assert center['y'] == 3.0
 
     def test_all_pixels_filled(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         img = result['image']
         # No black pixels -- all tiles have nonzero values
         assert img.min() > 0
@@ -287,7 +153,9 @@ class TestSimplePositionStitcher:
         output stays byte-identical to the unspied run."""
         from modules import image_utils
 
-        baseline = Stitcher._simple_position_stitcher(tile_dir, tile_df)['image']
+        baseline = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )['image']
 
         real_tifffile = image_utils.tf.TiffFile
         opens = {}
@@ -297,7 +165,9 @@ class TestSimplePositionStitcher:
             return real_tifffile(arg, *args, **kwargs)
 
         monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
 
         # df.iloc[0] is the geometry-probe tile, decoded once and reused for its
         # placement rather than re-read.
@@ -311,7 +181,7 @@ class TestSimplePositionStitcher:
         tile = np.full((64, 64), 42, dtype=np.uint8)
         cv2.imwrite(str(tmp_path / 'single.tiff'), tile)
         df = pd.DataFrame([{'Filepath': 'single.tiff', 'X': 0.0, 'Y': 0.0}])
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].shape == (64, 64)
         assert np.all(result['image'] == 42)
@@ -328,7 +198,7 @@ class TestSimplePositionStitcher:
                 {'Filepath': 'b.tiff', 'X': 1.0, 'Y': 0.0},
             ]
         )
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         img = result['image']
         assert img.shape == (40, 80, 3)
@@ -339,7 +209,7 @@ class TestSimplePositionStitcher:
             tile = np.full((30, 30), (i + 1) * 60, dtype=np.uint8)
             cv2.imwrite(str(tmp_path / f't{i}.tiff'), tile)
         df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(3)])
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].shape == (30, 90)
 
@@ -355,7 +225,7 @@ class TestSimplePositionStitcher:
                 {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 1.0},
             ]
         )
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].dtype == np.uint16
         assert result['image'].shape == (64, 32)
@@ -382,7 +252,9 @@ class TestSimplePositionStitcher:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=None, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['image'].shape == (24, 20)
@@ -401,7 +273,7 @@ class TestSimplePositionStitcher:
                     'X': x,
                     'Y': y,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'B2',
                     'Tile Group ID': 2,
                 }
@@ -410,7 +282,9 @@ class TestSimplePositionStitcher:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=None, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['image'].shape == (16, 12)
@@ -436,8 +310,7 @@ class TestSimplePositionStitcher:
                 'Custom Step': False,
                 'Raw': True,
             }
-            for post_function in common_utils.PostFunction.list_values():
-                row[post_function] = False
+            row.update(post_derivation.raw_columns())
             rows.append(row)
 
         class FakePostRecord:
@@ -448,7 +321,7 @@ class TestSimplePositionStitcher:
                 pass
 
         class FakeHelper:
-            def load_folder(self, path, tiling_configs_file_loc):
+            def load_folder(self, path, tiling_grids):
                 return {
                     'status': True,
                     'images_df': pd.DataFrame(rows),
@@ -473,14 +346,14 @@ class TestSimplePositionStitcher:
                 record_metadata={
                     'center': {'x': 0.5, 'y': 0.0},
                     'algorithm': 'simple_position_stitcher',
-                    'fallback_from': 'bf_feature_stitcher',
-                    'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+                    'fallback_from': 'quality_local_ncc',
+                    'fallback_reason': 'quality_local_ncc: registration failed',
                 },
             )
 
         monkeypatch.setattr(stitcher, '_group_algorithm', degraded_group_algorithm)
 
-        result = stitcher.load_folder(tmp_path, tmp_path / 'tiling.json')
+        result = stitcher.load_folder(tmp_path, shipped_grids(), channel_colors=release_colors())
 
         assert result['status'] is True
         assert result['degraded'] is True
@@ -489,8 +362,8 @@ class TestSimplePositionStitcher:
             {
                 'filepath': 'Stitched/stitched.tiff',
                 'algorithm': 'simple_position_stitcher',
-                'fallback_from': 'bf_feature_stitcher',
-                'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+                'fallback_from': 'quality_local_ncc',
+                'fallback_reason': 'quality_local_ncc: registration failed',
             }
         ]
 
@@ -527,7 +400,7 @@ class TestSimplePositionStitcher:
         )
         assert 'stitching_mode' in ui_source
 
-    def test_bf_quality_route_never_uses_unconstrained_feature_stitcher(
+    def test_a_bf_quality_stitch_falls_back_from_registration_to_placement(
         self,
         tmp_path,
         monkeypatch,
@@ -578,11 +451,7 @@ class TestSimplePositionStitcher:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
-        )
-        monkeypatch.setattr(
-            'modules.stitching_core.bf_feature_stitcher',
-            lambda *_args, **_kwargs: pytest.fail('BF feature stitch must not be automatic'),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
@@ -591,7 +460,9 @@ class TestSimplePositionStitcher:
         )
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert calls == [
@@ -615,7 +486,7 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -624,7 +495,7 @@ class TestSimplePositionStitcher:
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -654,15 +525,17 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
         with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
-            result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+            result = channel_aware_stitcher(
+                tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+            )
 
         assert result['status'] is True
         assert result['metadata']['fallback_from'] == 'quality_local_ncc'
-        assert 'using stage_position_stitcher for well=A1 color=Green tile_group=3' in caplog.text
+        assert f'using stage_position_stitcher for well=A1 color={LED1} tile_group=3' in caplog.text
 
     def test_fluorescence_route_uses_overlap_then_stage_then_simple(
         self,
@@ -676,14 +549,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
             ]
         )
@@ -713,10 +586,6 @@ class TestSimplePositionStitcher:
                 },
             }
 
-        def bf_should_not_run(*args, **kwargs):
-            raise AssertionError('fluorescence should not use BF feature stitching')
-
-        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', bf_should_not_run)
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
             'modules.stitching_core.stage_position_stitcher',
@@ -725,10 +594,12 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert calls == ['overlap_stitcher', 'stage_position_stitcher', 'simple_position_stitcher']
@@ -747,14 +618,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.05,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
             ]
         )
@@ -799,14 +670,15 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8),
+            lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8, None),
         )
 
         result = channel_aware_stitcher(
             tmp_path,
             df,
             pixel_size_um=1.0,
-            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
+            stitching_mode=StitchMode.FAST_PREVIEW,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True
@@ -817,33 +689,6 @@ class TestSimplePositionStitcher:
         ]
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
         assert result['metadata']['fallback_from'] == 'fast_fft_phase'
-
-    def test_fast_preview_filename_is_distinct_from_quality(self):
-        stitcher = Stitcher(has_turret=False)
-        df = pd.DataFrame(
-            [
-                {
-                    'Name': 'A1_Green_T00',
-                    'Tile': 'T00',
-                    'Color': 'Green',
-                    'Objective': '10x Oly',
-                    'Well': 'A1',
-                    'Label': '',
-                    'Z-Slice': -1,
-                    'Scan Count': 0,
-                }
-            ]
-        )
-
-        quality = stitcher._generate_filename(df, capture_root='')
-        preview = stitcher._generate_filename(
-            df,
-            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
-            capture_root='',
-        )
-
-        assert quality != preview
-        assert 'FastPreview' in preview
 
 
 class TestGroupAlgorithmPixelSize:
@@ -865,7 +710,7 @@ class TestGroupAlgorithmPixelSize:
             significant_bits=8,
             save_encoding='8bit',
             metadata={
-                'datetime': '2026-07-14T12:00:00',
+                'datetime': datetime.datetime(2026, 7, 14, 12, 0, 0),
                 'plate_pos_mm': {'x': x, 'y': y},
                 'z_pos_um': 0.0,
                 'objective': {},
@@ -874,7 +719,8 @@ class TestGroupAlgorithmPixelSize:
                 'channel': 'BF',
             },
             ome=False,
-            color='BF',
+            color=release_color('BF'),
+            white_bits=None,
         )
 
     def test_pixel_size_read_from_tile_metadata_not_rederived(self, tmp_path, monkeypatch):
@@ -904,65 +750,10 @@ class TestGroupAlgorithmPixelSize:
                 path=tmp_path,
                 df=df,
                 output_file_loc=pd.Series(['stitched.tiff'])[0],
+                channel_colors=release_colors(),
             )
 
         assert captured['pixel_size_um'] == tile_pixel_size_um
-
-
-class TestBfFeatureOutputContract:
-    """bf_feature_stitcher emits 8-bit BGR output regardless of input depth, and
-    normalizes deep (12/16-bit) tiles against one shared intensity range so the
-    montage seam does not show a per-tile brightness step.
-    """
-
-    def test_shares_intensity_range_across_deep_tiles(self, tmp_path, monkeypatch):
-        import modules.stitching_core as stitching_core
-
-        # Same specimen, two tiles: one peaks at 100, the other at 200.
-        dim = np.zeros((4, 4), dtype=np.uint16)
-        dim[0, 0] = 100
-        bright = np.zeros((4, 4), dtype=np.uint16)
-        bright[0, 0] = 200
-        tifffile.imwrite(str(tmp_path / 'dim.tiff'), dim)
-        tifffile.imwrite(str(tmp_path / 'bright.tiff'), bright)
-        df = pd.DataFrame(
-            [
-                {'Filepath': 'dim.tiff', 'X': 0.0, 'Y': 0.0},
-                {'Filepath': 'bright.tiff', 'X': 1.0, 'Y': 0.0},
-            ]
-        )
-
-        captured = {}
-
-        def spy(images):
-            captured['tiles'] = images
-            return np.full((4, 8, 3), 50, dtype=np.uint8)
-
-        monkeypatch.setattr(stitching_core, 'feature_stitch', spy)
-        stitching_core.bf_feature_stitcher(tmp_path, df)
-
-        dim_bgr, bright_bgr = captured['tiles']
-        # Shared hi=200: the dim tile's 100 maps to 127 (100/200*255), NOT its
-        # own per-tile max of 255; the bright tile's 200 maps to 255.
-        assert dim_bgr[0, 0, 0] == 127
-        assert bright_bgr[0, 0, 0] == 255
-
-    def test_output_depth_couples_to_uint8_output(self, tmp_path, monkeypatch):
-        import modules.stitching_core as stitching_core
-
-        for i in range(2):
-            tifffile.imwrite(str(tmp_path / f't{i}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
-        df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(2)])
-        monkeypatch.setattr(
-            stitching_core,
-            'feature_stitch',
-            lambda images: np.full((8, 16, 3), 120, dtype=np.uint8),
-        )
-        result = stitching_core.bf_feature_stitcher(tmp_path, df)
-
-        assert result['status'] is True
-        # 16-bit inputs, but the OpenCV feature path emits uint8 -> depth is 8.
-        assert result['significant_bits'] == 8
 
 
 class TestStitchOutputAlgorithmStamp:
@@ -982,7 +773,10 @@ class TestStitchOutputAlgorithmStamp:
             [{'Filepath': f't{i}.tiff', 'Color': 'BF', 'X': float(i), 'Y': 0.0} for i in range(2)]
         )
         stitching_core.simple_position_stitcher(
-            tmp_path, df, output_file_loc=pathlib.Path('stitched.tiff')
+            tmp_path,
+            df,
+            output_file_loc=pathlib.Path('stitched.tiff'),
+            channel_colors=release_colors(),
         )
         with tifffile.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
             structured = tif.shaped_metadata[0]
@@ -1063,7 +857,9 @@ class TestLiveStitcherRealGeometry:
     ):
         df, pixel_size_um = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=pixel_size_um)
+        result = overlap_stitcher(
+            tmp_path, df, pixel_size_um=pixel_size_um, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == 'overlap_stitcher'
@@ -1107,7 +903,9 @@ class TestLiveStitcherRealGeometry:
         # math runs rather than the simple-grid short-circuit.
         df, pixel_size_um = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = stitch_fn(tmp_path, df, pixel_size_um=pixel_size_um)
+        result = stitch_fn(
+            tmp_path, df, pixel_size_um=pixel_size_um, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == algorithm
@@ -1118,10 +916,117 @@ class TestLiveStitcherRealGeometry:
         # pitch and report success.
         df, _ = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=None)
+        result = overlap_stitcher(tmp_path, df, pixel_size_um=None, channel_colors=release_colors())
 
         assert result['status'] is False
         assert 'pixel_size_um' in result['error']
+
+
+def _textured_neighbours(
+    tile_shape: tuple[int, int],
+    nominal: tuple[int, int],
+    jitter: tuple[int, int],
+    channels: int,
+    dtype: type,
+) -> tuple[np.ndarray, np.ndarray]:
+    """A reference tile and its neighbour cut from one smooth random scene.
+
+    The neighbour sits at nominal + jitter from the reference, so the
+    correction a registration should find is the jitter.
+    """
+    tile_h, tile_w = tile_shape
+    rng = np.random.default_rng(3)
+    scene = cv2.GaussianBlur(rng.random((3 * tile_h, 3 * tile_w)).astype(np.float32), (0, 0), 2.5)
+    scene = (scene - scene.min()) / (scene.max() - scene.min())
+    scene = (scene * (255 if dtype == np.uint8 else 4095)).astype(dtype)
+    if channels == 3:
+        scene = np.dstack([scene] * 3)
+    ref = scene[tile_h : 2 * tile_h, tile_w : 2 * tile_w]
+    y0 = tile_h + nominal[1] + jitter[1]
+    x0 = tile_w + nominal[0] + jitter[0]
+    return ref, scene[y0 : y0 + tile_h, x0 : x0 + tile_w]
+
+
+class TestOverlapOffsetSearch:
+    """estimate_overlap_offset: the best correction within max_correction_px
+    among the corrections that leave min_overlap_px of overlap, at its score,
+    or no correction at -1 when there is nothing to correlate."""
+
+    def test_recovers_the_jitter_for_every_neighbour_direction_and_pixel_type(self):
+        """Right, left, down and up neighbours (the flood registers all four),
+        mono and RGB, 8- and 16-bit, at 10% and 30% overlap: the correction is
+        the jitter."""
+        # 300 x 320 keeps even a 10% overlap wider than min_overlap_px plus
+        # the largest jitter, so every jitter is a candidate in every case.
+        tile_h, tile_w = 300, 320
+        offenders = []
+        for direction in ('right', 'left', 'down', 'up'):
+            for overlap_fraction in (0.1, 0.3):
+                along = tile_w if direction in ('right', 'left') else tile_h
+                step = along - round(overlap_fraction * along)
+                nominal = {
+                    'right': (step, 0),
+                    'left': (-step, 0),
+                    'down': (0, step),
+                    'up': (0, -step),
+                }[direction]
+                for channels in (1, 3):
+                    for dtype in (np.uint8, np.uint16):
+                        for jitter in ((0, 0), (5, -3), (-7, 9), (12, -12)):
+                            ref, mov = _textured_neighbours(
+                                (tile_h, tile_w), nominal, jitter, channels, dtype
+                            )
+                            corr_x, corr_y, score = estimate_overlap_offset(ref, mov, *nominal)
+                            if (corr_x, corr_y) != jitter or score < 0.9:
+                                offenders.append(
+                                    (
+                                        direction,
+                                        overlap_fraction,
+                                        channels,
+                                        dtype.__name__,
+                                        jitter,
+                                        (corr_x, corr_y, round(score, 3)),
+                                    )
+                                )
+        assert not offenders, offenders
+
+    def test_a_narrow_overlap_searches_the_shifts_that_leave_min_overlap(self):
+        """A 20 px overlap still registers a jitter that narrows it to 16 px:
+        the candidates are cut at min_overlap_px, not dropped wholesale."""
+        nominal = (300, 0)
+        ref, mov = _textured_neighbours((200, 320), nominal, (4, -6), 1, np.uint16)
+
+        corr_x, corr_y, _ = estimate_overlap_offset(ref, mov, *nominal, min_overlap_px=16)
+
+        assert (corr_x, corr_y) == (4, -6)
+
+    def test_nothing_to_correlate_answers_no_correction(self):
+        """A flat strip, and an overlap no candidate widens to min_overlap_px,
+        each answer no correction at -1, never a confident shift."""
+        flat = np.full((200, 320), 700, dtype=np.uint16)
+        textured, _ = _textured_neighbours((200, 320), (0, 0), (0, 0), 1, np.uint16)
+
+        assert estimate_overlap_offset(flat, flat, 290, 0) == (0, 0, -1.0)
+        assert estimate_overlap_offset(textured, textured, 310, 0, max_correction_px=3) == (
+            0,
+            0,
+            -1.0,
+        )
+
+    @pytest.mark.slow
+    def test_a_full_frame_seam_is_searched_in_milliseconds(self):
+        """A 1900 px tile's seam at 15% overlap is one template match, not one
+        correlation per candidate shift (0.7-1.6 s a seam on a Mac, 4.75 s on
+        a field host, before)."""
+        nominal = (1615, 0)
+        ref, mov = _textured_neighbours((1900, 1900), nominal, (5, -3), 1, np.uint16)
+
+        started = time.perf_counter()
+        corr_x, corr_y, _ = estimate_overlap_offset(ref, mov, *nominal)
+        elapsed_s = time.perf_counter() - started
+
+        assert (corr_x, corr_y) == (5, -3)
+        assert elapsed_s < 0.15
 
 
 class TestPositionAwareStitcher:
@@ -1232,19 +1137,25 @@ class TestPositionAwareStitcher:
         half_fov_mm = fov['width'] / 2 / 1000
         df = pd.DataFrame(
             [
-                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': LED2},
                 {
                     'Filepath': 'r1.tiff',
                     'X': -half_fov_mm,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Red',
+                    'Color': LED2,
                 },
             ]
         )
         out = pathlib.Path('stitched_red.tiff')
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=pixel_size_um, output_file_loc=out)
+        result = overlap_stitcher(
+            tmp_path,
+            df,
+            pixel_size_um=pixel_size_um,
+            output_file_loc=out,
+            channel_colors=release_colors(),
+        )
 
         assert result['status'] is True
         assert result['image'] is None  # subclass-wrote signal
@@ -1254,7 +1165,7 @@ class TestPositionAwareStitcher:
             page = t.pages[0]
             assert page.photometric == tifffile.PHOTOMETRIC.PALETTE
             assert page.colormap is not None
-        assert image_utils.read_postproc_input_metadata(written) is not None
+        assert image_utils.read_file_record(written) is not None
 
 
 def _reference_blend_float64(registered, sample):
@@ -1358,14 +1269,17 @@ class TestStageConstrainedStitchModes:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
-        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', should_not_run)
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', should_not_run)
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
 
         result = channel_aware_stitcher(
-            tmp_path, frame, pixel_size_um=1.0, stitching_mode='quality'
+            tmp_path,
+            frame,
+            pixel_size_um=1.0,
+            stitching_mode='quality',
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True
@@ -1399,7 +1313,9 @@ class TestStageConstrainedStitchModes:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, frame, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, frame, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == 'quality_local_ncc'
@@ -1427,7 +1343,7 @@ class TestStageConstrainedStitchModes:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
         monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_success)
         monkeypatch.setattr(
@@ -1436,7 +1352,11 @@ class TestStageConstrainedStitchModes:
         )
 
         result = channel_aware_stitcher(
-            tmp_path, frame, pixel_size_um=1.0, stitching_mode='fast_preview'
+            tmp_path,
+            frame,
+            pixel_size_um=1.0,
+            stitching_mode='fast_preview',
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True

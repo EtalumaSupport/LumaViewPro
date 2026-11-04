@@ -6,7 +6,8 @@ with their record (``@api(event=Record)``), each named for its member
 (``add_position_listener`` is ``position``), and the run events
 (``RunEvents``), which the server hears by filling each run member's
 ``events`` itself. An event's ``data`` is its record, wire-encoded, keys its
-field names; a run event adds ``run``, the handle of the run that sent it.
+field names; a run event adds ``run``, ``{"job": <id>}``, the job of the run
+that sent it.
 The frame events are the live view's, not the stream's.
 
 Each event's data is described in the OpenAPI description by a component
@@ -26,24 +27,31 @@ from __future__ import annotations
 import asyncio
 import collections
 import dataclasses
+import functools
 import inspect
 import json
 import threading
-from collections.abc import AsyncIterator, Callable
+import types
+import typing
+from collections.abc import AsyncIterator, Callable, Mapping
 
 import pydantic
 
 from modules import api_surface, wire_encoding
 from modules.notification_center import Notification
 from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
-from rest import routes
+from modules.scope_session import ScopeSession, Status
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from rest import problems, routes
+from rest.jobs import Job
 
 # The events a client missed that a reconnect is resent: about a minute of
 # a homing stage's position events, the busiest source.
 BUFFER = 1024
 # Seconds between comments on a quiet stream.
 KEEPALIVE_S = 15.0
+# How soon a client whose stream dropped should reconnect, sent as ``retry:``.
+RECONNECT_MS = 1000
 # The events the live view carries, not the stream: one per frame.
 _LIVE_VIEW = frozenset({'frame', 'frame_captured'})
 # The outcome ids already sent, kept so a muted outcome shown later is not sent twice.
@@ -90,11 +98,26 @@ class EventStream:
         self._removals: list[Callable[[], None]] = []
         # The id of the ``closing`` event, once the server has finished the stream.
         self._closing_seq: int | None = None
+        # Each job's end being read off the loop, until it is sent.
+        self._ending: set[asyncio.Task[None]] = set()
+        # Asks the session the reads an event's arguments do not carry, one
+        # at a time in the order the events were heard; None until ``open``.
+        self._reader: SequentialIOExecutor | None = None
 
     def open(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start hearing every listener member's events, on *loop*."""
         self._loop = loop
         self._wake = asyncio.Event()
+        # Not a lane: it serves no device, and a read it makes asks the
+        # camera's driver, never a lane. No claim is wired to it, so it runs
+        # every read whatever holds the scope, and a raised read is reported
+        # by the executor, once, as every background task's is.
+        self._reader = SequentialIOExecutor(
+            name='EVENT_STREAM_READS',
+            lane=False,
+            closed_answer=lambda member: problems.server_closing(),
+        )
+        self._reader.start()
         for owner, member_name, name, record in _listened(self._session):
             listener = self._listener(name, record)
             getattr(owner, member_name)(listener)
@@ -109,6 +132,8 @@ class EventStream:
         for remove in self._removals:
             remove()
         self._removals.clear()
+        if self._reader is not None:
+            self._reader.shutdown(wait=False)
 
     def finish(self) -> None:
         """Send ``closing`` to every reader, and end each read: the server is closing.
@@ -118,6 +143,22 @@ class EventStream:
         """
         self._append('closing', '{}')
         self._closing_seq = self._seq
+
+    def job_ended(self, job: Job) -> None:
+        """Send ``job_ended`` with *job* as it ended. Called on the server's loop.
+
+        The job is read on a thread: a run's job reads the run's progress
+        under the run's own lock.
+        """
+
+        async def send() -> None:
+            view = await asyncio.to_thread(job.view)
+            if self._loop is not None:
+                self._append('job_ended', json.dumps(view, allow_nan=False))
+
+        task = asyncio.ensure_future(send())
+        self._ending.add(task)
+        task.add_done_callback(self._ending.discard)
 
     def run_events(self) -> RunTag:
         """The handlers a run call's ``events`` is filled with, tagged once its run is known."""
@@ -133,10 +174,29 @@ class EventStream:
 
             return heard_outcome
 
+        if record is Status:
+
+            def heard_edge() -> None:
+                # Read at the edge on the thread that announced it, but for
+                # the camera's answer, which is asked on the stream's reader:
+                # a grab stop holds the camera SDK (measured on the Basler),
+                # and the announcing thread must not wait on it. One reader
+                # keeps the events in the order they were heard.
+                reader = self._reader
+                if reader is not None:
+                    complete = self._session.status_at_edge()
+                    reader.put(IOTask(self._send_completed, args=(name, complete)))
+
+            return heard_edge
+
         def heard(*args: object) -> None:
             self.send(name, self._record(record, args))
 
         return heard
+
+    def _send_completed(self, name: str, complete: Callable[[], object]) -> None:
+        """Complete the edge's status and send it as event *name*."""
+        self.send(name, complete())
 
     def _first(self, outcome_id: int) -> bool:
         with self._lock:
@@ -151,21 +211,16 @@ class EventStream:
         """The event's record, built from its callback's arguments as the API declares."""
         if len(args) == 1 and isinstance(args[0], record):
             return args[0]
-        if not args:
-            return _read_of(self._session, record)
         return record(*args)
 
     def send(self, name: str, record: object, **added: object) -> None:
         """Send *record* as event *name*, with *added* beside its fields.
 
-        A field holding a live object is left out: a run executes a copy of
+        A field that can hold a live object is left out, whatever it holds
+        this time, as ``published`` describes it: a run executes a copy of
         its protocol, which no client holds, and ``run`` names the run.
         """
-        fields = {
-            f: getattr(record, f)
-            for f in _fields(type(record))
-            if type(getattr(record, f)) not in self._handed_out
-        }
+        fields = {f: getattr(record, f) for f in _sent_fields(type(record), self._handed_out)}
         data = json.dumps({**self._encode(fields), **added}, allow_nan=False)
         with self._lock:
             if self._loop is None:
@@ -173,15 +228,46 @@ class EventStream:
             self._loop.call_soon_threadsafe(self._append, name, data)
 
     def _append(self, name: str, data: str) -> None:
+        if self._closing_seq is not None:
+            # A stream ends at ``closing``; nothing after it can be read.
+            return
         self._seq += 1
         self._buffer.append(_Event(self._seq, name, data))
         self._wake.set()
         self._wake = asyncio.Event()
 
+    async def held(self, after: int | None) -> dict[str, object]:
+        """What a poll after event *after* is answered: the events held since, and the id to ask after next.
+
+        The same events a stream resumed from *after* is sent: with no
+        *after*, ``status``; once the buffer has moved past it, ``reset`` and
+        ``status``; once the server has closed, ending with ``closing``.
+        Called on the server's loop, where the events are kept.
+        """
+        closed = self._closing_seq is not None
+        if closed and (after is None or after >= self._closing_seq or not self._holds_after(after)):
+            events = [_Event(self._closing_seq, 'closing', '{}')]
+        elif after is None or not self._holds_after(after):
+            seq = self._seq
+            status = await asyncio.to_thread(lambda: self._session.status)
+            events = [_Event(seq, 'reset', '{}')] if after is not None else []
+            events.append(_Event(seq, 'status', json.dumps(self._encode(status), allow_nan=False)))
+        else:
+            events = [e for e in self._buffer if e.seq > after]
+        return {
+            'events': [{'id': e.seq, 'event': e.name, 'data': json.loads(e.data)} for e in events],
+            'next': events[-1].seq if events else after,
+        }
+
     async def read(self, last_event_id: str | None) -> AsyncIterator[str]:
         """The stream one client reads, from where *last_event_id* left it."""
+        # Its own field ahead of the first event's: it is that event's block.
+        yield f'retry: {RECONNECT_MS}\n'
         sent = _resume_from(last_event_id)
-        if sent is None or not self._holds_after(sent):
+        resumed_past_closing = (
+            sent is not None and self._closing_seq is not None and sent >= self._closing_seq
+        )
+        if sent is None or resumed_past_closing or not self._holds_after(sent):
             if self._closing_seq is not None:
                 yield _frame('closing', '{}', self._closing_seq)
                 return
@@ -225,7 +311,7 @@ class RunTag:
     """A run call's event handlers: each event names the run once the call has handed it out.
 
     A run's first events can come before the call that started it returns,
-    since the run is dispatched before its handle is handed back; they are
+    since the run is dispatched before its job is handed back; they are
     held, in order, until ``settle`` names the run, then sent ahead of any
     later one.
     """
@@ -253,7 +339,7 @@ class RunTag:
         return heard
 
     def settle(self, run: object) -> None:
-        """Name the run, ``{"handle", "type"}``, or None when the call handed out none; send what was held."""
+        """Name the run, ``{"job"}``, or None when the call handed out none; send what was held."""
         with self._lock:
             self._run = run
             held, self._held = self._held or [], None
@@ -277,6 +363,25 @@ def _fields(record: type) -> tuple[str, ...]:
     if published:
         return published
     return tuple(f.name for f in dataclasses.fields(record))
+
+
+# Kept per record class: reading the declared types costs about 1.4 ms, on
+# the sending thread of every event, and a class's fields never change.
+@functools.cache
+def _sent_fields(
+    record: type, handed_out: frozenset[type]
+) -> Mapping[str, tuple[wire_encoding.Outbound, ...]]:
+    """Each field of *record* an event carries, with its wire alternatives: each whose declared type cannot hold a live object."""
+    classes = wire_encoding.project_classes()
+    aliases = wire_encoding.project_aliases()
+    found = {}
+    for f in _fields(record):
+        alternatives = wire_encoding.outbound(
+            wire_encoding._field_text(record, f), classes, aliases
+        )
+        if not any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
+            found[f] = alternatives
+    return types.MappingProxyType(found)
 
 
 def _event_name(member_name: str) -> str:
@@ -317,7 +422,8 @@ def published(
     ``status`` is the ``Status`` record, sent whole. Every other event is a
     model of its own, named for it: its record's fields as ``send`` sends
     them, a field that can hold a live object left out, and ``run`` added
-    to a run event. ``reset`` and ``closing`` carry nothing.
+    to a run event. ``job_ended`` is the job, as ``GET /jobs/<id>`` reads
+    it once it has ended; ``reset`` and ``closing`` carry nothing.
     """
     classes = wire_encoding.project_classes()
     aliases = wire_encoding.project_aliases()
@@ -327,23 +433,40 @@ def published(
     }
     run_events = _run_events()
     for name, record in sorted(records(session).items()):
-        fields = {}
-        for f in _fields(record):
-            alternatives = wire_encoding.outbound(
-                wire_encoding._field_text(record, f), classes, aliases
-            )
-            if any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
-                continue
-            fields[f] = (routes.answer_type(alternatives), ...)
+        fields = {
+            f: (routes.answer_type(alternatives), ...)
+            for f, alternatives in _sent_fields(record, handed_out).items()
+        }
         if name in run_events:
-            fields['run'] = (routes.Handle | None, ...)
+            fields['run'] = (routes.RunJob | None, ...)
         found[name] = _event_model(name, **fields)
+    found['job_ended'] = routes.Job
     found['reset'] = _event_model('reset')
     found['closing'] = _event_model('closing')
     return found
 
 
-def _event_model(name: str, **fields: object) -> type[pydantic.BaseModel]:
+def held_model(published: dict[str, type[pydantic.BaseModel]]) -> type[pydantic.BaseModel]:
+    """The model a poll of the held events is described by: each event's data one of *published*."""
+    data = typing.Union[tuple(published.values())]  # noqa: UP007
+    event = pydantic.create_model(
+        'HeldEvent',
+        __config__=routes.ANSWER_CONFIG,
+        __doc__='An event, as the stream sends it: its id, its name and its data.',
+        id=(int, ...),
+        event=(str, ...),
+        data=(data, ...),
+    )
+    return pydantic.create_model(
+        'HeldEvents',
+        __config__=routes.ANSWER_CONFIG,
+        __doc__='The events held after the id asked, and the id to ask after next.',
+        events=(list[event], ...),
+        next=(int, ...),
+    )
+
+
+def _event_model(name: str, /, **fields: object) -> type[pydantic.BaseModel]:
     camel = ''.join(part.title() for part in name.split('_'))
     return pydantic.create_model(
         f'{camel}Event',
@@ -390,13 +513,3 @@ def _listeners(cls: type) -> list[tuple[str, type]]:
         if record is not None:
             found.append((name, record))
     return found
-
-
-def _read_of(session: ScopeSession, record: type) -> object:
-    """The session's read whose answer is *record*: the data of an event that carries no arguments."""
-    for name, member in inspect.getmembers(type(session)):
-        if isinstance(member, property) and api_surface.mark_of(member) is not None:
-            returns = member.fget.__annotations__.get('return')
-            if returns is record or returns == record.__name__:
-                return getattr(session, name)
-    raise TypeError(f'No session read answers {record.__name__}')

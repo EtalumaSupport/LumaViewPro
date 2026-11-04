@@ -1,47 +1,736 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""
-Tests for serial driver thread safety and error handling.
+"""The EL-0940 serial drivers: the exchange, its lock, the LED acks, the
+motor board's moves, reads, parse and scale.
 
-Uses mock serial ports -- no hardware needed.
-Tests the fixes in ledboard.py and motorboard.py for:
-- Single lock preventing interleaved writes
-- Safe driver cleanup on errors (no bare self.driver = None)
-- Motor board timeout (not blocking forever)
-- Reconnect after failure
+The LED and motor drivers run over the shipped firmware behind the
+emulated port (`tests/wire_boards.py`), so every reply is the firmware's
+own. A file-wide board serves the tests that leave it as they found it; a
+test that pulls the cable, ends the connection or needs another firmware
+builds its own.
+
+A claim about the port itself -- a write that times out, a port that
+fails, a board that sends nothing at all -- runs the production driver over
+a scripted port behind its own ``backend=`` seam (`tests/scripted_port.py`).
+Left on scripted replies: an LED firmware that reports a version (the
+emulation carries only the field LED firmware, which reports none).
 """
 
-import pytest
+import logging
+import re
 import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
+
+import pytest
 import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+import drivers.serialboard as serialboard
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
 from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.motorconfig import MotorConfig
+from drivers.serialboard import SerialBoard
+from drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
+from tests.log_capture import messages, records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.scripted_port import LED_PID, LED_VID, ScriptedBackend, ScriptedLink
+from tests.wire_boards import led_on_the_wire, motor_on_the_wire
+
+# Past the LED driver's 0.3 s wait for a reply line.
+_LATE_S = 0.6
+
+
+@pytest.fixture(scope='module')
+def _led_board():
+    board, sim = led_on_the_wire(oracle=True)
+    yield board, sim
+    board.disconnect()
+
+
+@pytest.fixture
+def led(_led_board):
+    """The file's LED board, every LED turned off after the test."""
+    yield _led_board
+    _led_board[0].leds_off()
+
+
+@pytest.fixture(scope='module')
+def motor():
+    """The file's LS850T motor board on the field firmware, its oracle on."""
+    board, sim = motor_on_the_wire(oracle=True)
+    yield board, sim
+    board.disconnect()
+
+
+@pytest.fixture(scope='module')
+def motor_3_0():
+    board, sim = motor_on_the_wire(dialect='3.0')
+    yield board, sim
+    board.disconnect()
+
+
+@contextmanager
+def _answered_late(board, sim):
+    """The body's first exchange gets no answer in time: the board's reply is
+    held past the driver's wait and lands in the port's buffer after it,
+    before the body's next command is written."""
+    port = board.driver
+    landed = port.lines_landed()
+    sim.delay_next_reply(_LATE_S)
+    yield
+    assert port.wait_for_lines(landed + 2), 'the held reply never landed'
+
+
+def _exchange_in_flight(board, sim, command):
+    """Start *command*'s exchange on its own thread with its reply held back,
+    and return once the command is on the wire, the exchange holding the
+    serial lock until the reply lands: (the thread, its answers, the lines
+    landed before it)."""
+    port = board.driver
+    landed = port.lines_landed()
+    port.wrote.clear()
+    sim.delay_next_reply(0.3)
+    answers = []
+    thread = threading.Thread(
+        target=lambda: answers.append(board.exchange_command(command, timeout=5))
+    )
+    thread.start()
+    assert port.wrote.wait(5), 'the exchange never wrote'
+    return thread, answers, landed
+
+
+def _writes_to(sim, axis, reg):
+    return [w.value for w in sim.take_writes() if w.axis == axis and w.reg == reg]
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# The exchange and its lock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.firmware_tier
+class TestTheLedExchange:
+    def test_an_exchange_returns_the_answer_not_the_echo(self, led):
+        # The field firmware echoes 'RE: LED0_100' before it answers.
+        board, _sim = led
+        assert board.exchange_command('LED0_100') == 'LED 0 set to 100 mA.'
+
+    def test_a_write_only_command_waits_for_an_exchange_in_flight(self, led):
+        board, sim = led
+        port = board.driver
+        thread, answers, landed = _exchange_in_flight(board, sim, 'LED0_100')
+        board.led_on_fast(channel=1, mA=50)
+        # The fast write had the lock only once the exchange had its reply.
+        assert port.lines_landed() >= landed + 2
+        thread.join(5)
+        assert answers == ['LED 0 set to 100 mA.']
+        assert port.wait_for_lines(landed + 4), "the fast write's reply never landed"
+
+    def test_concurrent_exchanges_each_get_their_own_answer(self, led):
+        board, _sim = led
+        answers = {}
+        threads = [
+            threading.Thread(
+                target=lambda ch=ch: answers.__setitem__(ch, board.exchange_command(f'LED{ch}_100'))
+            )
+            for ch in range(5)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        assert answers == {ch: f'LED {ch} set to 100 mA.' for ch in range(5)}
+
+
+@pytest.mark.firmware_tier
+class TestTheMotorExchange:
+    def test_an_exchange_returns_the_firmwares_one_line_answer(self, motor):
+        board, _sim = motor
+        assert board.exchange_command('INFO') == (
+            'EL-0940-01 Integrated Mainboard Firmware:     2024-09-10'
+        )
+
+    def test_an_exchange_over_a_pulled_cable_raises_and_closes_the_port(self):
+        """A lost link is not silence: the exchange raises the port's
+        failure, and the port is closed."""
+        board, sim = motor_on_the_wire()
+        sim.unplug()
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port failed'):
+            board.exchange_command('INFO')
+        assert board.driver is None
+
+    def test_a_disconnect_waits_for_the_exchange_in_flight(self):
+        board, sim = motor_on_the_wire()
+        port = board.driver
+        thread, answers, landed = _exchange_in_flight(board, sim, 'INFO')
+        board.disconnect()
+        # The disconnect had the lock only once the exchange had its reply.
+        assert port.lines_landed() >= landed + 1
+        thread.join(5)
+        assert answers == ['EL-0940-01 Integrated Mainboard Firmware:     2024-09-10']
+        assert board.driver is None
+
+
+# ---------------------------------------------------------------------------
+# The LED board's writes and acks
+# ---------------------------------------------------------------------------
+
+
+def _fast(board, call, lines=2):
+    """Make a write-only *call* and wait for the board's *lines* of answer to
+    land, its echo among them: the DAC's state is reported before each line
+    of the answer is."""
+    port = board.driver
+    landed = port.lines_landed()
+    call()
+    assert port.wait_for_lines(landed + lines), "the fast write's reply never landed"
+
+
+@pytest.mark.firmware_tier
+class TestTheLedWrites:
+    def test_led_on_fast_drives_what_led_on_drives(self, led):
+        board, sim = led
+        board.led_on(channel=1, mA=50)
+        answered = sim.state('DAC')[1]
+        board.led_off(channel=1)
+        _fast(board, lambda: board.led_on_fast(channel=1, mA=50))
+        assert sim.state('DAC')[1] == answered
+
+    def test_led_off_fast_drives_what_led_off_drives(self, led):
+        board, sim = led
+        board.led_on(channel=4, mA=50)
+        board.led_off(channel=4)
+        answered = sim.state('DAC')[4]
+        board.led_on(channel=4, mA=50)
+        _fast(board, lambda: board.led_off_fast(channel=4))
+        assert sim.state('DAC')[4] == answered
+
+    def test_leds_off_fast_drives_what_leds_off_drives(self, led):
+        board, sim = led
+        board.led_on(channel=1, mA=50)
+        board.led_on(channel=3, mA=20)
+        board.leds_off()
+        answered = sim.state('DAC')
+        board.led_on(channel=1, mA=50)
+        board.led_on(channel=3, mA=20)
+        # The field firmware answers LEDS_OFF a line a channel, 0 to 5.
+        _fast(board, board.leds_off_fast, lines=7)
+        assert sim.state('DAC') == answered
+
+    def test_get_status_is_none_and_asks_the_board_nothing(self, led):
+        # The LED firmware has no STATUS command.
+        board, _sim = led
+        board.driver.wrote.clear()
+        assert board.get_status() is None
+        assert not board.driver.wrote.is_set()
+
+    def test_wait_until_on_is_false_and_asks_the_board_nothing(self, led):
+        board, _sim = led
+        board.driver.wrote.clear()
+        assert board.wait_until_on() is False
+        assert not board.driver.wrote.is_set()
+
+    def test_a_blocking_led_on_polls_past_an_answer_that_came_late(self, led):
+        board, sim = led
+        board.led_on(channel=3, mA=100)
+        lit = sim.state('DAC')[3]
+        board.leds_off()
+        sim.delay_next_reply(_LATE_S)
+        board.led_on(channel=3, mA=100, block=True)
+        assert sim.state('DAC')[3] == lit
+
+    @pytest.mark.parametrize(
+        'command,call',
+        [
+            ('LEDS_ENT', lambda b: b.leds_enable()),
+            ('LEDS_ENF', lambda b: b.leds_disable()),
+            ('LED3_5', lambda b: b.led_on(channel=3, mA=5)),
+            ('LED3_OFF', lambda b: b.led_off(channel=3)),
+            ('LEDS_OFF', lambda b: b.leds_off()),
+        ],
+    )
+    def test_a_write_answered_past_the_wait_is_not_an_ack(self, led, command, call):
+        """A wedged board accepts the write and does not answer in time.
+
+        Treating that as success cleared the error field and left the API
+        reporting a channel lit while the hardware was dark -- the 18-minute
+        wedge in the SNlogs-2026-05-14-134147 bundle.
+        """
+        board, sim = led
+        with (
+            _answered_late(board, sim),
+            pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'),
+        ):
+            call(board)
+
+    def test_concurrent_led_on_and_led_off_are_each_answered(self, led):
+        board, _sim = led
+        errors = []
+
+        def toggle(write):
+            try:
+                for _ in range(50):
+                    write()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=toggle, args=(lambda: board.led_on(channel=0, mA=100),)),
+            threading.Thread(target=toggle, args=(lambda: board.led_off(channel=0),)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        assert not errors, f'Concurrent writes raised: {errors}'
+        assert board.exchange_command('LED2_OFF') == 'LED 2 has been turned off'
+
+
+@pytest.mark.firmware_tier
+class TestSerialDesyncRecovery:
+    """A reply that lands after its command gave up sits in the port's buffer;
+    read as the next command's answer, every answer after it is one behind."""
+
+    def test_after_each_late_reply_the_next_command_gets_its_own_answer(self, led):
+        board, sim = led
+        for _ in range(3):
+            with _answered_late(board, sim), pytest.raises(BoardNoReplyError):
+                board.led_on(channel=3, mA=20)
+            assert board.exchange_command('LED2_OFF') == 'LED 2 has been turned off'
+
+    def test_rapid_led_on_off_every_write_confirms(self, led):
+        """25 iterations of leds_off -> led_on -> leds_off, the characterization
+        pattern that caused LED dropout. A write the board did not answer
+        would raise."""
+        board, _sim = led
+        for _ in range(25):
+            board.leds_off()
+            board.led_on(channel=3, mA=20)
+            board.leds_off()
+
+
+@pytest.mark.firmware_tier
+class TestTheMultilineRead:
+    def test_stop_on_empty_ends_a_one_line_info_at_its_first_empty_line(self, motor_3_0):
+        """The motor firmware sends INFO as one line; reading the rest of six
+        lines to their per-line timeouts cost 2.5 s on every connect."""
+        board, _sim = motor_3_0
+        t0 = time.monotonic()
+        resp = board.exchange_command('INFO', response_numlines=6, timeout=0.5, stop_on_empty=True)
+        elapsed = time.monotonic() - t0
+        assert 'v3.0.9' in resp[0]
+        assert resp[1:] == [''] * 5
+        assert elapsed < 1.5, f'the read waited out the empty lines: {elapsed:.2f}s'
+
+    def test_stop_on_empty_reads_every_line_of_a_multiline_info(self, led):
+        board, _sim = led
+        stopped = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
+        whole = board.exchange_command('INFO', response_numlines=6)
+        assert stopped == whole
+        assert stopped[3] == 'Calibration:  Std'
+
+
+# ---------------------------------------------------------------------------
+# The motor board's moves, reads, parse and scale
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.firmware_tier
+class TestTheMotorWrites:
+    def test_a_move_writes_its_steps_as_the_target(self, motor):
+        board, sim = motor
+        sim.take_writes()
+        board.move('Z', 1000)
+        assert _writes_to(sim, 'Z', XTARGET) == [1000]
+
+    def test_a_negative_move_reaches_the_chip_in_twos_complement(self, motor):
+        board, sim = motor
+        sim.take_writes()
+        board.move('Z', -100)
+        assert _writes_to(sim, 'Z', XTARGET) == [-100 + 0x100000000]
+
+    def test_a_target_above_travel_is_driven_not_clamped(self, motor):
+        """Travel is refused by the motion API before it reaches the driver; a
+        driver that clamped made a refused move look like one that succeeded
+        and stopped short."""
+        board, sim = motor
+        sim.take_writes()
+        board.move_abs_pos('Z', 99999)
+        assert _writes_to(sim, 'Z', XTARGET) == [board.z_um2ustep(99999)]
+
+    def test_a_target_below_travel_is_driven_not_clamped(self, motor):
+        board, sim = motor
+        sim.take_writes()
+        board.move_abs_pos('Z', -100)
+        assert _writes_to(sim, 'Z', XTARGET) == [board.z_um2ustep(-100) + 0x100000000]
+
+    def test_a_move_on_an_axis_the_board_lacks_is_refused(self, motor):
+        board, _sim = motor
+        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+            board.move_abs_pos('Q', 100)
+
+    def test_spi_read_returns_the_registers_value(self, motor):
+        board, _sim = motor
+        board.move('X', 4321)
+        assert board.spi_read('X', 0x20 + XACTUAL) == '4321'
+
+    def test_target_status_is_true_once_the_move_has_arrived(self, motor):
+        board, _sim = motor
+        board.move_abs_pos('Z', 1000)
+        assert board.target_status('Z') is True
+
+
+@pytest.mark.firmware_tier
+class TestAMoveUnderWay:
+    @pytest.fixture
+    def moving(self):
+        """A board on realistic timing, a Z move to 5000 um just started."""
+        board, _sim = motor_on_the_wire(timing='realistic')
+        board.move_abs_pos('Z', 5000)
+        return board
+
+    def test_target_status_is_false_before_the_move_arrives(self, moving):
+        assert moving.target_status('Z') is False
+
+    def test_target_pos_reads_where_the_axis_is_going(self, moving):
+        assert moving.target_pos('Z') == pytest.approx(5000, abs=0.01)
+        assert moving.current_pos('Z') < 5000
+
+
+@pytest.mark.firmware_tier
+class TestTheMotorBoardsConfig:
+    def test_get_axis_limits(self, motor):
+        board, _sim = motor
+        assert board.get_axis_limits('Z') == {'min': 0.0, 'max': 14000.0}
+
+    def test_get_axis_limits_on_an_axis_the_board_lacks_is_refused(self, motor):
+        board, _sim = motor
+        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+            board.get_axis_limits('Q')
+
+    def test_get_axes_config_has_all_four_axes_of_a_turret_scope(self, motor):
+        board, _sim = motor
+        assert set(board.get_axes_config()) == {'X', 'Y', 'Z', 'T'}
+
+    def test_a_scope_with_no_turret_reads_as_one(self):
+        board, _sim = motor_on_the_wire('LS850', 'XYZ')
+        board.fullinfo()
+        assert board.has_turret() is False
+
+
+@pytest.mark.firmware_tier
+class TestMotorBoardConversions:
+    """The scale is the board's own CONFIG (170666 usteps/mm on Z, 20157 on
+    XY, 80000 a turret position)."""
+
+    def test_z_roundtrip(self, motor):
+        board, _sim = motor
+        for um in (0, 100, 5000, 14000):
+            um_back = board.z_ustep2um(board.z_um2ustep(um))
+            assert abs(um - um_back) < 0.01, f'Z roundtrip failed for {um}: got {um_back}'
+
+    def test_xy_roundtrip(self, motor):
+        board, _sim = motor
+        for um in (0, 1000, 60000, 120000):
+            um_back = board.xy_ustep2um(board.xy_um2ustep(um))
+            assert abs(um - um_back) < 0.1, f'XY roundtrip failed for {um}: got {um_back}'
+
+    def test_turret_roundtrip(self, motor):
+        board, _sim = motor
+        for pos in (1, 2, 3, 4):
+            pos_back = board.t_ustep2pos(board.t_pos2ustep(pos))
+            assert pos == pos_back, f'Turret roundtrip failed for pos {pos}: got {pos_back}'
+
+    def test_z_known_values(self, motor):
+        board, _sim = motor
+        assert board.z_um2ustep(1000) == 170666
+        assert abs(board.z_ustep2um(170666) - 1000) < 0.01
+
+    def test_xy_known_values(self, motor):
+        board, _sim = motor
+        assert board.xy_um2ustep(1000) == 20157
+
+    def test_turret_degrees(self, motor):
+        """Position 1 = 0 deg, position 2 = 90 deg."""
+        board, _sim = motor
+        assert board.t_pos2ustep(1) == 0
+        assert board.t_pos2ustep(2) == 80000
+
+
+@pytest.mark.firmware_tier
+class TestTheFirmwareVersion:
+    def test_the_field_motor_firmware_has_no_version(self, motor):
+        board, _sim = motor
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+    def test_the_3_0_motor_firmware_is_v2_or_later(self, motor_3_0):
+        board, _sim = motor_3_0
+        assert board.firmware_version == '3.0.9'
+        assert board.is_v2 is True
+
+    def test_the_field_led_firmware_has_no_version(self, led):
+        board, _sim = led
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+
+# ---------------------------------------------------------------------------
+# The port itself, on a scripted port (tests/scripted_port.py): the
+# firmware plays no part in these claims
+# ---------------------------------------------------------------------------
+
+_ANSWERING = {'INFO': ['EL-0940 board'], 'PING': ['PONG']}
+_WRITE_TIMEOUT = serial.SerialTimeoutException('Write timeout')
+_PORT_LOST = serial.SerialException('write failed: [Errno 6] Device not configured')
+
+
+def _connected(link, board_cls=SerialBoard):
+    """The production driver, connected over a scripted port onto *link*."""
+    if board_cls is SerialBoard:
+        board = SerialBoard(LED_VID, LED_PID, '[Test]', backend=ScriptedBackend(link))
+        board.connect()
+    else:
+        board = board_cls(backend=ScriptedBackend(link))
+    assert board.is_connected()
+    return board
+
+
+def _lines(caplog, text):
+    return [r for r in caplog.records if r.name == 'LVP.serial' and text in r.getMessage()]
+
+
+class TestAWriteThatTimesOut:
+    def test_it_is_no_reply_and_the_port_stays_open_for_the_next_command(self):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.write_fault = _WRITE_TIMEOUT
+        with pytest.raises(BoardNoReplyError, match=r'^PING: the write to the board timed out'):
+            board.exchange_command('PING')
+        link.write_fault = None
+        assert board.exchange_command('PING') == 'PONG'
+        assert link.opens == 1, 'the timeout closed the port'
+
+    def test_a_second_inside_the_log_window_is_not_logged_again(self, caplog):
+        """#539: a link that keeps timing out must not flood serial.log."""
+        board = _connected(link := ScriptedLink(_ANSWERING))
+        link.write_fault = _WRITE_TIMEOUT
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            for command in ('PING', 'PING'):
+                with pytest.raises(BoardNoReplyError):
+                    board.exchange_command(command)
+        assert len(_lines(caplog, '-> TIMEOUT')) == 1
+
+    def test_one_past_the_log_window_is_logged_again(self, monkeypatch, caplog):
+        board = _connected(link := ScriptedLink(_ANSWERING))
+        now = [100.0]
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=lambda: now[0], sleep=time.sleep)
+        )
+        link.write_fault = _WRITE_TIMEOUT
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            for at in (100.0, 103.0):
+                now[0] = at
+                with pytest.raises(BoardNoReplyError):
+                    board.exchange_command('PING')
+        assert len(_lines(caplog, '-> TIMEOUT')) == 2
+
+
+class TestAPortThatFails:
+    """A failed port is closed and stays closed until a connect; a board
+    connected again whose port fails inside the log window is not logged
+    twice (#539)."""
+
+    def test_a_failure_before_the_send_closes_the_port_and_nothing_reopens_it(self):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.write_fault = _PORT_LOST
+        with pytest.raises(BoardPortFailedError, match=r'^PING: the port failed'):
+            board.exchange_command('PING')
+        link.write_fault = None
+        with pytest.raises(BoardPortFailedError, match=r'^PING: the port is closed'):
+            board.exchange_command('PING')
+        assert link.opens == 1
+
+    def test_a_read_lost_after_the_send_is_no_reply_and_closes_the_port(self):
+        """The board may have taken the command whose answer was lost."""
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.read_fault = OSError('port disappeared')
+        with pytest.raises(
+            BoardNoReplyError, match=r'^FULLINFO: the port failed after the command was sent'
+        ):
+            board.exchange_multiline('FULLINFO', timeout=1)
+        assert not board.is_connected()
+
+    def test_an_exchange_failing_again_inside_the_log_window_is_not_logged_again(self, caplog):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        with caplog.at_level(logging.ERROR, logger='LVP.serial'):
+            for _ in range(2):
+                link.write_fault = _PORT_LOST
+                with pytest.raises(BoardPortFailedError):
+                    board.exchange_command('PING')
+                link.write_fault = None
+                board.connect()
+        assert len(_lines(caplog, '-> EXCEPTION')) == 1
+
+    def test_a_fast_write_failing_again_inside_the_log_window_is_not_logged_again(self, caplog):
+        caplog.set_level(logging.DEBUG)
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link, LEDBoard)
+        for _ in range(2):
+            link.write_fault = _PORT_LOST
+            with pytest.raises(BoardPortFailedError):
+                board.leds_off_fast()
+            link.write_fault = None
+            board.connect()
+        failed = [
+            m
+            for m in messages(records_of(caplog, serialboard))
+            if '_write_command_fast(LEDS_OFF) failed' in m
+        ]
+        assert len(failed) == 1
+
+
+class TestABoardThatSendsNothing:
+    """#619: a board that sends no byte through the whole connect is hung
+    firmware or a stuck USB hub, and needs a power cycle; a board that
+    answers without a version is not silent
+    (`test_sim_wire_led.py::TestTheFirmwareBoots`)."""
+
+    @pytest.fixture(autouse=True)
+    def _no_recovery_waits(self, monkeypatch):
+        """The reset's waits (5 s after the soft reset) give a real board
+        time to boot; the scripted board answers at once or never."""
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None)
+        )
+
+    @pytest.fixture
+    def silent(self):
+        link = ScriptedLink()
+        return _connected(link), link
+
+    def test_it_is_not_responsive_and_has_no_version(self, silent):
+        board, _link = silent
+        assert board.is_responsive() is False
+        assert board.firmware_version is None
+
+    def test_the_soft_reset_is_tried_before_it_is_called_silent(self, silent):
+        """A board Thonny left in raw REPL looks silent until Ctrl-B and
+        Ctrl-D wake it (seen 2026-04-14 on an LS850T), so the recovery runs
+        before the verdict."""
+        _board, link = silent
+        assert b'\x02' in link.written and b'\x04' in link.written
+
+    def test_every_command_is_refused_at_once_with_nothing_sent_or_reopened(self, silent):
+        board, link = silent
+        sent, opens = len(link.written), link.opens
+        for _ in range(10):
+            with pytest.raises(BoardNoReplyError, match='power cycle it'):
+                board.exchange_command('LEDS_OFF')
+        assert len(link.written) == sent
+        assert link.opens == opens
+
+    def test_info_still_reaches_it_and_no_line_at_all_is_no_reply(self, silent):
+        """INFO is let through so a later connect can re-probe the board;
+        the detection's own read, every line empty, is no reply."""
+        board, link = silent
+        sent = link.commands().count('INFO')
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
+        assert link.commands().count('INFO') == sent + 1
+
+    def test_a_board_that_answers_again_is_not_silent_at_its_next_connect(self, silent):
+        board, link = silent
+        link.answers.update(_ANSWERING)
+        board.connect()
+        assert board.is_responsive() is True
+        assert board.exchange_command('PING') == 'PONG'
+
+
+def _coarse_time(step_s=1.0):
+    """The board module's ``time`` with ``monotonic`` on a coarse grid, as
+    Windows under Python 3.12 reads it (``GetTickCount64``, 15.6 ms a step).
+    The grid here is a second, coarser than any host's, so a duration read
+    from it is 0 or a whole second, never the true few milliseconds."""
+    return SimpleNamespace(
+        monotonic=lambda: time.perf_counter() // step_s * step_s, sleep=time.sleep
+    )
+
+
+def _ms(caplog, pattern):
+    """The duration, in ms, each serial.log line matching *pattern* states."""
+    found = [re.search(pattern, r.getMessage()) for r in caplog.records if r.name == 'LVP.serial']
+    return [float(m.group(1)) for m in found if m]
+
+
+class TestTheDurationsSerialLogStates:
+    """Every duration serial.log states is the true one on any host clock:
+    on a coarse ``time.monotonic`` (Windows 3.12) a 2 ms write and a 14 ms
+    one would read alike. The log is the product here: it is what a
+    connection fault is diagnosed from (#619)."""
+
+    _WRITE_S = 0.002
+
+    def test_each_line_states_the_true_duration_on_a_coarse_clock(self, monkeypatch, caplog):
+        monkeypatch.setattr(serialboard, 'time', _coarse_time())
+        link = ScriptedLink({**_ANSWERING, 'LEDS_OFF': ['LEDs off'], 'FULLINFO': ['a', 'b']})
+        link.write_takes_s = self._WRITE_S
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            board = _connected(link, LEDBoard)
+            board.exchange_command('PING')
+            board.exchange_multiline('FULLINFO', timeout=1)
+            board.leds_off_fast()
+        lines = {
+            'a raw write': _ms(caplog, r'WRITE .* in (\d+)ms'),
+            'the detect step': _ms(caplog, r'RESET step3 detect result: .* in (\d+)ms'),
+            'the reset total': _ms(caplog, r'RESET done .*total=(\d+)ms'),
+            'an exchange': _ms(caplog, r"PING -> 'PONG' \(([\d.]+)ms\)"),
+            'a multi-line exchange': _ms(caplog, r'FULLINFO -> 2 lines: .* \(([\d.]+)ms\)'),
+            'a fast write': _ms(caplog, r'FAST LEDS_OFF: .* write=([\d.]+)ms'),
+        }
+        # Each line spans at least one 2 ms write; a second is the coarse
+        # clock's step, never a real duration here.
+        wrong = {
+            name: found
+            for name, found in lines.items()
+            if not found or any(not self._WRITE_S * 1000 <= ms < 900 for ms in found)
+        }
+        assert not wrong, f'durations off the true one: {wrong}'
+
+    def test_the_command_gap_is_kept_on_a_coarse_clock(self, monkeypatch):
+        """The coarse clock ticks between two commands sent microseconds
+        apart; the gap a board sets is still kept."""
+        now = [100.0]
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=lambda: now[0], sleep=time.sleep)
+        )
+        board = _connected(link := ScriptedLink(_ANSWERING))
+        # A board sets its gap here; no shipped board sets one yet.
+        board._min_command_interval = 0.05
+        # The gap runs from inside the first exchange to the second send, so
+        # the span from before the first exchange to the second write is
+        # never less than it, however loaded the host; a driver that kept no
+        # gap sends the second about one exchange (25 ms) after the first.
+        began = time.perf_counter()
+        board.exchange_command('PING')
+        now[0] += 1.0
+        board.exchange_command('PING')
+        assert link.written_at[-1] - began >= 0.05
+
+
+# ---------------------------------------------------------------------------
+# Left on scripted replies: an LED firmware that reports a version (the
+# emulation carries only the field LED firmware, which reports none)
 # ---------------------------------------------------------------------------
 
 
 def _make_mock_serial(**overrides):
-    """Create a mock serial.Serial that behaves like a connected port.
-
-    LED firmware sends two lines per command:
-      1. Echo:  "RE: <CMD>\\r\\n"
-      2. Result: "<result text>\\r\\n"
-    Motor firmware sends one line:
-      1. Result: "<result text>\\r\\n"
-
-    Default readline returns echo-style responses. Use side_effect for
-    multi-line sequences.
-    """
+    """A mock serial.Serial that behaves like a connected port."""
     mock = MagicMock(spec=serial.Serial)
     mock.readline.return_value = b'OK\r\n'
     mock.write.return_value = None
@@ -53,929 +742,9 @@ def _make_mock_serial(**overrides):
     return mock
 
 
-def _make_led_readline(*result_lines):
-    """Build a readline side_effect for LED board: echo + result per command.
-
-    Each call to exchange_command reads two lines:
-      readline() -> b"RE: <cmd>\\r\\n"  (echo)
-      readline() -> b"<result>\\r\\n"   (actual result)
-
-    Pass result strings (without \\r\\n) and a cycling side_effect is returned.
-    """
-    responses = []
-    for result in result_lines:
-        responses.append(b'RE: CMD\r\n')  # echo (content doesn't matter, starts with RE:)
-        responses.append(result.encode('utf-8') + b'\r\n')
-    # Cycle so multiple exchange_command calls work
-    import itertools
-
-    cycle = itertools.cycle(responses)
-    return lambda: next(cycle)
-
-
-# What a board answers once every axis has homed: FULLINFO with each axis
-# present and homed, and every status read at its target (bit 9). home() and
-# thome() confirm a success against FULLINFO and then wait for arrival.
-_HOMED_FULLINFO = (
-    'Model: LS850T Serial: 1'
-    ' X homed: True   X present: True   Y homed: True   Y present: True'
-    ' Z homed: True   Z present: True   T homed: True   T present: True'
-)
-
-
-def _reply_for(home_reply):
-    """The board's answer to each command, given its answer to the home."""
-
-    def reply(command, *args, **kwargs):
-        command = command.strip()
-        if command == 'FULLINFO':
-            return _HOMED_FULLINFO
-        if command.startswith('STATUS_R'):
-            return str(1 << 9)
-        return home_reply
-
-    return reply
-
-
-def _answer_homes(board, home_reply):
-    """Answer at the port: each readline replies to the last command written."""
-    written = []
-    board.driver.write.side_effect = lambda data: written.append(data.decode())
-    reply = _reply_for(home_reply)
-    board.driver.readline.side_effect = lambda: reply(written[-1]).encode() + b'\n'
-
-
-# ---------------------------------------------------------------------------
-# LEDBoard Tests
-# ---------------------------------------------------------------------------
-
-
-class TestLEDBoardLocking:
-    """Verify LEDBoard uses a single lock for all serial access."""
-
-    def _make_board(self):
-        """Create an LEDBoard with a mock serial driver."""
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        board.firmware_version = None
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        return board
-
-    def test_no_com_lock_attribute(self):
-        """LEDBoard should not have a separate com_lock."""
-        board = self._make_board()
-        assert not hasattr(board, 'com_lock'), 'com_lock should be removed'
-
-    def test_has_single_lock(self):
-        """LEDBoard should have _lock as the sole lock."""
-        board = self._make_board()
-        assert hasattr(board, '_lock')
-        assert isinstance(board._lock, type(threading.RLock()))
-
-    def test_exchange_command_returns_response(self):
-        """exchange_command should return the actual result (not the echo)."""
-        board = self._make_board()
-        # Firmware sends echo, then result
-        board.driver.readline.side_effect = [
-            b'RE: LED0_100\r\n',  # echo line
-            b'LED 0 set to 100 mA.\r\n',  # result line
-        ]
-        resp = board.exchange_command('LED0_100')
-        assert resp is not None
-        assert resp == 'LED 0 set to 100 mA.'
-
-    def test_exchange_command_reads_past_echo(self):
-        """exchange_command should skip the RE: echo and return the result."""
-        board = self._make_board()
-        board.driver.readline.side_effect = [
-            b'RE: LEDS_OFF\r\n',  # echo
-            b'All LEDs turned off\r\n',  # result
-        ]
-        resp = board.exchange_command('LEDS_OFF')
-        assert resp == 'All LEDs turned off'
-
-    def test_exchange_command_no_echo_firmware(self):
-        """If firmware doesn't send RE: echo, first line IS the result."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'LED 0 set to 100 mA.\r\n'
-        resp = board.exchange_command('LED0_100')
-        assert resp == 'LED 0 set to 100 mA.'
-
-    def test_exchange_command_none_on_timeout(self):
-        """exchange_command should return None on SerialTimeoutException."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        resp = board.exchange_command('LED0_100')
-        assert resp is None
-
-    def test_driver_stays_open_on_timeout(self):
-        """H-17: Timeout is transient -- driver stays open for retry.
-
-        Only fatal exceptions close the driver. SerialTimeoutException
-        keeps it open so the next command can succeed without reconnecting.
-        """
-        board = self._make_board()
-        mock_driver = board.driver
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board.exchange_command('LED0_100')
-        mock_driver.close.assert_not_called()
-        assert board.driver is not None
-
-    def test_write_fast_uses_same_lock(self):
-        """_write_command_fast should acquire _lock, preventing interleave."""
-        board = self._make_board()
-        lock_acquired = threading.Event()
-        write_started = threading.Event()
-
-        original_write = board.driver.write
-
-        def slow_write(data):
-            write_started.set()
-            time.sleep(0.1)
-            return original_write(data)
-
-        board.driver.write = slow_write
-
-        # Start a slow exchange_command in a thread
-        def do_exchange():
-            board.exchange_command('LED0_100')
-            lock_acquired.set()
-
-        t = threading.Thread(target=do_exchange)
-        t.start()
-        write_started.wait(timeout=2)
-
-        # Try _write_command_fast -- should block until exchange finishes
-        start = time.time()
-        board._write_command_fast('LED0_OFF')
-        elapsed = time.time() - start
-
-        t.join(timeout=5)
-        # If the lock works, fast write had to wait for the slow exchange
-        assert elapsed >= 0.05, f"_write_command_fast didn't wait for lock (elapsed={elapsed:.3f}s)"
-
-    def test_exchange_reconnects_if_driver_none(self):
-        """exchange_command should attempt reconnect if driver is None."""
-        board = self._make_board()
-        board.driver = None
-
-        with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
-            mock_connect.assert_called()
-
-    def test_concurrent_exchange_commands(self):
-        """Multiple threads calling exchange_command should not interleave."""
-        board = self._make_board()
-        call_order = []
-        original_write = board.driver.write
-
-        def tracking_write(data):
-            cmd = data.decode('utf-8').strip()
-            call_order.append(('start', cmd))
-            time.sleep(0.01)
-            call_order.append(('end', cmd))
-            return original_write(data)
-
-        board.driver.write = tracking_write
-
-        threads = []
-        for i in range(5):
-            t = threading.Thread(target=board.exchange_command, args=(f'LED{i}_100',))
-            threads.append(t)
-
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
-
-        # Verify no interleaving: every 'start' should be followed by its 'end'
-        for i in range(0, len(call_order), 2):
-            assert call_order[i][0] == 'start'
-            assert call_order[i + 1][0] == 'end'
-            assert call_order[i][1] == call_order[i + 1][1], (
-                f'Interleaved: {call_order[i]} followed by {call_order[i + 1]}'
-            )
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Tests
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardSafety:
-    """Verify MotorBoard error handling and timeout behavior."""
-
-    def _make_board(self):
-        """Create a MotorBoard with a mock serial driver."""
-        # MotorBoard imported at module level
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board._connect_fails = 0
-        board.axes_config = {}
-        board.firmware_version = None
-        return board
-
-    def test_timeout_is_set(self):
-        """Motor board should have a finite timeout, not None."""
-        board = self._make_board()
-        assert board.timeout is not None
-        assert board.timeout > 0
-
-    def test_exchange_command_returns_response(self):
-        """exchange_command should return decoded response."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'Z home successful\n'
-        resp = board.exchange_command('ZHOME')
-        assert resp is not None
-        assert 'home successful' in resp
-
-    def test_exchange_command_none_on_timeout(self):
-        """exchange_command should return None on timeout, not hang."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        resp = board.exchange_command('HOME')
-        assert resp is None
-
-    def test_driver_closed_on_error(self):
-        """Driver should be properly closed on error, not just set to None."""
-        board = self._make_board()
-        mock_driver = board.driver
-        board.driver.write.side_effect = OSError('port disappeared')
-        resp = board.exchange_command('INFO')
-        assert resp is None
-        mock_driver.close.assert_called()
-        assert board.driver is None
-
-    def test_exchange_reconnects_if_driver_none(self):
-        """exchange_command should attempt reconnect if driver is None."""
-        board = self._make_board()
-        board.driver = None
-
-        with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
-            mock_connect.assert_called()
-
-    def test_disconnect_is_threadsafe(self):
-        """disconnect() during exchange_command should not corrupt state."""
-        board = self._make_board()
-
-        # Slow down exchange_command so disconnect has to wait
-        original_write = board.driver.write
-
-        def slow_write(data):
-            time.sleep(0.1)
-            return original_write(data)
-
-        board.driver.write = slow_write
-
-        results = {}
-
-        def do_exchange():
-            results['resp'] = board.exchange_command('INFO')
-
-        t = threading.Thread(target=do_exchange)
-        t.start()
-        time.sleep(0.02)  # let exchange start
-
-        board.disconnect()
-        t.join(timeout=5)
-
-        # After disconnect, driver should be None
-        assert board.driver is None
-
-
-# ---------------------------------------------------------------------------
-# LEDBoard Command Formatting
-# ---------------------------------------------------------------------------
-
-
-class TestLEDBoardCommands:
-    """Verify LEDBoard sends correctly formatted serial commands."""
-
-    def _make_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        return board
-
-    def test_led_on_sends_correct_command(self):
-        """led_on(0, 100) should send 'LED0_100\\n'."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        board.driver.write.assert_called_with(b'LED0_100\n')
-
-    def test_led_on_channel_3(self):
-        """led_on(3, 250) should send 'LED3_250\\n'."""
-        board = self._make_board()
-        board.led_on(channel=3, mA=250)
-        board.driver.write.assert_called_with(b'LED3_250\n')
-
-    def test_led_off_sends_correct_command(self):
-        """led_off(2) should send 'LED2_OFF\\n'."""
-        board = self._make_board()
-        board.led_off(channel=2)
-        board.driver.write.assert_called_with(b'LED2_OFF\n')
-
-    def test_leds_off_sends_correct_command(self):
-        """leds_off() should send 'LEDS_OFF\\n'."""
-        board = self._make_board()
-        board.leds_off()
-        board.driver.write.assert_called_with(b'LEDS_OFF\n')
-
-    def test_leds_enable_sends_correct_command(self):
-        """leds_enable() should send 'LEDS_ENT\\n'."""
-        board = self._make_board()
-        board.leds_enable()
-        board.driver.write.assert_called_with(b'LEDS_ENT\n')
-
-    def test_leds_disable_sends_correct_command(self):
-        """leds_disable() should send 'LEDS_ENF\\n'."""
-        board = self._make_board()
-        board.leds_disable()
-        board.driver.write.assert_called_with(b'LEDS_ENF\n')
-
-    def test_led_on_fast_sends_correct_command(self):
-        """led_on_fast uses write-only path with correct command."""
-        board = self._make_board()
-        board.led_on_fast(channel=1, mA=50)
-        board.driver.write.assert_called_with(b'LED1_50\n')
-
-    def test_led_off_fast_sends_correct_command(self):
-        """led_off_fast uses write-only path with correct command."""
-        board = self._make_board()
-        board.led_off_fast(channel=4)
-        board.driver.write.assert_called_with(b'LED4_OFF\n')
-
-    def test_leds_off_fast_sends_correct_command(self):
-        """leds_off_fast uses write-only path with correct command."""
-        board = self._make_board()
-        board.leds_off_fast()
-        board.driver.write.assert_called_with(b'LEDS_OFF\n')
-
-    def test_get_status_returns_none(self):
-        """get_status() returns None -- LED firmware has no STATUS command."""
-        board = self._make_board()
-        result = board.get_status()
-        assert result is None
-        # Should NOT send any serial command (STATUS not implemented in firmware)
-        board.driver.write.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# LEDBoard State Tracking
-# ---------------------------------------------------------------------------
-
-# TestLEDBoardState (driver-side state-cache queries) retired in
-# Wave 7 Phase 3d.5. LED state is API-primary (Rule 2 SoT on
-# IlluminationAPI). Equivalent API-side coverage lives in
-# tests/test_lumascope_api.py and tests/test_state_observer.py.
-
-
-# ---------------------------------------------------------------------------
-# LEDBoard Color/Channel Conversion
-# ---------------------------------------------------------------------------
-
-
-class TestLEDBoardConversion:
-    """Verify color-to-channel and channel-to-color mappings."""
-
-    def test_color2ch_all(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.color2ch('Blue') == 0
-        assert board.color2ch('Green') == 1
-        assert board.color2ch('Red') == 2
-        assert board.color2ch('BF') == 3
-        assert board.color2ch('PC') == 4
-        assert board.color2ch('DF') == 5
-
-    def test_ch2color_all(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.ch2color(0) == 'Blue'
-        assert board.ch2color(1) == 'Green'
-        assert board.ch2color(2) == 'Red'
-        assert board.ch2color(3) == 'BF'
-        assert board.ch2color(4) == 'PC'
-        assert board.ch2color(5) == 'DF'
-
-    def test_color2ch_unknown_is_none(self):
-        # An undrivable colour must be unrepresentable as a real channel:
-        # the old in-band default (3 = BF) silently lit brightfield.
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.color2ch('Unknown') is None
-
-    def test_ch2color_unknown_is_none(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.ch2color(99) is None
-
-    def test_roundtrip_all_channels(self):
-        """color2ch -> ch2color should roundtrip for all valid channels."""
-        board = LEDBoard.__new__(LEDBoard)
-        for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF'):
-            ch = board.color2ch(color)
-            assert board.ch2color(ch) == color
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Command Formatting
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardCommands:
-    """Verify MotorBoard sends correctly formatted serial commands."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = {'model': 'unknown', 'serial_number': 'unknown', 'present_axes': []}
-        board._connect_fails = 0
-        board.axes_config = {
-            'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},
-            'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': board.xy_um2ustep},
-            'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': board.xy_um2ustep},
-            'T': {'move_func': board.t_pos2ustep},
-        }
-        return board
-
-    def test_move_sends_target_write(self):
-        """move('Z', 1000) should send 'TARGET_WZ1000\\n'."""
-        board = self._make_board()
-        board.move('Z', 1000)
-        board.driver.write.assert_called_with(b'TARGET_WZ1000\n')
-
-    def test_move_negative_twos_complement(self):
-        """Negative steps should be converted to twos complement."""
-        board = self._make_board()
-        board.move('Z', -100)
-        expected = -100 + 0x100000000
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode())
-
-    def test_zhome_sends_zhome(self):
-        """zhome() should send 'ZHOME\\n'."""
-        board = self._make_board()
-        # Mock readline must match the success pattern so the driver
-        # body completes -- otherwise it raises HardwareError per Rule 29
-        # migration and we never get to the write-side assertion this
-        # test cares about. (Wave 2.)
-        board.driver.readline.return_value = b'Z home successful\n'
-        board.zhome()
-        board.driver.write.assert_called_with(b'ZHOME\n')
-
-    def test_home_sends_home(self):
-        """home() should send 'HOME\\n'."""
-        board = self._make_board()
-        _answer_homes(board, 'XYZ home complete')
-        board.home()
-        board.driver.write.assert_any_call(b'HOME\n')
-
-    def test_thome_sends_thome(self):
-        """thome() should send 'THOME\\n'."""
-        board = self._make_board()
-        _answer_homes(board, 'T home successful')
-        board.thome()
-        board.driver.write.assert_any_call(b'THOME\n')
-
-    def test_current_pos_sends_actual_read(self):
-        """current_pos('Z') should send 'ACTUAL_RZ\\n'."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'0\n'
-        board.current_pos('Z')
-        board.driver.write.assert_called_with(b'ACTUAL_RZ\n')
-
-    def test_target_pos_sends_target_read(self):
-        """target_pos('X') should send 'TARGET_RX\\n'."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'0\n'
-        board.target_pos('X')
-        board.driver.write.assert_called_with(b'TARGET_RX\n')
-
-    def test_target_status_sends_status_read(self):
-        """target_status('Z') should send 'STATUS_RZ\\n'."""
-        board = self._make_board()
-        # bit 9 (position_reached) set
-        board.driver.readline.return_value = b'512\n'
-        board.target_status('Z')
-        board.driver.write.assert_called_with(b'STATUS_RZ\n')
-
-    def test_spi_read_sends_correct_format(self):
-        """spi_read('X', 0x6F) should send 'SPIX0x6f00\\n'."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'0x00000000\n'
-        board.spi_read('X', 0x6F)
-        board.driver.write.assert_called_with(b'SPIX0x6f00\n')
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Homing State
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardHoming:
-    """Verify homing flag tracking."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board._connect_fails = 0
-        board.axes_config = {}
-        return board
-
-    def test_initial_homing_false(self):
-        """Board starts with homing not complete."""
-        board = self._make_board()
-        assert board.has_homed() is False
-        assert board.has_thomed() is False
-
-    def test_home_sets_flag_on_success(self):
-        """home() should set initial_homing_complete when firmware confirms."""
-        board = self._make_board()
-        _answer_homes(board, 'XYZ home complete')
-        board.home()
-        assert board.has_homed() is True
-
-    def test_home_sets_flag_on_partial_success(self):
-        """home() should set initial_homing_complete on partial home -- the
-        firmware homed Z (and T if present) before reporting that X or Y
-        is not physically wired on this board (LS820 case, #618 follow-up)."""
-        board = self._make_board()
-        _answer_homes(board, 'ERROR: X not present')
-        board.home()
-        assert board.has_homed() is True, (
-            'Partial home (Z homed before firmware reported missing X/Y) '
-            'must set the homed flag -- Z is at its reference position'
-        )
-
-    def test_home_no_flag_on_real_failure(self):
-        """home() must raise HardwareError on a real failure (timeout,
-        hardware error) -- distinct from the LS820 partial-home case
-        above. The homed flag must remain False. (Wave 2 / D1: Rule 29
-        typed-exception migration.)"""
-        from drivers.exceptions import HardwareError
-
-        board = self._make_board()
-        board.driver.readline.return_value = b'ERROR: timeout\n'
-        with pytest.raises(HardwareError, match='firmware error'):
-            board.home()
-        assert board.has_homed() is False
-
-    def test_home_no_flag_on_none(self):
-        """home() must raise HardwareError if the response is None
-        (disconnected). The homed flag must remain False. (Wave 2 / D1.)"""
-        from drivers.exceptions import HardwareError
-
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        with pytest.raises(HardwareError, match='no response'):
-            board.home()
-        assert board.has_homed() is False
-
-    def test_thome_sets_flag_on_success(self):
-        """thome() should set initial_t_homing_complete when firmware confirms."""
-        board = self._make_board()
-        _answer_homes(board, 'T home successful')
-        board.thome()
-        assert board.has_thomed() is True
-
-    def test_thome_no_flag_on_failure(self):
-        """thome() must raise HardwareError if response is unrecognized.
-        The thomed flag must remain False. (Wave 2 / D1.)"""
-        from drivers.exceptions import HardwareError
-
-        board = self._make_board()
-        board.driver.readline.return_value = b'ERROR\n'
-        with pytest.raises(HardwareError, match='firmware error'):
-            board.thome()
-        assert board.has_thomed() is False
-
-    def test_has_thomed_true_after_home(self):
-        """has_thomed() should return True if home() completed (it homes T too)."""
-        board = self._make_board()
-        _answer_homes(board, 'XYZ home complete')
-        board.home()
-        assert board.has_thomed() is True
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Fullinfo Parsing
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardFullinfo:
-    """Verify fullinfo() parses firmware response correctly."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board._connect_fails = 0
-        board.axes_config = {}
-        return board
-
-    def test_fullinfo_parses_model_and_serial(self):
-        """fullinfo() should extract model and serial_number."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 '
-            b'Model: LS850 Serial: 12062 X homed: False\n'
-        )
-        info = board.fullinfo()
-        assert info['model'] == 'LS850'
-        assert info['serial_number'] == '12062'
-
-    def test_fullinfo_detects_turret_model(self):
-        """fullinfo() should set _has_turret for models ending in 'T'."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 '
-            b'Model: LS850T Serial: 99999 X homed: False\n'
-        )
-        board.fullinfo()
-        assert board._has_turret is True
-        assert board.has_turret() is True
-
-    def test_fullinfo_no_turret(self):
-        """fullinfo() should not set _has_turret for non-T models."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 '
-            b'Model: LS850 Serial: 12062 X homed: False\n'
-        )
-        board.fullinfo()
-        assert board._has_turret is False
-        assert board.has_turret() is False
-
-    def test_get_microscope_model(self):
-        """get_microscope_model() should return model from cached fullinfo."""
-        board = self._make_board()
-        board._fullinfo = {'model': 'LS850', 'serial_number': '12062'}
-        assert board.get_microscope_model() == 'LS850'
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Unit Conversions
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardConversions:
-    """Verify unit conversion math for Z, XY, and turret."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        return board
-
-    def test_z_roundtrip(self):
-        """z_um2ustep -> z_ustep2um should roundtrip closely."""
-        board = self._make_board()
-        for um in (0, 100, 5000, 14000):
-            ustep = board.z_um2ustep(um)
-            um_back = board.z_ustep2um(ustep)
-            assert abs(um - um_back) < 0.01, f'Z roundtrip failed for {um}: got {um_back}'
-
-    def test_xy_roundtrip(self):
-        """xy_um2ustep -> xy_ustep2um should roundtrip closely."""
-        board = self._make_board()
-        for um in (0, 1000, 60000, 120000):
-            ustep = board.xy_um2ustep(um)
-            um_back = board.xy_ustep2um(ustep)
-            assert abs(um - um_back) < 0.1, f'XY roundtrip failed for {um}: got {um_back}'
-
-    def test_turret_roundtrip(self):
-        """t_pos2ustep -> t_ustep2pos should roundtrip for positions 1-4."""
-        board = self._make_board()
-        for pos in (1, 2, 3, 4):
-            ustep = board.t_pos2ustep(pos)
-            pos_back = board.t_ustep2pos(ustep)
-            assert pos == pos_back, f'Turret roundtrip failed for pos {pos}: got {pos_back}'
-
-    def test_z_known_values(self):
-        """Spot check Z conversion against known ratio (170666 ustep/mm)."""
-        board = self._make_board()
-        # 1mm = 1000um -> 170666 usteps (from motorconfig_defaults.json)
-        assert board.z_um2ustep(1000) == 170666
-        # 170666 usteps -> 1000um
-        assert abs(board.z_ustep2um(170666) - 1000) < 0.01
-
-    def test_xy_known_values(self):
-        """Spot check XY conversion against known ratio (20157 ustep/mm)."""
-        board = self._make_board()
-        # 1mm = 1000um -> 20157 usteps
-        assert board.xy_um2ustep(1000) == 20157
-
-    def test_turret_degrees(self):
-        """Position 1 = 0 deg, position 2 = 90 deg, etc."""
-        board = self._make_board()
-        assert board.t_pos2ustep(1) == 0
-        assert board.t_pos2ustep(2) == 80000
-
-
-# ---------------------------------------------------------------------------
-# MotorBoard Movement Logic
-# ---------------------------------------------------------------------------
-
-
-class TestMotorBoardMovement:
-    """Verify move_abs_pos drives the target it is given, and overshoot logic.
-
-    Travel is refused by the motion API before it reaches the driver; a
-    driver that clamped instead made a refused move look like one that
-    succeeded and stopped short.
-    """
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board._connect_fails = 0
-        board.axes_config = {
-            'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},
-            'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': board.xy_um2ustep},
-            'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': board.xy_um2ustep},
-            'T': {'move_func': board.t_pos2ustep},
-        }
-        return board
-
-    def test_z_above_travel_is_driven_not_clamped(self):
-        """move_abs_pos('Z', 99999) writes 99999, not the 14000um max."""
-        board = self._make_board()
-        board.move_abs_pos('Z', 99999)
-        expected_ustep = board.z_um2ustep(99999)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_z_below_travel_is_driven_not_clamped(self):
-        """move_abs_pos('Z', -100) writes -100, not the 0um min."""
-        board = self._make_board()
-        board.move_abs_pos('Z', -100)
-        # A negative target goes to the firmware in two's complement.
-        expected_ustep = board.z_um2ustep(-100) + 0x100000000
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_unsupported_axis_raises(self):
-        """move_abs_pos with unknown axis should raise."""
-        board = self._make_board()
-        with pytest.raises(Exception, match='Unsupported axis'):
-            board.move_abs_pos('Q', 100)
-
-    def test_target_status_position_reached(self):
-        """target_status should return True when position_reached bit is set."""
-        board = self._make_board()
-        # bit 9 (from LSB) = 0x200 = 512
-        board.driver.readline.return_value = b'512\n'
-        assert board.target_status('Z') is True
-
-    def test_target_status_not_reached(self):
-        """target_status should return False when position_reached bit is clear."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'0\n'
-        assert board.target_status('Z') is False
-
-    def test_target_status_raises_hardware_error_on_none(self):
-        """target_status() must raise HardwareError when STATUS_R returns
-        None (timeout / disconnect). Issue #653: untyped ValueError leaked
-        past the API layer as a raw stack trace into the motion-monitor
-        thread without a user-facing notification."""
-        from drivers.exceptions import HardwareError
-
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        with pytest.raises(HardwareError, match='STATUS_R returned None'):
-            board.target_status('Z')
-
-    def test_get_axis_limits(self):
-        """get_axis_limits should return the configured limits."""
-        board = self._make_board()
-        limits = board.get_axis_limits('Z')
-        assert limits['min'] == 0.0
-        assert limits['max'] == 14000.0
-
-    def test_get_axis_limits_unsupported(self):
-        """get_axis_limits with unknown axis should raise."""
-        board = self._make_board()
-        with pytest.raises(Exception, match='Unsupported axis'):
-            board.get_axis_limits('Q')
-
-    def test_get_axes_config_has_all_axes(self):
-        """get_axes_config should return all 4 axes."""
-        board = self._make_board()
-        config = board.get_axes_config()
-        assert 'X' in config
-        assert 'Y' in config
-        assert 'Z' in config
-        assert 'T' in config
-
-
-# ---------------------------------------------------------------------------
-# Firmware Version Detection Tests
-# ---------------------------------------------------------------------------
-
-
 class TestLEDFirmwareVersion:
-    """Test LED board firmware version detection and is_v2 property."""
+    """An LED firmware that reports a version: the emulation carries only
+    the field LED firmware, which reports none."""
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -990,8 +759,6 @@ class TestLEDFirmwareVersion:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board.firmware_date = None
         board.firmware_responding = False
@@ -1018,23 +785,6 @@ class TestLEDFirmwareVersion:
         board._detect_firmware_version()
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
-
-    def test_detect_legacy_firmware(self):
-        """Legacy firmware has no version string."""
-        board = self._make_board()
-        board.driver.readline.side_effect = [
-            b'RE: INFO\r\n',
-            b'EL-0925 Gen3 LED Controller\r\n',
-            b'\r\n',
-            b'\r\n',
-            b'\r\n',
-            b'\r\n',
-            b'\r\n',
-            b'\r\n',
-        ]
-        board._detect_firmware_version()
-        assert board.firmware_version is None
-        assert board.is_v2 is False
 
     def test_detect_v2_0_0(self):
         """Should parse v2.0.0."""
@@ -1086,73 +836,6 @@ class TestLEDFirmwareVersion:
         assert board.firmware_version == '3.0.0'
         assert board.is_v2 is True
 
-    def test_detect_timeout(self):
-        """If INFO times out, version should be None."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board._detect_firmware_version()
-        assert board.firmware_version is None
-        assert board.is_v2 is False
-
-
-class TestMotorFirmwareVersion:
-    """Test motor board firmware version detection and is_v2 property."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board._connect_fails = 0
-        board.axes_config = {}
-        board.firmware_version = None
-        return board
-
-    def test_detect_v2_firmware(self):
-        """Should parse v2.0.1 from motor INFO response."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'EL-0940 Integrated Mainboard Firmware:     2026-03-06 v2.0.1\r\n'
-        )
-        board._detect_firmware_version()
-        assert board.firmware_version == '2.0.1'
-        assert board.is_v2 is True
-
-    def test_detect_legacy_firmware(self):
-        """Legacy motor firmware has no version string."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'Etaluma Motor Controller Board EL-0923 Firmware:     2024-09-10\r\n'
-        )
-        board._detect_firmware_version()
-        assert board.firmware_version is None
-        assert board.is_v2 is False
-
-    def test_detect_v2_0_0(self):
-        """Should parse v2.0.0."""
-        board = self._make_board()
-        board.driver.readline.return_value = (
-            b'EL-0940 Integrated Mainboard Firmware:     2026-01-15 v2.0.0\r\n'
-        )
-        board._detect_firmware_version()
-        assert board.firmware_version == '2.0.0'
-        assert board.is_v2 is True
-
 
 class TestSimulatorFirmwareVersion:
     """Test that simulators expose firmware_version and is_v2."""
@@ -1195,845 +878,6 @@ class TestSimulatorFirmwareVersion:
         assert board.is_v2 is False
 
 
-# ---------------------------------------------------------------------------
-# C1: exchange_command None handling (led_on block, wait_until_on)
-# ---------------------------------------------------------------------------
-
-
-class TestLEDNoneHandling:
-    """Verify LED methods treat an unusable reply as a failed command.
-
-    Unusable means None (port closed, write timeout, silent-board reject) OR
-    the empty string, which is what a readline() timeout yields: a board whose
-    firmware is wedged accepts the write and never answers, and the LED is not
-    energized. Both must reach last_command_error.
-    """
-
-    def _make_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        board.firmware_version = None
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        return board
-
-    def test_led_on_block_with_none_then_success(self):
-        """led_on(block=True) should retry when exchange_command returns None."""
-        board = self._make_board()
-        # First call: echo + None-inducing timeout, second call: echo + valid response
-        call_count = [0]
-
-        def mock_readline():
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                # First exchange_command: echo then timeout (empty = None after strip)
-                if call_count[0] == 1:
-                    return b'RE: LED3_100\r\n'
-                return b'\r\n'  # empty result -> stripped to ''
-            elif call_count[0] == 3:
-                return b'RE: LED3_100\r\n'
-            else:
-                return b'LED 3 set to 100 mA. LED3_100\r\n'
-
-        board.driver.readline = mock_readline
-        # Should not crash -- first response is empty string (not None), second succeeds
-        board.led_on(channel=3, mA=100, block=True)
-        assert board.led_ma['BF'] == 100
-
-    def test_led_on_block_none_response_no_crash(self):
-        """led_on(block=True) must not crash when exchange_command returns None."""
-        board = self._make_board()
-        call_count = [0]
-
-        def mock_exchange(cmd):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return None  # simulate disconnect
-            return f'LED3_100 {cmd}'  # valid on retry
-
-        board.exchange_command = mock_exchange
-        board.led_on(channel=3, mA=100, block=True)
-        assert call_count[0] == 2
-
-    def test_wait_until_on_returns_immediately(self):
-        """wait_until_on returns immediately -- STATUS not implemented in firmware."""
-        board = self._make_board()
-        # Should return without sending any commands
-        board.wait_until_on()
-        board.driver.write.assert_not_called()
-
-    @pytest.mark.parametrize(
-        'op,call',
-        [
-            ('leds_enable', lambda b: b.leds_enable()),
-            ('leds_disable', lambda b: b.leds_disable()),
-            ('led_on', lambda b: b.led_on(channel=3, mA=5)),
-            ('led_off', lambda b: b.led_off(channel=3)),
-            ('leds_off', lambda b: b.leds_off()),
-        ],
-    )
-    def test_empty_reply_is_not_an_ack(self, op, call):
-        """A wedged board answers every command with an empty line, not silence.
-
-        readline() returns b'' on timeout, so exchange_command hands back ''
-        rather than None. Treating that as success cleared the error field and
-        left the API reporting a channel lit while the hardware was dark -- the
-        18-minute wedge in the SNlogs-2026-05-14-134147 bundle.
-        """
-        board = self._make_board()
-        board.driver.readline.return_value = b''
-        board.last_command_error = None
-
-        call(board)
-
-        assert board.last_command_error is not None, f'{op}: empty reply recorded as success'
-        assert board.last_command_error['op'].startswith(op)
-
-    def test_real_reply_still_acks(self):
-        """The ordinary path is untouched: a firmware reply confirms."""
-        board = self._make_board()
-        board.driver.readline.return_value = b'LED 3 set to 5 mA.\r\n'
-        board.last_command_error = {'op': 'stale', 'reason': 'stale'}
-
-        board.led_on(channel=3, mA=5)
-
-        assert board.last_command_error is None
-
-
-# ==========================================================================
-# Concurrency / State Lock Tests (C-1 through C-4)
-# ==========================================================================
-
-
-class TestLEDBoardStateLock:
-    """Verify LEDBoard _state_lock protects led_ma from concurrent access."""
-
-    def _make_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        return board
-
-    def test_led_on_uses_state_lock(self):
-        """led_on() should acquire _state_lock when updating led_ma (after serial succeeds)."""
-        board = self._make_board()
-        acquired = []
-        original_lock = board._state_lock
-
-        class TrackingLock:
-            def __enter__(self):
-                acquired.append('enter')
-                return original_lock.__enter__()
-
-            def __exit__(self, *args):
-                acquired.append('exit')
-                return original_lock.__exit__(*args)
-
-        board._state_lock = TrackingLock()
-        board.led_on(channel=0, mA=100)
-        assert 'enter' in acquired, '_state_lock was not acquired during led_on()'
-        assert board.led_ma['Blue'] == 100
-
-    def test_led_on_no_state_update_on_failure(self):
-        """led_on() should NOT update state cache if serial returns None."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
-        board.led_on(channel=0, mA=100)
-        assert board.led_ma['Blue'] == -1, 'State cache should not update on serial failure'
-
-    def test_led_off_uses_state_lock(self):
-        """led_off() should acquire _state_lock when updating led_ma (after serial succeeds)."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 200
-        acquired = []
-        original_lock = board._state_lock
-
-        class TrackingLock:
-            def __enter__(self):
-                acquired.append('enter')
-                return original_lock.__enter__()
-
-            def __exit__(self, *args):
-                return original_lock.__exit__(*args)
-
-        board._state_lock = TrackingLock()
-        board.led_off(channel=0)
-        assert 'enter' in acquired
-        assert board.led_ma['Blue'] == -1
-
-    def test_led_off_no_state_update_on_failure(self):
-        """led_off() should NOT update state cache if serial returns None."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 200
-        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
-        board.led_off(channel=0)
-        assert board.led_ma['Blue'] == 200, 'State cache should not update on serial failure'
-
-    # test_get_led_states_returns_consistent_snapshot retired in Wave 7
-    # Phase 3d.5 -- get_led_states is no longer on the driver protocol.
-
-    def test_concurrent_led_on_off(self):
-        """Concurrent led_on and led_off should not corrupt led_ma."""
-        board = self._make_board()
-        errors = []
-
-        def toggle_on():
-            try:
-                for _ in range(50):
-                    board.led_on(channel=0, mA=100)
-            except Exception as e:
-                errors.append(e)
-
-        def toggle_off():
-            try:
-                for _ in range(50):
-                    board.led_off(channel=0)
-            except Exception as e:
-                errors.append(e)
-
-        threads = [threading.Thread(target=toggle_on), threading.Thread(target=toggle_off)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=5)
-        assert not errors, f'Concurrent access raised errors: {errors}'
-        # Final state should be either 100 or -1, never anything else
-        assert board.led_ma['Blue'] in (100, -1)
-
-    def test_leds_off_clears_all(self):
-        """leds_off() should atomically clear all channels under _state_lock."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 100
-        board.led_ma['Red'] = 200
-        board.led_ma['Green'] = 300
-        board.leds_off()
-        for color, val in board.led_ma.items():
-            assert val == -1, f'{color} was not cleared by leds_off()'
-
-    def test_leds_off_fast_clears_all(self):
-        """leds_off_fast() should atomically clear all channels."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 100
-        board.led_ma['Red'] = 200
-        # Mock _write_command_fast
-        board._write_command_fast = MagicMock()
-        board.leds_off_fast()
-        for _color, val in board.led_ma.items():
-            assert val == -1
-
-    def test_led_on_fast_uses_state_lock(self):
-        """led_on_fast() should protect led_ma with _state_lock."""
-        board = self._make_board()
-        board._write_command_fast = MagicMock()
-        board.led_on_fast(channel=2, mA=500)
-        assert board.led_ma['Red'] == 500
-
-    def test_led_off_fast_uses_state_lock(self):
-        """led_off_fast() should protect led_ma with _state_lock."""
-        board = self._make_board()
-        board.led_ma['Red'] = 500
-        board._write_command_fast = MagicMock()
-        board.led_off_fast(channel=2)
-        assert board.led_ma['Red'] == -1
-
-    # test_get_led_ma_thread_safe + test_is_led_on_thread_safe retired
-    # in Wave 7 Phase 3d.5 -- get_led_ma / is_led_on are no longer on
-    # the driver protocol.
-
-
-class TestSerialDesyncRecovery:
-    """Verify that serial response desync is recovered via input buffer flush.
-
-    Scenario: if readline() times out (returns b""), the firmware's response
-    sits in the input buffer. Without the flush fix, the next exchange_command
-    reads the stale response, creating a permanent desync cascade.
-    """
-
-    def _make_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        return board
-
-    def test_stale_buffer_flushed_before_write(self):
-        """exchange_command should flush stale input bytes before writing."""
-        board = self._make_board()
-        # Simulate 20 stale bytes sitting in the input buffer initially,
-        # then 0 after the flush (PropertyMock cycles through values).
-        # The post-response drain also checks in_waiting, so we need
-        # 20 for the pre-flush, then 0 for the post-response drain.
-        type(board.driver).in_waiting = PropertyMock(side_effect=[20, 0])
-        board.driver.readline.return_value = b'OK\r\n'
-
-        response = board.exchange_command('STATUS')
-
-        # Verify stale data was read (flushed) before the command was written
-        board.driver.read.assert_called_once_with(20)
-        assert response == 'OK'
-
-    def test_no_flush_when_buffer_empty(self):
-        """exchange_command should not flush when input buffer is empty."""
-        board = self._make_board()
-        board.driver.in_waiting = 0
-        board.driver.readline.return_value = b'OK\r\n'
-
-        response = board.exchange_command('STATUS')
-
-        board.driver.read.assert_not_called()
-        assert response == 'OK'
-
-    def test_rapid_led_on_off_state_consistent(self):
-        """Rapid led_on/leds_off cycling (25x) should keep state consistent.
-
-        This reproduces the characterization test pattern that caused LED
-        dropout: 25 iterations of leds_off -> led_on -> leds_off.
-        """
-        board = self._make_board()
-        board.driver.in_waiting = 0
-
-        for i in range(25):
-            board.leds_off()
-            assert board.led_ma['BF'] == -1, f'Iteration {i}: BF should be off after leds_off'
-            board.led_on(channel=3, mA=20)
-            assert board.led_ma['BF'] == 20, f'Iteration {i}: BF should be 20 after led_on'
-            board.leds_off()
-            assert board.led_ma['BF'] == -1, f'Iteration {i}: BF should be off after final leds_off'
-
-    def test_rapid_led_cycling_with_timeouts(self):
-        """LED state stays correct even when some commands timeout.
-
-        Simulates intermittent serial timeouts during rapid cycling.
-        With the flush fix, stale responses are cleared before each command.
-        """
-        board = self._make_board()
-        call_count = [0]
-        original_readline = board.driver.readline  # noqa: F841 -- deferred
-
-        def flaky_readline():
-            call_count[0] += 1
-            # Every 7th readline returns empty (simulates timeout)
-            if call_count[0] % 7 == 0:
-                return b''
-            return b'OK\r\n'
-
-        board.driver.readline = flaky_readline
-        # After a timeout, stale bytes appear in buffer
-        stale_count = [0]  # noqa: F841 -- deferred
-
-        def dynamic_in_waiting():
-            # After a timeout, simulate stale data
-            if call_count[0] > 0 and call_count[0] % 7 == 1:
-                return 15  # stale bytes from missed response
-            return 0
-
-        type(board.driver).in_waiting = property(lambda self: dynamic_in_waiting())
-
-        # Run 25 cycles -- should not crash or desync
-        successes = 0
-        for _ in range(25):
-            board.leds_off()
-            board.led_on(channel=3, mA=20)
-            if board.led_ma['BF'] == 20:
-                successes += 1
-            board.leds_off()
-
-        # Most cycles should succeed (some may fail due to simulated timeouts)
-        # The key is: no crashes, no permanent desync cascade.
-        # The floor of 15 is calibrated to the fault injection above (every
-        # 7th readline fails -> ~3-4 expected failures of 25); it does NOT
-        # bless command failures in production, where they log errors and set
-        # last_command_error. The fault-free contract (correct state on every
-        # cycle) is asserted by test_rapid_led_on_off_state_consistent.
-        assert successes > 15, f'Only {successes}/25 cycles succeeded -- desync cascade?'
-
-
-class TestSilentBoardHandling:
-    """Regression tests for #619 Phase B -- silent board detection.
-
-    A "silent" board sends zero bytes during the entire connect
-    sequence. Distinguished from a legacy (pre-v3.0) board that
-    responds to INFO with unparseable text but still echoes bytes.
-    Silent boards are hung firmware or a stuck USB hub and cannot
-    recover via Ctrl-D -- they need a hardware power cycle.
-
-    The structural fix:
-    - _reset_firmware tracks bytes_ever_seen and skips the Ctrl-D
-      soft-reset recovery path when no bytes were captured
-    - _reset_firmware marks firmware_silent = True when all retries
-      produce zero bytes
-    - connect() surfaces firmware_silent via notifications.error
-      instead of silently degrading to "legacy, no version info"
-    - exchange_command() fails fast (returns None immediately)
-      when firmware_silent is True
-    """
-
-    @pytest.fixture(autouse=True)
-    def _skip_recovery_waits(self, monkeypatch):
-        """Skip the real firmware-boot wait (~5s in _reset_firmware step
-        4) plus the smaller per-step waits. The recovery sequence is
-        exercised end-to-end logically; the wall-clock waits exist to
-        give real hardware time to come back up after Ctrl-D and
-        contribute nothing to a mock-driver test."""
-        import drivers.serialboard
-
-        monkeypatch.setattr(
-            drivers.serialboard,
-            'time',
-            SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None),
-        )
-
-    def _make_silent_board(self):
-        """Build an LEDBoard whose serial driver returns zero bytes
-        for every read and reports in_waiting=0 forever. Simulates
-        the #619 hung-firmware scenario at the driver level."""
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = True
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake_silent'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.01  # Keep test fast; we don't care about real timing
-        board.write_timeout = 0.01
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        board.firmware_version = None
-        board.firmware_date = None
-        board.firmware_responding = False
-        board.firmware_silent = False
-        board._detect_response_bytes = 0
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        board._min_command_interval = 0.0
-        board._last_command_time = 0.0
-        board._in_raw_repl = False
-        from drivers.serialboard import ProtocolVersion
-
-        board.protocol_version = ProtocolVersion.LEGACY
-        # Silent driver: every read is empty, in_waiting is always 0,
-        # writes succeed (bytes go into the void)
-        board.driver = _make_mock_serial()
-        board.driver.readline.return_value = b''
-        board.driver.read.return_value = b''
-        board.driver.in_waiting = 0
-        return board
-
-    def _make_responsive_legacy_board(self):
-        """Build an LEDBoard that responds to INFO with unparseable
-        bytes (old LED firmware that has no version string). This is
-        the case the silent-board path must NOT trigger on -- it's a
-        genuinely legacy board, not a hung one."""
-        board = self._make_silent_board()
-        # readline returns SOMETHING (the legacy firmware's INFO reply)
-        # on the first few calls. Content doesn't need to be parseable,
-        # it just needs to be non-empty so _detect_response_bytes > 0.
-        import itertools
-
-        responses = itertools.cycle(
-            [
-                b'EL-0940 Mainboard\r\n',
-                b'No version\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-            ]
-        )
-        board.driver.readline.side_effect = lambda: next(responses)
-        return board
-
-    def test_silent_board_marks_firmware_silent_true(self):
-        """After _reset_firmware on a silent board, firmware_silent
-        must be True and firmware_responding must be False."""
-        board = self._make_silent_board()
-        board._reset_firmware()
-        assert board.firmware_silent is True
-        assert board.firmware_responding is False
-
-    def test_silent_board_still_attempts_ctrl_d_recovery(self):
-        """The soft-reset recovery path (step 4) must run even when
-        `bytes_ever_seen == 0`. Ctrl-D is the only way to wake up a
-        board that was just used by Thonny and left in raw REPL
-        state -- in that state, MicroPython doesn't echo or execute
-        anything until Ctrl-D arrives, so the board looks silent to
-        drain + INFO detect but is actually alive.
-
-        History: an earlier version of `_reset_firmware()` skipped
-        step 4 entirely when `bytes_ever_seen == 0`, assuming a
-        silent board wouldn't respond to Ctrl-D either. That skip
-        was correct for the in-house bench brick case (board
-        genuinely hung, Ctrl-D did nothing) but wrong for the
-        Thonny-left-in-raw-REPL case (board alive, Ctrl-D is the
-        wake-up signal). Verified in-session 2026-04-14 on a real
-        LS850T test board after a Thonny connect/disconnect cycle:
-        LVP with the skip in place falsely flagged both boards as
-        silent and LVP couldn't recover them.
-
-        **The guiding principle: robust startup trumps 5 seconds
-        of optimization.** Always run the recovery sequence
-        before declaring a board silent.
-
-        This test asserts Ctrl-B (b'\\x02', exit raw REPL) and
-        Ctrl-D (b'\\x04', soft reset) are both written during the
-        recovery path, even on a silent board. It replaces the
-        earlier `test_silent_board_skips_ctrl_d` which pinned the
-        now-reverted optimization.
-        """
-        board = self._make_silent_board()
-        board._reset_firmware()
-        all_writes = [call.args[0] for call in board.driver.write.call_args_list]
-        assert b'\x04' in all_writes, (
-            f"Ctrl-D (b'\\x04') MUST be sent during recovery even "
-            f'on a silent board, to handle Thonny-left-in-raw-REPL '
-            f'state. Writes were: {all_writes}'
-        )
-        assert b'\x02' in all_writes, (
-            f"Ctrl-B (b'\\x02', raw REPL exit) must also be sent as "
-            f'part of the recovery sequence. Writes were: {all_writes}'
-        )
-
-    def test_silent_board_exchange_command_fails_fast(self):
-        """After a silent _reset_firmware, exchange_command on any
-        non-INFO command must return None immediately without
-        touching the driver."""
-        board = self._make_silent_board()
-        board._reset_firmware()
-        assert board.firmware_silent is True
-
-        # Clear the write history so we only see calls after the reset.
-        board.driver.write.reset_mock()
-        board.driver.readline.reset_mock()
-
-        t0 = time.monotonic()
-        result = board.exchange_command('LEDS_OFF')
-        elapsed_ms = (time.monotonic() - t0) * 1000
-
-        assert result is None, 'Silent board must return None from exchange_command'
-        assert elapsed_ms < 100, (
-            f'Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms -- '
-            f'suggests the timeout path was hit'
-        )
-        board.driver.write.assert_not_called()
-
-    def test_silent_board_exchange_allows_info(self):
-        """INFO is exempted from fail-fast so a reconnect attempt can
-        re-probe the board (e.g. after the user power-cycles it).
-        Otherwise firmware_silent becomes sticky."""
-        board = self._make_silent_board()
-        board.firmware_silent = True  # simulate prior silent connect
-
-        # INFO should still reach the driver. We don't care about the
-        # response -- just that write was called.
-        board.driver.write.reset_mock()
-        board.exchange_command('INFO')
-        # At least one write happened (driver.write called with b'INFO\n')
-        assert board.driver.write.called, (
-            'INFO must be allowed through exchange_command even when '
-            'firmware_silent is True, so reconnect probes can clear the flag'
-        )
-
-    def test_responsive_legacy_board_does_not_trigger_silent(self):
-        """Pre-v3.0 LED boards respond to INFO with unparseable text
-        (no version string) but still echo bytes. They must take the
-        normal legacy path -- firmware_silent must stay False."""
-        board = self._make_responsive_legacy_board()
-        board._reset_firmware()
-        assert board.firmware_silent is False, (
-            "A board that sent ANY bytes is not silent -- it's legacy"
-        )
-
-    def test_silent_board_reset_clears_stale_silent_flag(self):
-        """After a power cycle, the user reconnects. _reset_firmware
-        must clear any stale silent flag at the start so a board
-        that now responds gets a fresh verdict."""
-        board = self._make_silent_board()
-        board.firmware_silent = True  # simulate carried-over stale flag
-        board._detect_response_bytes = 0
-
-        # Swap to a responsive driver mid-test (simulate power cycle)
-        import itertools
-
-        responses = itertools.cycle(
-            [
-                b'Firmware: 2026-03-18 v3.0.4\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-            ]
-        )
-        board.driver.readline.side_effect = lambda: next(responses)
-
-        board._reset_firmware()
-        assert board.firmware_silent is False, (
-            '_reset_firmware must clear stale firmware_silent at entry'
-        )
-
-    def test_silent_board_cannot_auto_reconnect_loop(self):
-        """Repeated exchange_command on a silent board must not loop
-        forever -- each call returns None fast without calling
-        self.connect()."""
-        board = self._make_silent_board()
-        board.firmware_silent = True
-        board.driver.write.reset_mock()
-
-        for _ in range(10):
-            result = board.exchange_command('LEDS_OFF')
-            assert result is None
-
-        board.driver.write.assert_not_called()
-
-
-class TestExchangeCommandStopOnEmpty:
-    """Regression for the motor INFO 2.5s wasted timeout.
-
-    _detect_firmware_version calls exchange_command('INFO',
-    response_numlines=6, timeout=0.5, stop_on_empty=True). The motor
-    firmware sends INFO as a single line but the reader was waiting
-    the full per-line timeout x 5 on all the empty subsequent lines,
-    wasting 2.5s on every healthy motor connect.
-
-    stop_on_empty=True breaks out of the readline loop once an empty
-    line arrives after non-empty content. Safe because neither motor
-    nor LED INFO contains intentional empty lines inside the content.
-    """
-
-    def _make_led_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = True
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.led_ma = {}
-        board._state_lock = threading.Lock()
-        board.firmware_version = None
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        board._min_command_interval = 0.0
-        board._last_command_time = 0.0
-        board.driver = _make_mock_serial()
-        return board
-
-    def test_stop_on_empty_breaks_after_first_empty(self):
-        """Motor INFO case: one content line then empty lines -- must
-        break on first empty line after content, not read all 6."""
-        board = self._make_led_board()
-        # Motor INFO reply style: one content line, then empty lines
-        # (which represent readline timeouts in the real driver).
-        board.driver.readline.side_effect = [
-            b'EL-0940-04 Integrated Mainboard Firmware: 2026-04-01 v3.0.9\r\n',
-            b'',  # empty -- should break the loop
-            b'SHOULD_NOT_READ\r\n',  # must not reach this line
-            b'ALSO_SHOULD_NOT_READ\r\n',
-            b'ALSO_SHOULD_NOT_READ\r\n',
-            b'ALSO_SHOULD_NOT_READ\r\n',
-        ]
-        resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert isinstance(resp, list)
-        assert len(resp) == 6  # padded to requested length
-        assert 'v3.0.9' in resp[0]
-        # The break must prevent subsequent reads from the side_effect
-        # list. We assert this by checking the padding (empty strings)
-        # rather than counting readline calls (which include the echo
-        # handling that may consume additional entries).
-        assert all(ln == '' for ln in resp[1:]), (
-            f'stop_on_empty should break on first empty; got {resp}'
-        )
-
-    def test_stop_on_empty_reads_full_multiline_led_info(self):
-        """LED INFO case: all 6 lines have content -- stop_on_empty
-        must NOT trigger because no empty line appears."""
-        board = self._make_led_board()
-        board.driver.readline.side_effect = [
-            b'Version:      EL-0940 Integrated Mainboard\r\n',
-            b'Firmware:     2026-04-01 v3.0.7\r\n',
-            b'Copyright:    Etaluma, Inc.\r\n',
-            b'Calibration:  Default\r\n',
-            b'Reset cause:  Power-on\r\n',
-            b'Heap free:    154512 bytes\r\n',
-        ]
-        resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert isinstance(resp, list)
-        assert len(resp) == 6
-        assert 'v3.0.7' in resp[1]
-        assert 'Heap free' in resp[5]
-        # All 6 lines present means the break was NOT taken -- safe.
-
-    def test_stop_on_empty_without_any_content_reads_all(self):
-        """Silent board case: every line is empty -- must read all 6
-        (the 'no content at all' signal is what Phase B's silent
-        detection relies on)."""
-        board = self._make_led_board()
-        board.driver.readline.side_effect = [b'', b'', b'', b'', b'', b'']
-        resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert board.driver.readline.call_count == 6
-        # No line at all is no reply, which silent detection reads as a
-        # silent board.
-        assert resp is None
-
-    def test_default_behavior_unchanged(self):
-        """Regression: stop_on_empty defaults to False. Existing
-        single-line command callers (STATUS, LED0_100, etc.) must
-        get exactly their requested number of lines."""
-        board = self._make_led_board()
-        board.driver.readline.side_effect = [
-            b'RE: LED0_100\r\n',
-            b'LED 0 set to 100 mA.\r\n',
-        ]
-        resp = board.exchange_command('LED0_100')
-        assert resp == 'LED 0 set to 100 mA.'
-
-
-class TestMotorBoardStateLock:
-    """Verify MotorBoard _state_lock protects state flags from concurrent access."""
-
-    def _make_board(self):
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board._fullinfo = {'model': 'LS820', 'serial_number': '12345', 'present_axes': []}
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board.axes_config = {
-            'Z': {'limits': {'min': 0.0, 'max': 20000.0}, 'move_func': board.z_um2ustep},
-            'X': {'limits': {'min': 0.0, 'max': 100000.0}, 'move_func': board.xy_um2ustep},
-            'Y': {'limits': {'min': 0.0, 'max': 100000.0}, 'move_func': board.xy_um2ustep},
-            'T': {'move_func': board.t_pos2ustep},
-        }
-        return board
-
-    def test_home_sets_homing_complete_under_lock(self):
-        """home() should set initial_homing_complete under _state_lock."""
-        board = self._make_board()
-        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
-        board.home()
-        assert board.has_homed() is True
-
-    def test_thome_sets_t_homing_complete_under_lock(self):
-        """thome() should set initial_t_homing_complete under _state_lock."""
-        board = self._make_board()
-        board.exchange_command = MagicMock(side_effect=_reply_for('T home successful'))
-        board.thome()
-        assert board.has_thomed() is True
-
-    def test_has_turret_reads_under_lock(self):
-        """has_turret() should read _has_turret under _state_lock."""
-        board = self._make_board()
-        assert board.has_turret() is False
-        with board._state_lock:
-            board._has_turret = True
-        assert board.has_turret() is True
-
-    def test_has_thomed_combines_both_flags(self):
-        """has_thomed() returns True if either homing flag is set."""
-        board = self._make_board()
-        assert board.has_thomed() is False
-        with board._state_lock:
-            board.initial_t_homing_complete = True
-        assert board.has_thomed() is True
-
-    def test_get_microscope_model_reads_under_lock(self):
-        """get_microscope_model() should read _fullinfo under _state_lock."""
-        board = self._make_board()
-        assert board.get_microscope_model() == 'LS820'
-
-    def test_fullinfo_sets_has_turret_for_T_model(self):
-        """fullinfo() should set _has_turret when model ends in T."""
-        board = self._make_board()
-        board.exchange_command = MagicMock(
-            return_value='Etaluma Motor Controller Board Model: LS820T Serial: 99999'
-        )
-        info = board.fullinfo()
-        assert info['model'] == 'LS820T'
-        assert board.has_turret() is True
-
-    def test_concurrent_homing_flag_access(self):
-        """Concurrent reads/writes of homing flags should not raise."""
-        board = self._make_board()
-        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
-        errors = []
-
-        def do_home():
-            try:
-                for _ in range(20):
-                    board.home()
-            except Exception as e:
-                errors.append(e)
-
-        def check_homed():
-            try:
-                for _ in range(20):
-                    board.has_homed()
-                    board.has_thomed()
-            except Exception as e:
-                errors.append(e)
-
-        threads = [threading.Thread(target=do_home), threading.Thread(target=check_homed)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=5)
-        assert not errors, f'Concurrent homing access raised: {errors}'
-
-
 class TestCameraStateLock:
     """Verify Camera _state_lock protects active/device_removed flags."""
 
@@ -2055,7 +899,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 self.active = None
                 return True
 
@@ -2065,10 +909,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):
@@ -2120,7 +964,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass
@@ -2166,7 +1010,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 self.active = None
                 return True
 
@@ -2176,10 +1020,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):
@@ -2231,7 +1075,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass
@@ -2257,14 +1101,12 @@ class TestCameraStateLock:
         cam = StubCamera()
         assert cam.active is True
 
-        # Normal grab without image handler should return False (no handler)
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        # Normal grab without image handler answers no frame (no handler)
+        assert cam.grab() is None
 
-        # After disconnect, grab should return False immediately
+        # After disconnect, grab answers no frame immediately
         cam._mark_disconnected()
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        assert cam.grab() is None
 
     def test_concurrent_mark_disconnected(self):
         """Multiple threads calling _mark_disconnected should not raise."""
@@ -2275,7 +1117,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 return True
 
             def is_connected(self):
@@ -2284,10 +1126,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):
@@ -2339,7 +1181,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass

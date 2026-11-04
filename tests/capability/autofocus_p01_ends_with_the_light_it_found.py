@@ -11,8 +11,8 @@ illumination API.
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py             # a simulated LS850T
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py --hardware  # the connected scope
 
-On hardware the stage homes at bring-up and Z sweeps twice; the layer's LED
-is lit throughout.
+On hardware the stage homes at bring-up, Z moves to the middle of its
+travel, and Z sweeps twice; the layer's LED is lit throughout.
 """
 
 import sys
@@ -20,6 +20,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
 RUN_TIMEOUT_S = 180.0
@@ -27,12 +28,12 @@ RUN_TIMEOUT_S = 180.0
 
 def _autofocus(session, runner, current_ma, *, stop):
     illumination = session.scope.illumination
-    illumination.led_on(LAYER, current_ma, block=True)
-    before = illumination.get_led_state(LAYER)
+    illumination.led_on(LAYER, current_ma)
+    before = channel_reading(illumination, LAYER)
     leg = 'stopped' if stop else 'finished'
     figure(f'{leg}: {LAYER} before', before)
 
-    handle = runner.run_autofocus(layer=LAYER)
+    handle = runner.start_autofocus(channel=LAYER)
     if stop:
         # Stopped inside the sweep, not during the run's setup or its move to
         # the step: half a second after the autofocus machinery says it is
@@ -41,18 +42,18 @@ def _autofocus(session, runner, current_ma, *, stop):
         imaging = session.scope.imaging
         motion = session.scope.motion
         deadline = time.monotonic() + RUN_TIMEOUT_S
-        while handle.is_live and not imaging.is_focusing and time.monotonic() < deadline:
+        while handle.progress().is_live and not imaging.is_focusing and time.monotonic() < deadline:
             time.sleep(0.01)
         time.sleep(0.5)
         check(f'{leg}: the autofocus was sweeping when stopped', imaging.is_focusing)
         figure(f'{leg}: Z position at stop um', motion.get_current_position('Z'))
-        if check(f'{leg}: the run was live when stopped', handle.is_live):
+        if check(f'{leg}: the run was live when stopped', handle.progress().is_live):
             handle.stop()
-    outcome = handle.wait(timeout_s=RUN_TIMEOUT_S)
+    outcome = handle.result(timeout=RUN_TIMEOUT_S)
     figure(f'{leg}: outcome', None if outcome is None else (outcome.status, outcome.reason))
     check(f'{leg}: the run ended', outcome is not None)
 
-    after = illumination.get_led_state(LAYER)
+    after = channel_reading(illumination, LAYER)
     figure(f'{leg}: {LAYER} after', after)
     check(f'{leg}: {LAYER} is lit at its pre-run current', after == before, f'{before} -> {after}')
 
@@ -80,13 +81,21 @@ def main():
             # Bench-paced Z, so the stopped leg's stop lands inside the sweep.
             session.scope._motion_driver.set_timing_mode('realistic')
             try:
-                yield session, session.create_protocol_runner()
+                yield session, session.protocol_runner()
             finally:
                 session.shutdown()
 
         session_cm = _sim()
 
     with session_cm as (session, runner):
+        # Bring-up leaves Z at its home, the bottom of travel, where every
+        # autofocus window reaches past the floor and the run is refused
+        # before it sweeps. The middle of travel has room for any
+        # objective's window.
+        motion = session.scope.motion
+        z_limits = motion.get_axis_limits('Z')
+        motion.move_z((z_limits.min_um + z_limits.max_um) / 2)
+        figure('Z start um', motion.get_current_position('Z'))
         current_ma = float(session.settings[LAYER]['illumination_ma'])
         figure(f'{LAYER} saved current mA', current_ma)
         try:

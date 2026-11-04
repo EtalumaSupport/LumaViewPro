@@ -10,8 +10,7 @@ Timing modes:
   'realistic' -- serial delays and speed-limited movement matching real hardware
 
 Failure injection (for testing error recovery):
-  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
-  fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
+  fail_on={'ZHOME'} -- no reply to specific commands (simulates timeout)
   unplug() / replug()            -- the cable pulled and put back
   drop_replies(command, count)   -- no reply to a command, by its first word
 """
@@ -21,9 +20,16 @@ import logging
 import threading
 import time
 from typing import ClassVar
-from collections.abc import Iterable, Mapping
-from lvp_logger import logger
-from drivers.exceptions import HardwareError
+from collections.abc import Callable, Iterable, Mapping
+from lib.log_helpers import logger
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    PartAbsentError,
+)
+from drivers import host_clock
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
@@ -69,6 +75,8 @@ class TravelHold:
 
 @motor_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedMotorBoard:
+    # Whether the diagnostic door may send it text commands.
+    takes_text_commands: ClassVar[bool] = True
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
     AXIS_SPEEDS: ClassVar[dict] = {
         'X': 20157 * 50,  # ~50 mm/s
@@ -90,33 +98,36 @@ class SimulatedMotorBoard:
         'move_delay': 0.0,
         'simulate_move_duration': False,  # Truly instant -- for unit tests only
         'fast_move_duration': 0.0,
+        'fan_spin_up_s': 0.0,
+        'fan_spin_down_s': 0.0,
     }
     TIMING_FAST: ClassVar[dict] = {
         'cmd_delay': 0.001,  # 1ms minimum -- nothing returns instantly
         'move_delay': 0.0,
         'simulate_move_duration': True,  # Simulates brief move duration
         'fast_move_duration': 0.003,  # 3ms per move in fast mode
+        'fan_spin_up_s': 0.003,
+        'fan_spin_down_s': 0.003,
     }
     TIMING_REALISTIC: ClassVar[dict] = {
         'cmd_delay': 0.003,  # ~3ms serial round-trip
         'move_delay': 0.0,  # homing uses HOMING_DURATIONS instead
         'simulate_move_duration': True,
         'fast_move_duration': 0.0,  # Use ramp-calculated duration
+        'fan_spin_up_s': 2.0,  # the real board's fan, as MotorBoard states it
+        'fan_spin_down_s': 3.0,
     }
 
     def __init__(
         self,
         model: str = 'LS850',
         serial_number: str = 'SIM-001',
-        move_delay: float = 0.0,
-        cmd_delay: float = 0.0,
         timing: str = 'fast',
         firmware_version: str | None = '2.0.1',
         firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         *,
         motorconfig_defaults: Mapping,
-        fail_after: int | None = None,
         fail_on: set | None = None,
         axes: Iterable[str] | None = None,
         **kwargs,
@@ -133,14 +144,12 @@ class SimulatedMotorBoard:
         self._axes = frozenset(axes)
 
         # Failure injection
-        self._fail_after = fail_after  # disconnect after N commands
         # Commands answered with nothing, by first word, until lifted; None
         # in the set is every command.
         self._fail_on = fail_on or set()
         # Commands answered with nothing a number of times, by first word
         # (None: any command), each count spent by the commands it drops.
         self._counted_drops: dict[str | None, int] = {}
-        self._cmd_count = 0
         # Whether the cable is in. Unplugged, every command goes unanswered
         # and the board is not connected until it is plugged back in.
         self._plugged = True
@@ -156,9 +165,6 @@ class SimulatedMotorBoard:
         self.thread_lock = threading.RLock()
         self.driver = True  # truthy sentinel
         self._fullinfo = {'model': model, 'serial_number': serial_number}
-        self._connect_fails = 0
-        self._cmd_delay = cmd_delay
-        self._move_delay = move_delay
         self._simulate_move_duration = False
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         # The date INFO carries; None as the original firmware's version is.
@@ -167,7 +173,7 @@ class SimulatedMotorBoard:
         self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
-        # Apply timing preset (overrides cmd_delay/move_delay if preset given)
+        # The timing preset is the one setter of the command and move delays.
         self.set_timing_mode(timing)
 
         # Internal position state (in usteps)
@@ -230,7 +236,37 @@ class SimulatedMotorBoard:
         self._move_delay = preset['move_delay']
         self._simulate_move_duration = preset['simulate_move_duration']
         self._fast_move_duration = preset.get('fast_move_duration', 0.0)
+        self._fan_spin_up_s = preset['fan_spin_up_s']
+        self._fan_spin_down_s = preset['fan_spin_down_s']
         self._timing_mode = mode
+
+    @property
+    def fan_spin_up_s(self) -> float:
+        """How long the fan takes to reach speed from a stop, on this timing."""
+        return self._fan_spin_up_s
+
+    @property
+    def fan_spin_down_s(self) -> float:
+        """How long the fan takes to stop from speed, on this timing."""
+        return self._fan_spin_down_s
+
+    def report_model(self, model: str | None) -> Callable[[], None]:
+        """The board names ``model`` as its own -- None for no model -- whatever it is.
+
+        Its axes stay the ones it was built with: a board's firmware can
+        name a model its motors are not, and that answer is what the fault
+        shows.
+
+        Returns:
+            What takes the answer back.
+        """
+        built = self._fullinfo['model']
+        self._fullinfo['model'] = model
+
+        def undo() -> None:
+            self._fullinfo['model'] = built
+
+        return undo
 
     def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
         """Hold ``axis``'s next move part of the way along; see ``TravelHold``.
@@ -305,7 +341,6 @@ class SimulatedMotorBoard:
             if not self._plugged:
                 return
             self.driver = True
-            self._connect_fails = 0
             logger.info('[XYZ Sim   ] SimulatedMotorBoard.connect()')
 
     def disconnect(self) -> None:
@@ -344,10 +379,7 @@ class SimulatedMotorBoard:
             HardwareError: the board did not answer the STOP, as the
                 production MotorBoard raises.
         """
-        if self.exchange_command('STOP') is None:
-            raise HardwareError(
-                'STOP: no reply from the motor board; the stage may still be moving'
-            )
+        self.exchange_command('STOP')
         return True
 
     def interlocks(self) -> frozenset[str]:
@@ -446,10 +478,10 @@ class SimulatedMotorBoard:
 
     def exchange_command(
         self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> str | list[str] | None:
+    ) -> str | list[str]:
         """Exchange a single command with the simulated firmware.
 
-        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        Honors failure injection (``unplug``, ``drop_replies``) so callers
         can exercise disconnect / timeout paths without real hardware.
 
         Args:
@@ -459,37 +491,23 @@ class SimulatedMotorBoard:
             timeout: Accepted for API parity; ignored by the simulator.
 
         Returns:
-            Response string (or single-element list, or None on injected
-            failure).
+            Response string (or single-element list).
+
+        Raises:
+            BoardNoReplyError: an injected drop, as the driver raises a
+                missed reply.
+            BoardPortFailedError: the port is closed, or the cable was
+                pulled, which closes it.
         """
         with self.thread_lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if not self._plugged:
                 # The write finds the port dead, and the driver closes it.
                 self.driver = None
                 self.found = False
-                return None
+                raise BoardPortFailedError(f'{command}: the port failed: the cable is unplugged')
             if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return None
-            if self.driver is None:
-                return None
-
-            # Failure injection: disconnect after N commands
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[XYZ Sim] {command} -> INJECTED DISCONNECT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
-                return None
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # Failure injection: fail on specific commands
             cmd_word = command.strip().split()[0] if command else ''
@@ -497,13 +515,13 @@ class SimulatedMotorBoard:
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[XYZ Sim] {command} -> INJECTED TIMEOUT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                    f'({(host_clock.steady_ns() - t_start) / 1e6:.1f}ms)'
                 )
-                return None
+                raise BoardNoReplyError(f'{command}: no reply from the board')
 
             self._sim_delay(command)
             response = self._handle_command(command)
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[XYZ Sim   ] exchange_command({command}) -> {response}')
             resp_repr = repr(response)
             if len(resp_repr) > 200:
@@ -519,7 +537,7 @@ class SimulatedMotorBoard:
         timeout: float = 60,
         end_markers: list[str] | None = None,
         line_end: bytes = b'\n',
-    ) -> str | None:
+    ) -> str:
         """Simulated multi-line response.
 
         Args:
@@ -611,21 +629,17 @@ class SimulatedMotorBoard:
                 self._move_end_time[axis] = 0.0
             return str(value)
 
-        # TARGET_R<axis>
-        if cmd.startswith('TARGET_R'):
-            axis = cmd[8]
-            return str(self._target.get(axis, 0))
-
-        # ACTUAL_R<axis>
-        if cmd.startswith('ACTUAL_R'):
-            axis = cmd[8]
+        # TARGET_R<axis>, ACTUAL_R<axis>, STATUS_R<axis>. The firmware
+        # answers a register read naming no axis it has as it does here.
+        if cmd.startswith(('TARGET_R', 'ACTUAL_R', 'STATUS_R')):
+            axis = cmd[8:]
+            if axis not in self._target:
+                return f'{cmd} : Invalid parameter'
+            if cmd.startswith('TARGET_R'):
+                return str(self._target[axis])
             self._update_actual(axis)
-            return str(self._actual.get(axis, 0))
-
-        # STATUS_R<axis>
-        if cmd.startswith('STATUS_R'):
-            axis = cmd[8]
-            self._update_actual(axis)
+            if cmd.startswith('ACTUAL_R'):
+                return str(self._actual[axis])
             return str(self._make_status(axis))
 
         # SPI<axis>0x<addr><payload>
@@ -766,7 +780,12 @@ class SimulatedMotorBoard:
             return t_accel + t_cruise + t_decel
 
     def _do_home(self, *axes):
-        if self._simulate_move_duration:
+        # A home takes its timing's time as a move does: the fast timing's
+        # brief move, the realistic timing's homing durations. Both set
+        # _simulate_move_duration; _fast_move_duration tells them apart.
+        if self._simulate_move_duration and self._fast_move_duration > 0:
+            time.sleep(self._fast_move_duration)
+        elif self._simulate_move_duration:
             key = ''.join(sorted(axes))
             duration = self.HOMING_DURATIONS.get(key, self.HOMING_DURATIONS.get('XYZ', 3.0))
             time.sleep(duration)
@@ -815,11 +834,12 @@ class SimulatedMotorBoard:
         serial_number = info_parts[info_parts.index('Serial:') + 1]
         return {'model': model, 'serial_number': serial_number}
 
-    def get_microscope_model(self) -> str:
+    def get_microscope_model(self) -> str | None:
         """Return the configured microscope model string.
 
         Returns:
-            str: Model identifier (e.g. ``'LS850'``).
+            str | None: Model identifier (e.g. ``'LS850'``); None while the
+                board reports no model (``report_model``).
         """
         return self._fullinfo['model']
 
@@ -939,11 +959,9 @@ class SimulatedMotorBoard:
         """
         resp = self.exchange_command('ZHOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.zhome() -> {resp}')
-        if resp is None:
-            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
         if 'successful' in resp.lower() or 'complete' in resp.lower():
             return
-        raise HardwareError(f'zhome(): firmware error: {resp}')
+        raise BoardReportedError(f'zhome(): firmware error: {resp}')
 
     def home(self) -> None:
         """Simulated full home. Mirrors `MotorBoard.home` contract.
@@ -953,8 +971,6 @@ class SimulatedMotorBoard:
         """
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
-        if resp is None:
-            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
             return
@@ -962,7 +978,7 @@ class SimulatedMotorBoard:
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
             return
-        raise HardwareError(f'home(): firmware error: {resp}')
+        raise BoardReportedError(f'home(): firmware error: {resp}')
 
     def has_homed(self) -> bool:
         """Whether the simulated board has completed its initial XYZ home.
@@ -980,14 +996,12 @@ class SimulatedMotorBoard:
         """
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.thome() -> {resp}')
-        if resp is None:
-            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self.initial_t_homing_complete = True
             return
         if 'not present' in resp.lower():
             return
-        raise HardwareError(f'thome(): firmware error: {resp}')
+        raise BoardReportedError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         """Whether the simulated board has a turret installed.
@@ -1028,11 +1042,7 @@ class SimulatedMotorBoard:
         """
         if steps < 0:
             steps += 0x100000000
-        if self.exchange_command(f'TARGET_W{axis}{steps}') is None:
-            raise HardwareError(
-                f'move({axis}, {steps}): no response to the target write '
-                f'(timeout or disconnect); the move did not happen'
-            )
+        self.exchange_command(f'TARGET_W{axis}{steps}')
 
     def target_pos(self, axis: str) -> float | int:
         """Get the target position of an axis in user units.
@@ -1047,7 +1057,7 @@ class SimulatedMotorBoard:
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the target.
         """
-        return self._user_units(axis, self._read_register('TARGET_R', axis))
+        return self.steps_to_position(axis, self._read_register('TARGET_R', axis))
 
     def current_pos(self, axis: str) -> float | int:
         """Get the current position of an axis in user units.
@@ -1062,7 +1072,7 @@ class SimulatedMotorBoard:
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the position.
         """
-        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
+        return self.steps_to_position(axis, self._read_register('ACTUAL_R', axis))
 
     def backlash_um(self) -> float:
         """Z antibacklash, um: how far below its target a downward Z move
@@ -1088,7 +1098,7 @@ class SimulatedMotorBoard:
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ------------------------------------------------------------------
@@ -1122,12 +1132,7 @@ class SimulatedMotorBoard:
             HardwareError: No response from the motor board, as the board's
                 driver raises it.
         """
-        response = self.exchange_command(f'STATUS_R{axis}')
-        if response is None:
-            raise HardwareError(
-                f'STATUS_R{axis}: no response from motor board (timeout or disconnect)'
-            )
-        return int(response)
+        return int(self.exchange_command(f'STATUS_R{axis}'))
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Read the left + right limit switch state for an axis.
@@ -1137,40 +1142,46 @@ class SimulatedMotorBoard:
 
         Returns:
             tuple[int, int]: ``(left, right)`` where each value is 1
-                (engaged), 0 (clear), or -1 on read failure.
+                (engaged) or 0 (clear).
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            resp = self.reference_status(axis)
-            left = 1 if (resp & (1 << 0)) else 0
-            right = 1 if (resp & (1 << 1)) else 0
-        except Exception:
-            left, right = -1, -1
+        resp = self.reference_status(axis)
+        left = 1 if (resp & (1 << 0)) else 0
+        right = 1 if (resp & (1 << 1)) else 0
         return left, right
 
     # ------------------------------------------------------------------
     # Acceleration (stubs)
     # ------------------------------------------------------------------
     def acceleration_limit(self, axis: str, parameter: str) -> int:
-        """Stub: return the simulated firmware's fixed AMAX/DMAX value.
+        """The simulated firmware's AMAX/DMAX value, asked on the simulated wire.
 
         Args:
             axis: Axis letter ('X' or 'Y').
             parameter: ``'acceleration'`` or ``'deceleration'``.
 
         Returns:
-            int: Always 30000 (matches simulated AMAX/DMAX response).
+            int: 30000, the simulated firmware's answer.
+
+        Raises:
+            BoardNoReplyError: an injected drop (``drop_replies``), as the
+                driver raises a missed reply.
         """
-        return 30000
+        command = f'{"A" if parameter == "acceleration" else "D"}MAX{axis}'
+        return int(self.exchange_command(command))
 
     def acceleration_limits(self) -> dict:
-        """Stub: return acceleration + deceleration limits for X / Y.
+        """Acceleration + deceleration limits for X / Y, each asked on the wire.
 
         Returns:
             dict: ``{axis: {parameter: 30000}}`` for X and Y.
         """
         return {
-            'X': {'acceleration': 30000, 'deceleration': 30000},
-            'Y': {'acceleration': 30000, 'deceleration': 30000},
+            axis: {p: self.acceleration_limit(axis, p) for p in ('acceleration', 'deceleration')}
+            for axis in ('X', 'Y')
         }
 
     def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
@@ -1184,11 +1195,15 @@ class SimulatedMotorBoard:
         logger.info(f'[XYZ Sim   ] set_acceleration_limit({axis}, {parameter}, {val_pct}%)')
 
     def set_acceleration_limits(self, val_pct: int) -> None:
-        """Stub: log the requested global acceleration limit.
+        """Read each limit, as the driver does before writing it, and log the request.
 
         Args:
             val_pct: Percentage of the maximum (1-100, inclusive).
+
+        Raises:
+            BoardNoReplyError: an injected drop of a limit's read.
         """
+        self.acceleration_limits()
         logger.info(f'[XYZ Sim   ] set_acceleration_limits({val_pct}%)')
 
     # ------------------------------------------------------------------
@@ -1307,7 +1322,7 @@ class SimulatedMotorBoard:
                 real board's driver raises.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']
@@ -1387,12 +1402,12 @@ class SimulatedMotorBoard:
         response = self.exchange_command(register + axis)
         try:
             return int(response)
-        except (TypeError, ValueError) as e:
-            raise HardwareError(
+        except ValueError as e:
+            raise BoardReplyUnreadableError(
                 f'{register}{axis}: the board did not report a position (reply {response!r})'
             ) from e
 
-    def _user_units(self, axis: str, steps: int) -> float | int:
+    def steps_to_position(self, axis: str, steps: int) -> float | int:
         """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
         if axis == 'Z':
             return self.z_ustep2um(steps)
@@ -1492,17 +1507,6 @@ class SimulatedMotorBoard:
             bool: Always True.
         """
         return True
-
-    def read_status(self, axis: str) -> int:
-        """Simulated STATUS register -- bit 9 (position_reached) set.
-
-        Args:
-            axis: Axis letter (accepted but unused).
-
-        Returns:
-            int: Always ``0x200``.
-        """
-        return 0x200  # bit 9 = position_reached
 
     def detect_firmware_version(self) -> None:
         """No-op for simulator -- version is set at construction."""

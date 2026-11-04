@@ -32,7 +32,7 @@ UI = REPO_ROOT / 'ui'
 
 def _method(module, class_name, method_name):
     """The AST of one method, read from the module's own source file."""
-    tree = ast.parse(Path(inspect.getsourcefile(module)).read_text())
+    tree = ast.parse(Path(inspect.getsourcefile(module)).read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for item in node.body:

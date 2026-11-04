@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""#491 regression: more TIFF metadata -- ImageJ Document extension +
-OME Plate + Instrument blocks.
+"""#491: a saved file names its instrument and plate -- the ImageJ
+Instrument and Plate blocks, and the OME schema's Instrument.
 
 Bug
 ---
@@ -12,11 +12,13 @@ WellSite; the OME path had no Plate or Instrument blocks at all.
 Fix
 ---
 Per the Option-A scope agreed with Eric:
-- ImageJ Document block gets Model, SerialNumber,
-  CameraModel, PlateName, PlateRows, PlateColumns.
-- OME tiff_metadata gets a top-level Instrument dict (Microscope +
-  Objective + Detector sub-blocks) and a top-level Plate dict
-  (Name + Rows + Columns + WellLabel).
+- An ImageJ file names its scope in an Instrument block and its plate and
+  well in a Plate block, each once; the Document block that repeated them
+  is gone.
+- An OME file carries the schema's Instrument (Microscope, Detector,
+  Objective), spliced into the description tifffile writes, which drops
+  it; its plate and well ride in LVP's annotation, since a schema Plate
+  in each file would import into OMERO as a plate per file.
 
 Not shipped in this commit (documented as gap): OME LightSource
 (LED wavelength + power; not tracked per-color), OME Detector gain/
@@ -25,38 +27,32 @@ not tracked).
 
 Test approach
 -------------
-Direct functional test on generate_tiff_data: pass a representative
-metadata dict (with 'instrument' + 'plate' sub-dicts) and assert the
-output tiff_metadata contains Instrument.Microscope.{Manufacturer,
-Model, SerialNumber}, Instrument.Objective.{Magnification, LensNA},
-Plate.{Name, Rows, Columns}, and -- for the ImageJ path -- the
-extended Document block with Model + SerialNumber + CameraModel +
-PlateName.
+The OME tests write the file and read its description, checked against
+the schema; the ImageJ tests read generate_tiff_data's structured block,
+which tifffile serializes as given.
 """
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 
 from modules import image_utils
+from modules.layer_record import release_color
+from tests.ome_schema import OME, q, valid_description
 
 
 def _build_metadata():
     return {
-        'camera_make': 'Etaluma',
-        'microscope': 'LS850',
-        'microscope_model': 'LS850',
         'channel': 'BF',
         'significant_bits': 8,
-        'datetime': '2026:05:26 23:00:00',
+        'datetime': datetime.datetime(2026, 5, 26, 23, 0, 0),
         'objective': {
-            'model': '4x Plan Apochromat',
-            'manufacturer': 'Olympus',
+            'id': '4x Oly',
             'magnification': 4,
-            'aperture': 0.16,
-            'working_distance': 13.0,
-            'immersion': 'Air',
-            'focal_length': 45.0,
+            'numerical_aperture': 0.16,
+            'working_distance_mm': 13.0,
+            'focal_length_mm': 45.0,
         },
         'plate_pos_mm': {'x': 12.5, 'y': 30.0},
         'z_pos_um': 1500.0,
@@ -64,7 +60,6 @@ def _build_metadata():
         'gain_db': 1.0,
         'illumination_ma': 50.0,
         'pixel_size_um': 2.5,
-        'well_label': 'A1',
         'well_site': 0,
         'instrument': {
             'manufacturer': 'Etaluma',
@@ -77,100 +72,167 @@ def _build_metadata():
             'rows': 8,
             'columns': 12,
             'standard': 'ANSI SLAS 2004',
+            'well_label': 'A1',
         },
     }
 
 
-def _gen(image_type: str, dtype=np.uint8):
-    data = np.zeros((128, 128), dtype=dtype)
-    return image_utils.generate_tiff_data(
+def _ome_still(tmp_path, md: dict, name: str = 'still.ome.tiff'):
+    """The schema-valid description of an OME still written from ``md``."""
+    path = tmp_path / name
+    image_utils.write_tiff(
+        data=np.zeros((16, 16), dtype=np.uint16),
+        file_loc=path,
+        metadata=md,
+        ome=True,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+    return valid_description(path)
+
+
+def _attributes(root, path: str) -> dict | None:
+    element = root.find(path)
+    return None if element is None else dict(element.attrib)
+
+
+def test_an_ome_still_states_its_instrument_in_the_schema(tmp_path):
+    """An OME still names its microscope, camera and objective in the schema's
+    Instrument, referenced from its Image, so Bio-Formats and OMERO show them;
+    it writes no schema Plate (each file is its own fileset, and OMERO would
+    import a plate per file), and the file is valid OME."""
+    root = _ome_still(tmp_path, _build_metadata())
+
+    instrument = q('Instrument')
+    assert _attributes(root, f'{instrument}/{q("Microscope")}') == {
+        'Manufacturer': 'Etaluma',
+        'Model': 'LS850',
+        'SerialNumber': 'EL0940-05',
+    }
+    assert _attributes(root, f'{instrument}/{q("Detector")}') == {
+        'ID': 'Detector:0:0',
+        'Model': 'Basler a2A3536-31umBAS',
+    }
+    assert _attributes(root, f'{instrument}/{q("Objective")}') == {
+        'ID': 'Objective:0:0',
+        'NominalMagnification': '4',
+        'LensNA': '0.16',
+        'WorkingDistance': '13.0',
+        'WorkingDistanceUnit': 'mm',
+    }
+    image = root.find(q('Image'))
+    assert _attributes(image, q('InstrumentRef')) == {'ID': 'Instrument:0'}
+    assert _attributes(image, q('ObjectiveSettings')) == {'ID': 'Objective:0:0'}
+    assert root.find(q('Plate')) is None
+
+
+def test_an_ome_still_states_only_the_parts_its_record_gives(tmp_path):
+    """Each part of the Instrument appears only when it states something, and
+    each reference only with what it names: a scope with no serial gives a
+    Microscope with none; a frame with no objective gives no Objective and
+    no ObjectiveSettings; a record with neither instrument nor objective
+    gives no Instrument at all. Each file is valid OME."""
+    no_serial = _build_metadata()
+    no_serial['instrument'] = {
+        key: value for key, value in no_serial['instrument'].items() if key != 'serial_number'
+    }
+    root = _ome_still(tmp_path, no_serial, 'no_serial.ome.tiff')
+    assert _attributes(root, f'{q("Instrument")}/{q("Microscope")}') == {
+        'Manufacturer': 'Etaluma',
+        'Model': 'LS850',
+    }
+    assert root.find(f'{q("Image")}/{q("InstrumentRef")}') is not None
+
+    no_objective = _build_metadata()
+    del no_objective['objective']
+    root = _ome_still(tmp_path, no_objective, 'no_objective.ome.tiff')
+    assert [part.tag for part in root.find(q('Instrument'))] == [q('Microscope'), q('Detector')]
+    assert root.find(f'{q("Image")}/{q("ObjectiveSettings")}') is None
+
+    objective_only = _build_metadata()
+    del objective_only['instrument']
+    root = _ome_still(tmp_path, objective_only, 'objective_only.ome.tiff')
+    assert [part.tag for part in root.find(q('Instrument'))] == [q('Objective')]
+
+    neither = _build_metadata()
+    del neither['instrument'], neither['objective']
+    root = _ome_still(tmp_path, neither, 'neither.ome.tiff')
+    assert root.find(q('Instrument')) is None
+    assert root.find(f'{q("Image")}/{q("InstrumentRef")}') is None
+
+
+def _unreported(md: dict) -> dict:
+    """``md`` from a scope that reported no serial, and a frame in no well:
+    the record states neither (``image_save`` omits an empty value)."""
+    del md['instrument']['serial_number']
+    del md['plate']['well_label']
+    return md
+
+
+def test_no_writer_states_an_instrument_fact_the_scope_did_not_report(tmp_path):
+    """A fact the catalogue or the instrument did not give is absent from the
+    file: no ``Air`` immersion, ``CMOS`` detector, empty model, manufacturer,
+    serial or well label, in a still's OME or ImageJ container or a
+    hyperstack built from it."""
+    data = np.zeros((128, 128), dtype=np.uint16)
+    imagej = image_utils.generate_tiff_data(
         data=data,
-        metadata=_build_metadata(),
-        image_type=image_type,
-        color='BF',
+        metadata=_unreported(_build_metadata()),
+        image_type='imagej',
+        color=release_color('BF'),
+        white_bits=None,
+    )['metadata']
+    still = tmp_path / 'still.ome.tiff'
+    image_utils.write_tiff(
+        data=data,
+        file_loc=still,
+        metadata=_unreported(_build_metadata()),
+        ome=True,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+    hyperstack = tmp_path / 'stack.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        iter([data]),
+        hyperstack,
+        (1, 1, 1, *data.shape),
+        data.dtype,
+        image_utils.build_hyperstack_output_metadata(
+            [image_utils.read_file_record(still)],
+            channel_names=['BF'],
+            channel_colors=[release_color('BF')],
+            plane_positions={
+                'PositionX': [12.5],
+                'PositionY': [30.0],
+                'PositionZ': [1500.0],
+                'DeltaT': [0.0],
+            },
+            significant_bits=12,
+            pixel_size_um=None,
+        ),
+        {'photometric': 'minisblack'},
     )
 
+    def _ome_parts(path) -> dict:
+        instrument = valid_description(path).find(q('Instrument'))
+        return {
+            part.tag.removeprefix(f'{{{OME}}}').lower(): sorted(set(part.attrib) - {'ID'})
+            for part in instrument
+        }
 
-def test_ome_path_has_instrument_microscope_block():
-    result = _gen(image_type='ome', dtype=np.uint8)
-    tm = result['metadata']
-    assert 'Instrument' in tm, 'OME tiff_metadata must contain Instrument block (#491)'
-    micro = tm['Instrument']['Microscope']
-    assert micro['Manufacturer'] == 'Etaluma'
-    assert micro['Model'] == 'LS850'
-    assert micro['SerialNumber'] == 'EL0940-05'
-    assert 'FirmwareVersion' not in micro
-
-
-def test_ome_path_has_instrument_objective_block():
-    result = _gen(image_type='ome', dtype=np.uint8)
-    obj = result['metadata']['Instrument']['Objective']
-    assert obj['Manufacturer'] == 'Olympus'
-    assert obj['Magnification'] == 4
-    assert obj['LensNA'] == 0.16
-    assert obj['WorkingDistance'] == 13.0
-    assert obj['Immersion'] == 'Air'
-
-
-def test_ome_path_has_instrument_detector_block():
-    result = _gen(image_type='ome', dtype=np.uint8)
-    det = result['metadata']['Instrument']['Detector']
-    assert det['Model'] == 'Basler a2A3536-31umBAS'
-    assert det['Type'] == 'CMOS'
-
-
-def test_ome_path_has_plate_block():
-    result = _gen(image_type='ome', dtype=np.uint8)
-    tm = result['metadata']
-    assert 'Plate' in tm, 'OME tiff_metadata must contain Plate block (#491)'
-    plate = tm['Plate']
-    assert plate['Name'] == '96 well microplate'
-    assert plate['Rows'] == 8
-    assert plate['Columns'] == 12
-    assert plate['WellLabel'] == 'A1'
-    assert plate['Standard'] == 'ANSI SLAS 2004'
-
-
-def test_ome_path_omits_plate_when_dimensions_missing():
-    """Plate block requires rows + columns; degraded labware (slide,
-    blank) has neither -- the block should not appear."""
-    md = _build_metadata()
-    md['plate'] = {'name': 'Slide', 'rows': None, 'columns': None}
-    data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
-    assert 'Plate' not in result['metadata'], (
-        'Plate block should be omitted when rows/columns are unset; '
-        'degraded labware (slide/blank) has no plate dimensions to report.'
-    )
-
-
-def test_imagej_document_block_extended():
-    result = _gen(image_type='imagej', dtype=np.uint8)
-    doc = result['metadata']['Document']
-    # Pre-existing keys must still be present.
-    assert doc['Manufacturer'] == 'Etaluma'
-    assert doc['Device'] == 'LS850'
-    assert doc['WellLabel'] == 'A1'
-    # New keys per #491.
-    assert doc['Model'] == 'LS850'
-    assert doc['SerialNumber'] == 'EL0940-05'
-    assert 'FirmwareVersion' not in doc
-    assert doc['CameraModel'] == 'Basler a2A3536-31umBAS'
-    assert doc['PlateName'] == '96 well microplate'
-    assert doc['PlateRows'] == 8
-    assert doc['PlateColumns'] == 12
-
-
-def test_ome_path_without_instrument_dict_does_not_crash():
-    """If a downstream caller omits the instrument sub-dict (e.g. a
-    post-processor that reconstructs metadata), the OME path must
-    still produce valid output -- the Instrument block is optional."""
-    md = _build_metadata()
-    del md['instrument']
-    del md['plate']
-    data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
-    assert 'Instrument' not in result['metadata']
-    assert 'Plate' not in result['metadata']
-    # Plane data must still be intact.
-    assert result['metadata']['Plane']['PositionX'] == 12.5
+    stated = {
+        'imagej': {part.lower(): sorted(block) for part, block in imagej['Instrument'].items()},
+        'ome': _ome_parts(still),
+        'hyperstack': _ome_parts(hyperstack),
+    }
+    expected = {
+        'microscope': ['Manufacturer', 'Model'],
+        'objective': ['LensNA', 'NominalMagnification', 'WorkingDistance', 'WorkingDistanceUnit'],
+        'detector': ['Model'],
+    }
+    assert stated == dict.fromkeys(stated, expected)
+    assert sorted(imagej['Plate']) == ['Columns', 'Name', 'Rows', 'Standard']

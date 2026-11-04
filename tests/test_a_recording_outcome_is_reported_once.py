@@ -13,16 +13,18 @@ camera slower than a limit is not a problem.
 import pytest
 
 import modules.manual_recording as manual_recording_module
+import modules.stack_builder as stack_builder_module
 import modules.protocol_recording as protocol_recording
 from modules.exceptions import (
     HyperstackRefusedError,
     RecordingFinalizeError,
+    RecordingFramesUnstampedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
 )
 from modules.notification_center import outcome_of
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
-import tests.test_video_writer as video_writer_tests
+from tests.video_step_drives import record_first_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder
 
 
@@ -66,16 +68,42 @@ def _record_reports(monkeypatch, module):
             'Frames already written are on disk; check the log.',
         ),
         (
-            VideoFramesDroppedError(2, 9, protocol_step=False),
+            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=False),
             'Video Frames Dropped',
             '2 of 9 frame(s) could not be written, so the saved video is shorter '
             'than the recording. Check the log for the cause.',
         ),
         (
-            VideoFramesDroppedError(2, 9, protocol_step=True),
+            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=True),
             'Video Frames Dropped',
             '2 of 9 frame(s) in a video step could not be written, so that video is '
             'shorter than its recording. Check the log for the cause.',
+        ),
+        (
+            VideoFramesDroppedError(2, 9, unstamped=3, protocol_step=False),
+            'Video Frames Dropped',
+            '2 of 9 frame(s) could not be written and 3 frame(s) came from the camera '
+            'without their timestamps and were left out, so the saved video is shorter '
+            'than the recording. Check the log for the cause.',
+        ),
+        (
+            VideoFramesDroppedError(0, 9, unstamped=3, protocol_step=True),
+            'Video Frames Dropped',
+            '3 frame(s) in a video step came from the camera without their timestamps '
+            'and were left out, so that video is shorter than its recording. Check the '
+            'log for the cause.',
+        ),
+        (
+            RecordingFramesUnstampedError(12, protocol_step=False),
+            'Recording Saved No Frames',
+            'The camera sent 12 frame(s) without their timestamps, so the recording '
+            'saved none. Reconnect the camera before recording again.',
+        ),
+        (
+            RecordingFramesUnstampedError(12, protocol_step=True),
+            'Recording Saved No Frames',
+            'The camera sent 12 frame(s) without their timestamps, so the video step '
+            'saved none. Reconnect the camera before recording again.',
         ),
         (HyperstackRefusedError('one channel only'), 'Hyperstack Not Built', 'one channel only'),
     ],
@@ -86,6 +114,10 @@ def _record_reports(monkeypatch, module):
         'finalize-step',
         'dropped-manual',
         'dropped-step',
+        'dropped-and-unstamped-manual',
+        'unstamped-step',
+        'all-unstamped-manual',
+        'all-unstamped-step',
         'hyperstack',
     ],
 )
@@ -95,19 +127,20 @@ def test_each_outcome_speaks_in_its_own_words_under_its_own_title(fault, title, 
     assert str(fault) == words
 
 
-def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, _scope, _clock = make_controller(tmp_path)
+def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
 
     controller._stop_for_camera_loss('camera_disconnected')
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingStoppedError) and fault.reason == 'camera_disconnected'
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
-def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     checks = {'n': 0}
 
@@ -124,11 +157,16 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch):
     stopped = [(f, kw) for f, kw in reported if isinstance(f, RecordingStoppedError)]
     ((fault, kw),) = stopped
     assert fault.reason == 'disk_floor'
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
-def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+def test_a_failed_finish_is_one_fault_chained_from_what_failed(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(
+        tmp_path, hyperstack=True, post_processing=post_processing
+    )
     reported = _record_reports(monkeypatch, manual_recording_module)
     failure = RuntimeError('scripted hyperstack failure')
 
@@ -136,7 +174,7 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeyp
         def __init__(self, **kwargs):
             raise failure
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _ExplodingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _ExplodingBuilder)
     controller.start()
     feed_frames(scope, clock, 3, fps=10.0)
     controller.stop()
@@ -148,8 +186,12 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeyp
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_refused_hyperstack_is_reported_in_the_builders_words(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+def test_a_refused_hyperstack_is_reported_in_the_builders_words(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(
+        tmp_path, hyperstack=True, post_processing=post_processing
+    )
     reported = _record_reports(monkeypatch, manual_recording_module)
 
     class _RefusingBuilder:
@@ -159,7 +201,7 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(tmp_path, monkey
         def create_single_recording_stack(self, **kwargs):
             return {'status': False, 'error': 'the builder says no'}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _RefusingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _RefusingBuilder)
     controller.start()
     feed_frames(scope, clock, 3, fps=10.0)
     controller.stop()
@@ -170,19 +212,19 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(tmp_path, monkey
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
-    real_write = manual_recording_module.image_save.write_video_frame
+    real_write = manual_recording_module.write_frame
     calls = {'n': 0}
 
-    def _flaky_write(**kwargs):
+    def _flaky_write(*args, **kwargs):
         calls['n'] += 1
         if calls['n'] == 2:
             raise OSError('scripted write failure')
-        return real_write(**kwargs)
+        return real_write(*args, **kwargs)
 
-    monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _flaky_write)
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _flaky_write)
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller.stop()
@@ -194,8 +236,10 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts):
-    controller, _scope, _clock = make_controller(tmp_path, max_fps=1000)
+def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts, post_processing):
+    controller, _scope, _clock = make_controller(
+        tmp_path, max_fps=1000, post_processing=post_processing
+    )
     recorder = NotifyRecorder(centre_posts)
 
     controller.start()
@@ -205,19 +249,17 @@ def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts):
     assert recorder.calls == []
 
 
-def test_a_video_steps_dropped_frames_are_reported_under_protocol(tmp_path, monkeypatch):
+def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
 
-    video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=True
-    )
+    record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError) and fault.protocol_step is True
     assert kw == {'solicited': False, 'category': 'Protocol'}
 
 
-def test_a_video_steps_failed_finish_is_chained_under_protocol(tmp_path, monkeypatch):
+def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
     failure = RuntimeError('scripted result failure')
 
@@ -226,11 +268,36 @@ def test_a_video_steps_failed_finish_is_chained_under_protocol(tmp_path, monkeyp
 
     monkeypatch.setattr(protocol_recording.VideoRecordingEngine, 'result', _result)
 
-    video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFinalizeError) and fault.protocol_step is True
     assert fault.__cause__ is failure
+    assert kw == {'solicited': False, 'category': 'Protocol'}
+
+
+def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, monkeypatch):
+    reported = _record_reports(monkeypatch, protocol_recording)
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    # The step's elapsed clock moves 0.4 s with each frame the camera
+    # delivers, so its one-second recording ends on frames, never on wall
+    # time, and a feed that delivers is never taken for a stalled one.
+    elapsed = {'now': 0.0}
+
+    def _delivered(_frame):
+        elapsed['now'] += 0.4
+
+    sim_scope.simulation.withhold_chunk('Timestamp', 100_000)
+    sim_scope.imaging.add_frame_listener(_delivered, name='the step clock')
+    try:
+        step = video_step_on(sim_scope, tmp_path, elapsed_clock=lambda: elapsed['now'])
+        step.run_blocking()
+        assert step.wait_until_finished(timeout=10.0), 'the finish never ended'
+    finally:
+        sim_scope.imaging.remove_frame_listener(_delivered)
+        sim_scope.simulation.clear()
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, RecordingFramesUnstampedError) and fault.protocol_step is True
+    assert fault.unstamped > 0
     assert kw == {'solicited': False, 'category': 'Protocol'}

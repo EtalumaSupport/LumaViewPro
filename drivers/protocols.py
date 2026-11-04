@@ -34,6 +34,8 @@ class MotorBoardProtocol(Protocol):
     # --- Connection ---
     def connect(self) -> None: ...
     def disconnect(self) -> None: ...
+    # Whether the port is open, read from the driver's own reference with no
+    # exchange: the status bar asks it during a home, which holds the lock.
     def is_connected(self) -> bool: ...
 
     # --- Movement ---
@@ -47,6 +49,9 @@ class MotorBoardProtocol(Protocol):
     def current_pos(self, axis: str) -> float: ...
     def target_pos_steps(self, axis: str) -> int: ...
     def current_pos_steps(self, axis: str) -> int: ...
+    # The position ``current_pos`` answers, from the microsteps
+    # ``current_pos_steps`` answers: no exchange.
+    def steps_to_position(self, axis: str, steps: int) -> float | int: ...
 
     # --- Status ---
     def target_status(self, axis: str) -> bool: ...
@@ -120,9 +125,9 @@ class MotorBoardProtocol(Protocol):
     def t_pos2ustep(self, position: int) -> int: ...
 
     # --- Serial ---
-    def exchange_command(
-        self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> str | None: ...
+    # Whether the board takes text commands; only one that does has
+    # ``exchange_command`` and ``exchange_multiline``.
+    takes_text_commands: bool
 
 
 @runtime_checkable
@@ -136,6 +141,8 @@ class LEDBoardProtocol(Protocol):
     # --- Connection ---
     def connect(self) -> None: ...
     def disconnect(self) -> None: ...
+    # Whether the port is open, read from the driver's own reference with no
+    # exchange, as the motor board's is.
     def is_connected(self) -> bool: ...
 
     # --- Core LED control ---
@@ -154,19 +161,11 @@ class LEDBoardProtocol(Protocol):
     # scope.illumination.<query>; the driver no longer exposes
     # state via the protocol surface.
 
-    # --- Channel mapping ---
-    # None = a colour/channel this scope cannot drive. An in-band default
-    # (any real channel number) is indistinguishable from data and lights
-    # the wrong LED; None forces the caller to decide at the seam.
-    def color2ch(self, color: str) -> int | None: ...
-    def ch2color(self, channel: int) -> str | None: ...
-
-    # --- Channel discovery (B3) ---
-    # available_channels()/available_colors() let the API ask the driver
-    # what it supports instead of hardcoding range(6) at the call sites.
-    # FX2 / Lumaview Classic returns 4 channels; RP2040 returns 6.
+    # --- Channel discovery ---
+    # The LED addresses the board drives: FX2 / Lumaview Classic 4, the
+    # EL-0940 board 8. A driver names no address; which layer an address
+    # lights is the unit's layer identity's (IlluminationAPI.ch2color).
     def available_channels(self) -> tuple[int, ...]: ...
-    def available_colors(self) -> tuple[str, ...]: ...
 
     # --- Bounds ---
     # The largest per-channel current this board can be asked for, in mA.
@@ -187,4 +186,6 @@ class LEDBoardProtocol(Protocol):
     def read_led_current(self, channel: int) -> float | None: ...
 
     # --- Serial ---
-    def exchange_command(self, command: str, **kwargs) -> str | None: ...
+    # Whether the board takes text commands; only one that does has
+    # ``exchange_command`` and ``exchange_multiline``.
+    takes_text_commands: bool

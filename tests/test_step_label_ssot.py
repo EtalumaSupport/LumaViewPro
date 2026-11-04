@@ -28,15 +28,23 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from modules.common_utils import build_step_name, recover_step_label, step_components
+from modules import post_derivation
+from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED1, LED2
+from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
+
+# A stitched output's derivation, as a Quality stitch of raw tiles records it.
+_STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 
 def _writer_base(step, scan_count=0) -> str:
@@ -85,8 +93,8 @@ def test_modify_name_on_well_step_renders_label_base():
             )
         ]
     )
-    proto.modify_name(step_idx=0, step_name='Control_preDose')
-    step = proto.step(idx=0)
+    proto.modify_name(step_index=0, step_name='Control_preDose')
+    step = proto.step_row(step_index=0)
     assert step['Label'] == 'Control_preDose'
     assert step['Name'] == 'Control_preDose_BF'
     assert not step['Auto_Named']
@@ -121,10 +129,12 @@ _V7_TSV = (
 )
 
 
-def test_v7_load_recovers_labels_and_saves_as_v8(tmp_path):
+def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     src = tmp_path / 'proto_v7.tsv'
     src.write_text(_V7_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=src,
+    )
     steps = proto.steps()
 
     # The renamed step's user text is recovered verbatim into Label; auto
@@ -132,12 +142,13 @@ def test_v7_load_recovers_labels_and_saves_as_v8(tmp_path):
     # prefix for a custom step).
     assert list(steps['Label']) == ['', 'Control_preDose', 'Treatment_10x', 'custom0001']
     # Names re-render from the columns: byte-identical for auto rows, and
-    # user labels gain their channel token.
+    # user labels gain their channel token. The v7 file's old channel names
+    # read as the stock unit's keys for those LEDs.
     assert list(steps['Name']) == [
         'A2_BF',
         'Control_preDose_BF',
-        'Treatment_10x_Green',
-        'custom0001_Red',
+        f'Treatment_10x_{LED1}',
+        f'custom0001_{LED2}',
     ]
 
     # Save -> the file is stamped Version 8; reload -> byte-identical Names
@@ -145,9 +156,11 @@ def test_v7_load_recovers_labels_and_saves_as_v8(tmp_path):
     dst = tmp_path / 'proto_v8.tsv'
     assert proto.to_file(file_path=dst) is None
     lines = dst.read_text().splitlines()
-    assert lines[1] == 'Version\t8', lines[1]
+    assert lines[1] == f'Version\t{Protocol.CURRENT_VERSION}', lines[1]
 
-    proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
+    proto2 = protocol_from_file(
+        file_path=dst,
+    )
     assert list(proto2.steps()['Name']) == list(steps['Name'])
     assert list(proto2.steps()['Label']) == list(steps['Label'])
 
@@ -175,13 +188,16 @@ _V5_TSV = (
 def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
     src = tmp_path / 'proto_v5.tsv'
     src.write_text(_V5_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=src,
+    )
     steps = proto.steps()
 
-    # Pure auto names reload byte-identically and are flagged auto=True (the
-    # old back-fill marked every pre-v7 step user-named, freezing auto names
-    # against channel changes forever).
-    assert list(steps['Name']) == ['A2_BF', 'B4_Green_TA1', 'MyPickedSpot_BF']
+    # Pure auto names re-render from their columns and are flagged auto=True
+    # (the old back-fill marked every pre-v7 step user-named, freezing auto
+    # names against channel changes forever); the old channel name reads as
+    # the stock unit's key for its LED, so the auto name follows it.
+    assert list(steps['Name']) == ['A2_BF', f'B4_{LED1}_TA1', 'MyPickedSpot_BF']
     assert list(steps['Label']) == ['', '', 'MyPickedSpot']
     assert list(steps['Auto_Named']) == [True, True, False]
 
@@ -191,7 +207,7 @@ def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
 # ---------------------------------------------------------------------------
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
+_WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
 
 def _labeled_step(label='Treatment_10x', **kwargs):
@@ -224,8 +240,8 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
 
     labware = WellPlateLoader().get_plate('6 well microplate')
     axis_limits = {
-        'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
-        'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
+        'X': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
+        'Y': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
     }
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0)])
     proto.apply_tiling(
@@ -234,7 +250,7 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         binning_size=1,
         axis_limits=axis_limits,
         labware=labware,
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
@@ -257,8 +273,8 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
 
 def test_token_shaped_label_segments_survive_whole():
     for label in ('Assay_Turret3', 'Foo_stitched', 'Plate_T3', 'Run_Z12', 'Deck_0003'):
-        base = _writer_base(_step_row(label, color='Green'))
-        assert base == f'{label}_Green_0000', (
+        base = _writer_base(_step_row(label, color=LED1))
+        assert base == f'{label}_{LED1}_0000', (
             f'label {label!r} must reach the filename unparsed; got {base!r}'
         )
 
@@ -279,8 +295,10 @@ def test_token_shaped_label_survives_protocol_roundtrip(tmp_path):
     )
     path = tmp_path / 'p.tsv'
     assert proto.to_file(file_path=path) is None
-    reloaded = Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
-    step = reloaded.step(idx=0)
+    reloaded = protocol_from_file(
+        file_path=path,
+    )
+    step = reloaded.step_row(step_index=0)
     assert step['Label'] == 'Assay_Turret3'
     assert step['Name'] == 'Assay_Turret3_BF'
     assert _writer_base(step) == 'Assay_Turret3_BF_0000'
@@ -322,7 +340,7 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
 
     # The on-disk file was rewritten as v2 with the Label column, rows intact.
     lines = record_path.read_text().splitlines()
-    assert lines[1] == 'Version\t2', lines[1]
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
     header_idx = lines.index('Images') + 1
     columns = lines[header_idx].split('\t')
     assert columns == list(ProtocolPostRecord.COLUMNS)
@@ -350,7 +368,8 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
         tile_group_id=-1,
         tile='',
         custom_step=True,
-        **dict.fromkeys(ProtocolPostRecord.COLUMNS[15:], False) | {'Stitched': True},
+        channel_group_id=-1,
+        derivation=_STITCHED,
     )
     record.complete()
 
@@ -364,7 +383,7 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
     row_map = dict(zip(columns, appended, strict=True))
     assert row_map['Filepath'] == 'stitched.tiff'
     assert row_map['Label'] == 'Treatment_10x'
-    assert row_map['Stitched'] == 'True'
+    assert row_map['Derivation'] == _STITCHED
     assert row_map['Custom Step'] == 'True'
 
     # And the reloaded (now-v2) file parses cleanly with the appended row.
@@ -450,13 +469,17 @@ def test_a_blank_zslice_refuses_the_file(tmp_path):
     src = tmp_path / 'v6_zfloat.tsv'
     src.write_text(_V6_ZFLOAT)
     with pytest.raises(ProtocolFormatError, match='Z-Slice'):
-        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+        protocol_from_file(
+            file_path=src,
+        )
 
 
 def test_zslice_reads_as_a_whole_number_and_names_render_from_it(tmp_path):
     src = tmp_path / 'v6_zint.tsv'
     src.write_text(_V6_ZFLOAT.replace('A3\t\t\t', 'A3\t\t-1\t'))
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=src,
+    )
     steps = proto.steps()
     # The Z3 row must still compose-and-compare as machine (Label '') and
     # re-render byte-identically -- a float 3.0 would have rendered 'Z3.0',
@@ -492,7 +515,9 @@ _V2_CHANNEL = (
 def test_legacy_channel_column_loads_and_normalizes_to_color(tmp_path):
     src = tmp_path / 'v2_channel.tsv'
     src.write_text(_V2_CHANNEL)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = protocol_from_file(
+        file_path=src,
+    )
     steps = proto.steps()
     assert list(steps['Name']) == ['A2_BF']
     assert 'Color' in steps.columns
@@ -506,7 +531,9 @@ def test_missing_well_column_raises_format_error(tmp_path):
     src = tmp_path / 'v2_no_well.tsv'
     src.write_text(_V2_CHANNEL.replace('\tWell', '').replace('4x\tA2\t', '4x\t'))
     with pytest.raises(ProtocolFormatError, match='Well'):
-        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+        protocol_from_file(
+            file_path=src,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -518,15 +545,19 @@ def test_missing_well_column_raises_format_error(tmp_path):
 def test_numeric_looking_label_survives_protocol_roundtrip(tmp_path):
     src = tmp_path / 'v7.tsv'
     src.write_text(_V7_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
-    proto.modify_name(step_idx=0, step_name='0600')
-    assert proto.step(idx=0)['Label'] == '0600'
+    proto = protocol_from_file(
+        file_path=src,
+    )
+    proto.modify_name(step_index=0, step_name='0600')
+    assert proto.step_row(step_index=0)['Label'] == '0600'
 
     dst = tmp_path / 'v8.tsv'
     assert proto.to_file(file_path=dst) is None
-    proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto2.step(idx=0)['Label'] == '0600'
-    assert proto2.step(idx=0)['Name'] == '0600_BF'
+    proto2 = protocol_from_file(
+        file_path=dst,
+    )
+    assert proto2.step_row(step_index=0)['Label'] == '0600'
+    assert proto2.step_row(step_index=0)['Name'] == '0600_BF'
 
 
 def test_numeric_looking_label_survives_post_record_reload(tmp_path):
@@ -535,7 +566,10 @@ def test_numeric_looking_label_survives_post_record_reload(tmp_path):
         'LumaViewPro Protocol Post-Processing Record\n'
         'Version\t2\n'
         '\n'
-        'Images\n' + '\t'.join(ProtocolPostRecord.COLUMNS) + '\n'
+        'Images\n'
+        'Filepath\tTimestamp\tName\tLabel\tScan Count\tX\tY\tZ\tZ-Slice\tWell\tColor\t'
+        'Objective\tTile Group ID\tTile\tCustom Step\tComposite\tStitched\tZProject\tVideo\t'
+        'Hyperstack\n'
     )
     rows = (
         'img1.tiff\t2026-06-01 10:00:00\t0600_BF\t0600\t0\t1.0\t2.0\t3.0\t-1\t\tBF\t4x\t-1\t\t'
@@ -578,9 +612,9 @@ def _labeled_single_step_protocol():
 def test_modify_name_refuses_name_that_sanitizes_to_empty():
     proto = _labeled_single_step_protocol()
     with pytest.raises(ProtocolError):
-        proto.modify_name(step_idx=0, step_name='###')
-    assert proto.step(idx=0)['Label'] == 'MySpot'
-    assert proto.step(idx=0)['Name'] == 'MySpot_BF'
+        proto.modify_name(step_index=0, step_name='###')
+    assert proto.step_row(step_index=0)['Label'] == 'MySpot'
+    assert proto.step_row(step_index=0)['Name'] == 'MySpot_BF'
 
 
 def test_modify_step_refuses_label_that_sanitizes_to_empty():
@@ -594,19 +628,20 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
     with pytest.raises(ProtocolError):
         proto.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             label='###',
-            layer='Green',
+            layer=LED1,
             layer_config=layer_config,
-            plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
             objective_id='4x Oly',
             stim_configs={},
         )
-    step = proto.step(idx=0)
+    step = proto.step_row(step_index=0)
     assert step['Label'] == 'MySpot'
     assert step['Name'] == 'MySpot_BF'
     assert step['Color'] == 'BF', 'refused rename must leave the step unmodified'
@@ -623,18 +658,20 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
     with pytest.raises(ProtocolError):
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='###',
             layer='BF',
             layer_config=layer_config,
-            plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
             objective_id='4x Oly',
             stim_configs={},
-            before_step=0,
-            after_step=None,
+            before_step_index=0,
+            after_step_index=None,
         )
     assert proto.num_steps() == 1, 'refused insert must not add a step'
 
@@ -663,7 +700,7 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
     assert len(record.records()) == 0
 
     lines = record_path.read_text().splitlines()
-    assert lines[1] == 'Version\t2', lines[1]
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
     header_idx = lines.index('Images') + 1
     columns = lines[header_idx].split('\t')
     assert columns == list(ProtocolPostRecord.COLUMNS)
@@ -687,7 +724,8 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
         tile_group_id=-1,
         tile='',
         custom_step=False,
-        **dict.fromkeys(ProtocolPostRecord.COLUMNS[15:], False) | {'Stitched': True},
+        channel_group_id=-1,
+        derivation=_STITCHED,
     )
     record.complete()
 
@@ -761,7 +799,7 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     monkeypatch.setattr(helper, '_get_raw_images_df', lambda **kwargs: pd.DataFrame())
     monkeypatch.setattr(helper, '_get_post_images_df', lambda **kwargs: pd.DataFrame())
 
-    result = helper.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+    result = helper.load_folder(path=tmp_path, tiling_grids=shipped_grids())
 
     # The unreadable file is preserved byte-for-byte under .unreadable.
     preserved = corrupt_path.with_name(corrupt_path.name + '.unreadable')
@@ -771,7 +809,7 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     # A fresh current-version record replaced it at the default location.
     fresh_lines = corrupt_path.read_text().splitlines()
     assert fresh_lines[0] == ProtocolPostRecord.FILE_HEADER
-    assert fresh_lines[1] == 'Version\t2'
+    assert fresh_lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}'
     header_idx = fresh_lines.index('Images') + 1
     assert fresh_lines[header_idx].split('\t') == list(ProtocolPostRecord.COLUMNS)
 

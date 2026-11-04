@@ -12,19 +12,19 @@ Test tiers:
   - Tier 3: Autofocus -- real AutofocusRunner with SimulatedCamera focus simulation
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
 import logging
-import logging.handlers
 import os
-import pathlib
 import threading
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0, LED1, LED2
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
@@ -32,8 +32,10 @@ from tests.protocol_drives import run_identity
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
-from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -45,6 +47,7 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_for_run_end,
 )
+from tests.protocol_fixtures import protocol_of
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -64,7 +67,10 @@ def _make_executors():
     from modules.protocol_thread import ProtocolThread
 
     names = ['io', 'file_io', 'camera', 'autofocus']
-    execs = {n: SequentialIOExecutor(name=f'INTEG_{n.upper()}') for n in names}
+    execs = {
+        n: SequentialIOExecutor(closed_answer=scope_lane_closed, name=f'INTEG_{n.upper()}')
+        for n in names
+    }
     for e in execs.values():
         e.start()
     pt = ProtocolThread()
@@ -89,15 +95,11 @@ def _make_autogain_settings():
         'target_brightness': 0.3,
         'min_gain_db': 0.0,
         'max_gain_db': 20.0,
-        'max_duration': datetime.timedelta(seconds=2),
     }
 
 
 def _make_image_capture_config():
     return ImageCaptureConfig.from_image_mode('8bit')
-
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_protocol(steps_config):
@@ -112,15 +114,15 @@ def _make_protocol(steps_config):
 
     defaults = {
         'color': 'BF',
-        'illumination_ma': 50.0,
+        'illumination_ma': 5.0,
         'gain_db': 1.0,
-        'exposure_ms': 10.0,
+        'exposure_ms': 2.0,
         'auto_gain': False,
         'auto_focus': False,
         'acquire': 'image',
         'false_color': False,
         'sum_count': 1,
-        'video_config': {'duration': 1, 'fps': 5},
+        'video_config': {'duration': 1},
         'stim_config': {},
         'x': 10.0,
         'y': 20.0,
@@ -167,6 +169,9 @@ def _make_protocol(steps_config):
                 # gain / position must still derive distinct capture
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
+                'Channel Group ID': 0,
+                'Turret Slot': -1,
+                'Z-Stack Offset': 0.0,
                 'Auto_Named': False,
             }
         )
@@ -181,7 +186,7 @@ def _make_protocol(steps_config):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return protocol_of(config=config)
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -201,7 +206,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
         sequence_name='integ_test',
         image_capture_config=run_kwargs.pop('image_capture_config', _make_image_capture_config()),
@@ -218,7 +222,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # The images and the record are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
     if completed:
-        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+        assert handle.files.result(timeout=FILES_WAIT_S) is not None, (
             'the run never finished its files'
         )
     return completed, result_holder
@@ -243,7 +247,7 @@ def scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     home_sim_scope(s)
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
@@ -283,6 +287,8 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -302,6 +308,8 @@ def af_executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -365,14 +373,12 @@ class TestIntegrationSingleStep:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        # After a successful protocol run, the camera should have grabbed at least one image
-        # The array is populated by grab() calls during the capture sequence
-        arr = scope._camera_driver.array
-        assert arr is not None
-        assert isinstance(arr, np.ndarray)
-        # If grab was called, array should have 2D shape (height, width)
-        if arr.ndim == 2:
-            assert arr.shape[0] > 0 and arr.shape[1] > 0
+        # After a successful protocol run the camera has delivered frames
+        frame = scope._camera_driver.grab()
+        assert frame is not None
+        assert isinstance(frame.image, np.ndarray)
+        if frame.image.ndim == 2:
+            assert frame.image.shape[0] > 0 and frame.image.shape[1] > 0
 
 
 class TestIntegrationAutoGain:
@@ -422,23 +428,23 @@ class TestIntegrationMultiChannel:
     """Multi-channel protocols with real simulated hardware."""
 
     def test_two_channel_completes(self, executor, scope, tmp_path):
-        """BF + Green two-channel protocol completes."""
+        """BF + LED 1 two-channel protocol completes."""
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
+                {'color': LED1, 'illumination_ma': 75.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_three_channel_completes(self, executor, scope, tmp_path):
-        """BF + Green + Red three-channel protocol completes."""
+        """BF + LED 1 + LED 2 three-channel protocol completes."""
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
-                {'color': 'Red', 'illumination_ma': 50.0},
+                {'color': LED1, 'illumination_ma': 75.0},
+                {'color': LED2, 'illumination_ma': 50.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -449,15 +455,15 @@ class TestIntegrationMultiChannel:
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
-                {'color': 'Red', 'illumination_ma': 50.0},
+                {'color': LED1, 'illumination_ma': 75.0},
+                {'color': LED2, 'illumination_ma': 50.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
+        lit = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert lit == [], f'LEDs still on: {lit}'
 
 
 class TestIntegrationZStack:
@@ -577,10 +583,10 @@ class TestIntegrationAutofocus:
             scope=scope,
         )
 
-        # Simulate the multi-channel scenario: camera is at Green settings
+        # Simulate the multi-channel scenario: camera is at LED 1's settings
         # when BF AF starts with its own explicit targets.
-        scope.imaging.set_gain_db(20.0)
-        scope.imaging.set_exposure_ms(100.0)
+        scope.camera.set_gain_db(20.0)
+        scope.camera.set_exposure_ms(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
@@ -591,10 +597,11 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
-                run=run_identity('autofocus'),
+                run=run_identity(),
                 objective_id='10x Oly',
+                center_um=scope.motion.get_current_position('Z'),
                 led_color='BF',
-                led_illumination=50.0,
+                led_illumination=5.0,
                 camera_gain=1.0,
                 camera_exposure=2.0,
                 led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
@@ -612,8 +619,8 @@ class TestIntegrationAutofocus:
         # contract: explicit AF targets (the committed layer/step
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
-        actual_gain = scope.imaging.get_gain_db()
-        actual_exp = scope.imaging.get_exposure_ms()
+        actual_gain = scope.camera.read_gain_db()
+        actual_exp = scope.camera.read_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '
             f'when the AF Future resolves, but got {actual_gain}'
@@ -691,6 +698,7 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.protocol_runner import ProtocolRunner
+from modules.layer_record import release_colors
 
 
 class TestHeadlessSession:
@@ -707,10 +715,10 @@ class TestHeadlessSession:
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             scope = session.scope
-            scope.illumination.led_on(channel=0, illumination_ma=100)
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] == 100
-            scope.illumination.led_off(channel=0)
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
+            scope.illumination.led_on_by_address(0, 100)
+            assert channel_reading(scope.illumination, LED0).illumination_ma == 100
+            scope.illumination.led_off_by_address(0)
+            assert channel_reading(scope.illumination, LED0).state is LedState.DARK
         finally:
             session.shutdown()
 
@@ -721,10 +729,10 @@ class TestHeadlessSession:
         pos = scope.motion.get_current_position('Z')
         assert isinstance(pos, (int, float))
 
-    def test_create_protocol_runner(self):
-        """ScopeSession.create_protocol_runner() should return a ProtocolRunner."""
+    def test_protocol_runner(self):
+        """ScopeSession.protocol_runner() should return a ProtocolRunner."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
 
@@ -737,19 +745,12 @@ class TestHeadlessSession:
         session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.file_io_executor is not None
         assert session.file_io_executor is session.executor_bundle.file_io_executor
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         assert not any(isinstance(v, SequentialIOExecutor) for v in vars(runner).values())
 
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
         settings = {
-            'BF': {'autofocus': False},
-            'PC': {'autofocus': False},
-            'DF': {'autofocus': False},
-            'Red': {'autofocus': False},
-            'Green': {'autofocus': False},
-            'Blue': {'autofocus': False},
-            'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
             # The objective this file's protocols name: a scope with no turret
@@ -758,7 +759,6 @@ class TestHeadlessSession:
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },
@@ -769,7 +769,7 @@ class TestHeadlessSession:
         # axis position is unknown.
         home_sim_scope(session.scope)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
 
             done = threading.Event()
@@ -777,7 +777,7 @@ class TestHeadlessSession:
             def on_complete(*_ended):
                 done.set()
 
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=protocol,
                 sequence_name='headless_test',
                 parent_dir=str(tmp_path),
@@ -794,7 +794,7 @@ class TestHeadlessSession:
         thread-driven model the AF thread drives iterations directly;
         there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         af = runner.sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
         assert not hasattr(af, '_clock_schedule_interval_fn')
@@ -806,25 +806,33 @@ class TestRestAPIPrep:
     def test_get_pixel_format(self):
         """_get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        fmt = session.scope.imaging._get_pixel_format()
+        fmt = session.scope.camera.read_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
     def test_set_pixel_format(self):
-        """set_pixel_format() should change the camera format."""
+        """The image mode sets the camera format: a pixel format is set only
+        through it, and 12-bit scientific selects Mono12 on the simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.set_pixel_format('Mono12')
-        assert session.scope.imaging._get_pixel_format() == 'Mono12'
+        session.scope.camera.set_image_mode('12bit_scientific')
+        assert session.scope.camera.read_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
-        """set_pixel_format() with an unsupported format raises the typed
+        """The pixel-format write with an unsupported format raises the typed
         rejection (the apply contract: an L2 caller cannot mistake a
-        rejected format for an applied one by dropping the return)."""
+        rejected format for an applied one by dropping the return). No public
+        member names a format, so the body runs on the camera lane."""
         from modules.exceptions import CameraSettingRejected
 
         session = ScopeSession.create(complete_settings(), simulate=True)
+        camera = session.scope.camera
         with pytest.raises(CameraSettingRejected):
-            session.scope.imaging.set_pixel_format('InvalidFormat')
+            camera._dispatch_camera(
+                camera._set_pixel_format_impl,
+                'set_pixel_format',
+                args=('InvalidFormat',),
+                timeout_s=camera._CAMERA_GEOMETRY_TIMEOUT_S,
+            )
 
     def test_the_capabilities_list_the_pixel_formats(self):
         """capabilities.camera_pixel_formats is a tuple of format strings."""
@@ -835,89 +843,17 @@ class TestRestAPIPrep:
         assert 'Mono8' in formats
 
     def test_pixel_format_inactive_camera(self):
-        """With no camera the format reads None and a format write is refused."""
+        """With no camera the format read and a format write are refused."""
         from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
-        assert session.scope.imaging._get_pixel_format() is None
+        with pytest.raises(HardwareCommandRefusedError) as read:
+            session.scope.camera.read_pixel_format()
+        assert read.value.missing == MissingPart.CAMERA
         with pytest.raises(HardwareCommandRefusedError) as exc:
-            session.scope.imaging.set_pixel_format('Mono8')
+            session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA
-
-    def test_get_motor_info(self):
-        """get_motor_info() should return model, serial, firmware."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_motor_info()
-        assert 'model' in info
-        assert 'serial_number' in info
-        assert 'firmware_version' in info
-        assert info['model'] is not None
-
-    def test_get_motor_info_serves_identity_from_cache(self):
-        """get_motor_info() must not issue a live FULLINFO.
-
-        It is called once per saved frame to stamp image metadata. Model
-        and serial number are fixed for the life of a connection, so they
-        come from the FULLINFO response cached at connect; a wire query
-        here would put a serial round-trip on every capture.
-        """
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        driver = session.scope._motion_driver
-        original_fullinfo = driver.fullinfo
-        fullinfo_calls = []
-
-        def _counting_fullinfo(*args, **kwargs):
-            fullinfo_calls.append(1)
-            return original_fullinfo(*args, **kwargs)
-
-        driver.fullinfo = _counting_fullinfo
-        info = session.scope.diagnostics.get_motor_info()
-
-        assert fullinfo_calls == [], (
-            'get_motor_info() called fullinfo(): it must serve model and '
-            'serial number from the cached connect-time FULLINFO, not '
-            're-query the serial bus on every saved frame'
-        )
-        assert info['model'] not in (None, 'unknown')
-        assert info['serial_number'] not in (None, 'unknown')
-
-    def test_get_led_info(self):
-        """get_led_info() should return firmware and connection status."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_led_info()
-        assert info['connected'] is True
-        assert info['firmware_version'] is not None
-
-    def test_the_system_info_names_the_connected_camera(self):
-        """get_system_info()'s camera entry has the model and connection status."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_system_info()['camera']
-        assert info['connected'] is True
-        assert info['model'] is not None
-
-    def test_get_system_info(self):
-        """get_system_info() should return consolidated info for all hardware."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_system_info()
-        assert 'motor' in info
-        assert 'led' in info
-        assert 'camera' in info
-        assert info['simulated'] is True
-        assert 'lvp_version' in info
-
-    def test_system_info_no_hardware(self):
-        """get_system_info() should handle missing hardware gracefully."""
-        from drivers.null_motorboard import NullMotionBoard
-
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope._motion_driver = NullMotionBoard()
-        session.scope._led_driver = None
-        session.scope._camera_driver = None
-        info = session.scope.diagnostics.get_system_info()
-        assert info['motor']['model'] is None
-        assert info['led']['connected'] is False
-        assert info['camera']['connected'] is False
 
     def test_encode_image_png(self):
         """encode_image() should encode numpy array to PNG bytes."""
@@ -981,17 +917,16 @@ class TestRestAPIPrep:
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after select_objective()."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        objectives = session.scope.runtime_state.get_available_objectives()
+        objectives = list(session.scope.objectives)
         session.select_objective(objectives[0])
         current = session.scope.runtime_state.get_current_objective()
-        assert current is not None
-        assert isinstance(current, dict)
+        assert current is session.scope.objectives[objectives[0]]
 
     def test_autofocus_runner_get_status_idle(self):
         """AutofocusRunner.get_status() should return idle state initially."""
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             status = af.get_status()
             assert status['state'] == 'idle'
@@ -1006,7 +941,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
@@ -1024,7 +959,7 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
         # A target that blurs with defocus, in focus inside the sweep (Z 0 to
@@ -1038,15 +973,16 @@ class TestRestAPIPrep:
         camera.set_focal_z(2000.0)
         park_z(session.scope, 3000.0)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.runtime_state.get_available_objectives()
+                objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
-                    run=run_identity('autofocus'),
+                    run=run_identity(),
                     objective_id=objectives[0],
+                    center_um=session.scope.motion.get_current_position('Z'),
                     # Lit, because a sweep in the dark has no focus to find.
                     # The production caller supplies the step's channel and
                     # current; driving the engine directly skips that, and
@@ -1054,7 +990,7 @@ class TestRestAPIPrep:
                     # simulator used to render a lit field whatever the LEDs
                     # were doing, so this read as a working sweep.
                     led_color='BF',
-                    led_illumination=50.0,
+                    led_illumination=5.0,
                     led_lease=session.scope.illumination.acquire_led_lease(
                         'protocol', claim=held_run_claim()
                     ),
@@ -1074,20 +1010,21 @@ class TestRestAPIPrep:
         from modules.exceptions import AutofocusAborted
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
         park_z(session.scope, 7000.0)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.runtime_state.get_available_objectives()
+                objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
-                    run=run_identity('autofocus'),
+                    run=run_identity(),
                     objective_id=objectives[0],
+                    center_um=session.scope.motion.get_current_position('Z'),
                     led_color='BF',
                     led_illumination=100.0,
                     led_lease=session.scope.illumination.acquire_led_lease(
@@ -1113,11 +1050,10 @@ class TestRestAPIPrep:
         settings_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), 'data', 'settings.json'
         )
-        with open(settings_path) as f:
+        with open(settings_path, encoding='utf-8') as f:
             settings = json.load(f)
         assert 'rest_api' in settings
         assert settings['rest_api']['enabled'] is False
-        assert settings['rest_api']['host'] == '127.0.0.1'
         assert settings['rest_api']['port'] == 8000
 
 
@@ -1142,6 +1078,7 @@ class TestAbortedAutofocusRestoresLeds:
         with pytest.raises(AutofocusAborted):
             af.run(
                 objective_id='10x Oly',
+                center_um=scope.motion.get_current_position('Z'),
                 led_color='BF',
                 led_illumination=20.0,
                 abort_event=abort,
@@ -1151,8 +1088,8 @@ class TestAbortedAutofocusRestoresLeds:
 
         # AF setup lit the BF channel before the abort was observed; the
         # aborted exit must have turned it off.
-        state = scope.illumination.get_led_state('BF')
-        assert not state['enabled'], (
+        state = channel_reading(scope.illumination, 'BF')
+        assert state.state is LedState.DARK, (
             'Aborted AF left its LED lit: keep_led_on must skip the LED '
             'restore only when AF completes successfully.'
         )

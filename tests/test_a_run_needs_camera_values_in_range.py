@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from tests.scope_fakes import set_camera_limits
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_multi_step_protocol,
@@ -25,39 +26,40 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executors,
     scope,
 )
+from tests.stock_channels import LED0
 
 OUT_OF_RANGE = 'camera_setting_out_of_range'
 
 
 def _steps(**values):
     # A layer the suite's scope has; the gate judges the value, not the layer.
-    return _make_multi_step_protocol([{'name': 'Blue step', 'color': 'Blue', **values}])
+    return _make_multi_step_protocol([{'name': f'{LED0} step', 'color': LED0, **values}])
 
 
 def test_the_api_caches_the_camera_floors(scope):
-    imaging = scope.imaging
-    assert imaging.min_gain_db_cached == pytest.approx(scope._camera_driver.min_gain)
-    assert imaging.min_exposure_ms_cached == pytest.approx(
+    limits = scope.capabilities.camera_limits
+    assert limits.gain_min_db == pytest.approx(scope._camera_driver.min_gain)
+    assert limits.exposure_min_ms == pytest.approx(
         scope._camera_driver.profile.exposure_min_us / 1000.0
     )
 
 
 def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, scope, tmp_path):
-    maximum = scope.imaging.max_gain_db_cached
+    maximum = scope.capabilities.camera_limits.gain_max_db
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=maximum + 28.0), tmp_path)
 
     assert refusal.value.reason == OUT_OF_RANGE
     message = str(refusal.value)
-    assert 'Blue step' in message
+    assert f'{LED0} step' in message
     assert f'{maximum + 28.0:g}' in message
     assert f'{maximum:g}' in message
 
 
-def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path):
+def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path, monkeypatch):
     """Protocol validation already refuses a negative gain, so the floor that
     matters here is a camera's above 0 dB."""
-    scope.imaging._commit_camera_writes({'min_gain_db': 2.0})
+    set_camera_limits(monkeypatch, scope, gain_min_db=2.0)
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=1.0), tmp_path)
 
@@ -66,18 +68,25 @@ def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path):
 
 def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_path):
     with pytest.raises(ProtocolRunRefusedError) as refusal:
-        _prepare(executor, _steps(exposure_ms=scope.imaging.max_exposure_ms_cached + 1.0), tmp_path)
+        _prepare(
+            executor,
+            _steps(exposure_ms=scope.capabilities.camera_limits.exposure_max_ms + 1.0),
+            tmp_path,
+        )
 
     assert refusal.value.reason == OUT_OF_RANGE
 
 
 def test_values_in_range_are_admitted(executor, scope, tmp_path):
-    _prepare(executor, _steps(gain_db=scope.imaging.max_gain_db_cached, exposure_ms=10.0), tmp_path)
+    _prepare(
+        executor,
+        _steps(gain_db=scope.capabilities.camera_limits.gain_max_db, exposure_ms=10.0),
+        tmp_path,
+    )
 
 
-def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path):
+def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path, monkeypatch):
     """A camera that declares no exposure floor: a tiny exposure is the
     camera's to take or refuse, not the run's to refuse."""
-    scope._camera_driver.profile.exposure_min_us = None
-    scope.imaging._populate_camera_cache()
+    set_camera_limits(monkeypatch, scope, exposure_min_ms=None)
     _prepare(executor, _steps(exposure_ms=0.001), tmp_path)

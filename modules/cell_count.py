@@ -68,6 +68,10 @@ class CellCount:
                 'units': None,
             }
 
+            # The pixel count, whatever the scale: the summary's area and
+            # intensity are totalled in pixels.
+            region_param_info['area_px2'] = {'val': float(region['area']), 'units': 'px^2'}
+
             region_info[region_idx] = region_param_info
 
         return {'summary': {'num_regions': len(region_info)}, 'regions': region_info}
@@ -88,7 +92,7 @@ class CellCount:
                 and (subject[subject_key]['val'] > criteria[criteria_key]['max'])
             )
 
-        total_object_area = 0
+        total_object_area_px2 = 0.0
         total_object_intensity = 0
 
         filter_stats = {
@@ -127,15 +131,15 @@ class CellCount:
                 filter_stats['intensity_max'] += 1
                 continue
 
-            total_object_area += region['area']['val']
-            total_object_intensity += region['area']['val'] * region['intensity_mean']['val']
+            total_object_area_px2 += region['area_px2']['val']
+            total_object_intensity += region['area_px2']['val'] * region['intensity_mean']['val']
             filtered_regions[region_idx] = region
             filtered_contours.append(contour)
 
         filtered_region_info = {
             'summary': {
                 'num_regions': len(filtered_regions),
-                'total_object_area': total_object_area,
+                'total_object_area_px2': total_object_area_px2,
                 'total_object_intensity': round(total_object_intensity, 1),
             },
             'filter_reasons': filter_stats,
@@ -228,7 +232,12 @@ class CellCount:
         filtered_region_info, filtered_contours = self._filter_regions(
             region_info=region_info, contours=contours, settings=settings['filters']
         )
-        filtered_region_info['summary']['area_unit'] = 'px2' if pixels_per_um is None else 'um2'
+        summary = filtered_region_info['summary']
+        summary['total_object_area_um2'] = (
+            None
+            if pixels_per_um is None
+            else round(summary['total_object_area_px2'] / (pixels_per_um**2), 2)
+        )
 
         filtered_contours_img_for_display = image.copy()
         cv2.drawContours(filtered_contours_img_for_display, filtered_contours, -1, (255, 100, 0), 3)

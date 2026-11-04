@@ -16,8 +16,9 @@ Mono8-push fix in a later phase, so its test carries ``xfail(strict=True)``
 -- it FAILS today and FLIPS GREEN when that fix lands; ``strict=True`` then
 turns red so the stale marker is removed.
 
-Built on tests/camera_fakes.py: real driver objects (via __new__) with a
-fake SDK attached, so production methods run and observable behavior is
+Built on tests/camera_fakes.py: the real drivers, Pylon and IDS via
+__new__ with a fake SDK attached (no simulated SDK exists), the FX2 over the
+simulated FX2 device, so production methods run and observable behavior is
 asserted rather than driver source text grepped.
 """
 

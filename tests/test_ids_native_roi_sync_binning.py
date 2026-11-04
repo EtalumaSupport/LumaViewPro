@@ -18,7 +18,7 @@ Fix:
     current displayed value corresponds to, before the new factor is stored.
   - The stored native pair is the unconditional source of truth.
 
-The reconstruction now lives in ``ScopeSession`` (``set_binning_size`` /
+The reconstruction now lives in ``CameraAPI`` (``set_binning`` /
 ``set_frame_size``) and is exercised behaviourally in
 tests/test_the_session_applies_and_stores_camera_settings.py. What stays here
 pins that the GUI frame handler reads no hardware binning, and the math

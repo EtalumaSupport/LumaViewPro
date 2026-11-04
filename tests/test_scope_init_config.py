@@ -11,9 +11,11 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 
 import pytest
 
+from modules.layer_record import load_scope_models
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, identity_with_layers
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -31,97 +33,42 @@ _BASE_SETTINGS = {
     'microscope': 'LS820',
 }
 
-_LS620_CONFIG = {
-    'Focus': False,
-    'XYStage': False,
-    'Turret': False,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': False,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
-_LS820_CONFIG = {
-    'Focus': True,
-    'XYStage': False,
-    'Turret': False,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': True,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
-_LS850T_CONFIG = {
-    'Focus': True,
-    'XYStage': True,
-    'Turret': True,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': True,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
+# The shipped catalogue's records for the three models the table walks.
+_MODELS = load_scope_models()
+_LS620_CONFIG = _MODELS['LS620']
+_LS820_CONFIG = _MODELS['LS820']
+_LS850T_CONFIG = _MODELS['LS850T']
 
-
-def identity_from_rows(rows):
-    """Build a resolved-identity snapshot from (key_name, led_channel) pairs.
-
-    The truth-table fixtures used to carry scopes.json category booleans;
-    expects_led now derives from the scope's resolved layer identity, so
-    the fixtures carry the same models as identity rows instead. The
-    assertion values are unchanged.
-    """
-    from modules.layer_record import LayerIdentity, LayerRecord
-
-    records = tuple(
-        LayerRecord(
-            id=i,
-            key_name=key,
-            display_name=key,
-            led_channel=(channel,) if channel is not None else (),
-            excitation_nm=None,
-        )
-        for i, (key, channel) in enumerate(rows)
-    )
-    return LayerIdentity(layers=records, filterset='', source='scopes', model=None)
-
-
-_LS620_IDENTITY = identity_from_rows([('BF', 3), ('Blue', 0), ('Green', 1), ('Red', 2)])
-_LS820_IDENTITY = identity_from_rows(
-    [('BF', 3), ('PC', 4), ('DF', 5), ('Blue', 0), ('Green', 1), ('Red', 2)]
-)
+# The truth-table fixtures used to carry scopes.json category booleans;
+# expects_led derives from the scope's resolved layer identity, so the
+# fixtures carry the same models' layers instead.
+_LS620_IDENTITY = identity_with_layers(['BF', LED0, LED1, LED2])
+_LS820_IDENTITY = identity_with_layers(['BF', 'PC', 'DF', LED0, LED1, LED2])
 _LS850T_IDENTITY = _LS820_IDENTITY
-_NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
+_NO_LED_IDENTITY = identity_with_layers(['Lumi'])
 
 
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS)
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
         # The stored mode is carried as itself.
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS)
         assert config.image_mode == '8bit'
         # A 12-bit image mode is carried as itself, so initialize() applies a
         # 12-bit native pixel format up front, or says it cannot.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
-        config = ScopeInitConfig.from_settings(twelve, turreted=False)
+        config = ScopeInitConfig.from_settings(twelve)
         assert config.image_mode == '12bit_scientific'
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
+            channel_identity=_LS620_IDENTITY,
         )
         assert config.expects_motion is False
         assert config.expects_led is True
@@ -129,9 +76,8 @@ class TestFromSettings:
     def test_ls820_motor_expected_via_focus(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS820_CONFIG,
-            layer_identity=_LS820_IDENTITY,
+            channel_identity=_LS820_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
@@ -139,20 +85,17 @@ class TestFromSettings:
     def test_ls850t_motor_expected_via_xystage_and_turret(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS850T_CONFIG,
-            layer_identity=_LS850T_IDENTITY,
+            channel_identity=_LS850T_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_no_led_driving_layer_means_no_led_expected(self):
-        scope_config = {'Focus': True, 'XYStage': False, 'Turret': False}
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
-            scope_config=scope_config,
-            layer_identity=_NO_LED_IDENTITY,
+            scope_config=_LS820_CONFIG,
+            channel_identity=_NO_LED_IDENTITY,
         )
         assert config.expects_led is False
 
@@ -167,12 +110,12 @@ class TestAccelerationBound:
 
     def test_an_in_range_value_is_carried(self):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}
-        config = ScopeInitConfig.from_settings(settings, turreted=False)
+        config = ScopeInitConfig.from_settings(settings)
         assert config.acceleration_pct == 50
 
     def test_the_api_refuses_on_the_same_bound(self):
         """from_settings and the motion API read the one check."""
         scope = build_scope(simulate=True)
         with pytest.raises(ValueError):
-            scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX + 1)
-        scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX)
+            scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX + 1)
+        scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX)

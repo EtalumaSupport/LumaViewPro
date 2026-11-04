@@ -25,13 +25,12 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_save as image_save
-from modules.tiling_config import TilingConfig
 from tests.ast_seams import parse_module
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 
 @pytest.fixture
@@ -55,8 +54,8 @@ class TestAHeadlessImageCarriesItsScale:
         caps = sim_scope.capabilities
         expected = (
             caps.pixel_size_um
-            / (caps.lens_focal_length_mm / objective['focal_length'])
-            * sim_scope.imaging._binning_size
+            / (caps.lens_focal_length_mm / objective.focal_length_mm)
+            * sim_scope.camera.binning
         )
 
         metadata = image_save.generate_image_metadata(
@@ -69,6 +68,7 @@ class TestAHeadlessImageCarriesItsScale:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['pixel_size_um'] == pytest.approx(expected, abs=1e-4), metadata.get(
@@ -91,7 +91,7 @@ class TestTheResolverIsHandedTheOptics:
     def test_a_scope_that_cannot_report_its_optics_yields_none(self, no_context):
         """Preserved: no invented scale. A scope with unknown optics still
         answers None, and its callers still degrade honestly."""
-        caps = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
+        caps = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None, axes=('X', 'Y', 'Z'))
 
         assert (
             common_utils.get_pixel_size(focal_length=9.0, binning_size=1, capabilities=caps) is None
@@ -111,7 +111,7 @@ class TestTheTilingChainIsHandedItsScale:
     def test_a_grid_is_laid_out_with_no_context_in_the_process(
         self, scale_capabilities, no_context
     ):
-        tiles = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS).get_tile_centers(
+        tiles = shipped_grids().get_tile_centers(
             config_label='2x2',
             focal_length=9.0,
             frame_size={'width': 1900, 'height': 1900},
@@ -128,9 +128,9 @@ class TestTheTilingChainIsHandedItsScale:
     ):
         """The chain above the layout: a protocol is a data object handed a
         scale, and building one headless needs nothing in the process."""
-        from tests.test_tiling_overlap import _make_protocol_from_config
+        from tests.test_tiling_overlap import _make_tiled_protocol
 
-        protocol = _make_protocol_from_config(overlap_percent=0, capabilities=scale_capabilities)
+        protocol = _make_tiled_protocol(overlap_percent=0, capabilities=scale_capabilities)
 
         assert len(protocol.steps()) == 4
 

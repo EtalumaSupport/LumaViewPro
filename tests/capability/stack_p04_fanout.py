@@ -17,7 +17,7 @@ WINDOW_S = 5.0
 
 
 def _busy(ms):
-    def handler(image, timestamp, chunks):
+    def handler(frame):
         end = time.perf_counter() + ms / 1000.0
         while time.perf_counter() < end:
             pass
@@ -28,12 +28,13 @@ def _busy(ms):
 
 def body(session):
     im = session.scope.imaging
-    im.set_exposure_ms(10.0)
-    figure('S5.camera_frame_rate_reported', im.get_resulting_frame_rate())
+    im_camera = session.scope.camera
+    im_camera.set_exposure_ms(10.0)
+    figure('S5.camera_frame_rate_reported', im_camera.read_frame_rate_fps())
     counter = {'n': 0}
     lock = threading.Lock()
 
-    def count(image, timestamp, chunks):
+    def count(frame):
         with lock:
             counter['n'] += 1
 

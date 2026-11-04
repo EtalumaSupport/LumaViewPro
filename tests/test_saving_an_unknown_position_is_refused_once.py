@@ -4,9 +4,9 @@
 Six gestures save the live position: the X, Y and Z bookmarks, Set All
 Bookmarks, Save Focus and Apply Focus to a channel's steps. An axis that
 lost its reference keeps answering the last number it reported, so each
-asks the motion API first, and the API refuses in its own words. The
-refusal raises out of the gesture's call and the boundary shows it once;
-nothing is read and nothing is written.
+reads the position through the motion API's ``positions_to_keep``, which
+refuses it in its own words. The refusal raises out of the gesture's call
+and the boundary shows it once; nothing is written.
 """
 
 from types import SimpleNamespace
@@ -15,15 +15,10 @@ from unittest.mock import MagicMock
 import pytest
 
 
-import modules.app_context as _app_ctx
 import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
-from modules.exceptions import AxisStateUnknownError
-from modules.layer_record import LayerIdentity, LayerRecord
-from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
 from tests.test_run_refusal_contract import _make_single_step_protocol
 
 
@@ -76,73 +71,31 @@ GESTURES = {
 
 
 @pytest.fixture
-def unknown(monkeypatch, centre_posts):
-    """A scope whose axes do not know their positions, and what the person is shown."""
-    from tests.scope_fakes import spec_scope
-
-    def _refuse(axes, *, recording, then):
-        raise AxisStateUnknownError(dict.fromkeys(axes, 'unknown'), then=then)
-
-    scope = spec_scope()
-    scope.motion.refuse_unknown_positions.side_effect = _refuse
-    settings = {
-        'bookmark': {'x': 1.0, 'y': 2.0, 'z': 3.0},
-        **{
-            layer: {'focus': 7000.0} for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
-        },
-    }
-    # Save Focus, Apply Focus and the bookmarks are the Session's: its real
-    # members, over the real protocols API, on this scope.
-    scope.protocols = ProtocolsAPI(scope)
-    scope.layer_identity = LayerIdentity(
-        layers=(LayerRecord(0, 'BF', 'BF', (3,), None),),
-        filterset='',
-        source='scopes',
-        model='LS850',
-    )
-    session = SimpleNamespace(scope=scope, settings=settings, settings_lock=MagicMock())
-    for name in (
-        'save_focus',
-        'apply_focus_to_layer_steps',
-        'save_bookmark',
-        'save_all_bookmarks',
-        '_layers_on_scope',
-        '_store_setting',
-    ):
-        setattr(session, name, getattr(ScopeSession, name).__get__(session))
+def unknown(gui_ctx, monkeypatch, centre_posts):
+    """An unhomed simulated session, whose axes do not know their positions,
+    and what the person is shown."""
     # The protocol panel, holding a protocol with no step selected.
     panel = SimpleNamespace(
         _protocol=_make_single_step_protocol(), curr_step=-1, update_step_ui=lambda: None
     )
-    ctx = SimpleNamespace(
-        scope=scope,
-        session=session,
-        lumaview=SimpleNamespace(scope=scope),
-        settings=settings,
-        settings_lock=MagicMock(),
-        motion_settings=SimpleNamespace(ids={'protocol_settings_id': panel}),
-        stage=MagicMock(),
-        protocol=None,
-    )
-    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+    gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': panel})
+    gui_ctx.stage = MagicMock()
     for module in (motion_settings, vertical_control, layer_control):
         monkeypatch.setattr(module.gui_logger, 'button', lambda *a, **kw: None)
-    return SimpleNamespace(scope=scope, settings=settings, posts=centre_posts)
+    return SimpleNamespace(session=gui_ctx.session, posts=centre_posts)
 
 
+# parametrize-justified: each gesture builds its own GUI fixture and counts its own popups
 @pytest.mark.parametrize('gesture', list(GESTURES))
 def test_the_refusal_is_one_warning_and_nothing_is_saved(unknown, gesture):
     import copy
 
     build, press = GESTURES[gesture]
-    before = copy.deepcopy(unknown.settings)
+    before = copy.deepcopy(unknown.session.settings)
 
     getattr(build(), press)()
 
     assert [(n.title, n.severity) for n in unknown.posts] == [('Scope Not Homed', Severity.WARNING)]
-    assert unknown.settings == before, 'a refused save writes nothing'
-    assert not unknown.scope.motion.get_current_position.called, (
-        'the position is not even read once the API refused'
-    )
-    kwargs = unknown.scope.motion.refuse_unknown_positions.call_args.kwargs
-    assert kwargs['recording'] is True
+    # An unhomed axis still answers the last number it reported: a gesture
+    # that read it past the refusing read would have saved it.
+    assert unknown.session.settings == before, 'a refused save writes nothing'

@@ -48,7 +48,7 @@ class TestPixelFormatShortCircuit(unittest.TestCase):
     def test_short_circuits_when_already_set(self):
         cam = _mock_camera()
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
-        cam.get_supported_pixel_formats = MagicMock(return_value=('Mono8', 'Mono12'))
+        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
 
         result = cam.set_pixel_format('Mono8')
 
@@ -59,7 +59,7 @@ class TestPixelFormatShortCircuit(unittest.TestCase):
     def test_writes_when_changing_format(self):
         cam = _mock_camera()
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
-        cam.get_supported_pixel_formats = MagicMock(return_value=('Mono8', 'Mono12'))
+        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
 
         result = cam.set_pixel_format('Mono12')
 

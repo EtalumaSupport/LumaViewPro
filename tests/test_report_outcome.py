@@ -12,16 +12,15 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import CancelledError
-from datetime import timedelta
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
 from modules.exceptions import (
     CaptureFailedError,
+    RunWaitExpiredError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
-    RunAlreadyEndedError,
     SingleScanNotice,
 )
 from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
@@ -79,51 +78,68 @@ class TestARefusal:
 
 class TestANotice:
     def test_shown_is_one_notice_line_naming_its_reason(self, centre, caplog):
-        notice = SingleScanNotice(period=timedelta(0), duration=timedelta(minutes=5))
+        notice = SingleScanNotice(period_s=0.0, duration_s=300.0)
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(notice, solicited=True, category='Protocol')
 
         assert [(n.severity, n.title) for n in centre.shown] == [(Severity.NOTICE, 'Single Scan')]
-        assert _records(caplog) == [(NOTIFICATIONS, int(Severity.NOTICE), False)]
+        assert _records(caplog) == [(NOTIFICATIONS, Severity.NOTICE.level, False)]
         (line,) = [r.getMessage() for r in caplog.records if r.name == NOTIFICATIONS]
         assert '(single_scan)' in line, line
 
 
 class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
-        # A fault written for the person whose type has no title of its own.
-        fault = _raised(HardwareError('the camera stopped delivering frames'))
+        # A fault written for the person: shown under its own type's title,
+        # whatever the catch names for an exception from outside the root.
+        words = 'LED firmware wedged in engineering mode. Power-cycle the unit.'
+        fault = _raised(LedFirmwareWedgedError(words))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
-                fault, solicited=False, category='Task:grab', fault_title='Grab failed'
+                fault, solicited=False, category='Task:grab', untyped_title='Grab failed'
             )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
-            (Severity.ERROR, 'Grab failed', 'the camera stopped delivering frames')
+            (Severity.ERROR, 'LED Controller Stuck', words)
         ]
         # One line: the reporter's, naming the type, with its traceback; the
         # display post writes none of its own beside it.
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
 
+    def test_typed_in_a_developer_s_words_is_shown_under_its_title_in_the_generic_sentence(
+        self, centre
+    ):
+        # A driver fault carries the SDK's text; the person reads which fault
+        # it was, and the log keeps the words.
+        fault = _raised(CameraReadFailedError('BlackLevel read failed: RuntimeException: x'))
+        centre.report_outcome(fault, solicited=False, category='Camera', untyped_title='Failed')
+
+        assert [(n.title, n.message) for n in centre.shown] == [
+            (
+                'Camera Read Failed',
+                'The operation did not complete. Check the main log for details.',
+            )
+        ]
+
     def test_its_one_line_names_its_reason_code(self, centre, caplog):
         # Two faults can share a type; a support bundle tells them apart by
         # the reason the one line carries.
-        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('no_frame'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(fault, solicited=True, category='UI:LIVE_CAPTURE')
 
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
         (line,) = [r.getMessage() for r in caplog.records if r.name == OUTCOMES]
-        assert 'CaptureFailedError (no_frame_returned)' in line, line
+        assert 'CaptureFailedError (no_frame)' in line, line
 
     def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
-        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('no_frame'))
         centre.report_outcome(
-            fault, solicited=True, category='UI:LIVE_CAPTURE', fault_title='Grab failed'
+            fault, solicited=True, category='UI:LIVE_CAPTURE', untyped_title='Grab failed'
         )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
-            (Severity.ERROR, 'Capture Failed', 'camera inactive or not grabbing')
+            (Severity.ERROR, 'Capture Failed', str(fault))
         ]
 
     def test_untyped_is_shown_in_the_generic_sentence(self, centre):
@@ -137,7 +153,10 @@ class TestAFault:
 
 @pytest.mark.parametrize(
     'quiet',
-    [RunAlreadyEndedError('the run has ended'), CancelledError()],
+    [
+        RunWaitExpiredError('run_composite', 5.0, None),
+        CancelledError(),
+    ],
     ids=['quiet_marker', 'cancel'],
 )
 def test_a_quiet_outcome_is_logged_at_info_and_never_shown(centre, caplog, quiet):

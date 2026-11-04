@@ -17,9 +17,9 @@ try:
     runner = ProtocolRunner(session)
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -32,36 +32,38 @@ try:
     )
 
     banner('an earlier scan, run to its end: its handle is the stale one below')
-    earlier = runner.run_single_scan(
+    earlier = runner.start_single_scan(
         p,
         sequence_name='earlier',
     )
-    print('earlier:', earlier.wait(timeout_s=120).status)
+    print('earlier:', earlier.result(timeout=120).status)
     deadline = time.time() + 90
     # A new run is refused while the earlier run's files still write.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
 
     banner('start a long protocol, then stop it')
-    out = runner.run_protocol(
+    out = runner.start_protocol(
         p,
         sequence_name='abortme',
     )
     time.sleep(3)
-    print('is_protocol_running:', session.is_protocol_running, '| out.is_live:', out.is_live)
+    print(
+        'live_work:',
+        [item.kind for item in session.live_work.work],
+        '| out.is_live:',
+        out.progress().is_live,
+    )
 
-    banner('a stop through the handle of a run that is not the live one must be refused')
-    try:
-        earlier.stop()
-        print('NOT REFUSED (FAIL)')
-    except Exception as e:
-        print(f'refused: {type(e).__name__}: {getattr(e, "reason", "")}: {e}')
+    banner('a stop through the operation of a run that has ended does nothing')
+    earlier.stop()
+    print('ASSERT the live run is still live:', 'PASS' if out.progress().is_live else 'FAIL')
 
     banner('the run is stopped by its own handle')
     out.stop()
-    s = out.wait(timeout_s=120)
+    s = out.result(timeout=120)
     print('status:', s.status, s.reason)
-    print('ASSERT stopped:', 'PASS' if not session.is_protocol_running else 'FAIL')
+    print('ASSERT stopped:', 'PASS' if session.activity_claim.run_holder is None else 'FAIL')
 finally:
     session.shutdown()
 print('\nPROBE 09 DONE')

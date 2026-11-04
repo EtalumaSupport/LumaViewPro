@@ -9,18 +9,32 @@ description here, so a field added to the record is added once.
 import datetime
 
 from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import (
+    FrameRecord,
+    FrameTime,
+    LightTiming,
+    SettingSource,
+    TimestampSource,
+)
 from modules.recording_frames import FrameFact
+
+# A frame's time, host local with its offset as every frame time is.
+A_FRAME_TIME = datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone()
 
 
 def frame_record(**overrides) -> FrameRecord:
-    """A plausible single-frame record with no LED lit; override any field by name."""
+    """A plausible single-frame still's record with no LED lit, from a camera
+    without a latch, so its time is the frame's arrival; override any field
+    by name. A ``captured_at`` given as a datetime is that arrival."""
     fields = {
-        'captured_at': datetime.datetime(2026, 9, 29, 12, 0, 0),
+        'captured_at': FrameTime(at=A_FRAME_TIME, source=TimestampSource.HOST_ARRIVAL),
         'exposure_ms': 10.0,
+        'exposure_source': SettingSource.FRAME,
         'gain_db': 1.0,
+        'gain_source': SettingSource.FRAME,
         'black_level': None,
         'illumination_ma': {},
+        'illumination_timing': LightTiming.BEFORE_GRAB,
         'frames_summed': 1,
         'frame_significant_bits': 8,
         'camera_timestamp_ticks': None,
@@ -28,8 +42,18 @@ def frame_record(**overrides) -> FrameRecord:
         'frame_id': None,
         'binning_size': 1,
         'camera_model': None,
+        'clock_mapping': None,
+        'judgments': (),
+        'saturated_fraction': None,
+        'dark': None,
+        'held_channel': None,
+        'auto_gain': None,
     }
     fields.update(overrides)
+    if isinstance(fields['captured_at'], datetime.datetime):
+        fields['captured_at'] = FrameTime(
+            at=fields['captured_at'], source=TimestampSource.HOST_ARRIVAL
+        )
     return FrameRecord(**fields)
 
 
@@ -38,6 +62,63 @@ def plate(key: str = '96 well microplate'):
     return WellPlateLoader().get_plate(key)
 
 
-def unpositioned(channel: str = 'BF') -> FrameFact:
+def unpositioned() -> FrameFact:
     """A still's position fact where the scope knew no position: it states none."""
-    return FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel=channel)
+    return FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+
+
+def recorded_record(**overrides) -> FrameRecord:
+    """A recorded frame's record, as ``delivered_frame_record`` states one:
+    its time the host's arrival, its LEDs read on arrival, never judged and
+    no black level; override any field by name."""
+    fields = {
+        'captured_at': FrameTime(at=A_FRAME_TIME, source=TimestampSource.HOST_ARRIVAL),
+        'illumination_timing': LightTiming.ON_ARRIVAL,
+        'judgments': None,
+        **overrides,
+    }
+    return frame_record(**fields)
+
+
+def write_recorded(
+    scope,
+    image,
+    path,
+    *,
+    channel='BF',
+    save_encoding='8bit',
+    false_color_on=False,
+    record=None,
+    fact=None,
+    frame_number=0,
+    objective_id='10x Oly',
+):
+    """Write ``image`` as a recorded frame through the one writer
+    (``image_save.write_recorded_frame``), on ``scope``'s catalogue and
+    identity; a uint16 frame is 12-bit unless ``record`` says otherwise."""
+    from modules.image_save import write_recorded_frame
+    from modules.layer_record import release_colors
+
+    if record is None:
+        record = recorded_record(frame_significant_bits=8 if image.dtype.itemsize == 1 else 12)
+    fact = fact or unpositioned()
+    labware = plate()
+    write_recorded_frame(
+        scope,
+        image,
+        path,
+        channel=channel,
+        plate_x_mm=fact.plate_x_mm,
+        plate_y_mm=fact.plate_y_mm,
+        stage_z_um=fact.z_um,
+        stage_moving=fact.moving,
+        frame_number=frame_number,
+        objective_id=objective_id,
+        frame_record=record,
+        labware=labware,
+        well_label=fact.well_label(labware),
+        fallback_focus=None,
+        false_color_on=false_color_on,
+        channel_colors=release_colors(),
+        save_encoding=save_encoding,
+    )

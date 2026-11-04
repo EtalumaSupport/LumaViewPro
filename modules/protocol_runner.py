@@ -15,28 +15,31 @@ Usage
     session = ScopeSession.create(settings=settings)
     runner = ProtocolRunner(session)
 
-    protocol = Protocol.from_file("my_protocol.csv")
-    pending = runner.run_single_scan(protocol, sequence_name="test_scan")
-    result = pending.wait(timeout_s=300)     # pending.stop() stops it
+    protocol = session.load_protocol("my_protocol.tsv")
+    run = runner.start_single_scan(protocol, sequence_name="test_scan")
+    result = run.result(timeout=300)     # run.stop() stops it
     print(result.status, result.reason, result.message)
 """
 
 import pathlib
+import typing
 
 from modules.activity_claim import HeldClaim
-from modules.exceptions import CompositeFailedError, CompositeWaitExpiredError
+from modules.exceptions import CompositeFailedError, RunWaitExpiredError
+from modules.finite_number import refuse_unless_wait_s
 from modules.layer_record import refuse_unknown_layer
+from modules.coord_transformations import PlateLocation
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
+from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
-    RunHandle,
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 
 from lvp_logger import logger
-from modules.api_surface import FilePath, api
+from modules.api_surface import Admission, FilePath, api
 
 
 class ProtocolRunner:
@@ -74,17 +77,17 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api
-    def run_single_scan(
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    def start_single_scan(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'scan',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        return_to_position: dict | None = None,
-        run_trigger_source: str = 'api_scan',
-    ) -> RunHandle:
+        return_to_position: PlateLocation | None = None,
+    ) -> 'Operation[RunOutcome]':
         """Run a single scan through the protocol steps.
 
         Args:
@@ -94,25 +97,25 @@ class ProtocolRunner:
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
             enable_image_saving: Whether to save captured images
             events: The run's event handlers (``RunEvents``); None for none.
-            return_to_position: Optional position to return to after scan
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so the protocol panel's button records its own
-                token rather than the API's.
+            return_to_position: Where to return once the scan ends, on the
+                protocol's plate, since the run moves in its protocol's
+                frame; an axis that is None is left where the scan left it.
+                None returns nowhere.
 
         Returns:
-            The committed run's handle. wait(timeout_s=...) on it for the
-            outcome: the status, reason, title and message the run ended with.
+            The run's operation. Its result() is the run's outcome -- the
+            status, reason, title and message the run ended with -- once the
+            run has let go of the scope and its run_ended has been delivered.
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no handle is returned and
-                session.is_protocol_running stays False.
+                was committed; no operation is returned and no run is
+                started.
         """
         return self._run(
             settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -121,16 +124,16 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api
-    def run_protocol(
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    def start_protocol(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'protocol',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_protocol',
-    ) -> RunHandle:
+    ) -> 'Operation[RunOutcome]':
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -140,24 +143,21 @@ class ProtocolRunner:
             parent_dir: Parent directory for output
             enable_image_saving: Whether to save captured images
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so the protocol panel's button records its own
-                token rather than the API's.
 
         Returns:
-            The committed run's handle. wait(timeout_s=...) on it for the
-            outcome: the status, reason, title and message the run ended with.
+            The run's operation. Its result() is the run's outcome -- the
+            status, reason, title and message the run ended with -- once the
+            run has let go of the scope and its run_ended has been delivered.
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no handle is returned and
-                session.is_protocol_running stays False.
+                was committed; no operation is returned and no run is
+                started.
         """
         return self._run(
             settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            run_trigger_source=run_trigger_source,
             max_scans=None,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -165,14 +165,14 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_composite(
         self,
+        *,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_composite',
-    ) -> RunHandle:
+    ) -> 'Operation[RunOutcome]':
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -189,15 +189,15 @@ class ProtocolRunner:
                 already puts it, so a script's composite and a click's land
                 in the same place.
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so a GUI click records its own token rather
-                than the API's.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
             ProtocolRunRefusedError: Fewer than two channels are set to
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
@@ -208,7 +208,7 @@ class ProtocolRunner:
         settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_composite_capture_config_from_settings(
             settings,
-            self.session.objective_helper,
+            self.session.scope.objective_helper,
             position=self.session.plate_position_on(settings['protocol']['labware']),
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
@@ -220,7 +220,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -229,18 +228,18 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api
-    def run_autofocus(
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    def start_autofocus(
         self,
-        layer: str | None,
+        channel: str | None,
+        *,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
-        run_trigger_source: str = 'api_autofocus',
-    ) -> RunHandle:
-        """Autofocus once on *layer*, at the current stage position.
+    ) -> 'Operation[RunOutcome]':
+        """Autofocus once on *channel*, at the current stage position.
 
         The headless twin of the standalone autofocus button: a
         one-position, one-layer run with autofocus on, saving no images and
@@ -261,7 +260,7 @@ class ProtocolRunner:
         runs, which it must do anyway for the measurements to be comparable.
 
         Args:
-            layer: Which layer to focus on ('BF', 'Green', ...).
+            channel: Which channel to focus on ('BF', 'Ex488', ...).
             save_characterization_data: Whether to write the per-position
                 focus scores this sweep measured. Off by default: a caller
                 that does not ask for data gets no folder. When on, the
@@ -282,19 +281,19 @@ class ProtocolRunner:
                 instead of taking the scope. The run acts inside the
                 caller's activity and cannot release its claim; it is
                 refused if that claim no longer holds. None takes the scope
-                for this run alone.
-            run_trigger_source: Who asked for the run, recorded on it and
-                named in refusals. The Autofocus button passes its own; a
-                script keeps the default. Either way the run is attended
-                -- its failures are shown -- unless it runs under *claim*.
+                for this run alone. The run is attended -- its failures are
+                shown -- unless it runs under a claim.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, or
-                ``'no_layer_selected'`` for None; asked before anything
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
+            ArgumentRefusedError: ``'channel_unknown'``, or
+                ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
@@ -302,13 +301,13 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
-            self.session.objective_helper,
-            self.session.wellplate_loader,
-            layer=layer,
+            self.session.scope.objective_helper,
+            self.session.scope.wellplate_loader,
+            layer=channel,
             position=self.session.plate_position_on(settings['protocol']['labware']),
             position_name='Autofocus',
             autofocus=True,
@@ -338,7 +337,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -349,13 +347,13 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api
-    def run_autofocus_all_steps(
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    def start_autofocus_all_steps(
         self,
         protocol: Protocol,
+        *,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_autofocus_scan',
-    ) -> RunHandle:
+    ) -> 'Operation[RunOutcome]':
         """Autofocus at every step of *protocol*, and write the focus into it.
 
         One scan that visits each step with autofocus on, whatever each
@@ -376,12 +374,10 @@ class ProtocolRunner:
             protocol: The protocol to focus. Its autofocus settings are not
                 changed; only its Z values are written.
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Who asked for the run. The GUI's button
-                passes its own; a script keeps the default.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request
@@ -394,7 +390,6 @@ class ProtocolRunner:
             settings=self.session.get_settings_snapshot(),
             protocol=scan,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name='af_scan',
             enable_image_saving=False,
@@ -403,18 +398,18 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api
-    def run_zstack(
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    def start_zstack(
         self,
-        layer: str | None,
+        channel: str | None,
+        *,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         return_to_start: bool = True,
-        run_trigger_source: str = 'api_zstack',
         enable_image_saving: bool = True,
-    ) -> RunHandle:
-        """Capture a z-stack on *layer*, around the current stage position.
+    ) -> 'Operation[RunOutcome]':
+        """Capture a z-stack on *channel*, around the current stage position.
 
         The one implementation of a z-stack run, for a script and for the
         Acquire button on the z-stack panel alike: a one-position,
@@ -426,7 +421,7 @@ class ProtocolRunner:
         position is the top, centre or bottom of the sweep -- come from the
         settings store, as does everything else about the capture, so this
         run and a click on the button resolve the same way. The layer is named by the
-        caller for the same reason run_autofocus asks for it: an open
+        caller for the same reason start_autofocus asks for it: an open
         drawer is a fact about a running GUI.
 
         Autofocus is forced OFF for the step, matching the button. A
@@ -439,7 +434,7 @@ class ProtocolRunner:
         enabled ones, this is the line that changes.
 
         Args:
-            layer: Which layer to capture ('BF', 'Green', ...).
+            channel: Which channel to capture ('BF', 'Ex488', ...).
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
@@ -452,21 +447,20 @@ class ProtocolRunner:
                 not where the operator was looking. A bool rather than a
                 position, so a caller cannot hand back coordinates in a
                 frame this run never used.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so a GUI click records its own token rather
-                than the API's.
             enable_image_saving: Whether the slices are written. On by
-                default; the engineering panel's "disable image saving"
-                switch is the one caller that turns it off, to exercise the
-                stage without filling the disk.
+                default; off, the stack moves and captures and writes no
+                file, to exercise the stage without filling the disk.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, or
-                ``'no_layer_selected'`` for None; asked before anything
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
+            ArgumentRefusedError: ``'channel_unknown'``, or
+                ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so no slice could say what it was taken with.
@@ -476,14 +470,17 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         settings = self.session.capture_settings_snapshot()
         position = self.session.plate_position_on(settings['protocol']['labware'])
+        # The build stacks around this position and judges the slices'
+        # travel; a position no axis vouches for is the run's to refuse first.
+        self._executor.refuse_unknown_positions()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
-            self.session.objective_helper,
-            self.session.wellplate_loader,
-            layer=layer,
+            self.session.scope.objective_helper,
+            self.session.scope.wellplate_loader,
+            layer=channel,
             position=position,
             position_name='ZStack',
             # Off, and not a caller's choice: an autofocus at every slice
@@ -503,7 +500,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -512,13 +508,296 @@ class ProtocolRunner:
             return_to_position=position if return_to_start else None,
         )
 
-    @api
+    # ------------------------------------------------------------------
+    # Waiting forms: each run's start, waited for. In-process only: over
+    # REST a start's job, with Prefer: wait, is the waiting form.
+    # ------------------------------------------------------------------
+
+    @api(in_process=True)
+    def run_single_scan(
+        self,
+        protocol: Protocol,
+        *,
+        sequence_name: str = 'scan',
+        parent_dir: FilePath | None = None,
+        enable_image_saving: bool = True,
+        events: RunEvents | None = None,
+        return_to_position: PlateLocation | None = None,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_single_scan``, waited for: returns the run's outcome once it has let go of the scope.
+
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol whose steps the scan runs.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``ProtocolData`` under the live folder.
+            enable_image_saving: Whether the captured images are saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            return_to_position: Where to return once the scan ends, on the
+                protocol's plate; an axis that is None is left where the scan
+                left it. None returns nowhere.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
+            ProtocolRunRefusedError: As ``start_single_scan``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_single_scan``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_single_scan')
+        return self._waited(
+            'run_single_scan',
+            lambda: self.start_single_scan(
+                protocol=protocol,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                enable_image_saving=enable_image_saving,
+                events=events,
+                return_to_position=return_to_position,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_protocol(
+        self,
+        protocol: Protocol,
+        *,
+        sequence_name: str = 'protocol',
+        parent_dir: FilePath | None = None,
+        enable_image_saving: bool = True,
+        events: RunEvents | None = None,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_protocol``, waited for: returns the run's outcome once it has let go of the scope.
+
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol whose steps, period and duration the run
+                follows.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``ProtocolData`` under the live folder.
+            enable_image_saving: Whether the captured images are saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
+            ProtocolRunRefusedError: As ``start_protocol``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_protocol``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_protocol')
+        return self._waited(
+            'run_protocol',
+            lambda: self.start_protocol(
+                protocol=protocol,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                enable_image_saving=enable_image_saving,
+                events=events,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_autofocus(
+        self,
+        channel: str | None,
+        *,
+        save_characterization_data: bool = False,
+        sequence_name: str = 'autofocus',
+        parent_dir: FilePath | None = None,
+        events: RunEvents | None = None,
+        claim: HeldClaim | None = None,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_autofocus``, waited for: returns the run's outcome once it has let go of the scope.
+
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            channel: Which channel to focus on ('BF', 'Ex488', ...).
+            save_characterization_data: Whether to write the focus scores the
+                sweep measured; the outcome says whether the file was written
+                and names it.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: Where characterization data goes; None for
+                ``Autofocus Characterization`` under the live folder. Unused
+                when no data is saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            claim: A claim the caller holds, the one
+                ``session.diagnostic_claim()`` yields, to run under instead of
+                taking the scope; None takes the scope for this run alone.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
+            ProtocolRunRefusedError: As ``start_autofocus``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_autofocus``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_autofocus')
+        return self._waited(
+            'run_autofocus',
+            lambda: self.start_autofocus(
+                channel=channel,
+                save_characterization_data=save_characterization_data,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+                claim=claim,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_autofocus_all_steps(
+        self,
+        protocol: Protocol,
+        *,
+        events: RunEvents | None = None,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_autofocus_all_steps``, waited for: returns the run's outcome once it has let go of the scope.
+
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol to focus; only its Z values are written.
+            events: The run's event handlers (``RunEvents``); None for none.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
+            ProtocolRunRefusedError: As ``start_autofocus_all_steps``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_autofocus_all_steps``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_autofocus_all_steps')
+        return self._waited(
+            'run_autofocus_all_steps',
+            lambda: self.start_autofocus_all_steps(
+                protocol=protocol,
+                events=events,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_zstack(
+        self,
+        channel: str | None,
+        *,
+        sequence_name: str = 'zstack',
+        parent_dir: FilePath | None = None,
+        events: RunEvents | None = None,
+        return_to_start: bool = True,
+        enable_image_saving: bool = True,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_zstack``, waited for: returns the run's outcome once it has let go of the scope.
+
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            channel: Which channel to capture ('BF', 'Ex488', ...).
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``Manual/Z-Stacks`` under the live folder.
+            events: The run's event handlers (``RunEvents``); None for none.
+            return_to_start: Whether to put the stage back where the stack
+                was centred when the run ends.
+            enable_image_saving: Whether the slices are written.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
+            ProtocolRunRefusedError: As ``start_zstack``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_zstack``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_zstack')
+        return self._waited(
+            'run_zstack',
+            lambda: self.start_zstack(
+                channel=channel,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+                return_to_start=return_to_start,
+                enable_image_saving=enable_image_saving,
+            ),
+            timeout_s,
+        )
+
+    def _waited(
+        self, member: str, start: typing.Callable[[], Operation], timeout_s: float | None
+    ) -> RunOutcome:
+        """Start the run and wait for its outcome; a wait that runs out hands the caller the run, still going.
+
+        The wait is judged before *start* is called, so a wait no host can
+        hold is refused with nothing started, never raised out of the wait
+        while the run goes on with no handle to it.
+        """
+        if timeout_s is not None:
+            refuse_unless_wait_s(timeout_s, 'timeout_s')
+        run = start()
+        try:
+            return run.result(timeout=timeout_s)
+        except TimeoutError:
+            # A run that ended in a TimeoutError of its own is not this wait's.
+            if run.done():
+                raise
+            raise RunWaitExpiredError(member, timeout_s, run) from None
+
+    @api(in_process=True)
     def run_composite(
         self,
+        *,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-        merge_timeout_s: float = 900.0,
+        timeout_s: float | None = None,
     ) -> RunOutcome:
         """Capture one frame per acquiring channel and merge them.
 
@@ -535,10 +814,10 @@ class ProtocolRunner:
         the merge settles and returns the run's outcome, the artifact's path
         on it. A run that reported 'completed' while the merged file was
         missing would be indistinguishable from a successful one to every
-        headless caller, which is the boundary this run kind exists to fix;
-        and a composite merged from fewer channels than were asked for says
-        so, with status 'incomplete' and the failed channels in
-        ``captures``, beside its path.
+        headless caller, which is the boundary this run kind exists to fix.
+        A composite is merged from every channel asked for or not at all: a
+        channel that captured nothing leaves no composite, the run's status
+        'incomplete' with the failed channels in ``captures``.
 
         Args:
             sequence_name: The name of the protocol file the run saves in
@@ -546,9 +825,8 @@ class ProtocolRunner:
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
             events: The run's event handlers (``RunEvents``); None for none.
-            merge_timeout_s: Upper bound on the whole capture-and-merge
-                wait. Covers the run itself, so it is longer than the
-                merge's own internal drain bound.
+            timeout_s: How long to wait for the run and its merge; None
+                waits for them to end.
 
         Returns:
             The run's RunOutcome: ``merged`` True, ``artifact_path`` the
@@ -563,29 +841,38 @@ class ProtocolRunner:
             CompositeFailedError: The run finished but produced no composite. The
                 error names the machine-readable reason, so a caller can
                 tell an aborted run from a failed merge.
-            CompositeWaitExpiredError: ``'merge_timeout'``, a
-                ``TimeoutError``: ``merge_timeout_s`` ran out before the run
-                or its merge reported; either may still be going.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out before the run or its merge ended;
+                its ``operation`` holds the run, still going.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_composite``. Nothing
+                was started.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
         """
-        outcome = self.start_composite(
-            sequence_name=sequence_name,
-            parent_dir=parent_dir,
-            events=events,
+        refuse_waiting_on_ui_thread('run_composite')
+        settled = self._waited(
+            'run_composite',
+            lambda: self.start_composite(
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+            ),
+            timeout_s,
         )
-        settled = outcome.wait(timeout_s=merge_timeout_s)
-        if settled is None:
-            raise CompositeWaitExpiredError(
-                f'the composite did not report an outcome within '
-                f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
-                'merge_timeout',
-            )
         if not settled.merged:
             # A run that did not complete names its own ending; a completed
             # run with no artifact names what the merge did. One field is
-            # empty in each case, so the caller never has to guess which
-            # vocabulary it is reading.
+            # empty in each case. Either is another vocabulary's string, so
+            # the failure carries it as a field under its own reason.
             code = settled.merge_reason or settled.reason
-            raise CompositeFailedError(f'no composite was produced ({code})', code)
+            message = f'no composite was produced ({code})'
+            if not settled.merge_reason:
+                raise CompositeFailedError(message, 'run_not_completed', run_ending=settled.reason)
+            if settled.merge_reason in CompositeFailedError.causes:
+                raise CompositeFailedError(message, settled.merge_reason)
+            raise CompositeFailedError(message, 'merge_error', merge_failure=settled.merge_reason)
         return settled
 
     def _run(
@@ -593,19 +880,18 @@ class ProtocolRunner:
         settings: dict,
         protocol: Protocol,
         run_mode: SequencedCaptureRunMode,
-        run_trigger_source: str,
         max_scans: int | None,
         sequence_name: str,
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        return_to_position: dict | None = None,
+        return_to_position: PlateLocation | None = None,
         composite_thresholds_percent: dict | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         claim: HeldClaim | None = None,
         write_focus_to: Protocol | None = None,
-    ) -> RunHandle:
+    ) -> Operation:
         """Internal: configure and launch the sequenced capture executor.
 
         ``settings`` is the one copy the member took at its start: every
@@ -613,13 +899,12 @@ class ProtocolRunner:
         landing while the run is assembled cannot give one run two answers.
 
         Returns:
-            The committed run's handle.
+            The run's operation.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request (already
                 running, files still writing, empty/invalid protocol,
-                hardware not connected); no state was committed and the
-                user was already notified once.
+                hardware not connected); no state was committed.
         """
         import modules.config_helpers as config_helpers
 
@@ -637,7 +922,6 @@ class ProtocolRunner:
         plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
-            run_trigger_source=run_trigger_source,
             max_scans=max_scans,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -657,7 +941,7 @@ class ProtocolRunner:
             borrowed_claim=claim.lend() if claim is not None else None,
             # The image mode and formats are the store's, read from the
             # snapshot for every run kind, so a script and the GUI's Run get
-            # the same files from the same settings; session.set_image_mode
+            # the same files from the same settings; scope.camera.set_image_mode
             # is how a caller chooses.
             **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
@@ -672,7 +956,7 @@ class ProtocolRunner:
         logger.info(
             f'[Protocol] scan "{sequence_name}" '
             f'image_mode={plan.image_capture_config.image_mode} '
-            f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
+            f'pixel_format={self.session.scope.camera.pixel_format} '
             f'save_encoding={plan.image_capture_config.save_encoding}'
         )
 

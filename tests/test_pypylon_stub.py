@@ -57,7 +57,6 @@ class TestDriverHandlersConstructible:
         parent._mark_disconnected = MagicMock()
         parent._schedule_async_teardown = MagicMock()
         handler = pyloncamera._CameraRemovalHandler(parent)
-        # a stand-in by design: the SDK's event argument, read by nothing here
-        handler.OnCameraDeviceRemoved(camera=MagicMock())
+        handler.OnCameraDeviceRemoved(camera=None)
         parent._mark_disconnected.assert_called_once()
         parent._schedule_async_teardown.assert_called_once()

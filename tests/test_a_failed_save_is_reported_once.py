@@ -14,12 +14,13 @@ import pathlib
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
 from modules import image_save, image_utils
 from modules.exceptions import CaptureError, ImageSaveError
 from modules.lumascope_api.runtime_state import RuntimeState
 from tests.test_jpg_export import _bright_mono, _scope_with_depth
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_colors
 
 
 def _save(tmp_path):
@@ -39,6 +40,9 @@ def _save(tmp_path):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        white_bits=None,
+        fallback_focus=None,
     )
 
 
@@ -95,11 +99,26 @@ SDK_SETTERS = [
 class _FailingCamera:
     active = True
 
+    def is_connected(self):
+        return True
+
     def __init__(self, method):
         def fail(**kwargs):
-            raise HardwareError(f'{method} failed: RuntimeException: node write timed out')
+            raise CameraWriteFailedError(f'{method} failed: RuntimeException: node write timed out')
 
         setattr(self, method, fail)
+
+    def __getattr__(self, name):
+        # A camera whose every read goes unanswered: the API's cache fill at
+        # construction asks the getters, and only the camera's read fault is
+        # a read the camera did not answer.
+        if name.startswith('get_'):
+
+            def unanswered(*args, **kwargs):
+                raise CameraReadFailedError(f'{name}: the camera did not answer')
+
+            return unanswered
+        raise AttributeError(name)
 
 
 @pytest.mark.parametrize(('setter', 'method', 'args'), SDK_SETTERS)
@@ -107,13 +126,20 @@ def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(
     setter, method, args, centre_posts
 ):
     from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
+    from tests.scope_fakes import (
+        give_camera_and_imaging,
+        give_capabilities_of_a_camera_without_auto_modes,
+        give_stub_lanes,
+    )
 
     camera = _FailingCamera(method)
     scope = Lumascope.__new__(Lumascope)
     scope.runtime_state = RuntimeState(scope)
     scope._camera_driver = camera
-    imaging = ImagingAPI(scope, camera)
+    give_stub_lanes(scope)
+    give_capabilities_of_a_camera_without_auto_modes(scope)
+    give_camera_and_imaging(scope)
+    imaging = scope.imaging
 
     with pytest.raises(HardwareError, match='node write timed out'):
         getattr(imaging, setter)(*args)

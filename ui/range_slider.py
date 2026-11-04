@@ -21,17 +21,20 @@ Builder.load_string("""
         Color:
             rgb: 1, 1, 1
         BorderImage:
-            # Track + cursor sizes halved from the defaulttheme defaults
-            # (sp(36)/sp(32)); the originals rendered far larger than the app's
-            # ModSliders on the Object Analysis page.
-            pos: (self.x + self.padding, self.center_y - sp(9)) if self.orientation == 'horizontal' else (self.center_x - 9, self.y + self.padding)
-            size: (self.width - self.padding * 2, sp(18)) if self.orientation == 'horizontal' else (sp(18), self.height - self.padding * 2)
+            # The track as Kivy's own <Slider> rule draws it, so it matches the
+            # sliders beside it: the image scales to the box's height, and the
+            # border keeps its rounded ends unstretched. A border wider than its
+            # box draws the image inside out, so both come from the properties.
+            border: self.border_horizontal if self.orientation == 'horizontal' else self.border_vertical
+            pos: (self.x + self.padding, self.center_y - self.background_width / 2) if self.orientation == 'horizontal' else (self.center_x - self.background_width / 2, self.y + self.padding)
+            size: (self.width - self.padding * 2, self.background_width) if self.orientation == 'horizontal' else (self.background_width, self.height - self.padding * 2)
             source: 'atlas://data/images/defaulttheme/slider{}_background{}'.format(self.orientation[0], '_disabled' if self.disabled else '')
         Color:
             rgba: self.connector_color
         BorderImage:
-            pos: (self.value1_pos[0], self.center_y - sp(9)) if self.orientation == 'horizontal' else (self.center_x - sp(9), self.value1_pos[1])
-            size: (self.value2_pos[0] - self.value1_pos[0], sp(18)) if self.orientation == 'horizontal' else (sp(18), self.value2_pos[1] - self.value1_pos[1])
+            border: self.border_horizontal if self.orientation == 'horizontal' else self.border_vertical
+            pos: (self.value1_pos[0], self.center_y - self.background_width / 2) if self.orientation == 'horizontal' else (self.center_x - self.background_width / 2, self.value1_pos[1])
+            size: (self.value2_pos[0] - self.value1_pos[0], self.background_width) if self.orientation == 'horizontal' else (self.background_width, self.value2_pos[1] - self.value1_pos[1])
             source: 'atlas://data/images/defaulttheme/slider{}_background{}'.format(self.orientation[0], '_disabled' if self.disabled else '')
         Color:
             rgb: 1, 1, 1
@@ -62,6 +65,20 @@ class RangeSlider(Widget):
     connector_color = ListProperty([0.2, 0.7, 0.9, 1])
     """Connector bar color, in the format (r, g, b, a).
     for disabling this bar use a = .0 """
+
+    background_width = NumericProperty('36sp')
+    """Height of the track image's box (its width when vertical), as Kivy's
+    Slider names and sizes it. The image scales to it, so it sets the drawn
+    bar's thickness, the same as a slider's at the default."""
+
+    border_horizontal = ListProperty([0, 18, 0, 18])
+    """The track image's border when horizontal, (bottom, right, top, left) as
+    Kivy's Slider has it: the rounded ends stay unstretched and nothing is
+    reserved top or bottom. A border whose two sides exceed the box draws the
+    image inside out, and the bar disappears."""
+
+    border_vertical = ListProperty([18, 0, 18, 0])
+    """The track image's border when vertical, as Kivy's Slider has it."""
 
     def _get_value(self):
         return [self.value1, self.value2]

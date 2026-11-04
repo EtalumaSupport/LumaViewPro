@@ -7,7 +7,7 @@ Every protocol step that crosses an objective went:
   step_navigation.go_to_step:118
     -> ui_helpers.move_absolute('T', protocol=True)
     -> vertical_control.turret_select(protocol=True)
-    -> motion.move_turret(position=...)
+    -> motion.move_turret(slot=...)
     -> motion._safe_turret_move() (context manager)
         -> Z to 0
         -> T move
@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from modules.coord_transformations import PlateLocation
+from tests.protocol_fixtures import protocol_of
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -46,7 +48,7 @@ STEPNAV_SRC = REPO / 'ui' / 'step_navigation.py'
 
 
 def _module_tree(path: pathlib.Path) -> ast.Module:
-    return ast.parse(path.read_text())
+    return ast.parse(path.read_text(encoding='utf-8'))
 
 
 def _function_node(tree: ast.Module, name: str, class_name: str | None = None) -> ast.FunctionDef:
@@ -155,7 +157,7 @@ def _empty_protocol_for_add():
         'tiling': '1x1',
         'custom_step_count': 0,
     }
-    return Protocol(tiling_configs_file_loc=REPO / 'data' / 'tiling.json', config=config)
+    return protocol_of(config=config)
 
 
 def _add_layer_config():
@@ -168,23 +170,25 @@ def _add_layer_config():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
         'focus': 7000.0,
     }
 
 
 def _insert_generated_step(protocol):
     protocol.insert_step(
+        channel_group_id=protocol.new_channel_group_id(),
+        turret_slot=-1,
         step_name=None,
         layer='BF',
         layer_config=_add_layer_config(),
-        plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+        plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=0,
-        after_step=None,
+        before_step_index=0,
+        after_step_index=None,
     )
-    return protocol.step(idx=0)['Name']
+    return protocol.step_row(step_index=0)['Name']
 
 
 def test_added_step_name_keeps_channel_not_objective():

@@ -22,12 +22,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedEndPolicy, LedState
+
 import modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
 from modules.run_outcome import PendingRunOutcome, RunEnding
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, channel_reading
+from tests.stock_channels import LED0
 
-LAYER = 'Blue'
+LAYER = LED0
 ILLUMINATION_MA = 10.0
 
 
@@ -39,7 +42,7 @@ def scope():
 
 
 def _lit(scope):
-    return scope.illumination.get_led_state(LAYER)['enabled']
+    return channel_reading(scope.illumination, LAYER).state is LedState.LIT
 
 
 def _make_runner_stub(scope, *, lease):
@@ -53,14 +56,14 @@ def _make_runner_stub(scope, *, lease):
     an inert mock slot.
     """
     stub = MagicMock()
-    run = scr.RunHandle(stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock()))
+    run = scr.EngineRun(stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock()))
     stub.run_outcome = lambda: run
     stub._scope = scope
     stub._led_lease = lease
     stub._image_writer = None
     stub._is_run_live = lambda: True
     stub.LOGGER_NAME = 'TestCleanup'
-    stub._start_hyperstack_build = lambda: None
+    stub._start_hyperstack_build = lambda on_end: None
     stub._release_scan_led_lease = types.MethodType(
         scr.SequencedCaptureRunner._release_scan_led_lease, stub
     )
@@ -70,14 +73,14 @@ def _make_runner_stub(scope, *, lease):
 
 def _run_cleanup_inner(stub, ending=None):
     if ending is None:
-        ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
+        ending = RunEnding('failed', 'run_loop_crashed', 'died')
     scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome(), [])
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
     # Lit before the lease exists, so no lease is recorded as having lit it:
     # the exact case a lit-by-lease-scoped darken misses.
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
@@ -96,7 +99,7 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
 
 
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
@@ -117,7 +120,7 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
     # Behavior-preservation guard: passes before and after the fix. The
     # early-return path (run already unwound) never owned the run's LEDs;
     # darkening here would kill a prior cleanup's restored end-state.
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope)
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
@@ -127,3 +130,65 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
     _run_cleanup_inner(stub)
 
     assert _lit(scope), 'a cleanup that never held the lease must leave the LED end-state alone'
+
+
+def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
+    """Run run_cleanup with this RUN_END transition; what it logged at INFO."""
+    import threading
+
+    import modules.protocol_cleanup as protocol_cleanup
+    from modules.protocol_state_machine import ProtocolState
+
+    told = []
+    monkeypatch.setattr(
+        protocol_cleanup.logger, 'info', lambda message, *a, **k: told.append(message)
+    )
+    applied = protocol_cleanup.run_cleanup(
+        get_state_fn=lambda: ProtocolState.RUNNING,
+        set_state_fn=lambda state: None,
+        scan_in_progress=threading.Event(),
+        forced_dark=False,
+        led_end_policy=LedEndPolicy.OFF,
+        original_led_states=(),
+        saved_camera_state={},
+        show_pre_run_layer_fn=None,
+        return_to_position=None,
+        scope=scope,
+        apply_led_transition_fn=apply_led_transition_fn,
+        default_move_fn=lambda *a, **k: None,
+        cancel_scheduled_events_fn=lambda: None,
+        autofocus_thread=None,
+        write_batch=scr.RunWriteBatch(MagicMock()),
+        ending=RunEnding('completed', 'completed', 'The run finished normally.'),
+        record_cleanup_failures=lambda steps: None,
+        failed_before=(),
+        video_save_wait_s=None,
+        video_as_frames=False,
+    )
+    return applied, told
+
+
+def test_a_restore_that_did_not_apply_is_not_logged_as_complete(scope, monkeypatch):
+    # A stand-in by design: the subject is the cleanup catching the run's LED
+    # transition, and the transition is its interchangeable collaborator.
+    from modules.lumascope_api._lumascope import scope_lane_closed
+
+    # The lane closing under the restore is the one drop that reaches it.
+    for fault in (RuntimeError('LED board did not answer'), scope_lane_closed('apply')):
+
+        def _fails(transition, ctx, fault=fault):
+            raise fault
+
+        applied, told = _cleanup_told(scope, monkeypatch, _fails)
+
+        assert applied is False
+        assert [line for line in told if 'LED' in line and 'complete' in line] == [], (
+            f'a restore that raised {type(fault).__name__} must not be logged as complete'
+        )
+
+
+def test_a_restore_that_applied_is_logged_with_what_it_applied(scope, monkeypatch):
+    applied, told = _cleanup_told(scope, monkeypatch, lambda transition, ctx: None)
+
+    assert applied is True
+    assert [line for line in told if 'LED end state applied' in line] != []

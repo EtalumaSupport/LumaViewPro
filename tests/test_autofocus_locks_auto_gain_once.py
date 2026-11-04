@@ -15,12 +15,11 @@ resume.
 from __future__ import annotations
 
 import ast
-import contextlib
 import types
 
 import pytest
 
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusFailedError
 
 from tests import ast_seams
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED, _arm, _build
@@ -80,53 +79,44 @@ def test_the_lock_is_inside_the_bracket_and_the_camera_snapshot_precedes_it():
     )
 
 
-def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
+def test_restore_re_arms_on_every_exit_of_the_bracket(sim_scope):
     """The re-arm rides the camera-state restore in the bracket's finally,
-    so an abort exit puts a live-view arm back the same way a completion
-    does. The snapshot is taken at the top of the try and always carries
+    so a failure exit (here a flat curve) puts a live-view arm back the
+    same way a completion does. The snapshot is taken at the top of the try and always carries
     its tag, so once it has been taken the restore branch cannot be
     skipped on any exit. A preservation guard on the exit path; the
     re-arm itself is proven on the API in test_auto_gain_lock."""
-    from modules.lumascope_api.imaging import AutoGainLock, _AutoGainArm
-    from tests.af_drives import af_runner_and_scope, drive_af
+    from modules.lumascope_api.camera import CameraAutoMode
+    from tests.af_drives import af_runner_on, sweep
 
-    arm = _AutoGainArm(dict(AG_SETTINGS_TRANSMITTED), True)
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
-    runner, scope = af_runner_and_scope()
-    scope.imaging.save_camera_state.return_value = {
-        'tag': 'autofocus',
-        'gain_db': 1.0,
-        'exposure_ms': 10.0,
-        'auto_gain_arm': arm,
-    }
-    scope.imaging.lock_auto_gain.return_value = AutoGainLock(state=None)
-    with contextlib.suppress(AutofocusAborted):
-        drive_af(runner)
-    restored = scope.imaging.restore_camera_state.call_args.args[0]
-    assert restored['auto_gain_arm'] is arm
-    assert scope.imaging._resume_auto_gain_impl.call_count == 0
+    runner = af_runner_on(sim_scope, pattern='white')
+    sim_scope.camera.set_auto_gain(True, dict(AG_SETTINGS_TRANSMITTED), resume_after_capture=True)
+    with pytest.raises(AutofocusFailedError) as failed:
+        sweep(runner, sim_scope)
+    assert failed.value.reason == 'flat_focus_curve'
+    assert sim_scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, (
+        'a failed sweep must put the live-view arm it locked back'
+    )
 
 
 def test_lock_and_resume_pair_on_the_api():
     """One lock before N captures and one resume after: no capture inside
     the bracket locks on its own, and the live-view arm is back at the end."""
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
-    lock = imaging._lock_auto_gain_impl()
+    imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    lock = camera._lock_auto_gain_impl()
     assert lock.state == lock.state.CONVERGED
     assert cam._auto_gain_enabled is False
     for _ in range(3):
-        assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
-        assert 'auto_gain' not in (imaging.last_capture_info or {}), (
-            'a capture inside the bracket locked on its own'
-        )
+        record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
+        assert record.auto_gain is None, 'a capture inside the bracket locked on its own'
         assert cam._auto_gain_enabled is False
-    imaging._resume_auto_gain_impl(lock)
+    camera._resume_auto_gain_impl(lock)
     assert cam._auto_gain_enabled is True
-    assert imaging._auto_gain_arm is not None
+    assert camera._auto_gain_arm is not None
 
 
-class _RecordingImaging:
+class _RecordingCamera:
     """Records the setter writes the sweep's target step makes."""
 
     def __init__(self):
@@ -143,7 +133,7 @@ def _runner_with_step_targets(gain_db, exposure_ms):
     from modules.autofocus_runner import AutofocusRunner
 
     runner = AutofocusRunner.__new__(AutofocusRunner)
-    runner._scope = types.SimpleNamespace(imaging=_RecordingImaging())
+    runner._scope = types.SimpleNamespace(camera=_RecordingCamera())
     runner._camera_gain = gain_db
     runner._camera_exposure = exposure_ms
     return runner
@@ -157,32 +147,48 @@ def test_sweep_scans_at_the_locks_values():
     the first bench sweep ran at 1.0 dB / 2 ms on a scene the loop had
     settled at 6.8 dB / 50 ms. With no arm, or a FAILED lock carrying no
     values, the step's values are written as before."""
-    from modules.lumascope_api.imaging import AutoGainConvergence, AutoGainLock
+    from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
 
     runner = _runner_with_step_targets(1.0, 2.0)
     runner._apply_sweep_camera_targets(
         AutoGainLock(AutoGainConvergence.MAXED, exposure_ms=50.0, gain_db=6.72)
     )
-    assert runner._scope.imaging.writes == []
+    assert runner._scope.camera.writes == []
     assert (runner._camera_gain, runner._camera_exposure) == (6.72, 50.0)
 
     runner = _runner_with_step_targets(1.0, 2.0)
     runner._apply_sweep_camera_targets(AutoGainLock(state=None))
-    assert runner._scope.imaging.writes == [('gain', 1.0), ('exposure', 2.0)]
+    assert runner._scope.camera.writes == [('gain', 1.0), ('exposure', 2.0)]
     assert (runner._camera_gain, runner._camera_exposure) == (1.0, 2.0)
 
     runner = _runner_with_step_targets(1.0, 2.0)
     runner._apply_sweep_camera_targets(AutoGainLock(AutoGainConvergence.FAILED))
-    assert runner._scope.imaging.writes == [('gain', 1.0), ('exposure', 2.0)]
+    assert runner._scope.camera.writes == [('gain', 1.0), ('exposure', 2.0)]
 
 
 def test_half_populated_lock_is_unconstructible():
     """A lock carries both achieved values or neither: a lock with one of
     them would let the sweep keep the lock's gain and the snapshot's
     exposure, a mixed camera state nothing asked for."""
-    from modules.lumascope_api.imaging import AutoGainConvergence, AutoGainLock
+    from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
 
     with pytest.raises(ValueError):
         AutoGainLock(AutoGainConvergence.CONVERGED, exposure_ms=5.0)
     with pytest.raises(ValueError):
         AutoGainLock(AutoGainConvergence.CONVERGED, gain_db=5.0)
+
+
+def test_a_lock_carries_values_exactly_when_its_state_reached_them():
+    """A lock that reached values (CONVERGED, MAXED, AT_MINIMUM) carries
+    both; a FAILED lock, or one with no arm, carries neither. The session's
+    store and the sweep each ask only whether the values are there, so a
+    lock whose values disagree with its state cannot be built."""
+    from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
+
+    with pytest.raises(ValueError, match='exactly when it reached them'):
+        AutoGainLock(AutoGainConvergence.FAILED, exposure_ms=5.0, gain_db=1.0)
+    with pytest.raises(ValueError, match='exactly when it reached them'):
+        AutoGainLock(None, exposure_ms=5.0, gain_db=1.0)
+    for state in ('CONVERGED', 'MAXED', 'AT_MINIMUM'):
+        with pytest.raises(ValueError, match='exactly when it reached them'):
+            AutoGainLock(state)

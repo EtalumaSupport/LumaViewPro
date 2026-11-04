@@ -15,6 +15,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
+from modules.exceptions import ServerRefusedError
 from rest import problems
 
 # The most handles held at once. A call whose answer can carry a new
@@ -90,14 +91,12 @@ class HandleRegistry:
 
         Raises:
             ServerRefusedError: ``not_found``, no such id is held for that class;
-                ``handle_shared`` (409), the id is one every client shares.
+                ``handle_shared`` (422), the id is one every client shares.
         """
         obj = self.get(handle, cls)
         if self._kept(obj):
-            raise problems.ServerRefusedError(
-                409,
+            raise ServerRefusedError(
                 'handle_shared',
-                'Handle Shared',
                 f'{cls.__name__} handle {handle} is shared by every client and is kept.',
             )
         with self._lock:

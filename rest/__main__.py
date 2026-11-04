@@ -3,26 +3,25 @@
 
 Brings the scope up as the GUI does -- the single-instance lock, the
 prepared settings, ``ScopeSession.create``, the startup motion, the
-plugins, the metrics -- and serves the declared API on
-``127.0.0.1:<rest_api.port>``. It has no credentials, so it binds the
-loopback interface only and takes no host: anyone who can reach the port
-drives the scope. SIGINT or SIGTERM closes it with its clients connected
-(``rest.server``); it exits 0, or 1 when the session did not close cleanly.
+plugins, the metrics -- and serves the declared API through
+``rest.server.build_server`` on ``rest_api.address`` and ``rest_api.port``
+(shipped ``127.0.0.1:8000``, this computer only). It has no credentials:
+anyone who can reach the address drives the scope, unless
+``rest_api.allowed_clients`` names the clients served. A ``rest_api``
+setting that cannot be used, or an address and port that cannot be taken,
+is printed and it exits 1. SIGINT or SIGTERM
+closes it with its clients connected (``rest.server``); it exits 0, or 1
+when the session did not close cleanly.
 """
 
 import argparse
 import sys
 
-HOST = '127.0.0.1'
-# Seconds the close waits for the calls' threads once the session has shut
-# down; a call still running then is logged by name and the process exits.
-JOIN_S = 10.0
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog='python -m rest',
-        description='Serve the Lumascope API over HTTP on 127.0.0.1.',
+        description='Serve the Lumascope API over HTTP, where rest_api in the settings says.',
     )
     parser.add_argument(
         '--simulate', action='store_true', help='drive the simulated scope, not hardware'
@@ -52,41 +51,44 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported after the lock: a second launch exits before it loads the
     # scope's modules and the server's dependencies.
-    import uvicorn
-
+    from modules.exceptions import RestServerNotStartedError
     from modules.scope_session import ScopeSession
-    from rest.app import build_app
-    from rest.server import Server
+    from rest.server import build_server
 
     settings = ScopeSession.load_user_settings(str(source_path))
-    port = settings['rest_api']['port']
 
     session = ScopeSession.create(
         settings=settings,
         source_path=str(source_path),
         simulate=args.simulate,
         warn_pre_release=False,
+        settings_file=ScopeSession.user_settings_file(source_path),
     )
     try:
-        app = build_app(session)
-        server = Server(uvicorn.Config(app, host=HOST, port=port), session, app.state.closing)
+        try:
+            server = build_server(session, shut_down=session.shutdown)
+        except RestServerNotStartedError as e:
+            logger.error(f'[REST     ] {e}')
+            print(e, file=sys.stderr)
+            session.shutdown()
+            return 1
         # A failed home is reported and the motion ends; the server still
         # serves, so a client can home again.
-        session.start_application_session()
+        session.run_application_session()
         session.load_plugins()
-        session.start_metrics()
-        print(
-            f'LumaViewPro REST server: http://{HOST}:{port}/api/v1 (reference: /docs)', flush=True
-        )
+        session.enable_metrics()
+        reach = server.reach
+        logger.info(f'[REST     ] Serving {reach}')
+        print(f'LumaViewPro REST server: {reach.url} ({reach}; reference: /docs)', flush=True)
         server.run()
         if not server.close_begun:
             # It stopped without its close: it did not start serving, or was stopped before it did.
             session.shutdown()
             return 1
-        running = app.state.closing.join_jobs(JOIN_S)
-        if running:
-            logger.error(f'[REST     ] Exiting with calls still running: {running}')
-        return 1 if server.close_failed is not None else 0
+        if server.close_failed is not None:
+            logger.error(f'[REST     ] The session did not close cleanly: {server.close_failed!r}')
+            return 1
+        return 0
     except BaseException:
         session.shutdown()
         raise

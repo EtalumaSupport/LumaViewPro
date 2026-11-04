@@ -15,8 +15,10 @@ from unittest.mock import MagicMock
 import pytest
 
 import tests.ast_seams as ast_seams
+from modules.exceptions import ArgumentRefusedError
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
+from tests.ast_seams import MemberNames
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -34,15 +36,114 @@ class TestNoHostCopyOfTheBringUp:
 
 
 # ===========================================================================
+# Every scope is built by ScopeSession.create: no other production file
+# constructs a Lumascope
+# ===========================================================================
+
+# The one file that constructs a scope, and the one exception with its
+# retire-by gate (Rule 35 exception 3). The Pylon probe tool does not run
+# (its ImagingAPI call predates the frame_validity argument) and is rebuilt
+# on ScopeSession.create with #727; its entry goes then.
+_SCOPE_BUILDERS = {
+    'modules/scope_session.py': 'ScopeSession.create, the one bring-up',
+    'tools/pylon_probe_sweep.py': '#727 rebuilds it on ScopeSession.create',
+}
+
+
+def _named(node: ast.AST, name: str) -> bool:
+    return (isinstance(node, ast.Name) and node.id == name) or (
+        isinstance(node, ast.Attribute) and node.attr == name
+    )
+
+
+def _lumascope_constructions(tree: ast.AST) -> list[tuple[int, str]]:
+    """Every place *tree* builds a Lumascope: ``(line, the form)``.
+
+    The forms: a call naming ``Lumascope``; ``Lumascope.__new__(...)``;
+    ``cls(...)`` or ``cls.__new__(...)`` inside ``class Lumascope`` (a
+    classmethod constructor); a class deriving from ``Lumascope``. Not
+    seen: an alias (``L = Lumascope; L()``), ``type(x)()``, ``copy``,
+    ``pickle`` and ``functools.partial``; production uses none.
+    """
+    found = []
+
+    def visit(node: ast.AST, in_lumascope: bool) -> None:
+        if isinstance(node, ast.ClassDef):
+            if any(_named(base, 'Lumascope') for base in node.bases):
+                found.append((node.lineno, f'class {node.name}(Lumascope)'))
+            in_lumascope = in_lumascope or node.name == 'Lumascope'
+        if isinstance(node, ast.Call):
+            fn = node.func
+            is_new = isinstance(fn, ast.Attribute) and fn.attr == '__new__'
+            if _named(fn, 'Lumascope'):
+                found.append((node.lineno, 'Lumascope('))
+            elif is_new and _named(fn.value, 'Lumascope'):
+                found.append((node.lineno, 'Lumascope.__new__('))
+            elif in_lumascope and _named(fn, 'cls'):
+                found.append((node.lineno, 'cls('))
+            elif in_lumascope and is_new and _named(fn.value, 'cls'):
+                found.append((node.lineno, 'cls.__new__('))
+        for child in ast.iter_child_nodes(node):
+            visit(child, in_lumascope)
+
+    visit(tree, False)
+    return found
+
+
+class TestOnlyTheSessionBuildsAScope:
+    def test_no_production_file_but_the_session_constructs_a_lumascope(self):
+        # A second constructor drifts from the first: the support report's
+        # hand-wired copy had no camera, no model and no settings.
+        built_in = {}
+        for rel in ast_seams.tracked_python_files():
+            if rel.startswith('tests/'):
+                continue
+            found = _lumascope_constructions(ast_seams.parse_module(rel))
+            if found:
+                built_in[rel] = found
+        others = {rel: found for rel, found in built_in.items() if rel not in _SCOPE_BUILDERS}
+        assert others == {}, f'a Lumascope is built outside ScopeSession.create: {others}'
+        stale = sorted(set(_SCOPE_BUILDERS) - set(built_in))
+        assert stale == [], f'these no longer build a Lumascope; drop their entries: {stale}'
+
+    def test_every_form_of_construction_is_seen(self):
+        planted = {
+            'a call': 'scope = Lumascope(simulate=True)\n',
+            'an attribute call': 'scope = _lumascope.Lumascope()\n',
+            'a bare instance': 'scope = Lumascope.__new__(Lumascope)\n',
+            'a classmethod constructor': (
+                'class Lumascope:\n'
+                '    @classmethod\n'
+                '    def made(cls):\n'
+                '        instance = cls.__new__(cls)\n'
+                '        return instance\n'
+            ),
+            'a classmethod calling cls': (
+                'class Lumascope:\n    @classmethod\n    def made(cls):\n        return cls()\n'
+            ),
+            'a subclass': 'class Diagnostic(Lumascope):\n    pass\n',
+        }
+        unseen = [
+            form
+            for form, source in planted.items()
+            if not _lumascope_constructions(ast.parse(source))
+        ]
+        assert unseen == []
+
+
+# ===========================================================================
 # create(...) takes the host's injections by name and wires each to its one
 # consumer; the ownership facts are constructor state
 # ===========================================================================
 
-HOST_INJECTIONS = (
-    'simulate',
-    'warn_pre_release',
-    'engineering_mode',
-    'no_engineering',
+HOST_INJECTIONS = MemberNames(
+    'modules/scope_session.py',
+    {
+        'simulate',
+        'warn_pre_release',
+        'engineering_mode',
+        'no_engineering',
+    },
 )
 
 
@@ -85,7 +186,7 @@ class TestCreateTakesTheHostInjections:
             assert session.engineering_mode is True
             assert session.no_engineering is True
             assert session.scope.no_hardware is False, 'simulate=True reached the scope'
-            assert session.scope.diagnostics.get_motor_info()['model'] is not None
+            assert session.scope.diagnostics.get_motor_info().model is not None
         finally:
             session.shutdown()
             session.scope.disconnect()
@@ -95,9 +196,46 @@ class TestCreateTakesTheHostInjections:
         params = inspect.signature(ScopeSession.create).parameters
         assert 'io_executor' not in params and 'camera_executor' not in params
         with pytest.raises(TypeError):
-            ScopeSession.create(
-                settings=complete_settings(), scope=spec_scope(), io_executor=MagicMock()
-            )
+            ScopeSession.create(settings=complete_settings(), io_executor=MagicMock())
+
+    def test_create_takes_no_scope(self):
+        # The factory builds the scope, so every session's is brought up
+        # the one way; a caller's scope would be a second bring-up. The
+        # name is refused whatever it is given.
+        with pytest.raises(TypeError):
+            ScopeSession.create(settings=complete_settings(), scope=None)
+
+    def test_a_simulated_scope_is_refused_for_a_real_scope_before_anything_is_built(self):
+        # One keyword carries every part a simulated scope is built with, so
+        # a real scope refuses the record whatever it holds -- an empty one
+        # included, since only a simulated session is built from it.
+        from modules.lumascope_api.simulation import (
+            SimulatedCameraWriteRefusal,
+            SimulatedModelAnswer,
+            SimulatedScope,
+        )
+
+        wrong = {}
+        for label, record in (
+            ('empty', SimulatedScope()),
+            (
+                'every part',
+                SimulatedScope(
+                    model='LS850T',
+                    model_answer=SimulatedModelAnswer('LS850T'),
+                    refused_stream_starts=1,
+                    refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'false'),),
+                ),
+            ),
+        ):
+            with pytest.raises(ArgumentRefusedError) as refused:
+                ScopeSession.create(settings=complete_settings(), simulated=record)
+            if (refused.value.reason, refused.value.argument) != (
+                'needs_simulated_scope',
+                'simulated',
+            ):
+                wrong[label] = (refused.value.reason, refused.value.argument)
+        assert not wrong, wrong
 
     def test_the_default_still_warns_once(self, tmp_path, fresh_warning_latch):
         # The preserved half: a caller that shipped separately is warned.
@@ -116,8 +254,8 @@ class TestCreateTakesTheHostInjections:
 class TestScopeOwnershipIsConstructorState:
     """Whether shutdown() may tear the scope down is decided where the
     scope came from, at construction: a factory-built scope is the
-    session's, a passed or directly constructed one is the caller's. The
-    bundle the session holds is always its own to stop."""
+    session's, one handed to the constructor is the caller's. The bundle
+    the session holds is always its own to stop."""
 
     def _settings(self, tmp_path):
         return complete_settings(live_folder=str(tmp_path))
@@ -128,16 +266,6 @@ class TestScopeOwnershipIsConstructorState:
         )
         try:
             assert session._owns_scope is True
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
-
-    def test_a_passed_scope_is_not_owned(self):
-        session = ScopeSession.create(
-            settings=complete_settings(), scope=build_scope(simulate=True)
-        )
-        try:
-            assert session._owns_scope is False
         finally:
             session.shutdown()
             session.scope.disconnect()
@@ -183,45 +311,6 @@ class TestTheLanesAreTheScopes:
         finally:
             session.shutdown()
 
-    def test_a_callers_scope_keeps_its_lanes_running(self):
-        from tests.scope_fakes import build_scope
-
-        scope = build_scope(simulate=True, warn_pre_release=False)
-        session = ScopeSession.create(settings=complete_settings(), scope=scope)
-        session.shutdown()
-        assert scope.io_lane().worker_alive and scope.camera_lane().worker_alive
-        assert scope.io_lane().accepts_work() and scope.camera_lane().accepts_work()
-
-    def test_a_second_session_over_one_scope_is_refused(self):
-        # Each lane asks one claim for its life: a second session would
-        # re-point the lanes at its own claim, and the first session's run
-        # and diagnostic fences would stop being enforced, silently.
-        import threading
-        import time
-
-        from tests.scope_fakes import build_scope
-
-        def factory_threads():
-            return {
-                t for t in threading.enumerate() if t.name in ('FILE_WORKER', 'WORKER_POOL_WORKER')
-            }
-
-        scope = build_scope(simulate=True, warn_pre_release=False)
-        first = ScopeSession.create(settings=complete_settings(), scope=scope)
-        try:
-            before = factory_threads()
-            with pytest.raises(RuntimeError, match='already asks an activity claim'):
-                ScopeSession.create(settings=complete_settings(), scope=scope)
-            assert scope.io_lane()._claim is first.activity_claim
-            # The refused factory stops what it started: no session exists
-            # for anyone to shut down.
-            deadline = time.monotonic() + 2.0
-            while factory_threads() - before and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert not factory_threads() - before, 'the refused create left its threads running'
-        finally:
-            first.shutdown()
-
 
 # ===========================================================================
 # The GUI takes the factory: build() composes nothing itself, the widget
@@ -231,17 +320,6 @@ class TestTheLanesAreTheScopes:
 
 def _calls(node):
     return [n for n in ast.walk(node) if isinstance(n, ast.Call)]
-
-
-def _chain(node):
-    out = []
-    value = node
-    while isinstance(value, ast.Attribute):
-        out.append(value.attr)
-        value = value.value
-    if isinstance(value, ast.Name):
-        out.append(value.id)
-    return out
 
 
 class TestTheGuiTakesTheFactory:
@@ -270,17 +348,6 @@ class TestTheGuiTakesTheFactory:
         assert set(HOST_INJECTIONS) <= passed, (
             f'the host passes every injection by name; missing {set(HOST_INJECTIONS) - passed}'
         )
-
-    def test_no_ui_module_constructs_a_lumascope(self):
-        hits = []
-        for rel, tree in ast_seams.iter_package_modules(('ui',)):
-            for c in _calls(tree):
-                fn = c.func
-                if (isinstance(fn, ast.Name) and fn.id == 'Lumascope') or (
-                    isinstance(fn, ast.Attribute) and fn.attr == 'Lumascope'
-                ):
-                    hits.append((rel, c.lineno))
-        assert hits == [], f'Lumascope( constructed under ui/ at {hits}'
 
     def test_the_executor_registry_reaches_no_app_context(self):
         tree = ast_seams.parse_module('modules/executor_registry.py')
@@ -330,35 +397,35 @@ class TestTheGuiTakesTheFactory:
             'the scope goes on before the kv tree is built'
         )
 
-    def test_the_context_handles_are_the_sessions_objects(self):
+    def test_the_gui_builds_its_context_over_its_session(self):
+        """build() takes its context from ``AppContext.over_session`` and hands
+        in none of the session's handles itself: the builder reads them off the
+        session (tests/test_the_app_context_is_the_sessions.py), and a handle
+        handed in beside it would be a second construction."""
         build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-        ctx_calls = [
-            c for c in _calls(build) if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
+        direct = [
+            c.lineno
+            for c in _calls(build)
+            if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
         ]
-        assert len(ctx_calls) == 1
-        composed = {
-            'scope',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'worker_pool',
-            'protocol_thread',
-            'scope_display_thread',
-            'autofocus_thread',
-            'autofocus_runner',
-            'sequenced_capture_runner',
-            'wellplate_loader',
-            'coordinate_transformer',
-            'objective_helper',
-        }
-        wrong = [
-            (kw.arg, ast.unparse(kw.value))
-            for kw in ctx_calls[0].keywords
-            if kw.arg in composed and 'scope_session' not in _chain(kw.value)
+        assert direct == [], f'build() constructs AppContext( directly at {direct}'
+        built = [
+            c
+            for c in _calls(build)
+            if isinstance(c.func, ast.Attribute)
+            and c.func.attr == 'over_session'
+            and isinstance(c.func.value, ast.Name)
+            and c.func.value.id == 'AppContext'
         ]
-        assert wrong == [], f'context handles not read off the session: {wrong}'
-        seen = {kw.arg for kw in ctx_calls[0].keywords}
-        assert composed <= seen, f'the context lost a handle: {composed - seen}'
+        assert len(built) == 1, 'build() builds its context through the one builder'
+        assert [ast.unparse(a) for a in built[0].args] == ['scope_session']
+        builder = ast_seams.find_def(
+            'modules/app_context.py', 'over_session', class_name='AppContext'
+        )
+        (returned,) = [n for n in ast.walk(builder) if isinstance(n, ast.Return)]
+        from_the_session = {kw.arg for kw in returned.value.keywords if kw.arg}
+        handed_in = sorted({kw.arg for kw in built[0].keywords} & from_the_session)
+        assert handed_in == [], f'build() hands in handles the session owns: {handed_in}'
 
     def test_the_context_has_no_field_only_the_dead_handler_read(self):
         from modules.app_context import AppContext
@@ -373,7 +440,7 @@ class TestTheGuiTakesTheFactory:
         assert load is not None
         hits = sorted(
             {c.func.attr for c in _calls(load) if isinstance(c.func, ast.Attribute)}
-            & {'get_motor_info', 'configure_scope', 'start_streaming'}
+            & {'get_motor_info', 'configure_scope', 'enable_streaming'}
         )
         assert hits == [], f'load_settings still runs bring-up steps: {hits}'
         assert any(

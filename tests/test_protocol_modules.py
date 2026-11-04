@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
+
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
 from modules.protocol_image_writer import RunWriteBatch
@@ -38,6 +40,8 @@ from modules.run_events import RunEvents
 
 from modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
+from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
 
 
 class TestSequencedCaptureRunMode:
@@ -208,13 +212,6 @@ class TestScheduleUI:
         schedule_ui(lambda dt: called_with.append(dt))
         assert called_with == [0]
 
-    def test_schedule_ui_with_timeout(self):
-        from modules.kivy_utils import schedule_ui
-
-        called = []
-        schedule_ui(lambda dt: called.append(dt), timeout=0.5)
-        assert len(called) == 1
-
     def test_schedule_ui_passes_dt_zero(self):
         """schedule_ui passes dt=0 to the function (matching Clock convention)."""
         from modules.kivy_utils import schedule_ui
@@ -330,7 +327,7 @@ class TestRunCleanup:
         camera_exec = _FakeExecutor()
         ending = overrides.pop(
             'ending',
-            RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
+            RunEnding('completed', 'completed', 'The run finished normally.'),
         )
 
         defaults = {
@@ -338,9 +335,10 @@ class TestRunCleanup:
             'set_state_fn': set_state,
             'scan_in_progress': threading.Event(),
             'forced_dark': False,
-            'leds_state_at_end': 'off',
-            'original_led_states': {},
+            'led_end_policy': LedEndPolicy.OFF,
+            'original_led_states': (),
             'saved_camera_state': None,
+            'show_pre_run_layer_fn': None,
             'return_to_position': None,
             'scope': MagicMock(),
             'apply_led_transition_fn': lambda transition, ctx: None,
@@ -350,6 +348,9 @@ class TestRunCleanup:
             'write_batch': RunWriteBatch(file_exec),
             'ending': ending,
             'record_cleanup_failures': lambda steps: None,
+            'failed_before': (),
+            'video_save_wait_s': None,
+            'video_as_frames': False,
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a
@@ -392,7 +393,7 @@ class TestRunCleanup:
         )
         run_cleanup(**args)
 
-        scope.imaging.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
+        scope.camera.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
         camera.put.assert_not_called()
         camera.protocol_put.assert_not_called()
 
@@ -419,9 +420,12 @@ class TestRunCleanup:
         assert fired == [], "cleanup must leave both events to the run's end"
 
         # The runner's close, on a runner that saves no record.
+        from modules.run_outcome import EndingLatch
+
         runner = SimpleNamespace(
             _disable_saving_artifacts=True,
             _protocol_execution_record=None,
+            _ending=EndingLatch(),
             _events=events,
             _protocol=None,
             _run_dir=None,
@@ -460,7 +464,7 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
 
         moved_to = []
-        pos = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+        pos = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
         args, _ = self._make_cleanup_args(
             return_to_position=pos,
             default_move_fn=lambda px=0, py=0, z=0: moved_to.append((px, py, z)),
@@ -558,6 +562,7 @@ class TestProtocolImageWriterWriteCapture:
             aborted=threading.Event(),
             write_batch=RunWriteBatch(_FakeExecutor()),
             abort_fn=lambda: None,
+            end_run_fatally=lambda reason, message: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),
             execution_record=execution_record,
@@ -566,29 +571,15 @@ class TestProtocolImageWriterWriteCapture:
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             timestamp_overlay=True,
             video_max_fps=0,
+            video_sizing_fps=None,
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
             to_plate=None,
             captures_asked=1,
+            channel_colors=release_colors(),
         )
         return writer
-
-    def test_write_capture_saving_disabled_records_unsaved(self):
-        record = MagicMock()
-        writer = self._make_writer(execution_record=record)
-        writer.write_capture(
-            enable_image_saving=False,
-            step={'Name': 'test'},
-        )
-        record.add_step.assert_called_once()
-        call_kwargs = record.add_step.call_args
-        assert (
-            call_kwargs[1]['capture_result_file_name'] == 'unsaved'
-            or call_kwargs[0][0] == 'unsaved'
-            if call_kwargs[0]
-            else 'capture_result_file_name' in call_kwargs[1]
-        )
 
     def test_write_capture_saving_disabled_correct_unsaved_value(self):
         record = MagicMock()
@@ -608,6 +599,8 @@ class TestProtocolImageWriterWriteCapture:
         writer = self._make_writer(execution_record=None)
         # Should not raise even with no execution record
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=False,
             step={'Name': 'test'},
         )
@@ -615,6 +608,8 @@ class TestProtocolImageWriterWriteCapture:
     def test_write_capture_none_record_with_failed_image_no_crash(self):
         writer = self._make_writer(execution_record=None)
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=None,
             step={'Name': 'test'},
@@ -622,45 +617,48 @@ class TestProtocolImageWriterWriteCapture:
         # Should not crash -- just returns
 
 
-class TestRunCleanupCancelledHandoff:
-    """A superseding run/abort cycle cancels queued cleanup tasks (LED
-    restore, return-to-position) via the executor's pending-clear. That is
-    a normal ownership hand-off: the new cycle sets LED state and stage
-    position itself. Treating the CancelledError as a cleanup failure
-    fired an error popup per cycle when the run button was clicked
-    rapidly -- nine popups in four seconds on the bench.
+class TestRunCleanupWhenTheLaneCloses:
+    """A cleanup step the lane closing left unrun is a cleanup failure, in its own words.
+
+    The lane closing is the one drop that reaches a cleanup's LED restore or
+    return move; neither was done, so the person is told the scope may not
+    be where they expect, as for any other step that failed.
     """
 
     def _args(self, **overrides):
         helper = TestRunCleanup()
         return helper._make_cleanup_args(**overrides)
 
-    def test_cancelled_led_restore_is_not_a_cleanup_error(self, centre_posts):
-        from concurrent.futures import CancelledError
-        from modules.notification_center import Severity
+    @staticmethod
+    def _cleanup_reports(centre_posts):
+        return [n for n in centre_posts if n.title == 'Protocol cleanup issues']
+
+    def test_an_led_restore_left_unrun_is_a_cleanup_failure(self, centre_posts):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_apply(transition, ctx):
-            raise CancelledError()
+        def closed_apply(transition, ctx):
+            raise scope_lane_closed('apply')
 
-        args, _ = self._args(apply_led_transition_fn=cancelled_apply)
+        args, _ = self._args(apply_led_transition_fn=closed_apply)
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
+        [report] = self._cleanup_reports(centre_posts)
+        assert 'Restore LED states: HardwareCommandRefusedError' in report.message
 
-    def test_cancelled_return_move_is_not_a_cleanup_error(self, centre_posts):
-        from concurrent.futures import CancelledError
-        from modules.notification_center import Severity
+    def test_a_return_move_left_unrun_is_a_cleanup_failure(self, centre_posts):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_move(**kw):
-            raise CancelledError()
+        def closed_move(**kw):
+            raise scope_lane_closed('move')
 
         args, _ = self._args(
-            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
-            default_move_fn=cancelled_move,
+            return_to_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
+            default_move_fn=closed_move,
         )
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
+        [report] = self._cleanup_reports(centre_posts)
+        assert 'Return to position: HardwareCommandRefusedError' in report.message
 
 
 class TestFinalStepKeepsLedWhenCleanupRestoresIt:
@@ -699,15 +697,10 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             if transition is LedTransition.STEP_BOUNDARY:
                 captured['ctx'] = ctx
 
-        # Identity and driver resolvers agree on a real channel number, as
-        # they do on real hardware: the hold decision compares the step's
-        # channel against the run-end snapshot, and a bare MagicMock would
-        # hand each resolver a different sentinel object.
-        def resolver(c):
-            return {'BF': 3}.get(c)
-
-        runner._scope.illumination.color2ch.side_effect = resolver
-        runner._scope.illumination.state_color2ch.side_effect = resolver
+        # The identity resolves the step's layer to the address the
+        # run-end snapshot holds: the hold decision compares the two, and a
+        # bare MagicMock would hand back a sentinel object instead.
+        runner._scope.illumination.color2ch.side_effect = {'BF': 3}.get
 
         runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()
@@ -717,7 +710,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
 
     @staticmethod
     def _lit_before_run():
-        return {'BF': {'enabled': True, 'illumination_ma': 100.0}}
+        return (LedReading(3, 'BF', LedState.LIT, 100.0),)
 
     def test_final_scan_restore_keeps_lit_channel(self):
         assert self._boundary_target_for(

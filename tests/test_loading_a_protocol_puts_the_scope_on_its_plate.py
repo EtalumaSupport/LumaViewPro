@@ -41,11 +41,11 @@ def session():
 
 
 def _scope_plate(session):
-    return session.scope.runtime_state.get_labware().config
+    return session.scope.runtime_state.get_labware()
 
 
 def _catalogue_plate(session, name):
-    return session.wellplate_loader.get_plate(plate_key=name).config
+    return session.scope.wellplate_loader.get_plate(labware_id=name)
 
 
 class TestTheSessionLoad:
@@ -54,7 +54,7 @@ class TestTheSessionLoad:
 
         protocol = session.load_protocol(_protocol_file(tmp_path, FILE_PLATE))
 
-        assert protocol.labware() == FILE_PLATE
+        assert protocol.labware_id() == FILE_PLATE
         assert session.settings['protocol']['labware'] == FILE_PLATE
         assert _scope_plate(session) == _catalogue_plate(session, FILE_PLATE)
 
@@ -70,7 +70,7 @@ class TestTheSessionLoad:
 
         assert refused.value.holder == 'recording'
         assert session.settings['protocol']['labware'] == plate_before
-        assert session.scope.runtime_state.get_labware().config == runtime_before.config
+        assert session.scope.runtime_state.get_labware() == runtime_before
 
     def test_a_held_scope_loads_a_protocol_on_the_plate_in_place(self, tmp_path, session):
         in_place = session.settings['protocol']['labware']
@@ -80,7 +80,7 @@ class TestTheSessionLoad:
         finally:
             held.release()
 
-        assert protocol.labware() == in_place
+        assert protocol.labware_id() == in_place
 
 
 class TestAScopeWithNoStage:
@@ -91,7 +91,7 @@ class TestAScopeWithNoStage:
 
             protocol = session.load_protocol(_protocol_file(tmp_path, FILE_PLATE))
 
-            assert protocol.labware() == 'Center Plate'
+            assert protocol.labware_id() == 'Center Plate'
             assert session.settings['protocol']['labware'] == 'Center Plate'
             assert _scope_plate(session) == _catalogue_plate(session, 'Center Plate')
         finally:

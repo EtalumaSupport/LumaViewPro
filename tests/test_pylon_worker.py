@@ -14,12 +14,17 @@ the load-bearing invariant -- _drain_and_release plus the per-item
 those refs are released after stop().
 """
 
+import logging
 import queue
+import re
 import time
 import unittest
 import weakref
 from unittest.mock import MagicMock
 
+import pytest
+
+from drivers.camera import HandOver
 from drivers.pyloncamera import (
     _PYLON_ERR_BUFFER_CANCELED,
     _PYLON_ERR_PAYLOAD_DISCARDED,
@@ -165,21 +170,70 @@ class TestProcessFrame(unittest.TestCase):
         # the static method.
         worker, _, base, frame_queue = _make_worker()
         gr = _FakeGrabResult()
-        ts = 12345.0
-        worker._process_frame(gr, ts)
+        handed_over = HandOver(5, 777, 0)
+        worker._process_frame(gr, handed_over)
         base._store_frame.assert_called_once()
-        # The wire bytes are the grab result's own payload, not the array's.
+        # The wire bytes are the grab result's own payload, not the array's,
+        # and the number and steady time are Stage A's hand-over.
         assert base._store_frame.call_args.kwargs['wire_bytes'] == 4321
-        success, _, got_ts, _seq = frame_queue.get_nowait()
-        self.assertTrue(success)
-        self.assertEqual(got_ts, ts)
+        assert base._store_frame.call_args.kwargs['handed_over'] is handed_over
+        # The capture's queue holds the record the store built.
+        self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
 
     def test_drains_stale_before_putting(self):
-        worker, _, _base, frame_queue = _make_worker()
-        frame_queue.put_nowait((True, 'stale_img', 0.0, 0))
-        worker._process_frame(_FakeGrabResult(), 99.0)
-        _success, _, ts, _seq = frame_queue.get_nowait()
-        self.assertEqual(ts, 99.0)
+        worker, _, base, frame_queue = _make_worker()
+        frame_queue.put_nowait('stale record')
+        worker._process_frame(_FakeGrabResult(), HandOver(1, 0, 0))
+        self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
+        self.assertTrue(frame_queue.empty())
+
+
+class _ArrayGrabResult(_FakeGrabResult):
+    """A grab result whose array is a real one of the given shape."""
+
+    def __init__(self, height, width):
+        super().__init__()
+        self._shape = (height, width)
+
+    def GetArray(self):
+        import numpy as np
+
+        return np.arange(self._shape[0] * self._shape[1], dtype=np.uint8).reshape(self._shape)
+
+
+class TestTheCapturesQueueCarriesTheStoredFrame(unittest.TestCase):
+    """The capture reads the frame the store kept, never the array beside it.
+
+    With a crop window, the store keeps the cropped frame; the capture's
+    queue once carried the uncropped array under the stored frame's number,
+    and carried a frame the store refused (made under another window) under
+    the previous frame's number.
+    """
+
+    def _worker_with_a_cropping_store(self):
+        from drivers.camera import FrameWindow, ImageHandlerBase
+
+        parent = MagicMock()
+        parent._device_removed = False
+        base = ImageHandlerBase()
+        base.frame_window = FrameWindow(acquired_width=8, acquired_height=6, crop=(1, 1, 4, 3))
+        frame_queue = queue.Queue(maxsize=1)
+        return _PylonImageGrabWorker(parent, base, frame_queue), base, frame_queue
+
+    def test_the_queue_carries_the_cropped_stored_frame(self):
+        worker, base, frame_queue = self._worker_with_a_cropping_store()
+
+        worker._process_frame(_ArrayGrabResult(6, 8), base.hand_over())
+
+        queued = frame_queue.get_nowait()
+        self.assertIs(queued, base.get_last_image())
+        self.assertEqual(queued.image.shape, (3, 4))
+
+    def test_a_frame_of_another_window_never_reaches_the_queue(self):
+        worker, _base, frame_queue = self._worker_with_a_cropping_store()
+
+        worker._process_frame(_ArrayGrabResult(10, 10), _base.hand_over())
+
         self.assertTrue(frame_queue.empty())
 
 
@@ -187,13 +241,13 @@ class TestProcessFailure(unittest.TestCase):
     def test_buffer_canceled_does_not_record_failure(self):
         worker, _, base, _ = _make_worker()
         gr = _FakeGrabResult(err_code=_PYLON_ERR_BUFFER_CANCELED, err_desc='cancelled')
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_payload_discarded_does_not_record_failure(self):
         worker, _, base, _ = _make_worker()
         gr = _FakeGrabResult(err_code=_PYLON_ERR_PAYLOAD_DISCARDED, err_desc='discarded')
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_payload_discarded_literal_bench_code_does_not_record_failure(self):
@@ -203,29 +257,36 @@ class TestProcessFailure(unittest.TestCase):
         # left the benign branch dead. This pins the real-hardware code.
         worker, _, base, _ = _make_worker()
         gr = _FakeGrabResult(err_code=3791651346, err_desc='Payload data has been discarded')
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_device_removed_skips_failure_counter(self):
         worker, parent, base, _ = _make_worker()
         parent._device_removed = True
         gr = _FakeGrabResult(err_code=9999, err_desc='whatever')
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_generic_failure_records(self):
         worker, _, base, _ = _make_worker()
         gr = _FakeGrabResult(err_code=999, err_desc='transport err')
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_called_once()
 
-    def test_cascade_triggers_auto_stop(self):
+    def test_the_cascade_marks_the_camera_removed_and_touches_no_sdk_call(self):
+        """At the cascade's limit the camera is removed: it is marked and torn
+        down off this thread, like every other definite removal, and the
+        worker sends it nothing. It called StopGrabbing here, on the grab
+        worker, outside any teardown and on a camera it was declaring gone:
+        the call pypylon #225 names as a native-abort hazard on a removed
+        handle, which the teardown itself skips for a removed camera."""
         worker, parent, base, _ = _make_worker()
         base._record_failure.return_value = True
         gr = _FakeGrabResult(err_code=999, err_desc='transport err')
-        worker._process_failure(gr, 0.0)
-        parent.stop_grabbing.assert_called_once()
+        worker._process_failure(gr)
+        parent.stop_grabbing.assert_not_called()
         parent._mark_disconnected.assert_called_once()
+        parent._schedule_async_teardown.assert_called_once()
 
     def test_grabresult_introspection_failure_is_tolerated(self):
         """err_code / desc readers may themselves raise on a dead handle."""
@@ -234,7 +295,7 @@ class TestProcessFailure(unittest.TestCase):
         gr.GetErrorCode.side_effect = RuntimeError('handle dead')
         gr.GetErrorDescription.side_effect = RuntimeError('handle dead')
         # Should not raise; treats as a generic failure.
-        worker._process_failure(gr, 0.0)
+        worker._process_failure(gr)
         base._record_failure.assert_called_once()
 
 
@@ -245,7 +306,7 @@ class TestRunLoop(unittest.TestCase):
         worker, _, base, _frame_queue = _make_worker()
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 42.0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.called:
@@ -260,7 +321,7 @@ class TestRunLoop(unittest.TestCase):
         worker.start()
         try:
             worker._worker_queue.put_nowait(
-                ('fail', _FakeGrabResult(err_code=999, err_desc='x'), 0.0)
+                ('fail', _FakeGrabResult(err_code=999, err_desc='x'), None)
             )
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
@@ -276,7 +337,7 @@ class TestRunLoop(unittest.TestCase):
         parent._device_removed = True
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
             # Worker should consume but NOT call _process_frame.
             time.sleep(0.2)
             base._store_frame.assert_not_called()
@@ -288,11 +349,11 @@ class TestRunLoop(unittest.TestCase):
         base._store_frame.side_effect = RuntimeError('boom')
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 1.0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
             time.sleep(0.2)
             self.assertTrue(worker._thread.is_alive())
             base._store_frame.side_effect = None
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 2.0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.call_count >= 2:
@@ -306,8 +367,8 @@ class TestRunLoop(unittest.TestCase):
 class TestDrainAndRelease(unittest.TestCase):
     def test_drain_releases_items(self):
         worker, _, _, _ = _make_worker()
-        worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0))
-        worker._worker_queue.put_nowait(('fail', _FakeGrabResult(err_code=1), 0.0))
+        worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
+        worker._worker_queue.put_nowait(('fail', _FakeGrabResult(err_code=1), None))
         worker._drain_and_release()
         self.assertTrue(worker._worker_queue.empty())
 
@@ -323,8 +384,8 @@ class TestDrainAndRelease(unittest.TestCase):
         parent._device_removed = True
         worker.start()
         try:
-            for i in range(3):
-                worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), float(i)))
+            for _ in range(3):
+                worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
         finally:
             worker.stop()
         self.assertFalse(worker._thread.is_alive())
@@ -363,7 +424,7 @@ class TestGrabResultRelease(unittest.TestCase):
         ref = weakref.ref(gr)
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('fail', gr, 0.0))
+            worker._worker_queue.put_nowait(('fail', gr, None))
             # Wait for processing.
             time.sleep(0.2)
         finally:
@@ -375,6 +436,66 @@ class TestGrabResultRelease(unittest.TestCase):
 
         gc.collect()
         self.assertIsNone(ref(), 'worker did not release its grabResult reference after processing')
+
+
+def _stage_a_lines(caplog):
+    return [r.getMessage() for r in caplog.records if 'Stage A:' in r.getMessage()]
+
+
+def _full_worker(caplog):
+    """A worker whose queue (depth 1, never started) is full after one grab."""
+    caplog.set_level(logging.WARNING, logger='LVP.camera')
+    worker, _, _, _ = _make_worker(queue_depth=1)
+    worker.enqueue('frame', _FakeGrabResult(), None)
+    return worker
+
+
+def _drop(worker, kind, error_code=None):
+    with pytest.raises(queue.Full):
+        worker.enqueue(kind, _FakeGrabResult(), None, error_code=error_code)
+
+
+def test_a_drop_burst_is_said_at_its_start_and_summarized_when_the_queue_takes_a_grab(caplog):
+    """One line opens a burst; the next grab taken closes it with the counts and codes.
+
+    A field bundle held one warning per dropped grab (568 in four bursts),
+    and its failed grabs named no error code.
+    """
+    worker = _full_worker(caplog)
+    _drop(worker, 'frame')
+    _drop(worker, 'frame')
+    _drop(worker, 'fail', error_code=_PYLON_ERR_PAYLOAD_DISCARDED)
+    _drop(worker, 'fail', error_code='exception')
+    worker._worker_queue.get_nowait()  # Stage B takes the one grab queued
+
+    worker.enqueue('frame', _FakeGrabResult(), None)
+
+    lines = _stage_a_lines(caplog)
+    assert len(lines) == 2, lines
+    assert lines[0].startswith('[CAM Class ] Stage A: worker queue full -- dropping a frame;')
+    assert re.fullmatch(
+        r'\[CAM Class \] Stage A: the worker queue took a grab again after \d+\.\d s; '
+        r'the burst dropped 2 frame\(s\) and 2 failed grab\(s\) '
+        r'\(error codes: 0xE2000212 x1, exception x1\)',
+        lines[1],
+    ), lines[1]
+
+
+def test_a_burst_still_open_when_the_worker_stops_is_summarized_there(caplog):
+    worker = _full_worker(caplog)
+    _drop(worker, 'fail', error_code=None)
+
+    worker.stop(timeout=0.1)
+
+    lines = _stage_a_lines(caplog)
+    assert len(lines) == 2, lines
+    assert lines[0].startswith('[CAM Class ] Stage A: worker queue full -- dropping a failed grab;')
+    assert re.fullmatch(
+        r'\[CAM Class \] Stage A: the worker stopped before the queue took a grab again '
+        r'after \d+\.\d s; the burst dropped 0 frame\(s\) and 1 failed grab\(s\) '
+        r'\(error codes: unknown x1\)',
+        lines[1],
+    ), lines[1]
 
 
 if __name__ == '__main__':

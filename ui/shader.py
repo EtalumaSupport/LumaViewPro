@@ -10,7 +10,9 @@ from kivy.properties import ObjectProperty, StringProperty
 from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
-import modules.config_ui_getters as config_ui_getters
+from modules import gui_logger
+from modules.coord_transformations import PlatePosition
+from modules.layer_record import Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
@@ -74,12 +76,12 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
     return f'Capture: {capture} | Display: {display} FPS'
 
 
-def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | None) -> str:
+def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | None) -> str:
     """The status line's cursor part: empty off the image.
 
     ``pixel`` is the sensor pixel under the cursor, None off the image;
-    ``plate`` its plate position in mm, None when it is not known (no XY
-    stage, objective or pixel size to convert with), when only the pixel shows.
+    ``plate`` its plate position in mm, None when it is not known
+    (``cursor_plate``), when only the pixel shows.
     """
     if pixel is None:
         return ''
@@ -89,12 +91,48 @@ def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | Non
         f'{fixed_number(py, whole_digits=4, decimals=0)})'
     )
     if plate is not None:
-        sx, sy = plate
+        sx, sy = plate.x_mm, plate.y_mm
         text += (
             f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '
             f'{fixed_number(sy, whole_digits=3, decimals=2, signed=True)}) mm'
         )
     return text
+
+
+def cursor_plate(
+    scope, pixel: tuple[int, int], frame_size: tuple[int, int]
+) -> PlatePosition | None:
+    """The plate position, in mm, of the sensor pixel under the cursor; None when it is not known.
+
+    The cursor's offset from the frame's centre is converted into a stage
+    distance from where the stage is, so it needs an XY stage whose X and Y
+    the API knows, and a known pixel size (which needs a known objective).
+    Without one, the pixel readout stands alone -- never a position
+    converted from a number nobody established, or an invented distance.
+    X and Y are read from ``axis_positions`` because it answers no position
+    for an axis that homes or has lost its reference (a lost motor board
+    included), where the other position reads still answer its last number.
+
+    Args:
+        scope: The scope the cursor's image is from.
+        pixel: The sensor pixel under the cursor, full-frame coordinates.
+        frame_size: The full-resolution frame's width and height, in
+            pixels: the offset is from its centre, not the preview's.
+    """
+    if not scope.capabilities.has_xy_stage:
+        return None
+    stage = scope.motion.axis_positions()
+    x_um, y_um = stage['X'].position_um, stage['Y'].position_um
+    if x_um is None or y_um is None:
+        return None
+    pixel_size_um = scope.runtime_state.get_pixel_size_um()
+    if pixel_size_um is None:
+        return None
+    frame_w, frame_h = frame_size
+    px, py = pixel
+    dx_um = (px - frame_w / 2) * pixel_size_um
+    dy_um = (py - frame_h / 2) * pixel_size_um
+    return scope.runtime_state.stage_to_plate(x_um + dx_um, y_um - dy_um)
 
 
 # ============================================================================
@@ -192,7 +230,7 @@ void main (void) {
             if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single
                 # move. Not offered on a scope with no Z motor.
-                if ctx.session.controls_locked or not ctx.scope.capabilities.has_focus:
+                if not ctx.scope.capabilities.has_focus:
                     return
 
                 # The tick records only the gesture: its direction, how fast
@@ -252,21 +290,14 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send the last tick's Z move."""
-        from ui.ui_helpers import move_relative, run_reported
+        from ui.ui_helpers import jog
 
         pending = self._scroll_z_pending
         self._scroll_z_pending = None
         if pending is None:
             return
         factor, coarse = pending
-        scope = _app_ctx.ctx.scope
-        run_reported(
-            lambda: move_relative(
-                'Z', factor * scope.motion.jog_step('Z', coarse=coarse), overshoot_enabled=False
-            ),
-            redraw=None,
-            label='SCROLL_TO_FOCUS',
-        )
+        jog('Z', factor, coarse)
 
     def _on_cursor_leave(self, window):
         """The pointer left the window, so it is over no image."""
@@ -323,7 +354,7 @@ void main (void) {
         if scope_display:
             delivered = ctx.scope.imaging.get_delivered_rate()
             status = frame_rate_title(
-                delivered.frames_per_s,
+                delivered.frame_rate_fps,
                 scope_display.display_fps(),
                 engineering=ctx.session.engineering_mode,
             )
@@ -337,39 +368,11 @@ void main (void) {
             pixel = plate = None
             if self._mouse_over_image:
                 pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
-                from modules.config_ui_getters import get_selected_labware
-
-                # The plate (um) readout converts a cursor offset into a
-                # stage distance; it needs a connected XY stage, a known
-                # objective and a known pixel size. Without any of them,
-                # the pixel readout above stands alone -- never an
-                # invented distance. Anything that fails beyond these is
-                # a fault, and is not hidden here.
-                objective = _app_ctx.ctx.session.scope.runtime_state.get_current_objective()
-                if (
-                    ctx.lumaview.scope.capabilities.has_xy_stage
-                    and ctx.lumaview.scope.motor_connected
-                    and objective is not None
-                ):
-                    pixel_size_um = config_ui_getters.get_pixel_size(
-                        focal_length=objective['focal_length'],
-                        binning_size=_app_ctx.ctx.session.get_binning_size(),
-                    )
-                    if pixel_size_um is not None:
-                        # _mouse_pixel_* are sensor-pixel coords (full frame);
-                        # center on the full-resolution frame, not the
-                        # downscaled preview texture.
-                        frame_w, frame_h = scope_display.full_resolution_frame_size()
-                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
-                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
-                        pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
-                        _, labware = get_selected_labware()
-                        plate = ctx.coordinate_transformer.stage_to_plate(
-                            labware=labware,
-                            stage_offset=ctx.settings['stage_offset'],
-                            sx=pos['X'] + dx_um,
-                            sy=pos['Y'] - dy_um,
-                        )
+                # Anything that fails beyond what cursor_plate answers None
+                # for is a fault, and is not hidden here.
+                plate = cursor_plate(
+                    ctx.lumaview.scope, pixel, scope_display.full_resolution_frame_size()
+                )
             self.status_text = status + cursor_title(pixel, plate)
 
             title = f'LumaViewPro {ctx.version}'
@@ -378,27 +381,18 @@ void main (void) {
                 title += f' -- {event_text}'
             Window.set_title(title)
 
-    def current_false_color(self) -> str:
-        return self._false_color
-
-    def update_shader(self, false_color='BF'):
-        # logger.info('[LVP Main  ] ShaderViewer.update_shader()')
-
+    def update_shader(self, color: Color):
+        """Show the view in ``color``: each plane's white point is the view's
+        white times the colour's weight on that plane (``GREY`` shows mono)."""
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = (self.black,) * 4
         c['gamma'] = 2.2
-
-        if false_color == 'Red':
-            c['white_point'] = (self.white, 0.0, 0.0, 1.0)
-        elif false_color == 'Green':
-            c['white_point'] = (0.0, self.white, 0.0, 1.0)
-        elif false_color in ('Blue', 'Lumi'):
-            c['white_point'] = (0.0, 0.0, self.white, 1.0)
-        else:
-            c['white_point'] = (self.white,) * 4
+        c['white_point'] = (*(self.white * weight for weight in color), 1.0)
+        # Every writer of the view's colour comes through here.
+        gui_logger.display('VIEW_FALSE_COLOR', format_display_color(color))
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value

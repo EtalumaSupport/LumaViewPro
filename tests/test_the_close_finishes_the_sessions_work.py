@@ -12,14 +12,17 @@ it returned (F4, F5); two closes both tore down (F6). Each case is run here
 through ``shutdown`` alone, as a script or the REST server calls it.
 """
 
-import datetime
 import pathlib
 import threading
 import time
 
 import pytest
 
-from modules.exceptions import PluginProcessorSkippedError, SessionClosingError
+from modules.exceptions import (
+    PluginProcessorSkippedError,
+    PostProcessingOperation,
+    SessionClosingError,
+)
 from modules.post_processing_api import BuildResult
 
 SETTLE_S = 30.0
@@ -48,8 +51,8 @@ def sim_session(tmp_path):
 
 
 def _one_step_protocol(session):
-    session.set_layer_acquire('BF', 'image')
-    return session.new_protocol(duration=datetime.timedelta(0), period=datetime.timedelta(0))
+    session.set_channel_acquire('BF', 'image')
+    return session.new_protocol(duration_s=0, period_s=0)
 
 
 @pytest.mark.slow
@@ -57,7 +60,7 @@ def test_a_live_recording_is_stopped_and_its_file_finished(sim_session, tmp_path
     recording = sim_session.manual_recording
     write = recording._write_mp4_frame
     recording._write_mp4_frame = lambda *a, **k: (time.sleep(0.05), write(*a, **k))[1]
-    recording.start(layer='BF')
+    recording.start()
     time.sleep(2.0)
     assert sim_session.manual_recording.pending_writes > 0, 'no backlog for the close to finish'
 
@@ -73,33 +76,33 @@ def test_a_live_recording_is_stopped_and_its_file_finished(sim_session, tmp_path
 
 def test_a_live_runs_captured_images_are_written_not_called_incomplete(sim_session, tmp_path):
     protocol = sim_session.create_empty_protocol()
-    sim_session.set_layer_acquire('BF', 'image')
+    sim_session.set_channel_acquire('BF', 'image')
     for _ in range(40):
         sim_session.add_step(protocol)
-    run = sim_session.create_protocol_runner().run_single_scan(
+    run = sim_session.protocol_runner().start_single_scan(
         protocol, parent_dir=str(tmp_path / 'runs')
     )
     time.sleep(1.0)
 
     sim_session.shutdown()
 
-    outcome = run.wait(timeout_s=SETTLE_S)
+    outcome = run.result(timeout=SETTLE_S)
     assert (outcome.status, outcome.reason) == ('aborted', 'shutdown')
-    files = run.wait_for_files(timeout_s=SETTLE_S)
+    files = run.files.result(timeout=SETTLE_S)
     assert files.not_written_reason != 'write_batch_abandoned', files
     assert files.written == outcome.captures.captured, files
 
 
 def _race_a_start_against_the_close(session, close_delay_s):
     protocol = _one_step_protocol(session)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     go = threading.Barrier(2)
     box = {}
 
     def starter():
         go.wait()
         try:
-            box['run'] = runner.run_single_scan(protocol)
+            box['run'] = runner.start_single_scan(protocol)
         except Exception as refused:
             box['refused'] = refused
 
@@ -124,7 +127,7 @@ def test_a_run_started_while_the_close_runs_is_never_left_live(tmp_path):
         assert session.activity_claim.holder is None, f'trial {trial}: the scope is still held'
         assert not session.sequenced_capture_runner.run_live, f'trial {trial}: a run is live'
         if 'run' in box:
-            assert box['run'].wait(timeout_s=SETTLE_S) is not None
+            assert box['run'].result(timeout=SETTLE_S) is not None
 
 
 def test_two_closes_at_once_tear_down_once(tmp_path):
@@ -150,14 +153,20 @@ def test_two_closes_at_once_tear_down_once(tmp_path):
     assert returned == [True, True], 'each close returned only once the session was closed'
 
 
-def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session):
+def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session, tmp_path):
     built = threading.Event()
 
-    def build():
+    def written():
+        # The run's images take a while to land; the build waits for them.
         time.sleep(0.5)
         built.set()
 
-    sim_session.sequenced_capture_runner._spawn_post_run_step(name='hyperstack', build_fn=build)
+    sim_session.post_processing.run_hyperstack(
+        tmp_path,
+        save_encoding='8bit',
+        channel_colors=sim_session.channel_colors(),
+        written=written,
+    )
 
     sim_session.shutdown()
 
@@ -171,15 +180,21 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
     def slow(folder, *, on_progress):
         time.sleep(0.5)
         return BuildResult(
-            message=f'built {folder}',
+            message=f'built {pathlib.Path(folder).name}',
             new_count=0,
             output_root=pathlib.Path(folder),
             artifact_paths=(),
             degraded_outputs=(),
+            excluded_inputs=(),
         )
 
     def build(name):
-        results[name] = post._run(slow, 'stitch', name).message
+        # The lane refuses a folder that is not there, so each build gets one.
+        folder = tmp_path / name
+        folder.mkdir()
+        results[name] = post._run(
+            slow, 'stitch', folder, operation=PostProcessingOperation.STITCH
+        ).message
 
     threads = [threading.Thread(target=build, args=(name,)) for name in ('a', 'b')]
     threads[0].start()
@@ -221,7 +236,7 @@ def test_discard_ends_the_wait_on_a_recordings_frames(sim_session, tmp_path):
     recording = sim_session.manual_recording
     write = recording._write_mp4_frame
     recording._write_mp4_frame = lambda *a, **k: (time.sleep(0.2), write(*a, **k))[1]
-    recording.start(layer='BF')
+    recording.start()
     time.sleep(2.0)
     closed = threading.Event()
     closer = threading.Thread(target=lambda: (sim_session.shutdown(), closed.set()))
@@ -299,7 +314,7 @@ def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_
     runner.prepare = prepared_then_the_close_finishes
 
     with pytest.raises(SessionClosingError) as refused:
-        session.create_protocol_runner().run_single_scan(protocol)
+        session.protocol_runner().start_single_scan(protocol)
 
     assert (refused.value.reason, refused.value.activity) == ('session_closing', 'protocol')
     assert session.activity_claim.holder is None
@@ -314,7 +329,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
 
     session = _session(tmp_path)
     protocol = session.create_empty_protocol()
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     session.add_step(protocol)
     closed, failed, took, ran_on = threading.Event(), [], [], []
 
@@ -328,7 +343,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
         took.append(time.monotonic() - began)
         closed.set()
 
-    session.create_protocol_runner().run_single_scan(
+    session.protocol_runner().start_single_scan(
         protocol,
         parent_dir=str(tmp_path / 'runs'),
         events=RunEvents(run_ended=close_the_session),

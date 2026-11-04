@@ -21,7 +21,8 @@ import time
 import pytest
 
 import modules.protocol_run_loop as protocol_run_loop
-from modules.exceptions import ProtocolRunRefusedError
+from drivers.exceptions import BoardNoReplyError
+from modules.exceptions import MoveFaultError, ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from modules.run_events import RunEvents
@@ -41,8 +42,6 @@ def _settings(tmp_path, **extra):
         # refuses a protocol for any glass other than the selected one.
         'objective_id': '10x Oly',
     }
-    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
-        settings[layer] = {'autofocus': False}
     settings.update(extra)
     return settings
 
@@ -79,7 +78,7 @@ def _drop_board_writes(session, prefix, which):
         if isinstance(command, str) and command.startswith(prefix):
             seen['n'] += 1
             if seen['n'] == which:
-                return None
+                raise BoardNoReplyError(f'{command}: no reply from the board')
         return original(command, *args, **kwargs)
 
     driver.exchange_command = _exchange
@@ -101,7 +100,7 @@ def _record_moves(session):
 
 
 def _run(session, tmp_path, protocol=None, scans=1):
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     done = threading.Event()
     kwargs = {
         'protocol': protocol or _make_single_step_protocol(),
@@ -110,15 +109,15 @@ def _run(session, tmp_path, protocol=None, scans=1):
         'events': RunEvents(run_ended=lambda *ended: done.set()),
     }
     if scans == 1:
-        run = runner.run_single_scan(**kwargs)
+        run = runner.start_single_scan(**kwargs)
     else:
-        run = runner.run_protocol(**kwargs)
+        run = runner.start_protocol(**kwargs)
     assert done.wait(COMPLETION_TIMEOUT), 'the run never ended'
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome is not None
     # The images are on the file lane; they are there once the run says its
     # files are done, not when it lets go of the scope.
-    assert run.wait_for_files(timeout_s=COMPLETION_TIMEOUT) is not None, (
+    assert run.files.result(timeout=COMPLETION_TIMEOUT) is not None, (
         'the run never finished its files'
     )
     return outcome
@@ -159,7 +158,7 @@ class TestARunCannotStartWithoutEveryPosition:
             _run(session, tmp_path)
 
         assert excinfo.value.reason == 'position_unknown'
-        assert 'the X, Y and Z positions are unknown' in excinfo.value.message
+        assert 'The X, Y and Z positions are unknown' in excinfo.value.message
         assert 'Home the scope' in excinfo.value.message
         assert moves == [], 'a refused run must not move the stage'
         assert _notices(centre_posts) == [], "raised for the caller's boundary to report"
@@ -177,7 +176,7 @@ class TestARunCannotStartWithoutEveryPosition:
             _run(session, tmp_path)
 
         assert excinfo.value.reason == 'position_unknown'
-        assert 'the T position is unknown' in excinfo.value.message
+        assert 'The T position is unknown' in excinfo.value.message
 
     def test_a_home_in_progress_says_to_wait(self, session_factory, tmp_path):
         session = session_factory()
@@ -238,7 +237,7 @@ class TestALostPositionEndsTheRunOnce:
         home_sim_scope(session.scope)
         dropped = _drop_board_writes(session, 'TARGET_WZ', which=which)
         protocol = _build_real_protocol(
-            [dict(_make_single_step_protocol().step(idx=0), Auto_Focus=True)]
+            [dict(_make_single_step_protocol().step_row(step_index=0), Auto_Focus=True)]
         )
 
         outcome = _run(session, tmp_path, protocol=protocol)
@@ -247,14 +246,11 @@ class TestALostPositionEndsTheRunOnce:
         assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
         assert 'the Z position is unknown' in outcome.message
         assert _images(tmp_path) == [], 'an image was saved at an unknown Z'
-        restore = [
-            message
-            for title, message in _notices(centre_posts)
-            if title == 'Z Position Not Restored'
-        ]
-        assert restore and 'home the scope' in restore[0], (
-            'the restore notice must send the user to home, not to a move the API refuses'
-        )
+        # The ending sends the user to home; a restore notice on the lost Z
+        # would only tell the loss again.
+        assert 'Home the scope' in outcome.message
+        titles = [title for title, _ in _notices(centre_posts)]
+        assert 'Z Position Not Restored' not in titles, titles
 
     def test_a_position_lost_between_scans_ends_the_run_before_the_period(
         self, session_factory, tmp_path
@@ -266,7 +262,7 @@ class TestALostPositionEndsTheRunOnce:
         _drop_board_writes(session, 'TARGET_WX', which=2)
         period_min = 1.0
         protocol = _build_real_protocol(
-            [dict(_make_single_step_protocol().step(idx=0))],
+            [dict(_make_single_step_protocol().step_row(step_index=0))],
             period_min=period_min,
             duration_hrs=3 * period_min / 60,
         )
@@ -281,16 +277,18 @@ class TestALostPositionEndsTheRunOnce:
 
 
 def test_a_scan_that_captured_is_not_a_strike(session_factory, tmp_path, monkeypatch):
-    # Every between-scan return fails with every position known: each scan
+    # Every between-scan return faults with every position known: each scan
     # itself captures, so the run completes rather than tripping the strike
-    # ceiling that counts only scans that failed.
+    # ceiling that counts only scans that failed. A fault, not our defect,
+    # which ends the run at once.
+    # a stand-in by design: a move fault the return meets with no axis lost
     session = session_factory()
     home_sim_scope(session.scope)
     original = protocol_run_loop.ProtocolRunLoop._return_to_first_step_between_scans
 
     def _failing_return(self):
         if self._inter_scan_wait_follows():
-            raise RuntimeError('return move refused')
+            raise MoveFaultError('X', 'driver_failed')
         return original(self)
 
     monkeypatch.setattr(
@@ -299,7 +297,7 @@ def test_a_scan_that_captured_is_not_a_strike(session_factory, tmp_path, monkeyp
     period_min = 0.02
     scans = 4
     protocol = _build_real_protocol(
-        [dict(_make_single_step_protocol().step(idx=0))],
+        [dict(_make_single_step_protocol().step_row(step_index=0))],
         period_min=period_min,
         duration_hrs=scans * period_min / 60,
     )

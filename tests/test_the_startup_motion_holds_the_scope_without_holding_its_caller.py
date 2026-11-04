@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
@@ -58,13 +58,19 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
     scope = session.scope
     held = _HeldHome(scope, monkeypatch)
 
-    started = session.begin_application_session()
+    started = session.start_application_session()
     locked_when_settled = []
-    started.add_done_callback(lambda _done: locked_when_settled.append(session.controls_locked))
+    told = threading.Event()
+
+    def on_done(_done):
+        locked_when_settled.append(session.controls_lock.controls_locked)
+        told.set()
+
+    started.add_done_callback(on_done)
     try:
         assert held.entered.wait(HOME_S)
         assert not started.done()
-        assert session.controls_locked
+        assert session.controls_lock.controls_locked
         with pytest.raises(HardwareCommandRefusedError) as pick:
             scope.motion.move_turret(3)
         assert 'home' in str(pick.value).lower(), str(pick.value)
@@ -72,11 +78,12 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
         held.release.set()
         started.exception(timeout=HOME_S)
     started.result(timeout=HOME_S)
+    assert told.wait(ASKED_S), 'the done-callback never ran'
 
     assert locked_when_settled == [False]
-    assert not session.controls_locked
-    assert scope.motion.has_homed()
-    assert scope.motion.get_turret_slot() == 1
+    assert not session.controls_lock.controls_locked
+    assert not (scope.motion.axes_without_position().keys() - {'T'})
+    assert scope.motion.turret_status().slot == 1
 
 
 def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
@@ -84,7 +91,7 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
 
     def asked_on_the_lane():
         try:
-            session.start_application_session()
+            session.run_application_session()
         except BaseException as e:
             outcome.set_result(e)
         else:
@@ -93,4 +100,47 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
     scope = session.scope
     scope.io_lane().put(IOTask(action=asked_on_the_lane))
     refusal = outcome.result(timeout=ASKED_S)
-    assert isinstance(refusal, RuntimeError), refusal
+    assert isinstance(refusal, BlockingCallRefusedError), refusal
+    assert (refusal.reason, refusal.member) == ('blocking_on_worker', 'run_application_session')
+    assert isinstance(refusal, RuntimeError), 'still what it was documented as'
+
+
+def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, monkeypatch):
+    """The started startup motion's ``stop()`` is ``stop_motion``: on the
+    LS850T's board, which cannot take a STOP while it homes, it is refused
+    for the home in flight and the startup motion runs to its end."""
+    held = _HeldHome(session.scope, monkeypatch)
+    started = session.start_application_session()
+    try:
+        assert held.entered.wait(HOME_S)
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            started.stop()
+    finally:
+        held.release.set()
+
+    assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
+    assert str(refused.value) == ('This microscope cannot stop a home; the home runs to its end.')
+    assert started.result(timeout=HOME_S) is None
+    assert session.scope.motion.turret_status().slot == 1
+
+
+def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monkeypatch):
+    """The LS850T's board cannot take a STOP while it homes, so the press is
+    refused and the home runs to its end -- and then nothing after it moves.
+    Before, the startup motion went on to place Z at the simulated sample
+    plane, a move the person had pressed STOP on."""
+    motion = session.scope.motion
+    held = _HeldHome(session.scope, monkeypatch)
+    started = session.start_application_session()
+    try:
+        assert held.entered.wait(HOME_S)
+        with pytest.raises(HardwareCommandRefusedError):
+            motion.stop_motion()
+    finally:
+        held.release.set()
+
+    assert started.result(timeout=HOME_S) is None
+    assert not (motion.axes_without_position().keys() - {'T'})
+    # The home leaves Z at the floor; the sample plane is millimetres above.
+    assert session.scope._camera_driver.get_nominal_focal_z() > 1000.0
+    assert motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0)

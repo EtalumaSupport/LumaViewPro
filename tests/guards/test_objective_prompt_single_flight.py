@@ -25,7 +25,7 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
@@ -113,14 +113,28 @@ def popups(monkeypatch):
     return opened
 
 
+def _descendants(widget):
+    # The popup's spacers are the conftest's bare Widget stub: no children.
+    for child in getattr(widget, '_children', ()):
+        yield child
+        yield from _descendants(child)
+
+
+def _button(popup, text):
+    return next(w for w in _descendants(popup.content) if getattr(w, 'text', None) == text)
+
+
 def confirm(popup, choice=None):
     """Click Confirm on an open popup -- the real production callback."""
-    widgets = popup.content._children
-    spinner = next(w for w in widgets if hasattr(w, 'values'))
-    button = next(w for w in widgets if getattr(w, 'text', None) == 'Confirm')
+    spinner = next(w for w in _descendants(popup.content) if hasattr(w, 'values'))
     if choice is not None:
         spinner.text = choice
-    button.fire('on_release')
+    _button(popup, 'Confirm').fire('on_release')
+
+
+def cancel(popup):
+    """Click Cancel on an open popup -- the real production callback."""
+    _button(popup, 'Cancel').fire('on_release')
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +177,7 @@ class _Stand:
     _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
-        self.ids = {'objective_spinner2': _FakeWidget(text='')}
+        self.ids = {}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = _FakeWidget(text=str(position))
         self.shown = []
@@ -179,7 +193,7 @@ def session():
     built = ScopeSession.create(
         complete_settings(
             microscope='LS850T',
-            objective_confirmed=False,
+            objective_confirmed=None,
             turret_position=1,
             turret_objectives={'1': None, '2': None, '3': None, '4': None},
             objective_id='20x Oly',
@@ -228,7 +242,7 @@ class TestSingleFlight:
 
         stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
         assert session.settings['turret_objectives'][1] == '10x Oly'
 
         session.clear_turret_objective(1)
@@ -243,21 +257,19 @@ class TestSingleFlight:
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        catalogue = session.objective_helper.get_objectives_list
+        catalogue = session.scope.objective_helper.get_objectives_list
 
         def fails():
-            raise ConfigurationDefectError(
-                'scope_not_initialized', 'the scope was never initialized'
-            )
+            raise ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
 
         # A stand-in by design: a fault the simulator cannot yet produce.
-        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', fails)
+        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', fails)
 
         stand.prompt_if_objective_unknown()
         assert popups == []
         assert len(centre_posts) == 1
 
-        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', catalogue)
+        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', catalogue)
         stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
@@ -302,7 +314,7 @@ class TestNoHardwareSuppression:
         assert popups == []
         # Unanswered, not answered-by-default: the next session with
         # hardware attached has to ask.
-        assert session.settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is None
 
     def test_hardware_present_still_prompts(self, monkeypatch, popups, session):
         _install_ctx(monkeypatch, session, no_hardware=False)
@@ -343,15 +355,15 @@ class TestTheFlagCannotStrand:
         _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        def _boom(objective_id, turret_position=None):
-            raise HardwareError('turret write failed')
+        def _boom(objective_id, slot=None):
+            raise BoardNoReplyError('turret write failed')
 
         monkeypatch.setattr(session, 'confirm_objective', _boom)
 
         stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert [(n.severity, n.message) for n in centre_posts] == [
-            (Severity.ERROR, 'turret write failed')
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.ERROR, BoardNoReplyError.title)
         ]
 
         stand.prompt_if_objective_unknown()
@@ -384,7 +396,7 @@ class TestProvisionalSettings:
         stand.prompt_if_objective_unknown()
 
         assert popups == []
-        assert session.settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is None
 
     def test_resolution_releases_the_prompt(self, monkeypatch, popups, tmp_path, session):
         rejected = tmp_path / 'current.json'
@@ -401,6 +413,7 @@ class TestProvisionalSettings:
         stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
+    @pytest.mark.slow
     def test_an_answer_after_resolution_reaches_disk(self, tmp_path, monkeypatch):
         """Characterization pin: passes before and after this change.
 
@@ -418,19 +431,19 @@ class TestProvisionalSettings:
         monkeypatch.setattr(settings_init, 'settings', None)
         monkeypatch.setattr(settings_init, 'rejected_current_json', None)
         session = ScopeSession.create(
-            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+            ScopeSession.load_user_settings(str(tmp_path)),
+            source_path=str(tmp_path),
+            simulate=True,
+            settings_file=str(data / 'current.json'),
         )
-        # The real scope with its connection flags up, so the save still
-        # reads the live runtime state it records the turret slot from.
-        for flag in ('camera_connected', 'motor_connected', 'led_connected'):
-            monkeypatch.setattr(type(session.scope), flag, property(lambda self: True))
 
-        # The answer, as the objective question's popup gives it.
-        session.confirm_objective(session.settings['objective_id'], turret_position=1)
-        session.save_settings()
+        # The answer, as the objective question's popup gives it on the
+        # shipped template's turretless model: no slot.
+        session.confirm_objective(session.settings['objective_id'])
+        session.shutdown()
 
-        with open(data / 'current.json') as f:
-            assert json.load(f)['objective_confirmed'] is True
+        with open(data / 'current.json', encoding='utf-8') as f:
+            assert json.load(f)['objective_confirmed'] == 'turretless'
 
 
 # ---------------------------------------------------------------------------
@@ -466,12 +479,12 @@ class TestOneOpenerOneMessage:
 
     def test_the_question_carries_no_per_trigger_variant(self):
         """The decision moved into the Session with the flag it reads; the
-        QUESTION it hands the renderer is one shape -- a position, a
+        QUESTION it hands the renderer is one shape -- a slot, a
         proposal and the choices -- so the message cannot vary by trigger."""
         import dataclasses
 
         assert [f.name for f in dataclasses.fields(ObjectiveQuestion)] == [
-            'turret_position',
+            'turret_slot',
             'proposed',
             'choices',
         ]
@@ -617,7 +630,7 @@ class TestTheFoldedRequestIsStillAnswered:
 
         assert ran == ['startup']
         assert session.settings['turret_objectives'][1] == '10x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_folding_re_arms_like_any_other_answer(self, monkeypatch, popups, session):
         """The fold must not leave the flag set: the next unknowable
@@ -639,8 +652,9 @@ class TestTheFoldedRequestIsStillAnswered:
     ):
         """A continuation left behind would fire on the NEXT prompt's
         answer -- a startup step run against a question nobody asked it
-        about. Unreachable while the modal is cancel-less; pinned so that
-        adding a cancel path cannot quietly create it."""
+        about. Cancel runs them (the test below); this is a dismiss that is
+        neither Confirm nor Cancel, pinned so that no such path can quietly
+        leave one behind."""
         _install_ctx(monkeypatch, session)
         stand = _Stand()
         ran = []
@@ -653,3 +667,23 @@ class TestTheFoldedRequestIsStillAnswered:
         confirm(popups[1], '10x Oly')
 
         assert ran == []
+
+    def test_cancel_writes_nothing_and_every_caller_s_work_still_runs(
+        self, monkeypatch, popups, session
+    ):
+        """Cancel leaves the objective unknown and the slot unassigned, and
+        the asker's and the folded caller's continuations both run: the
+        startup protocol load is never stranded behind a cancelled question."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        ran = []
+
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('asker'))
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('startup'))
+        cancel(popups[0])
+
+        assert sorted(ran) == ['asker', 'startup']
+        assert session.settings['turret_objectives'][1] is None
+        assert session.scope.runtime_state.get_current_objective_id() is None
+        stand.prompt_if_objective_unknown()
+        assert len(popups) == 2, 'a cancelled prompt leaves the app able to ask again'

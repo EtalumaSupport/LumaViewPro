@@ -12,13 +12,11 @@ is refused here until it is classified.
 
 from __future__ import annotations
 
-import json
 import re
 
 from modules import settings_paths
-from tests.ast_seams import REPO_ROOT
+from tests.settings_fixtures import shipped_template
 
-_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 _SHAPED = re.compile(r'(_dir|_folder|_path|filepath|_port|host|api_key)$|^mode$')
 
 
@@ -42,7 +40,7 @@ def _unclassified(template: dict) -> list[str]:
 
 
 def test_every_path_shaped_setting_in_the_template_is_classified():
-    template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
+    template = shipped_template()
     unclassified = _unclassified(template)
     assert unclassified == [], (
         'these settings name a file, folder, port, host or key, yet any caller may '
@@ -52,6 +50,6 @@ def test_every_path_shaped_setting_in_the_template_is_classified():
 
 
 def test_a_new_unclassified_folder_setting_is_caught():
-    template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
+    template = shipped_template()
     template['video']['export_dir'] = None
     assert _unclassified(template) == ['video.export_dir']

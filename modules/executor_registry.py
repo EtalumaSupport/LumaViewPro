@@ -38,10 +38,10 @@ single ``ExecutorBundle`` that holds every executor with the aliases
 already wired and ``start()`` already called. Callers unpack the bundle
 into their context object.
 
-LVP-A-8 -- ``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}``
-so the App's executor watchdog (and engineering-plugin, REST status
-endpoint, future health-check) can read the same view through the same
-lens instead of hardcoding executor handle names.
+``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}`` and
+``thread_states()`` the queueless threads' states, so the executor
+watchdog and the system-metrics line read one view instead of
+hardcoding executor handle names.
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
 from modules.scope_display_thread import ScopeDisplayThread
+from modules.exceptions import SessionClosingError
 from modules.sequential_io_executor import SequentialIOExecutor
 
 
@@ -67,21 +68,9 @@ class ExecutorBundle:
     worker_pool: SequentialIOExecutor
     diagnostics_executor: SequentialIOExecutor
 
-    def snapshot(self) -> dict[str, int]:
-        """Return ``{logical_name: queue_size}`` for every executor.
-
-        Aliased executors (stage, turret) are omitted to avoid double-
-        counting their queue depth. Engineering plugin / REST status
-        endpoint / app watchdog all consume the same view.
-
-        SCOPEDISPLAY and PROTOCOL are bare Threads -- no queue, so their
-        slots report 0 (running) or -1 (stopped) instead of a queue depth.
-        AUTOFOCUS is similarly a bare Thread and reported via
-        AppContext.autofocus_thread (not in this bundle).
-        WORKER_POOL is priority-aware; queue_size aggregates all
-        priorities (HIGH + MED + LOW).
-        """
-        executors = [
+    def queued_executors(self) -> list[tuple[str, SequentialIOExecutor]]:
+        """Every executor with a queue, by its logical name; aliases omitted."""
+        return [
             ('IO', self.io_executor),
             ('CAMERA', self.camera_executor),
             ('FILE', self.file_io_executor),
@@ -89,21 +78,31 @@ class ExecutorBundle:
             ('WORKER_POOL', self.worker_pool),
             ('DIAGNOSTICS', self.diagnostics_executor),
         ]
-        out = {}
-        for name, ex in executors:
-            try:
-                out[name] = ex.queue_size()
-            except Exception:
-                out[name] = -1
-        try:
-            out['SCOPEDISPLAY'] = 0 if self.scope_display_thread.is_running else -1
-        except Exception:
-            out['SCOPEDISPLAY'] = -1
-        try:
-            out['PROTOCOL'] = 0 if self.protocol_thread.is_running else -1
-        except Exception:
-            out['PROTOCOL'] = -1
-        return out
+
+    def snapshot(self) -> dict[str, int]:
+        """Return ``{logical_name: queue_size}`` for every executor with a queue.
+
+        Aliased executors (stage, turret) are omitted to avoid double-
+        counting their queue depth. Every value is a depth: the threads
+        with no queue are ``thread_states``'s, and a depth that cannot be
+        read raises rather than standing in as a number.
+        WORKER_POOL is priority-aware; queue_size aggregates all
+        priorities (HIGH + MED + LOW).
+        """
+        return {name: ex.queue_size() for name, ex in self.queued_executors()}
+
+    def thread_states(self) -> dict[str, str]:
+        """The bundle's threads with no queue, each's state in a word.
+
+        PROTOCOL is ``running`` while a run is in flight, else ``idle``;
+        SCOPEDISPLAY is ``running`` or ``off`` (never started, as on a host
+        with no display, or stopped). AUTOFOCUS is a bare Thread too, held
+        on the session, not in this bundle.
+        """
+        return {
+            'SCOPEDISPLAY': 'running' if self.scope_display_thread.is_running else 'off',
+            'PROTOCOL': 'running' if self.protocol_thread.is_running else 'idle',
+        }
 
     def shutdown(self) -> None:
         """Stop every thread this bundle started, without waiting for queued work.
@@ -118,6 +117,15 @@ class ExecutorBundle:
         self.post_processing_executor.shutdown(wait=False)
         self.worker_pool.shutdown(wait=False)
         self.diagnostics_executor.shutdown(wait=False)
+
+
+def session_lane_closed(member: str) -> SessionClosingError:
+    """What a call the session's own executors will not run is told once they have closed.
+
+    They close only as the session closes: the work was not done because
+    LumaViewPro is closing.
+    """
+    return SessionClosingError(None, work=member)
 
 
 def create_default(
@@ -139,8 +147,10 @@ def create_default(
     """
     # No run mode and no bound: a run's writes are counted and paced by the
     # run's own write batch, on this lane's one ordinary queue.
-    file_io_executor = SequentialIOExecutor(name='FILE')
-    post_processing_executor = SequentialIOExecutor(name='POSTPROC')
+    file_io_executor = SequentialIOExecutor(name='FILE', closed_answer=session_lane_closed)
+    post_processing_executor = SequentialIOExecutor(
+        name='POSTPROC', closed_answer=session_lane_closed
+    )
     # Thread is constructed here but NOT started: a host with a display
     # starts it from its display widget, which it renders through.
     scope_display_thread = ScopeDisplayThread()
@@ -150,12 +160,16 @@ def create_default(
     # Not a lane: no device sits behind it. A Stop's inline cleanup and the
     # GUI's jobs run here and wait on the device lanes through the blocking
     # public members, which a lane worker is forbidden to do.
-    worker_pool = SequentialIOExecutor(name='WORKER_POOL', priority_aware=True, lane=False)
+    worker_pool = SequentialIOExecutor(
+        name='WORKER_POOL', priority_aware=True, lane=False, closed_answer=session_lane_closed
+    )
     # Not a lane either, for a diagnostic that runs for minutes across both
     # device lanes (the support report). On the worker pool it would hold
     # the one worker, and a Stop would wait behind it; its own worker keeps
     # the pool free, and a second request queues behind the first.
-    diagnostics_executor = SequentialIOExecutor(name='DIAGNOSTICS', lane=False)
+    diagnostics_executor = SequentialIOExecutor(
+        name='DIAGNOSTICS', lane=False, closed_answer=session_lane_closed
+    )
 
     bundle = ExecutorBundle(
         io_executor=io_executor,
@@ -168,11 +182,17 @@ def create_default(
         diagnostics_executor=diagnostics_executor,
     )
 
-    file_io_executor.start()
-    post_processing_executor.start()
-    worker_pool.start()
-    diagnostics_executor.start()
-    protocol_thread.start()
+    # A start that raises leaves no caller holding the bundle, so the
+    # starts before it are stopped here before the raise goes on.
+    try:
+        file_io_executor.start()
+        post_processing_executor.start()
+        worker_pool.start()
+        diagnostics_executor.start()
+        protocol_thread.start()
+    except BaseException:
+        bundle.shutdown()
+        raise
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started FILE, POSTPROC, '

@@ -2,7 +2,7 @@
 """Every event declares its published record, and the record is the callback's arguments.
 
 A listener's payload was named only in its docstring -- ``(axis, position,
-state)``, ``(scan_number, scans_remaining, interval)`` -- so a host that
+state)``, ``(scan_index, scans_remaining, period_s)`` -- so a host that
 carries an event elsewhere (the REST server's stream) had to keep its own
 table of each signature, a second store that drifts. Each event now
 declares a published record where it is delivered (``modules.api_surface``):
@@ -12,7 +12,8 @@ and every ``RunEvents`` field to a declaration, and each record's fields,
 in order, to the callback's argument types. A callback whose one argument
 is a record declares that record; one with no arguments declares the
 record its host reads when the event is sent, and has no arguments to
-compare.
+compare. Its subject is a class's members: a listener is added to the
+object whose events it hears, never to a module.
 
 Annotations are compared as source text, normalized, as
 ``test_the_api_is_declared`` reads them: no session, no ``get_type_hints``.
@@ -22,35 +23,24 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import importlib
 import inspect
-import pkgutil
-import warnings
 
 import pytest
 
+from modules import wire_encoding
 from modules.api_surface import event_of, field_event, fields_of, mark_of
+from tests.ast_seams import MemberNames
 
 # Declarations whose absence would mean the walk lost its way.
 NOT_VACUOUS = {'MotionAPI.add_position_listener', 'RunEvents.scan_started'}
 
+# The fields of RunEvents that say how its handlers are delivered, not an event.
+NOT_HANDLERS = MemberNames('modules/run_events.py', {'on_ui_thread'})
+
 
 @pytest.fixture(scope='module')
 def universe() -> dict[str, type]:
-    import modules
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', FutureWarning)
-        for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
-            importlib.import_module(info.name)
-    found = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                found[cname] = obj
-    return found
+    return wire_encoding.project_classes()
 
 
 def _norm(text: str) -> str:
@@ -108,9 +98,25 @@ def _events(universe):
     from modules.run_events import RunEvents
 
     for field in dataclasses.fields(RunEvents):
+        if field.name in NOT_HANDLERS:
+            continue
         text = field.type if isinstance(field.type, str) else inspect.formatannotation(field.type)
         events.append((f'RunEvents.{field.name}', field_event(RunEvents, field.name), text))
     return events
+
+
+def test_every_run_events_field_but_the_delivery_is_a_handler():
+    from modules.run_events import RunEvents
+
+    not_callables = {
+        field.name
+        for field in dataclasses.fields(RunEvents)
+        if _callback_arguments(
+            field.type if isinstance(field.type, str) else inspect.formatannotation(field.type)
+        )
+        is None
+    }
+    assert not_callables == NOT_HANDLERS
 
 
 def test_every_event_declares_a_published_record(universe):

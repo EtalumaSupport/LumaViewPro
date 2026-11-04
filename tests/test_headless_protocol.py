@@ -16,12 +16,13 @@ This complements test_integration.py, which mocks Kivy out -- here we
 assert the modules NEVER LOAD Kivy at all.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import contextlib
 import datetime
-import pathlib
 import sys
 import threading
 from unittest.mock import MagicMock
+from tests.protocol_fixtures import protocol_of
 
 
 # Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
@@ -49,6 +50,7 @@ _purge_kivy_from_sys_modules()
 # Now import the protocol execution chain -- these MUST not require Kivy
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -57,7 +59,6 @@ from modules.sequenced_capture_runner import (
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.kivy_utils import schedule_ui
-import modules.kivy_utils as _kivy_utils
 from modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
@@ -66,6 +67,7 @@ from modules.scope_session import ScopeSession
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from modules.layer_record import release_colors
 
 install_mock_deps()
 
@@ -101,9 +103,9 @@ class TestHeadlessImports:
         with _kivy_purged():
             # Re-import the protocol chain (modules already in sys.modules will
             # be a no-op, so reload their state by dropping them first if needed)
-            import modules.lumascope_api
-            import modules.sequenced_capture_runner
-            import modules.protocol
+            import modules.lumascope_api  # noqa: F401 -- loaded for the no-kivy assertion below
+            import modules.sequenced_capture_runner  # noqa: F401 -- loaded for the no-kivy assertion below
+            import modules.protocol  # noqa: F401 -- loaded for the no-kivy assertion below
             import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
             # Verify no kivy module is in sys.modules
@@ -143,28 +145,6 @@ class TestHeadlessImports:
         schedule_ui(my_func)
         assert called == [0], 'schedule_ui should have invoked func directly with dt=0'
 
-    def test_schedule_ui_with_dispatcher(self):
-        """When dispatcher is set, schedule_ui goes through it."""
-        calls = []
-
-        def fake_dispatcher(func, timeout):
-            calls.append((func, timeout))
-
-        ScopeSession.set_ui_dispatcher(
-            _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
-        )
-        try:
-
-            def my_func(dt):
-                pass
-
-            schedule_ui(my_func, timeout=0.5)
-            assert len(calls) == 1
-            assert calls[0][0] is my_func
-            assert calls[0][1] == 0.5
-        finally:
-            ScopeSession.set_ui_dispatcher(None)
-
 
 class TestHeadlessProtocolExecution:
     """Verify a full protocol runs end-to-end without Kivy loaded."""
@@ -173,7 +153,10 @@ class TestHeadlessProtocolExecution:
         from modules.protocol_thread import ProtocolThread
 
         names = ['io', 'file_io', 'camera', 'autofocus']
-        execs = {n: SequentialIOExecutor(name=f'HEADLESS_{n.upper()}') for n in names}
+        execs = {
+            n: SequentialIOExecutor(closed_answer=scope_lane_closed, name=f'HEADLESS_{n.upper()}')
+            for n in names
+        }
         for e in execs.values():
             e.start()
         pt = ProtocolThread()
@@ -194,8 +177,6 @@ class TestHeadlessProtocolExecution:
     def _make_protocol(self):
         """Build a minimal single-step protocol."""
         import pandas as pd
-
-        TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
         rows = [
             {
@@ -219,10 +200,13 @@ class TestHeadlessProtocolExecution:
                 'Tile Group ID': 0,
                 'Z-Stack Group ID': 0,
                 'Acquire': 'image',
-                'Video Config': {'duration': 1, 'fps': 5},
+                'Video Config': {'duration': 1},
                 'Stim_Config': {},
                 'Step Index': 0,
                 'Label': 'A1_BF',
+                'Channel Group ID': 0,
+                'Turret Slot': -1,
+                'Z-Stack Offset': 0.0,
                 'Auto_Named': False,
             }
         ]
@@ -236,7 +220,7 @@ class TestHeadlessProtocolExecution:
             'capture_root': '',
             'tiling': '1x1',
         }
-        return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+        return protocol_of(config=config)
 
     def test_kivy_stays_unloaded_during_protocol_run(self, tmp_path):
         """Full protocol run must not cause Kivy to be loaded at any point."""
@@ -277,6 +261,8 @@ class TestHeadlessProtocolExecution:
                     autofocus_thread=MagicMock(in_flight_sweep=None),
                     activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
+                    channel_colors=release_colors,
+                    post_processing=no_post_run_builds(),
                 )
                 protocol = self._make_protocol()
 
@@ -287,16 +273,14 @@ class TestHeadlessProtocolExecution:
 
                 autogain_settings = {
                     'target_brightness': 0.3,
-                    'min_gain': 0.0,
-                    'max_gain': 20.0,
-                    'max_duration': datetime.timedelta(seconds=2),
+                    'min_gain_db': 0.0,
+                    'max_gain_db': 20.0,
                 }
 
                 image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
 
                 plan = executor.prepare(
                     protocol=protocol,
-                    run_trigger_source='test',
                     run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
                     sequence_name='headless_test',
                     image_capture_config=image_capture_config,

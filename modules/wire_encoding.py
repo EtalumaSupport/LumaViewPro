@@ -6,12 +6,13 @@ the API from the Session, edge by edge, and names every edge whose type
 has no form, so a member that would hand a wire client something it
 cannot carry fails the build (``tests/guards/test_every_wire_edge_has_a_form``);
 ``encode`` turns a value into JSON-ready data for a host that carries it,
-the REST server.
+the REST server; ``plain`` walks it the same way for a caller in the same
+process, keeping what only a wire needs converted (a record's ``to_dict()``).
 
 The forms:
 
 - ``str``, ``int``, ``float``, ``bool``, None: themselves.
-- ``timedelta``: seconds. ``datetime``: ISO 8601.
+- ``datetime``: ISO 8601.
 - A ``StrEnum``: its value; any other enum: its name.
 - A record (``api_surface.is_record``): an object by its published field
   names, its wire-marked properties among them.
@@ -23,23 +24,31 @@ The forms:
 - A tuple, list, set, frozenset or iterable: an array, a set sorted.
 - A dict, mapping or ``pandas.Series``: an object, keys as strings (an
   enum key in its own form).
-- A ``Future``: a job, from the host's job registry.
+- An ``Operation``: a job, from the host's job registry.
+- A refusal (an exception of the ``Refusal`` kind): an object as REST
+  sends a refused call's problem, its ``kind``, ``reason``, ``title``,
+  ``detail`` and ``remedy`` beside the fields its type publishes
+  (``outcome_fields``); in the same process, the exception itself.
 - Any other object with wire members: a handle, from the host's registry.
 - A callable parameter (an ``on_progress``, a run's ``RunEvents``): not
   on the wire; the host passes its own.
 
 No form: an image array, a table (``DataFrame``), a callable anywhere but
-a parameter, ``Any`` or ``object``, a thread. A member that hands one out
-is marked in-process.
+a parameter, ``Any`` or ``object``, a thread, a ``timedelta`` (a duration
+is a float of seconds, its name ending ``_s``, so a client reads its unit
+from its name). A member that hands one out is marked in-process.
 
-Inbound, a parameter's value comes back the same way: seconds become a
-``timedelta``, an enum's form its member, an object a record, a handle's
-id its live object, a live-folder name an absolute path. ``wire_members``
-describes each member a host routes to, and ``decode`` turns what a
-client sent into what the member takes. A parameter type with no inbound
-form -- a job, a path inside an array, a union a value could be read as
-either side of -- is refused when the host is built, never guessed at a
-call.
+Inbound, a parameter's value comes back the same way: an object a
+record, a handle's id its live object, a job's id its operation, a
+live-folder name an absolute path. An enum a client sends is a
+``StrEnum``, and its string is handed through as sent: the member's door,
+or the record built from it, judges it as it judges a Python caller's
+(``closed_sets``), so a value outside the set has one refusal wherever it
+came from. ``wire_members`` describes each member a host routes to,
+and ``decode`` turns what a client sent into what the member takes. A
+parameter type with no inbound form -- a future that is no operation, a
+path inside an array, a union a value could be read as either side of --
+is refused when the host is built, never guessed at a call.
 
 Outbound, ``outbound`` reads a member's return type into the form its
 answer takes, from the same table, so a host can describe each answer
@@ -61,14 +70,26 @@ import pkgutil
 import typing
 import warnings
 from collections.abc import Callable, Iterable, Mapping
-from concurrent.futures import Future
 
-from lib.lumascope_error import Fault
-from modules.api_surface import API, fields_of, is_record, mark_of
+from lib.lumascope_error import Fault, RefusalCause
+from modules.api_surface import (
+    API,
+    Admission,
+    admitted_by_of,
+    field_descriptions,
+    fields_of,
+    in_process_arguments_of,
+    is_record,
+    mark_of,
+    reads_of,
+    sets_of,
+)
+from modules.exceptions import Refusal
+from modules.notification_center import UNTYPED_FAULT_TITLE, outcome_of
+from modules.operation import Operation
 
 # The forms a value takes on the wire.
 SCALAR = 'scalar'
-SECONDS = 'seconds'
 ISO8601 = 'iso8601'
 ENUM = 'enum'
 RECORD = 'record'
@@ -77,6 +98,7 @@ ARRAY = 'array'
 OBJECT = 'object'
 JOB = 'job'
 HANDLE = 'handle'
+REFUSAL = 'refusal'
 SERVER_SUPPLIED = 'server_supplied'
 
 # The forms of the names an annotation uses that are not project classes,
@@ -87,7 +109,6 @@ NAMED_FORMS = {
     'float': SCALAR,
     'bool': SCALAR,
     'None': SCALAR,
-    'timedelta': SECONDS,
     'datetime': ISO8601,
     'Path': PATH,
     'PurePath': PATH,
@@ -102,7 +123,6 @@ NAMED_FORMS = {
     'dict': OBJECT,
     'Mapping': OBJECT,
     'Series': OBJECT,
-    'Future': JOB,
 }
 # Names that wrap a type without changing its form.
 _TRANSPARENT = {'ClassVar', 'Optional', 'Union'}
@@ -114,32 +134,153 @@ _HOST_FILLED = {'Callable', 'ProgressCallback', 'RunEvents'}
 class NoWireFormError(Fault, TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'no_wire_form': None}
+    title = 'No Wire Form'
+    # Where in the walked value it was found, each container prefixing its
+    # step as the fault passes back up; the walk's top names it whole.
+    _at = ''
+
 
 class NotHandedOutError(NoWireFormError):
     """A parameter takes only a live object no wire member hands out, so no client can name one."""
 
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'not_handed_out': None}
+    title = 'Not Handed Out'
 
-def project_classes() -> dict[str, type]:
-    """Every class defined under ``modules/``, by name, every module imported."""
+
+# The repository's top-level import names: a class defined in one of them is
+# a project class. Read from the module's name, never its file, because a
+# frozen build puts every module's file, numpy's and the standard library's
+# too, in the one folder that holds ``modules/``.
+PROJECT_PACKAGES = frozenset(
+    {
+        'modules',
+        'drivers',
+        'lib',
+        'rest',
+        'ui',
+        'tools',
+        'lumaviewpro',
+        'lvp_logger',
+        'lvp_fx2_driver_step',
+    }
+)
+
+
+def _import_modules() -> None:
     import modules
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', FutureWarning)
         for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
             importlib.import_module(info.name)
-    found = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
+
+
+def _defined_under_modules() -> set[type]:
+    _import_modules()
+    return {
+        obj
+        for name, module in list(importlib.sys.modules.items())
+        if name.startswith('modules')
+        for obj in vars(module).values()
+        if inspect.isclass(obj) and obj.__module__ == name
+    }
+
+
+def _classes_in(hint: object) -> Iterable[type]:
+    """Each class a resolved annotation holds: through unions, generics, a ``Callable``'s arguments and aliases."""
+    if isinstance(hint, typing.TypeAliasType):
+        yield from _classes_in(hint.__value__)
+        return
+    if isinstance(hint, list):
+        # A ``Callable``'s argument list.
+        for argument in hint:
+            yield from _classes_in(argument)
+        return
+    origin = typing.get_origin(hint)
+    if origin is not None:
+        yield from _classes_in(origin)
+    elif inspect.isclass(hint):
+        yield hint
+    for argument in typing.get_args(hint):
+        yield from _classes_in(argument)
+
+
+def _published_hints(cls: type, namespace: dict[str, object]) -> list[object]:
+    """The resolved annotation of each member *cls* marks and each field it publishes."""
+    hints = []
+    if fields_of(cls):
+        try:
+            resolved = typing.get_type_hints(cls, localns=namespace)
+        except NameError as e:
+            raise NameError(f'{cls.__qualname__}: {e}', name=e.name) from e
+        hints += [resolved[name] for name in fields_of(cls) if name in resolved]
+    for name, value in vars(cls).items():
+        if mark_of(value) is None:
             continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                found[cname] = obj
-    return found
+        function = value.fget if isinstance(value, property) else getattr(value, '__func__', value)
+        try:
+            resolved = typing.get_type_hints(inspect.unwrap(function), localns=namespace)
+        except NameError as e:
+            raise NameError(f'{cls.__qualname__}.{name}: {e}', name=e.name) from e
+        hints += resolved.values()
+    return hints
+
+
+def closure(roots: Iterable[type], namespace: dict[str, object]) -> dict[str, type]:
+    """*roots* and every project class their marked members and published fields resolve to, by name.
+
+    Each annotation is resolved, with *namespace* for the names its module
+    does not bind, and followed; the members of every project class it
+    reaches are read in turn, until nothing new is reached. A project class
+    is one defined in ``PROJECT_PACKAGES``.
+
+    Raises:
+        NameError: an annotation names something that does not resolve.
+        TypeError: two classes share a name, which an annotation cannot
+            tell apart.
+    """
+    found = set(roots)
+    pending = list(found)
+    while pending:
+        for hint in _published_hints(pending.pop(), namespace):
+            for cls in _classes_in(hint):
+                if cls not in found and cls.__module__.partition('.')[0] in PROJECT_PACKAGES:
+                    found.add(cls)
+                    pending.append(cls)
+    by_name: dict[str, list[type]] = {}
+    for cls in found:
+        by_name.setdefault(cls.__name__, []).append(cls)
+    shared = sorted(
+        f'{name}: {sorted(f"{c.__module__}.{c.__qualname__}" for c in classes)}'
+        for name, classes in by_name.items()
+        if len(classes) > 1
+    )
+    if shared:
+        raise TypeError(
+            'two classes share each of these names, which an annotation cannot tell '
+            f'apart: {shared}'
+        )
+    return {name: classes[0] for name, classes in by_name.items()}
+
+
+def project_classes() -> dict[str, type]:
+    """Every class the API can name, by name: each defined under ``modules/`` and its ``closure``.
+
+    So a driver's record the API hands out (a frame listener's ``Frame``)
+    is judged and described as one defined under ``modules/`` is.
+
+    Raises:
+        NameError: as ``closure`` says.
+        TypeError: as ``closure`` says.
+    """
+    defined = _defined_under_modules()
+    return closure(defined, {cls.__name__: cls for cls in defined} | project_type_aliases())
 
 
 def project_type_aliases() -> dict[str, typing.TypeAliasType]:
     """Every ``type`` alias defined under ``modules/``, by name, as the alias itself."""
-    project_classes()
+    _import_modules()
     found = {}
     for name, module in list(importlib.sys.modules.items()):
         if not name.startswith('modules'):
@@ -185,7 +326,17 @@ def _wire_methods(cls: type) -> list[str]:
 
 
 def class_form(cls: type) -> str | None:
-    """The form a project class crosses in, or None when it has none."""
+    """The form a project class crosses in, or None when it has none.
+
+    An ``Operation`` of any class is a running call, a job, whatever
+    members it marks: ``encode`` sends it as one by ``isinstance``, and a
+    description that called it a handle would promise the client routes no
+    answer reaches.
+    """
+    if issubclass(cls, Operation):
+        return JOB
+    if issubclass(cls, Refusal):
+        return REFUSAL
     if issubclass(cls, enum.Enum):
         return ENUM
     if is_record(cls):
@@ -398,7 +549,7 @@ def encode(
     *,
     live_folder: pathlib.Path,
     handle: Callable[[object], object],
-    job: Callable[[Future], object],
+    job: Callable[[Operation], object],
 ) -> object:
     """*value* in its wire form, JSON-ready.
 
@@ -409,8 +560,68 @@ def encode(
         NoWireFormError: *value*, or something in it, has no wire form --
             a NaN or an infinity among them: JSON has none, and the answer
             is refused here, where the call ends, rather than when it is
-            rendered, after a job may already hold it.
+            rendered, after a job may already hold it; or a record that
+            publishes no field, which would cross as ``{}``.
     """
+    return _walk(value, wire=True, live_folder=live_folder, handle=handle, job=job)
+
+
+def plain(value: object) -> object:
+    """*value* as plain Python data, for a caller in the same process: what a record's ``to_dict()`` answers.
+
+    The same walk as ``encode``, so a record's fields, its wire-marked
+    properties among them, are the ones a wire client gets: a record
+    becomes a dict, an enum its wire form, a tuple, list, set or series a
+    list or dict. What only a wire needs turned into something else stays
+    as it is: a path, a handle and a running call are the live objects
+    the caller can use, a NaN is a NaN, a time is a ``datetime``, and a
+    key keeps its type.
+
+    Raises:
+        NoWireFormError: something in *value* is a ``timedelta``, or a
+            record that publishes no field; neither has a form in either
+            walk.
+    """
+    return _walk(value, wire=False, live_folder=None, handle=None, job=None)
+
+
+def outcome_fields(exception: BaseException, form: Callable[[object], object]) -> dict[str, object]:
+    """What a wire client is told of *exception*: each field its type publishes, then the outcome its type declares.
+
+    The one composition of the keys a REST problem carries for an
+    outcome and a record carries for a refusal it holds: ``kind``,
+    ``reason`` (None when the type declares none), ``title`` (the generic
+    fault heading when it declares none), ``detail`` (the words a person
+    reads: a developer's words go to the log, never to the client) and
+    ``remedy``.
+    *form* gives each value its wire form.
+    """
+    found: dict[str, object] = {}
+    for klass in type(exception).__mro__:
+        for name in fields_of(klass):
+            if name not in found:
+                found[name] = form(getattr(exception, name))
+    outcome = outcome_of(exception)
+    return {
+        **found,
+        'kind': outcome.kind.value,
+        'reason': outcome.reason or None,
+        'title': outcome.title or UNTYPED_FAULT_TITLE,
+        'detail': outcome.shown_words,
+        'remedy': form(outcome.remedy),
+    }
+
+
+def _walk(
+    value: object,
+    *,
+    wire: bool,
+    live_folder: pathlib.Path | None,
+    handle: Callable[[object], object] | None,
+    job: Callable[[Operation], object] | None,
+) -> object:
+    def key(k: object) -> object:
+        return _key(k) if wire else k
 
     def form(v: object) -> object:
         # An enum before a scalar: an IntEnum is an int, and would cross as
@@ -419,51 +630,81 @@ def encode(
             return v.value
         if isinstance(v, enum.Enum):
             return v.name
-        if isinstance(v, float) and not math.isfinite(v):
+        if wire and isinstance(v, float) and not math.isfinite(v):
             raise NoWireFormError(f'{v!r} is not a finite number, and JSON carries no other')
         if v is None or isinstance(v, (bool, int, float, str)):
             return v
         if isinstance(v, datetime.timedelta):
-            return v.total_seconds()
+            # Refused in both walks, so a duration left unconverted is found
+            # by whichever reads it first, not by a later client's REST read.
+            raise NoWireFormError(
+                f'{v!r} is a timedelta, which has no form: a duration is a float of '
+                'seconds, its name ending _s'
+            )
         if isinstance(v, (datetime.datetime, datetime.date)):
-            return v.isoformat()
+            return v.isoformat() if wire else v
         if isinstance(v, pathlib.PurePath):
-            return _path(v, live_folder)
-        if isinstance(v, Future):
-            return job(v)
+            return _path(v, live_folder) if wire else v
+        if isinstance(v, Operation):
+            return job(v) if wire else v
+        if isinstance(v, Refusal):
+            return outcome_fields(v, form) if wire else v
         cls = type(v)
         if is_record(cls):
             names = _fields(cls) + tuple(_wire_properties(cls))
-            return {n: form(getattr(v, n)) for n in names}
+            if not names:
+                # Refused in both walks: an unpublished record would cross
+                # as {}, a plausible empty answer where its data was meant.
+                raise NoWireFormError(
+                    f'{cls.__module__}.{cls.__qualname__} publishes no field '
+                    '(@api_fields), so it has no form'
+                )
+            return {n: at(f'.{n}', getattr(v, n)) for n in names}
         if cls.__module__ == 'numpy' and getattr(v, 'shape', None) == ():
             # A numpy scalar where the annotation says int or float.
             return form(v.item())
         if type(v).__name__ == 'Series' and type(v).__module__.startswith('pandas'):
-            return {_key(k): form(x) for k, x in v.items()}
+            return {key(k): at(f'[{k!r}]', x) for k, x in v.items()}
         if isinstance(v, Mapping):
-            return {_key(k): form(x) for k, x in v.items()}
+            return {key(k): at(f'[{k!r}]', x) for k, x in v.items()}
         if isinstance(v, (set, frozenset)):
-            return sorted(form(x) for x in v)
+            return sorted(at('[]', x) for x in v)
         if isinstance(v, (tuple, list)):
-            return [form(x) for x in v]
+            return [at(f'[{i}]', x) for i, x in enumerate(v)]
         if cls.__module__.startswith('modules') and class_form(cls) == HANDLE:
-            return handle(v)
+            return handle(v) if wire else v
         if (
             isinstance(v, Iterable)
             and not isinstance(v, (bytes, bytearray))
             and not hasattr(v, 'shape')
         ):
-            return [form(x) for x in v]
+            return [at(f'[{i}]', x) for i, x in enumerate(v)]
+        if not wire:
+            # An array, a table, anything else the caller holds: it is
+            # already the caller's own kind of object.
+            return v
         raise NoWireFormError(f'{cls.__module__}.{cls.__qualname__} has no wire form')
 
-    return form(value)
+    def at(step: str, v: object) -> object:
+        try:
+            return form(v)
+        except NoWireFormError as gap:
+            gap._at = step + gap._at
+            raise
+
+    try:
+        return form(value)
+    except NoWireFormError as gap:
+        if not gap._at:
+            raise
+        raise NoWireFormError(f'{type(value).__name__}{gap._at}: {gap}') from gap
 
 
 # --- The inbound half: a value a wire client sends -----------------------------
 
 # The forms whose value is turned into something else on the way in; every
 # other inbound form is taken as the client sent it.
-_CONVERTED = {SECONDS, PATH, ENUM, RECORD, HANDLE}
+_CONVERTED = {PATH, ENUM, RECORD, HANDLE, JOB}
 # The array types a JSON array becomes, by the name the annotation uses.
 _ARRAY_TYPES = {'tuple': tuple, 'set': set, 'frozenset': frozenset}
 
@@ -477,7 +718,7 @@ class Inbound:
         name: The type's name, by its last part (``str``, ``FilePath``,
             ``Remedy``).
         cls: The project class, for an enum, a record or a handle.
-        items: An array's or object's value alternatives, scalars only; empty
+        items: An array's or object's value alternatives, scalars or records; empty
             when the annotation does not say.
         fields: A record's published fields, each with its alternatives.
     """
@@ -539,15 +780,23 @@ class WireMember:
     Attributes:
         name: The Python name, the route's last segment.
         read: A property or published field, read rather than called.
+        reads: A method marked ``reads``: it changes nothing, so a host
+            answers it to ``GET`` with its arguments in the query string.
+        sets: The read, on the same class, whose setting a method marked
+            ``sets`` writes: a host serves the method as ``PUT`` on the
+            read's path, and answers the read after the write. None
+            otherwise.
         parameters: What a call takes from the client; the parameters the
             host fills (a callback, a run's handlers) are not among them.
         segment: The live object's class a read leads to, when the member is
             a sub-object the route continues through; None otherwise.
         doc: The member's docstring.
+        admitted_by: The doors its mark says it enters, whose refusals a
+            host adds to the docstring's (``api_surface.Admission``).
         hands_out: Whether its answer can carry a live object a client is
             handed; known only when ``wire_members`` is given ``handed_out``.
         returns_job: Whether its answer can carry a running call (a
-            ``Future``), which a host hands out as a job.
+            ``Operation``), which a host hands out as a job.
         progress: The parameter a host fills with its own ``ProgressCallback``
             to hear how far the call has got; None when it takes none.
         run_events: The parameter a host fills with its own ``RunEvents`` to
@@ -560,8 +809,11 @@ class WireMember:
     read: bool
     returns: tuple[Outbound, ...]
     parameters: tuple[WireParameter, ...] = ()
+    reads: bool = False
+    sets: str | None = None
     segment: type | None = None
     doc: str = ''
+    admitted_by: tuple[Admission, ...] = ()
     hands_out: bool = False
     returns_job: bool = False
     progress: str | None = None
@@ -612,10 +864,10 @@ def inbound(
     client has no id to send for one.
 
     Raises:
-        NoWireFormError: the type has no inbound form -- a job, a thread, a
-            path or record inside an array -- or is a union a sent value
-            could be read as either side of (a name or a path), so which one
-            the client meant is not knowable.
+        NoWireFormError: the type has no inbound form -- a future that is
+            no operation, a thread, a path inside an array -- or is a union
+            a sent value could be read as either side of (a name or a path),
+            so which one the client meant is not knowable.
         NotHandedOutError: every alternative but None is a live object no
             wire member hands out.
     """
@@ -647,7 +899,11 @@ def inbound(
             found.append(Inbound(form, name, cls, fields=fields))
         elif form == HANDLE and handed_out is not None and cls not in handed_out:
             unobtainable.append(name)
-        elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE):
+        elif form == ENUM and not issubclass(cls, enum.StrEnum):
+            # Sent by name, it would be judged by no door; a closed set a
+            # client sends is a StrEnum.
+            raise NoWireFormError(f'{text}: {name} is an enum a client sends, so a StrEnum')
+        elif form in (SCALAR, PATH, ENUM, HANDLE, JOB):
             found.append(Inbound(form, name, cls))
         else:
             raise NoWireFormError(f'{text}: {name} has no inbound form')
@@ -665,7 +921,7 @@ def inbound(
 def _items(
     node: ast.AST, text: str, classes: dict[str, type], aliases: dict[str, str]
 ) -> tuple[Inbound, ...]:
-    """An array's or object's value alternatives, which are scalars or nothing said."""
+    """An array's or object's value alternatives: scalars, closed sets, records, or nothing said."""
     if not isinstance(node, ast.Subscript):
         return ()
     parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
@@ -676,8 +932,10 @@ def _items(
         # type would misdescribe.
         raise NoWireFormError(f'{text}: a tuple of fixed shape is not sent')
     items = inbound(ast.unparse(parts[-1]), classes, aliases)
-    if any(i.form != SCALAR for i in items):
-        raise NoWireFormError(f'{text}: an array or object of anything but scalars is not sent')
+    if any(i.form not in (SCALAR, ENUM, RECORD) for i in items):
+        raise NoWireFormError(
+            f'{text}: an array or object of anything but scalars, closed sets or records is not sent'
+        )
     return items
 
 
@@ -689,7 +947,7 @@ def outbound(
     Read from ``NAMED_FORMS`` and ``class_form``, the table ``encode``
     follows, so each alternative is the form ``encode`` gives a value of
     that type: a record by its published fields and wire properties, a
-    live object as its handle, a ``Future`` as its job, a path as its
+    live object as its handle, an ``Operation`` as its job, a path as its
     live-folder name and host path, an array or object by its items, a
     fixed-shape tuple by its parts.
 
@@ -754,7 +1012,8 @@ def wire_members(
     """Each member of *cls* a wire client reaches, sorted by name.
 
     Given ``handed_out``, a parameter with a default that takes only a live
-    object no wire member hands out is not sent: its default stands.
+    object no wire member hands out is not sent: its default stands. Nor is
+    a parameter the member marks in-process (``in_process_arguments``).
 
     Raises:
         NoWireFormError: a parameter's type has no inbound form, a return
@@ -771,14 +1030,17 @@ def wire_members(
         if isinstance(member, property):
             fget = member.fget
             text = _annotation_text(fget.__annotations__.get('return', inspect.Parameter.empty))
-            members.append(_read(name, text, fget, classes, aliases, handed_out))
+            members.append(
+                _read(name, text, fget, fget.__doc__ or '', classes, aliases, handed_out)
+            )
             continue
         function = inspect.unwrap(getattr(member, '__func__', member))
         parameters = []
         progress = None
         run_events = None
+        off_wire = in_process_arguments_of(member)
         for p in inspect.signature(function).parameters.values():
-            if p.name in ('self', 'cls'):
+            if p.name in ('self', 'cls') or p.name in off_wire:
                 continue
             if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
                 raise TypeError(
@@ -808,15 +1070,20 @@ def wire_members(
                 read=False,
                 returns=outbound(returns, classes, aliases),
                 parameters=tuple(parameters),
+                reads=reads_of(member),
+                sets=sets_of(member),
                 doc=function.__doc__ or '',
+                admitted_by=admitted_by_of(member),
                 hands_out=_hands_out(returns, handed_out, aliases),
-                returns_job=_returns_job(returns, aliases),
+                returns_job=_returns_job(returns, classes, aliases),
                 progress=progress,
                 run_events=run_events,
             )
         )
+    described = field_descriptions(cls)
     members += [
-        _read(f, _field_text(cls, f), None, classes, aliases, handed_out) for f in _fields(cls)
+        _read(f, _field_text(cls, f), None, described.get(f, ''), classes, aliases, handed_out)
+        for f in _fields(cls)
     ]
     return sorted(members, key=lambda m: m.name)
 
@@ -825,11 +1092,16 @@ def _read(
     name: str,
     text: str | None,
     function: object,
+    doc: str,
     classes: dict[str, type],
     aliases: dict[str, str],
     handed_out: frozenset[type] | None,
 ) -> WireMember:
-    """A read member, with the live object's class it leads to when it is a sub-object."""
+    """A read member, with the live object's class it leads to when it is a sub-object.
+
+    *doc* is its words: a property's docstring, a field's ``Attributes:``
+    entry; a field has no function to read them from.
+    """
     segment = _segment(text, classes) if text else None
     return WireMember(
         name,
@@ -837,13 +1109,14 @@ def _read(
         # A sub-object is a path segment, never an answer.
         returns=() if segment is not None else outbound(text, classes, aliases),
         segment=segment,
-        doc=getattr(function, '__doc__', '') or '',
+        doc=doc,
+        admitted_by=admitted_by_of(function) if function is not None else (),
         hands_out=_hands_out(text, handed_out, aliases),
-        returns_job=_returns_job(text, aliases),
+        returns_job=_returns_job(text, classes, aliases),
     )
 
 
-def _returns_job(text: str | None, aliases: dict[str, str]) -> bool:
+def _returns_job(text: str | None, classes: dict[str, type], aliases: dict[str, str]) -> bool:
     """Whether a value of type *text* can carry a running call, which crosses as a job."""
     if not text:
         return False
@@ -851,7 +1124,7 @@ def _returns_job(text: str | None, aliases: dict[str, str]) -> bool:
     for used in used_names:
         if used in aliases and used not in NAMED_FORMS:
             used_names += _names(aliases[used])
-    return any(NAMED_FORMS.get(n) == JOB for n in used_names)
+    return any(n in classes and class_form(classes[n]) == JOB for n in used_names)
 
 
 def _hands_out(
@@ -874,35 +1147,51 @@ def decode(
     *,
     resolve_path: Callable[[str], pathlib.Path],
     handle: Callable[[str, type], object],
+    job: Callable[[str], Operation],
 ) -> object:
     """What a member takes for *value*, sent by a wire client for a parameter of *alternatives*.
 
     The value's JSON type is the host's to have checked against the
     alternatives (``inbound`` admits only unions a value picks one side
-    of); this turns it into the Python value.
+    of); this turns it into the Python value. A closed set's string is
+    handed through, for the door or the record to judge.
 
     ``resolve_path`` turns a live-folder name into an absolute path, refusing
     a name outside the live folder; ``handle`` turns a handle's id into its
-    live object of the given class, refusing an unknown id.
+    live object of the given class, refusing an unknown id; ``job`` turns a
+    job's id into its operation, refusing an unknown id and a job that holds
+    none.
     """
     converted = [a for a in alternatives if a.form in _CONVERTED]
     if value is None or not converted:
+        # An array's or object's items are decoded as their own values: a
+        # record inside one is built as a record alone is.
         array = next((a for a in alternatives if a.form == ARRAY), None)
-        if isinstance(value, list) and array is not None and array.name in _ARRAY_TYPES:
-            return _ARRAY_TYPES[array.name](value)
+        if isinstance(value, list) and array is not None:
+            items = [
+                decode(x, array.items, resolve_path=resolve_path, handle=handle, job=job)
+                for x in value
+            ]
+            return _ARRAY_TYPES[array.name](items) if array.name in _ARRAY_TYPES else items
+        mapping = next((a for a in alternatives if a.form == OBJECT), None)
+        if isinstance(value, dict) and mapping is not None:
+            return {
+                k: decode(x, mapping.items, resolve_path=resolve_path, handle=handle, job=job)
+                for k, x in value.items()
+            }
         return value
     (a,) = converted
     if a.form == PATH:
         return resolve_path(value)
-    if a.form == SECONDS:
-        return datetime.timedelta(seconds=value)
     if a.form == ENUM:
-        return a.cls(value) if issubclass(a.cls, enum.StrEnum) else a.cls[value]
+        return value
     if a.form == HANDLE:
         return handle(value, a.cls)
+    if a.form == JOB:
+        return job(value)
     return a.cls(
         **{
-            f: decode(value[f], alts, resolve_path=resolve_path, handle=handle)
+            f: decode(value[f], alts, resolve_path=resolve_path, handle=handle, job=job)
             for f, alts in a.fields
             if f in value
         }

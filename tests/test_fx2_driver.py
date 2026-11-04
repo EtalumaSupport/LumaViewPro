@@ -7,7 +7,7 @@ being monkeypatched to return a ``MagicMock``. Tests cover:
 - Registry wiring (camera + LED registry entries)
 - Shared-connection invariant (FX2Camera and FX2LEDController share one handle)
 - LED ASCII byte mapping (project-memory directive: integer->ASCII stays in driver)
-- ``available_channels`` / ``available_colors`` values
+- ``available_channels`` values
 - Pure math: gain dB<->register round-trip, digital clamp audit fix, exposure math
 - Frame delimiter parser (synthetic bytes)
 - Camera ABC conformance (all abstract methods satisfied)
@@ -25,6 +25,8 @@ without pyusb installed.
 from __future__ import annotations
 
 import json
+import logging
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,9 +39,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from drivers import fx2driver
-from drivers.registry import camera_registry, led_registry
+from drivers.exceptions import CameraWriteFailedError
+from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
+from tests.log_capture import records_of
+from tests.stock_channels import LED0, LED1, LED2
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -91,7 +96,7 @@ def fake_fx2_conn(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not fx2driver._FX2_AVAILABLE,
+    not fx2driver._FX2_GATE.available,
     reason='FX2 prerequisites (pyusb / libusb1) not installed -- drivers '
     'intentionally not registered (issue #635)',
 )
@@ -123,50 +128,26 @@ class TestRegistryGatedOnPrereqs:
     are unavailable. Otherwise the registry attempts instantiation, raises
     ImportError, and dumps a confusing traceback on every no-LVC install."""
 
-    def test_fx2_available_flag_matches_imports(self):
-        # _FX2_AVAILABLE is the gate; it must follow _HAS_USB AND
-        # _HAS_USB_BACKEND AND (win or _HAS_USB1). _HAS_USB_BACKEND
-        # was added for issue #645 Bug A: pyusb imports successfully
-        # without the native libusb-1.0 binary on the path, so the
-        # missing-DLL case has to be caught explicitly via
-        # usb.backend.libusb1.get_backend() probe at module load,
-        # otherwise NoBackendError surfaces mid-_connect with a
-        # confusing traceback.
-        import sys as _sys
-
-        expected = (
-            fx2driver._HAS_USB
-            and fx2driver._HAS_USB_BACKEND
-            and (_sys.platform == 'win32' or fx2driver._HAS_USB1)
+    def test_an_unavailable_fx2_is_declined_with_its_reason(self, monkeypatch):
+        # Not registered, so the registry never tries it; declined, so a
+        # camera that is not found says which driver did not load and why.
+        monkeypatch.setattr(
+            fx2driver,
+            '_FX2_GATE',
+            fx2driver._FX2_GATE._replace(
+                available=False, unavailable_reason='pyusb is not installed'
+            ),
         )
-        assert expected == fx2driver._FX2_AVAILABLE
-
-    def test_register_helper_returns_identity_when_unavailable(self, monkeypatch):
-        # Force the unavailable path and verify the helper is a no-op.
-        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', False)
-        sentinel_registry = MagicMock()
-
-        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
+        registry = DriverRegistry('camera')
 
         class Dummy:
             pass
 
-        result = decorator(Dummy)
-        assert result is Dummy
-        sentinel_registry.register.assert_not_called()
-
-    def test_register_helper_uses_real_registry_when_available(self, monkeypatch):
-        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', True)
-        sentinel_registry = MagicMock()
-        sentinel_registry.register.return_value = lambda cls: cls
-
-        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
-
-        class Dummy:
-            pass
-
-        decorator(Dummy)
-        sentinel_registry.register.assert_called_once_with('fx2', priority=80)
+        assert fx2driver._register_if_fx2_available(registry, 'fx2', priority=80)(Dummy) is Dummy
+        assert registry.registered_names() == []
+        with pytest.raises(NoLiveDriverError) as caught:
+            registry.create('auto')
+        assert caught.value.fallback.declined == ('fx2: pyusb is not installed',)
 
 
 # ---------------------------------------------------------------------------
@@ -193,26 +174,10 @@ class TestLEDChannelMapping:
     def test_ch3_bf_maps_to_ascii_D(self):
         assert fx2driver._CH_TO_I2C[3] == 0x44  # 'D'
 
-    def test_color_to_ch_blue_is_zero(self):
-        assert fx2driver._COLOR_TO_CH['Blue'] == 0
-
-    def test_color_to_ch_all_four(self):
-        assert fx2driver._COLOR_TO_CH == {
-            'Blue': 0,
-            'Green': 1,
-            'Red': 2,
-            'BF': 3,
-        }
-
-    def test_ch_to_color_roundtrip(self):
-        for color, ch in fx2driver._COLOR_TO_CH.items():
-            assert fx2driver._CH_TO_COLOR[ch] == color
-
     def test_no_fifth_channel(self):
         """The FX2 peripheral controller only supports 4 channels.
-        The driver must not expose 5 or 6 like the RP2040 LEDBoard does.
+        The driver must not expose more like the EL-0940 LEDBoard does.
         """
-        assert len(fx2driver._COLOR_TO_CH) == 4
         assert len(fx2driver._CH_TO_I2C) == 4
 
 
@@ -385,12 +350,9 @@ class TestFX2LEDProtocolConformance:
             'leds_off_fast',
             'leds_enable',
             'leds_disable',
-            'color2ch',
-            'ch2color',
             'available_channels',
-            'available_colors',
             'read_led_current',
-            'exchange_command',
+            'takes_text_commands',
         ]
         for name in required:
             assert hasattr(fx2driver.FX2LEDController, name), f'missing: {name}'
@@ -448,22 +410,18 @@ class TestFX2LEDThinTranslator:
 
 
 # ---------------------------------------------------------------------------
-# available_channels / available_colors (B3 integration)
+# available_channels (B3 integration)
 # ---------------------------------------------------------------------------
 
 
 class TestFX2LEDChannelDiscovery:
     """Post-B3 channel discovery -- `available_channels()` drives API validation
-    and `ScopeCapabilities.led_channels`.
+    and `ScopeCapabilities.led_addresses`.
     """
 
     def test_returns_four_integer_channels(self, fake_fx2_conn):
         led = fx2driver.FX2LEDController()
         assert led.available_channels() == (0, 1, 2, 3)
-
-    def test_returns_four_color_names(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        assert led.available_colors() == ('Blue', 'Green', 'Red', 'BF')
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +461,7 @@ class TestFX2FrameCallbackAdoption:
     def test_reconnect_preserves_frame_callback(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
 
-        def _cb(image, ts, chunks):
+        def _cb(frame):
             pass
 
         cam.register_frame_callback(_cb)
@@ -537,7 +495,7 @@ class TestFX2CameraProfile:
     def test_max_exposure_picks_up_dynamic_1000ms_cap(self, fake_fx2_conn):
         """Camera.max_exposure must reflect the dynamic 1000 ms cap, not
         the static MT9P031 register max (~7,366 ms). The UI exposure
-        slider reads `ctx.max_exposure` (= camera.max_exposure) and was
+        slider's maximum comes from the camera's cap (camera.max_exposure) and was
         previously letting users dial past the safe-frame ceiling
         because Camera.max_exposure was a stored field set from a
         separate static profile field. Rule 2 fix: collapsed to a
@@ -570,15 +528,41 @@ class TestFX2CameraProfile:
     def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         cam.set_frame_size(1000, 996)
-        fake_fx2_conn.sensor_reg_write.side_effect = OSError('usb gone')
+        fake_fx2_conn.sensor_reg_write.side_effect = CameraWriteFailedError('usb gone')
         try:
             result = cam.set_frame_size(500, 500)
         finally:
             fake_fx2_conn.sensor_reg_write.side_effect = None
-        # A failed apply reports the base contract's False and leaves
-        # get_frame_size() at the geometry the sensor is still running with.
+        # A window write the camera did not take reports the base contract's
+        # False and leaves get_frame_size() at the geometry the sensor is
+        # still running with.
         assert result is False
         assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
+    def test_a_defect_in_the_window_write_leaves_as_itself(self, fake_fx2_conn):
+        # Only the camera's write fault is a window the camera did not take;
+        # anything else raised under the writes is the driver's own.
+        cam = fx2driver.FX2Camera()
+        fake_fx2_conn.sensor_reg_write.side_effect = TypeError('a defect in the window write')
+        try:
+            with pytest.raises(TypeError, match='a defect in the window write'):
+                cam.set_frame_size(500, 500)
+        finally:
+            fake_fx2_conn.sensor_reg_write.side_effect = None
+
+    def test_a_first_window_the_camera_does_not_take_fails_its_bring_up_as_a_write_fault(
+        self, fake_fx2_conn
+    ):
+        def refuse_the_window(reg, value):
+            if reg == fx2driver.REG_ROW_START:
+                raise CameraWriteFailedError('the window write was not taken')
+
+        fake_fx2_conn.sensor_reg_write.side_effect = refuse_the_window
+
+        with pytest.raises(CameraWriteFailedError, match='initial window') as raised:
+            fx2driver.FX2Camera()
+
+        assert raised.value.reason == 'camera_write_failed'
 
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
@@ -657,7 +641,7 @@ class TestScopesJsonClassicModels:
     @pytest.fixture
     def scopes(self):
         path = REPO_ROOT / 'data' / 'scopes.json'
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             return json.load(f)['Models']
 
     def test_ls620_exists(self, scopes):
@@ -692,10 +676,10 @@ class TestScopesJsonClassicModels:
         transmitted layer is displayed 'BF-Phase' for exactly that reason).
         Observed on hardware 2026-04-16: clicking a PhaseContrast layer
         raised `LED channel must be one of (0, 1, 2, 3), got -1` because
-        FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
+        FX2LEDController's colour table then had no 'PC' entry.
         """
         rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
-        assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}
+        assert set(rows) == {'BF', LED0, LED1, LED2}
         assert rows['BF']['display_name'] == 'BF-Phase'
         assert rows['BF']['led_channel'] == 3
         assert 'PC' not in rows
@@ -703,13 +687,13 @@ class TestScopesJsonClassicModels:
 
     def test_ls560_has_fluorescence_bf(self, scopes):
         """LS560 ships as the transmitted layer (displayed 'BF-Phase') plus
-        Green only -- unlike LS620's BGR -- and no separate PC layer,
+        LED 1 (488 nm) only -- unlike LS620's three LEDs -- and no separate PC layer,
         same phase-slider rationale as test_ls620_has_fluorescence_bf.
         """
         rows = {r['key_name']: r for r in scopes['LS560']['Layers']}
-        assert set(rows) == {'BF', 'Green'}
+        assert set(rows) == {'BF', LED1}
         assert rows['BF']['display_name'] == 'BF-Phase'
-        assert rows['Green']['led_channel'] == 1
+        assert rows[LED1]['led_channel'] == 1
         assert 'PC' not in rows
 
 
@@ -794,27 +778,66 @@ def _conn_on_winusb(device):
     return conn
 
 
-def test_a_failed_winusb_out_transfer_reaches_the_caller():
-    """The contract every consumer in this chain is written against."""
+def test_a_failed_winusb_out_transfer_reaches_the_caller_as_a_write_fault():
+    """The contract every consumer in this chain is written against: a
+    refused vendor write reaches the caller, typed, naming the request and
+    carrying the transport's own words."""
 
     def refuse(*a, **kw):
-        raise RuntimeError('ControlTransfer OUT ... failed: 31')
+        raise OSError('ControlTransfer OUT ... failed: 31')
 
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
-    with pytest.raises(RuntimeError, match='failed'):
-        conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+    with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*failed: 31') as raised:
+        conn.sensor_reg_write(0x42, 1)
+
+    assert raised.value.reason == 'camera_write_failed'
+
+
+def test_a_defect_under_a_vendor_write_leaves_as_itself():
+    """Only what the USB library raises is a write the camera did not take;
+    the driver's own defect under the write is not the camera's."""
+
+    def defect(*a, **kw):
+        raise TypeError('a defect in the transport')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=defect))
+    with pytest.raises(TypeError, match='a defect in the transport'):
+        conn.sensor_reg_write(0x42, 1)
+
+
+@pytest.mark.parametrize('library', ['pyusb', 'libusb1', 'WinUSB'])
+def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(library):
+    """Every vendor write funnels through one place, and a timeout from any of
+    the three libraries is the writer not answering: the camera's for a
+    sensor write, the LED board's for an LED write."""
+    from drivers.exceptions import BoardNoReplyError, CameraNoAnswerError
+
+    error = _usb_timeouts()[library]
+
+    def no_answer(*a, **kw):
+        raise error
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=no_answer))
+    with pytest.raises(CameraNoAnswerError) as camera:
+        conn.sensor_reg_write(0x42, 1)
+    with pytest.raises(BoardNoReplyError) as led:
+        conn.i2c_write(fx2driver.I2C_LED, [0xFF])
+
+    assert (camera.value.reason, led.value.reason) == ('camera_no_answer', 'board_no_reply')
+    assert str(error) in str(camera.value)
+    assert str(error) in str(led.value)
 
 
 def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
     """`control_transfer_out` is declared `-> int` and its docstring promises
     bytes written. Returning None is what switched off the detector below."""
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=lambda *a, **kw: 1))
-    result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+    result = conn.i2c_write(fx2driver.I2C_LED, [0x01])
     assert result == 1
     assert result is not None
 
 
-def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
+def test_the_led_short_write_detector_fires_on_a_zero_byte_write(caplog):
     """The test that would have failed for the whole life of the defect.
 
     `_led_write` compares i2c_write's return against the 1 byte it expects,
@@ -826,21 +849,330 @@ def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
     led._wire_debug_enabled = lambda: False
 
-    with patch.object(fx2driver, 'logger') as mock_logger:
+    with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)
-        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+    warned = ' '.join(
+        r.getMessage() for r in records_of(caplog, fx2driver) if r.levelno == logging.WARNING
+    )
 
     assert 'short write' in warned, f'a 0-of-1-byte write was not reported: {warned!r}'
 
 
-def test_the_led_detector_stays_quiet_on_a_good_write():
+def test_the_led_detector_stays_quiet_on_a_good_write(caplog):
     """The converse -- the detector must not cry wolf on every LED command."""
     led = object.__new__(fx2driver.FX2LEDController)
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 1)
     led._wire_debug_enabled = lambda: False
 
-    with patch.object(fx2driver, 'logger') as mock_logger:
+    with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)
-        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+    warned = ' '.join(
+        r.getMessage() for r in records_of(caplog, fx2driver) if r.levelno == logging.WARNING
+    )
 
     assert 'short write' not in warned
+
+
+# ---------------------------------------------------------------------------
+# A setting write the camera does not answer
+# ---------------------------------------------------------------------------
+#
+# A USB timeout on the transfer that carries a setting is the camera not
+# answering, not the camera refusing and not the camera gone: the API sends
+# the write once more on that answer alone, so it has to arrive as its own
+# type, CameraNoAnswerError, whichever library the transfer ran through, and
+# it must not mark the camera removed. The FX2 reads nothing back, so every
+# transfer a writer makes decides whether its write happened.
+
+
+def _usb_timeouts():
+    """One timeout from each library an FX2 control transfer runs through."""
+    return {
+        'pyusb': fx2driver.usb.core.USBTimeoutError('[Errno 60] Operation timed out'),
+        'libusb1': fx2driver.usb1.USBErrorTimeout('LIBUSB_ERROR_TIMEOUT [-7]'),
+        # WinUSB's ERROR_SEM_TIMEOUT, as drivers/winusb_iso.py raises it.
+        'WinUSB': TimeoutError('ControlTransfer OUT (request=0xB3) timed out: 121'),
+    }
+
+
+@pytest.fixture
+def simulated_fx2_camera():
+    from drivers.simulated_fx2 import SimulatedFX2
+
+    sim = SimulatedFX2()
+    cam = fx2driver.FX2Camera(connection=sim.connection)
+    yield sim, cam
+    cam.disconnect()
+
+
+def _every_transfer_times_out(monkeypatch, sim, error, reached):
+    def no_answer(request, value, index, data, timeout):
+        reached.append(request)
+        raise error
+
+    monkeypatch.setattr(sim.transport, 'control_out', no_answer)
+
+
+def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
+    simulated_fx2_camera, monkeypatch
+):
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    # The twelve setting writers the API reaches, with a value each accepts.
+    writers = {
+        'gain': lambda: cam.gain(12.0),
+        'exposure_t': lambda: cam.exposure_t(100.0),
+        'auto_gain': lambda: cam.auto_gain(True),
+        'auto_exposure_t': lambda: cam.auto_exposure_t(True),
+        'set_frame_size': lambda: cam.set_frame_size(1000, 996),
+        'set_binning_size': lambda: cam.set_binning_size(1),
+        'set_pixel_format': lambda: cam.set_pixel_format('Mono8'),
+        'set_conversion_gain_mode': lambda: cam.set_conversion_gain_mode('HCG'),
+        'set_line_noise_reduction': lambda: cam.set_line_noise_reduction(True),
+        'set_black_level': lambda: cam.set_black_level(0.0),
+        'update_auto_gain_target_brightness': lambda: cam.update_auto_gain_target_brightness(0.5),
+        'auto_gain_once': lambda: cam.auto_gain_once(True),
+    }
+    offenders = {}
+    on_the_bus = set()
+    for library, error in _usb_timeouts().items():
+        for setting, write in writers.items():
+            if not hasattr(cam, setting):
+                continue  # not offered by the FX2; the API refuses it first
+            reached = []
+            with monkeypatch.context() as patched:
+                _every_transfer_times_out(patched, sim, error, reached)
+                try:
+                    answer = write()
+                    raised = None
+                except Exception as e:
+                    answer = raised = e
+            name = f'{setting} ({library})'
+            if not reached:
+                if isinstance(raised, CameraNoAnswerError):
+                    offenders[name] = 'no transfer was made, yet it answered no-answer'
+                continue
+            on_the_bus.add(setting)
+            if not isinstance(raised, CameraNoAnswerError):
+                offenders[name] = f'answered {answer!r}, not CameraNoAnswerError'
+            elif raised.reason != 'camera_no_answer' or str(error) not in str(raised):
+                offenders[name] = f'words or reason wrong: {raised.reason}: {raised}'
+            if cam.is_device_removed() or sim.connection.removed:
+                offenders[name] = 'the timeout marked the camera removed'
+    assert not offenders, f'a setting write the FX2 did not answer: {offenders}'
+    # The writers that reach the bus at all; the rest answer without it.
+    assert on_the_bus == {'gain', 'exposure_t', 'set_frame_size'}
+
+
+def test_a_gain_write_the_fx2_does_not_answer_leaves_the_gain_it_had(
+    simulated_fx2_camera, monkeypatch
+):
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    before = cam.gain(6.0)
+    _every_transfer_times_out(monkeypatch, sim, _usb_timeouts()['libusb1'], [])
+
+    with pytest.raises(CameraNoAnswerError):
+        cam.gain(30.0)
+
+    assert cam.get_gain() == before
+
+
+def test_a_frame_size_the_fx2_does_not_answer_stores_frames_as_they_arrive(
+    simulated_fx2_camera, monkeypatch
+):
+    """Whether the window was applied is not known: the size reported is the
+    one the camera last took, and no crop to the new one is promised."""
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    cam.set_frame_size(1000, 996)
+    _every_transfer_times_out(monkeypatch, sim, _usb_timeouts()['pyusb'], [])
+
+    with pytest.raises(CameraNoAnswerError):
+        cam.set_frame_size(500, 500)
+
+    assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
+
+class TestFx2DriverLibusbBackendProbe:
+    """The FX2 gate resolves its libusb so a host without a usable one is
+    classified as 'FX2 not applicable to this install' rather than crashing
+    with NoBackendError mid-_connect. The library is libusb-package's bundled
+    copy and never a host copy: each way the bundled load can fail --
+    package absent, no library file, the backend bound to another file,
+    python-libusb1 already holding another -- classifies unavailable, and
+    the log says why.
+
+    ``_fx2_gate`` is the decision the driver makes once at import; it is
+    called here under a controlled fake usb / usb1 / libusb_package tree,
+    since on this machine's real state it would be environment-dependent.
+    """
+
+    _BUNDLED = '/site-packages/libusb_package/libusb-1.0.dylib'
+
+    @staticmethod
+    def _backend_on(path):
+        import types
+
+        return types.SimpleNamespace(lib=types.SimpleNamespace(_name=path))
+
+    @classmethod
+    def _gate(
+        cls,
+        monkeypatch,
+        *,
+        backend,
+        package=True,
+        library_path=_BUNDLED,
+        usb1_loads=True,
+        usb1_opens=True,
+        has_usb=True,
+        has_usb1=True,
+        platform='darwin',
+    ):
+        """The gate over a fake binding tree, with what the bindings were handed."""
+        import ctypes
+        import types
+
+        # A stand-in by design: the subject is the gate's classification of
+        # the bindings' answers, which no installed library can be made to give.
+        usb_mod = types.ModuleType('usb')
+        usb_backend = types.ModuleType('usb.backend')
+        usb_libusb1 = types.ModuleType('usb.backend.libusb1')
+        found = []
+
+        def get_backend(find_library=None):
+            found.append(find_library('usb-1.0') if find_library else None)
+            return backend
+
+        usb_libusb1.get_backend = get_backend
+        usb_backend.libusb1 = usb_libusb1
+        usb_mod.backend = usb_backend
+        usb1_mod = types.ModuleType('usb1')
+        handed_to_usb1 = []
+
+        def load_library(lib):
+            handed_to_usb1.append(lib)
+            return usb1_loads
+
+        usb1_mod.loadLibrary = load_library
+        usb1_mod.getVersion = lambda: '1.0.30'
+
+        # The fake library path cannot be opened; python-libusb1's own
+        # handle is recorded by the path it was opened on instead.
+        def open_handle(path):
+            if not usb1_opens:
+                raise OSError(f'dlopen({path}) failed')
+            return ('CDLL', path)
+
+        monkeypatch.setattr(ctypes, 'CDLL', open_handle)
+        for name, mod in (
+            ('usb', usb_mod),
+            ('usb.backend', usb_backend),
+            ('usb.backend.libusb1', usb_libusb1),
+        ):
+            monkeypatch.setitem(sys.modules, name, mod)
+        if package:
+            package_mod = types.ModuleType('libusb_package')
+            package_mod.get_library_path = lambda: library_path
+            monkeypatch.setitem(sys.modules, 'libusb_package', package_mod)
+        else:
+            # None in sys.modules makes the import raise ImportError.
+            monkeypatch.setitem(sys.modules, 'libusb_package', None)
+
+        gate = fx2driver._fx2_gate(has_usb, usb1_mod if has_usb1 else None, platform)
+        return gate, found, handed_to_usb1
+
+    @staticmethod
+    def _logged(caplog, gate):
+        """(level, message) for each line the driver module logs saying the gate."""
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG):
+            fx2driver._log_fx2_gate(gate)
+        return [(r.levelname, r.getMessage()) for r in records_of(caplog, fx2driver)]
+
+    @staticmethod
+    def _registered(monkeypatch, gate):
+        """Whether the driver registers under ``gate``, and what a registry declining it was told."""
+        monkeypatch.setattr(fx2driver, '_FX2_GATE', gate)
+        registry = DriverRegistry('camera')
+
+        class Dummy:
+            pass
+
+        fx2driver._register_if_fx2_available(registry, 'fx2', priority=80)(Dummy)
+        return registry.registered_names()
+
+    @pytest.mark.parametrize(
+        ('case', 'kwargs', 'reason'),
+        [
+            ('package absent', {'package': False}, 'libusb-package is not installed'),
+            ('no library file', {'library_path': None}, 'holds no library file'),
+            ('backend did not load', {'backend': None}, 'did not load'),
+            (
+                'another libusb first',
+                {'backend': 'OTHER'},
+                'another libusb was loaded before the bundled one: /opt/homebrew/lib/libusb-1.0.dylib',
+            ),
+            (
+                'usb1 holds another',
+                {'usb1_loads': False},
+                'python-libusb1 had already loaded another libusb',
+            ),
+            ('usb1 handle fails', {'usb1_opens': False}, 'did not load for python-libusb1'),
+        ],
+    )
+    def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
+        self, monkeypatch, caplog, case, kwargs, reason
+    ):
+        backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
+        if backend == 'OTHER':
+            backend = self._backend_on('/opt/homebrew/lib/libusb-1.0.dylib')
+        gate, _found, _handed = self._gate(monkeypatch, backend=backend, **kwargs)
+        assert gate.library_path is None, case
+        assert gate.available is False, case
+        assert reason in gate.library_refusal, (case, gate.library_refusal)
+        assert gate.unavailable_reason == f'bundled libusb not in use: {gate.library_refusal}'
+        records = self._logged(caplog, gate)
+        assert any(
+            lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
+            for lvl, msg in records
+        ), f'{case}: the refusal must be logged with its reason; got {records}'
+        assert self._registered(monkeypatch, gate) == [], f'{case}: no driver may register'
+
+    @pytest.mark.parametrize(
+        ('case', 'kwargs', 'available', 'reason'),
+        [
+            ('no pyusb', {'has_usb': False}, False, 'pyusb is not installed'),
+            ('no libusb1 off Windows', {'has_usb1': False}, False, 'libusb1 is not installed'),
+            ('no libusb1 on Windows', {'has_usb1': False, 'platform': 'win32'}, True, None),
+        ],
+    )
+    def test_the_bindings_each_platform_needs(self, monkeypatch, case, kwargs, available, reason):
+        gate, _found, _handed = self._gate(
+            monkeypatch, backend=self._backend_on(self._BUNDLED), **kwargs
+        )
+        assert (gate.available, gate.unavailable_reason) == (available, reason), case
+
+    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch, caplog):
+        """The backend is asked for the bundled file and nothing else, the
+        gate opens, the drivers register, and the log names the file."""
+        backend = self._backend_on(self._BUNDLED)
+        gate, found, handed = self._gate(monkeypatch, backend=backend)
+        assert handed == [('CDLL', self._BUNDLED)] and handed[0] is not backend.lib, (
+            f'python-libusb1 must get its own handle to the bundled file; got {handed}'
+        )
+        assert found == [self._BUNDLED], (
+            f'pyusb must be handed the bundled path, never a search; got {found}'
+        )
+        assert gate.library_path == self._BUNDLED
+        assert gate.available is True
+        assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._logged(
+            caplog, gate
+        )
+        assert self._registered(monkeypatch, gate) == ['fx2'], (
+            'FX2 drivers must register when prerequisites are met'
+        )

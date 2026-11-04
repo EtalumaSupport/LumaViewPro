@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from kivy_deps import sdl2, glew
-from PyInstaller.utils.hooks import copy_metadata, collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 app_name = 'lumaviewpro'
 datas = [
@@ -20,17 +20,21 @@ datas = [
     ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
+    ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
+    ('docs/CONTRIBUTORS.md', 'docs'),
+    # The API's documents, for the reader of an installation: the guide,
+    # the generated reference, the plugin tutorial the guide links to, and
+    # the examples with their REST twins. The app opens none of them.
+    ('docs/lumascope-skills.md', 'docs'),
+    ('docs/api-reference.md', 'docs'),
+    ('docs/plugin-tutorial.md', 'docs'),
+    ('docs/api_examples/*.py', 'docs/api_examples'),
+    ('docs/api_examples/*.sh', 'docs/api_examples'),
+    ('docs/api_examples/README.md', 'docs/api_examples'),
     ('version.txt', '.'),
     ('.git_archival.txt', '.'),
     ('lvp_logger.py', '.'),
 ]
-
-for pkg in ('numpy',):
-    try:
-        datas.extend(copy_metadata(pkg))
-    except Exception:
-        pass  # Package may not be installed on all build machines
-
 
 # imagecodecs uses lazy submodule imports for each compression
 # algorithm (lzw_encode, zlib_encode, etc.). PyInstaller can't follow
@@ -55,18 +59,25 @@ hiddenimports = [
     'usb1',
 ]
 
-# Optional libusb-1.0.dll (FX2 USB I/O on Windows). Sourced by
-# build.ps1 from dependencies\fx2\libusb-1.0.dll and passed via the
-# FX2_LIBUSB_DLL env var. When unset/missing, FX2 cameras silently
-# stay unsupported on the installed app — pyusb can't load its
-# libusb1 backend without the native DLL on Windows. Bundling at the
-# install root puts it in PyInstaller's _MEIPASS search path so
-# ctypes.cdll.LoadLibrary("libusb-1.0.dll") inside pyusb finds it.
+# imagecodecs keeps the licence text of each codec library it links in its
+# own licenses/ folder, outside its metadata, so the metadata collection
+# below does not reach it. The licence gate after COLLECT checks it arrived.
+datas += collect_data_files('imagecodecs', includes=['licenses/*'])
+
+# The FX2's firmware hex and libusb-package's library, each where the
+# frozen app looks for it; the build is refused without either
+# (fx2_bundle.py says where and why).
 import os as _os
-binaries = []
-_fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
-if _fx2_dll and _os.path.exists(_fx2_dll):
-    binaries.append((_fx2_dll, '.'))
+import sys as _sys
+
+import libusb_package
+
+_sys.path.insert(0, _os.path.join(SPECPATH, 'scripts', 'appBuild', 'config'))
+from fx2_bundle import check_fx2_dist, fx2_bundle_entries
+
+_libusb_path = libusb_package.get_library_path()
+_fx2_datas, binaries = fx2_bundle_entries(SPECPATH, _libusb_path)
+datas += _fx2_datas
 
 # The build ID lives in its own file, never in version.txt. version.txt
 # line 1 names the user's Documents data folder and is stamped into the
@@ -144,6 +155,45 @@ if _missing_pure:
         f'that camera class. Check the build venv wheels and PyInstaller hooks.'
     )
 
+# Every distribution the bundle holds code or data from ships its whole
+# dist-info folder, at the app root where copy_metadata puts it: its
+# licence files (at the folder's root, or under licenses/ for a PEP 639
+# wheel) travel with its binaries, and importlib.metadata finds it at run
+# time. The set is read from the Analysis, never listed by hand: each
+# top-level name it collected, mapped to its distributions. A name with no
+# distribution is LVP's own or the interpreter's. A folder the Analysis
+# already holds (collect_all's) is not added twice.
+import importlib.metadata as _metadata
+
+_top_level_names = {entry[0].split('.')[0] for entry in a.pure}
+for _dest, _src, _typecode in (*a.binaries, *a.datas):
+    _top_level_names.add(_dest.replace('\\', '/').split('/')[0].split('.')[0])
+_dists_by_top_level = _metadata.packages_distributions()
+_bundled_dist_names = sorted({
+    _name for _top in _top_level_names for _name in _dists_by_top_level.get(_top, ())
+})
+_collected_tops = {_dest.replace('\\', '/').split('/')[0] for _dest, _src, _typecode in a.datas}
+_bundled_dist_infos = []
+for _name in _bundled_dist_names:
+    _folders = {
+        _f.parts[0] for _f in (_metadata.distribution(_name).files or ())
+        if _f.parts[0].endswith('.dist-info')
+    }
+    if len(_folders) != 1:
+        raise SystemExit(
+            f'FATAL: licence collection: the bundled distribution {_name} has '
+            f'{len(_folders)} dist-info folders in the build venv, not one; its '
+            f'licence cannot be collected.'
+        )
+    _bundled_dist_infos.append((_name, _folders.pop()))
+_dist_info_trees = [
+    Tree(str(_metadata.distribution(_name).locate_file(_folder)), prefix=_folder)
+    for _name, _folder in _bundled_dist_infos
+    if _folder not in _collected_tops
+]
+print(f'Licence collection: {len(_bundled_dist_infos)} bundled distributions, '
+      f'{len(_dist_info_trees)} dist-info folders added')
+
 pyz = PYZ(a.pure, a.zipped_data)
 
 splash = Splash(
@@ -194,13 +244,52 @@ exe = EXE(
     icon=['data\\icons\\icon.ico'],
 )
 
+# The FX2 driver step (modules/fx2_driver_step.py), which the installer runs
+# elevated at install and uninstall: its own small executable, without the
+# app's splash, in the same folder so it shares the app's binaries.
+driver_step = Analysis(
+    ['lvp_fx2_driver_step.py'],
+    pathex=['.'],
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+)
+driver_step_exe = EXE(
+    PYZ(driver_step.pure, driver_step.zipped_data),
+    driver_step.scripts,
+    [],
+    exclude_binaries=True,
+    name='lvp_fx2_driver_step',
+    contents_directory='.',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=True,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['data\\icons\\icon.ico'],
+)
+
 coll = COLLECT(
     exe,
     splash.binaries,
     a.binaries,
     a.zipfiles,
     a.datas,
+    driver_step_exe,
+    driver_step.binaries,
+    driver_step.datas,
     *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
+    *_dist_info_trees,
     strip=False,
     upx=True,
     upx_exclude=[],
@@ -319,3 +408,35 @@ if _loose_py:
         f'FATAL: source-folder gate: {len(_loose_py)} loose .py file(s) under the app root, '
         f'first {_loose_py[0]}; the Python ships only in the frozen archive.'
     )
+
+# Licence gate. The installation carries the licence texts its wheels ship:
+# every bundled distribution's dist-info folder (collected above, before
+# PYZ) and imagecodecs' licenses/ folder (collected as data). Every such
+# file in the build venv must be in the dist tree at the same relative
+# path, so a collection that drops one fails the build rather than
+# shipping without it.
+_licence_sources = []
+for _name, _folder in _bundled_dist_infos:
+    for _f in _metadata.distribution(_name).files or ():
+        _parts = _f.parts
+        if _parts[0] == _folder or (
+                _name == 'imagecodecs' and _parts[:2] == ('imagecodecs', 'licenses')):
+            _licence_sources.append(_os.path.join(*_parts))
+if not any(_rel.startswith(_os.path.join('imagecodecs', 'licenses')) for _rel in _licence_sources):
+    raise SystemExit(
+        'FATAL: licence gate: the build venv lists no imagecodecs licenses/ '
+        'files; the gate cannot check the codec licences.'
+    )
+_licence_missing = [
+    _rel for _rel in _licence_sources
+    if not _os.path.exists(_os.path.join(_dist_root, _rel))
+]
+if _licence_missing:
+    raise SystemExit(
+        f'FATAL: licence gate: {len(_licence_missing)} licence file(s) the bundled '
+        f'wheels ship are missing from the dist tree, first {_licence_missing[0]}.'
+    )
+print(f'Licence gate: {len(_licence_sources)} dist-info and codec licence files of '
+      f'{len(_bundled_dist_infos)} distributions present in the dist tree')
+
+check_fx2_dist(_dist_root, _os.path.basename(str(_libusb_path)))

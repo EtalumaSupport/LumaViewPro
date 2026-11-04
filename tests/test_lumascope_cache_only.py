@@ -9,13 +9,13 @@ who changes a property to do real I/O sees a failure rather than
 silently introducing a per-frame / per-tick MainThread blocker.
 
 The properties under test:
-  - Lumascope.frame_size_cached (dict; called per-frame from
+  - Lumascope.frame_size.to_dict() (dict; called per-frame from
     ui/scope_display.py:578-580)
-  - Lumascope.pixel_format_cached (str; called per-frame from
+  - Lumascope.pixel_format (str; called per-frame from
     ui/scope_display.py:578-580)
-  - Lumascope.get_target_position(axis) (float/dict; called at 10Hz
+  - Lumascope.get_target_positions()[axis] and get_target_positions() (called at 10Hz
     from ui/motion_settings.py:228 update_gui)
-  - Lumascope.get_current_position(axis) (float/dict; called at
+  - Lumascope.get_current_position(axis) and get_current_positions() (called at
     similar cadence)
 
 Implementation: wraps `self.motion.exchange_command`,
@@ -83,42 +83,38 @@ def scope_with_io_traps(monkeypatch):
 
 
 class TestCameraPropertiesCacheOnly:
-    """LV-11: frame_size_cached and pixel_format_cached are read per-frame
+    """LV-11: the held frame_size and pixel_format are read per-frame
     from the scope_display thread; they must be cache reads.
     """
 
     def test_camera_frame_size_no_io(self, scope_with_io_traps):
-        """Reading frame_size_cached must not call any driver-side SDK
+        """Reading the held frame_size must not call any driver-side SDK
         method. If this fails, scope_display's per-frame readout has
         become a per-frame Pylon SDK call."""
-        result = scope_with_io_traps.imaging.frame_size_cached
+        result = scope_with_io_traps.camera.frame_size.to_dict()
         assert isinstance(result, dict)
 
     def test_camera_pixel_format_no_io(self, scope_with_io_traps):
-        """Reading pixel_format_cached must not call any driver-side SDK
-        method. Same risk as frame_size_cached."""
-        result = scope_with_io_traps.imaging.pixel_format_cached
+        """Reading pixel_format must not call any driver-side SDK
+        method. Same risk as frame_size."""
+        result = scope_with_io_traps.camera.pixel_format
         assert isinstance(result, str)
 
     def test_camera_frame_size_repeated_reads(self, scope_with_io_traps):
         """Repeated reads must remain cache-only -- no lazy refresh that
         flips to SDK after first call."""
         for _ in range(5):
-            scope_with_io_traps.imaging.frame_size_cached  # noqa: B018 -- bare attribute access is the test, exercising the getter to assert no driver IO fires
+            scope_with_io_traps.camera.frame_size  # noqa: B018 -- bare attribute access is the test, exercising the getter to assert no driver IO fires
 
 
 class TestPositionAccessorsCacheOnly:
-    """LV-45: get_target_position and get_current_position are called at
+    """LV-45: get_target_positions and get_current_position are called at
     ~10Hz from the UI on MainThread; they must be cache reads.
     """
 
-    def test_get_target_position_single_axis_no_io(self, scope_with_io_traps):
-        """LV-45 invariant: get_target_position('Z') is cache-only."""
-        scope_with_io_traps.motion.get_target_position('Z')
-
-    def test_get_target_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_target_position(None) returns a dict snapshot -- cache-only."""
-        result = scope_with_io_traps.motion.get_target_position()
+    def test_get_target_positions_no_io(self, scope_with_io_traps):
+        """get_target_positions returns a dict snapshot -- cache-only."""
+        result = scope_with_io_traps.motion.get_target_positions()
         assert isinstance(result, dict)
 
     def test_get_current_position_single_axis_no_io(self, scope_with_io_traps):
@@ -126,13 +122,13 @@ class TestPositionAccessorsCacheOnly:
         MOVING and the position cache during IDLE -- both cache-only."""
         scope_with_io_traps.motion.get_current_position('X')
 
-    def test_get_current_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_current_position(None) returns a dict snapshot -- cache-only."""
-        result = scope_with_io_traps.motion.get_current_position()
+    def test_get_current_positions_no_io(self, scope_with_io_traps):
+        """get_current_positions returns a dict snapshot -- cache-only."""
+        result = scope_with_io_traps.motion.get_current_positions()
         assert isinstance(result, dict)
 
     def test_position_repeated_reads_no_io(self, scope_with_io_traps):
         """10Hz cadence simulation: repeated reads stay cache-only."""
         for _ in range(20):
-            scope_with_io_traps.motion.get_target_position('Z')
+            scope_with_io_traps.motion.get_target_positions()['Z']
             scope_with_io_traps.motion.get_current_position('Z')

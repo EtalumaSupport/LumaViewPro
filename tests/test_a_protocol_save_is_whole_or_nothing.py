@@ -6,7 +6,8 @@ every failure into a guessed sentence that its callers were free to ignore:
 a save that failed part-way left a stub that no longer loaded, and a run
 whose own copy of its protocol could not be written ran without it. A save
 now raises with the operating system's reason, and the file that was there
-is untouched until the new one is complete.
+is untouched until the new one is complete. A missing folder is made where
+the save was sent.
 """
 
 import pathlib
@@ -15,8 +16,8 @@ import pandas as pd
 import pytest
 
 from modules.exceptions import ProtocolNotSavedError
-from modules.protocol import Protocol
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _protocol(label='first'):
@@ -43,20 +44,21 @@ class TestAFailedSave:
         assert 'No space left on device' in str(raised.value)
         assert raised.value.file == target
         assert target.read_bytes() == before
-        reloaded = Protocol.from_file(file_path=target, tiling_configs_file_loc=TILING_CONFIGS)
+        reloaded = protocol_from_file(
+            file_path=target,
+        )
         assert reloaded.steps()['Label'].to_list() == ['first']
         assert sorted(p.name for p in tmp_path.iterdir()) == ['plate.tsv'], (
             'a failed save leaves nothing beside the file'
         )
 
-    def test_a_save_into_a_missing_folder_raises(self, tmp_path):
-        target = tmp_path / 'no_such_folder' / 'plate.tsv'
 
-        with pytest.raises(ProtocolNotSavedError) as raised:
-            _protocol().to_file(file_path=target)
+def test_a_save_into_a_missing_folder_makes_it(tmp_path):
+    target = tmp_path / 'no_such_folder' / 'deeper' / 'plate.tsv'
 
-        assert isinstance(raised.value.__cause__, FileNotFoundError)
-        assert not target.parent.exists()
+    _protocol(label='made').to_file(file_path=target)
+
+    assert target.is_file()
 
 
 def test_a_save_replaces_the_previous_file(tmp_path):
@@ -65,7 +67,9 @@ def test_a_save_replaces_the_previous_file(tmp_path):
 
     _protocol(label='second').to_file(file_path=str(target))
 
-    reloaded = Protocol.from_file(file_path=target, tiling_configs_file_loc=TILING_CONFIGS)
+    reloaded = protocol_from_file(
+        file_path=target,
+    )
     assert reloaded.steps()['Label'].to_list() == ['second']
     assert [p.name for p in tmp_path.iterdir()] == ['plate.tsv']
 

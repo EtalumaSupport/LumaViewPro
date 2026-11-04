@@ -1,7 +1,7 @@
 """Probe 05 -- run a FULL protocol headlessly, and autofocus all steps.
 
-Full protocol: ProtocolRunner.run_protocol (named API method).
-Autofocus All Steps: ProtocolRunner.run_autofocus_all_steps, which writes
+Full protocol: ProtocolRunner.start_protocol (named API method).
+Autofocus All Steps: ProtocolRunner.start_autofocus_all_steps, which writes
 the focused Z into the protocol it is given.
 """
 
@@ -28,9 +28,9 @@ try:
 
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -45,27 +45,27 @@ try:
         period=datetime.timedelta(seconds=10),
         duration=datetime.timedelta(seconds=15),
     )
-    print('period/duration:', protocol.period(), protocol.duration())
-    outcome = runner.run_protocol(
+    print('period_s/duration_s:', protocol.period_s(), protocol.duration_s())
+    outcome = runner.start_protocol(
         protocol,
         sequence_name='probe_full_protocol',
     )
-    settled = outcome.wait(timeout_s=300)
+    settled = outcome.result(timeout=300)
     print('status:', settled.status, settled.reason)
-    run_dir = outcome.run_dir
+    run_dir = outcome.progress().run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     imgs = images_under(run_dir)
     print('run_dir:', run_dir)
     print('images :', len(imgs), [p.name for p in imgs][:6])
     print('ASSERT >=2 scans worth of images:', 'PASS' if len(imgs) >= 2 else f'FAIL ({len(imgs)})')
 
-    banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.run_autofocus_all_steps')
+    banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.start_autofocus_all_steps')
     z_before = session.scope.motion.get_current_position('Z')
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol).wait(timeout_s=300)
+    af = runner.start_autofocus_all_steps(protocol).result(timeout=300)
     print('status:', af.status, af.reason, 'focus_written:', af.focus_written)
     z_after = session.scope.motion.get_current_position('Z')
     print('Z before/after:', z_before, z_after)
@@ -77,7 +77,9 @@ try:
     import modules.protocol_step_runner as psr
     import modules.protocol_run_loop as prl
 
-    src = pathlib.Path(psr.__file__).read_text() + pathlib.Path(prl.__file__).read_text()
+    src = pathlib.Path(psr.__file__).read_text(encoding='utf-8') + pathlib.Path(
+        prl.__file__
+    ).read_text(encoding='utf-8')
     print("'turret' in the run modules:", 'turret' in src.lower())
     print('has_turret on this sim scope:', session.scope.capabilities.has_turret)
 finally:

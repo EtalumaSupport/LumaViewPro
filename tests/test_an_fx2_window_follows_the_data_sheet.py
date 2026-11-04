@@ -17,6 +17,7 @@ import pytest
 
 from drivers import fx2driver
 from drivers.fx2driver import FX2Camera
+from tests.camera_fakes import fx2_stream
 
 # DS: the active array is 2592 columns from column 16, so its centre is
 # column 16 + 2592 / 2.
@@ -104,7 +105,7 @@ def test_the_stored_pixels_are_the_first_w_a_row_carries():
     assert len(body) == layout.frame_bytes
     t = fx2driver.ISO_TRANSACTION_SIZE
     whole = len(body) - len(body) % t
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     stream.packet(fx2driver.FRAME_DELIM)
     for i in range(0, whole, t):
         stream.packet(body[i : i + t])
@@ -112,14 +113,14 @@ def test_the_stored_pixels_are_the_first_w_a_row_carries():
 
     cam = object.__new__(FX2Camera)
     cam._fx2 = SimpleNamespace(
-        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+        stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
     )
     cam._grabbing = True
     cam._width, cam._height = w, h
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, significant_bits, wire_bytes: stored.append(image)
+        _store_frame=lambda image, handed_over, significant_bits, wire_bytes: stored.append(image)
     )
     loop = threading.Thread(target=cam._grab_loop, daemon=True)
     loop.start()

@@ -20,17 +20,19 @@ import time
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from lib import profile_trace
+from lvp_logger import git_revision
+from tests.stock_channels import LED0
 
 
 def _run(session, runner, protocol, parent, name):
     parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    pending = runner.run_single_scan(
+    pending = runner.start_single_scan(
         protocol=protocol, sequence_name=name, parent_dir=str(parent), enable_image_saving=True
     )
-    outcome = pending.wait(timeout_s=3600)
+    outcome = pending.result(timeout=3600)
     ended = time.monotonic()
-    pending.wait_for_files(timeout_s=300)
+    pending.files.result(timeout=300)
     files_done = time.monotonic()
     records = sorted(parent.rglob('protocol_record.tsv'))
     return outcome, started, ended, files_done, (records[0] if records else None)
@@ -52,7 +54,7 @@ def _iotask_summary(run_dir):
     if f is None:
         return {'iotask_trace.csv': 'absent'}
     by = collections.defaultdict(lambda: {'n': 0, 'wait': [], 'exec': []})
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             k = (row['executor'], row['action'])
             by[k]['n'] += 1
@@ -77,7 +79,7 @@ def _validity_summary(run_dir):
         return {'frame_validity_trace.csv': 'absent'}
     events = collections.Counter()
     by_source = collections.Counter()
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             events[row['event']] += 1
             if row['event'] == 'invalidate':
@@ -94,7 +96,7 @@ def body(session, runner, live):
     protocol = session.new_protocol(tiling='1x1')
     figure('S10.protocol_steps', protocol.num_steps())
     trace_dir = live / 'profile'
-    profile_trace.enable(output_dir=str(trace_dir))
+    profile_trace.enable(output_dir=str(trace_dir), commit=git_revision())
     outcome, started, ended, files_done, record = _run(
         session, runner, protocol, live / 'run', 'stack_run'
     )
@@ -126,12 +128,12 @@ def main():
     if HARDWARE:
         with hardware_session() as (session, runner):
             # The installation's layers may acquire nothing; this run captures
-            # BF and Blue as stills, on the session's settings in memory only.
-            for layer in ('BF', 'Blue'):
-                session.set_layer_acquire(layer, 'image')
+            # BF and LED 0's channel as stills, on the session's settings in memory only.
+            for layer in ('BF', LED0):
+                session.set_channel_acquire(layer, 'image')
             body(session, runner, live)
         sys.exit(report())
-    with headless_session(live, acquiring=('BF', 'Blue')) as (session, runner):
+    with headless_session(live, acquiring=('BF', LED0)) as (session, runner):
         body(session, runner, live)
     harness.assert_no_ui()
     sys.exit(report())

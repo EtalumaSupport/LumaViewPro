@@ -38,6 +38,8 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _writer(events):
@@ -47,6 +49,7 @@ def _writer(events):
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
+        end_run_fatally=lambda reason, message: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
         execution_record=None,
@@ -55,21 +58,27 @@ def _writer(events):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=True,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
-    scope.imaging.capture_frame_full_scale.return_value = 255
-    scope.imaging.last_capture_info = {'frame_record': frame_record()}
+    # Read-only, as capture_still returns every image.
+    captured = np.zeros((4, 4), dtype=np.uint8)
+    captured.flags.writeable = False
+    # A run's capture always measures the frame's saturation.
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=captured, record=frame_record(saturated_fraction=0.0)
+    )
+    scope.imaging.last_capture_info = {}
     return writer
 
 
@@ -77,6 +86,8 @@ def _capture_one_still(writer):
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
     writer.capture(
+        scan_count=0,
+        curr_step=0,
         save_folder='/tmp',
         step={
             'Name': 'stepA',
@@ -125,20 +136,20 @@ class TestFrameCapturedCarriesTheSavedFrame:
         assert (frames_summed, bits) == (1, 8)
         assert submitted, 'frame_captured must follow the write being handed to the batch'
 
-    def test_the_frame_cannot_be_changed_through_a_view_or_its_base(self, no_context):
-        """The handler holds the array the file is written from; neither it,
-        a view of it, nor its base can be made writeable again."""
+    def test_the_handler_holds_the_captures_own_read_only_frame(self, no_context):
+        """The handler holds the array the file is written from: the
+        capture's own image, read-only (capture_still makes every image
+        it returns read-only), never a writeable copy a handler could
+        change."""
         seen = []
         writer = _writer(RunEvents(frame_captured=lambda image, *_: seen.append(image)))
 
         _capture_one_still(writer)
 
         (image,) = seen
-        assert not image.flags.writeable
+        assert image is writer._scope.imaging.capture_still.return_value.image
         with pytest.raises(ValueError):
-            image.view().flags.writeable = True
-        base = image.base if image.base is not None else image
-        assert not base.flags.writeable
+            image[0, 0] = 1
 
     def test_no_handler_no_event_and_no_error(self, no_context):
         """A headless run subscribes nothing; the writer saves and moves on."""
@@ -294,12 +305,10 @@ class TestTheHoldShowsASumAsItIsShown:
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
         writer = _writer(RunEvents(frame_captured=show_captured_frame))
         imaging = writer._scope.imaging
-        imaging.capture_and_wait.return_value = np.full((4, 4), 255, dtype=np.uint16)
-        imaging.capture_frame_depth.return_value = 10
-        imaging.capture_frame_full_scale.return_value = 765
-        imaging.last_capture_info = {
-            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
-        }
+        imaging.capture_still.return_value = CapturedStill(
+            image=np.full((4, 4), 255, dtype=np.uint16),
+            record=frame_record(frames_summed=3, frame_significant_bits=8, saturated_fraction=0.0),
+        )
 
         _capture_one_still(writer)
 

@@ -28,7 +28,7 @@ shape: each has its own dispatcher (``_dispatch_led``, ``_dispatch_camera``,
 ``_dispatch_motion``) with its own wait bound. A contract pinned on one
 family would not catch the other two diverging from it. Motion is pinned on
 its start member, whose body is the lane's whole work; the waited
-``move_absolute`` is that start followed by a wait off the lane.
+``move_z`` is that start followed by a wait off the lane.
 
 The probe replaces ``_impl`` with a recorder rather than asserting hardware
 side effects: what is under test is WHERE and WHETHER the body runs, not
@@ -45,6 +45,9 @@ from unittest.mock import patch
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
+from modules.frame_validity import FrameRule, Rule
+from modules.lumascope_api.camera import CameraAutoMode
+from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
@@ -58,12 +61,13 @@ IMPL_RESULT = object()
 # Every family's dispatcher is its only public form: the fire-and-forget
 # tiers were deleted, so there is no second spelling of a command to pin.
 FAMILIES = [
-    ('illumination', 'led_on', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
-    ('imaging', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
+    ('illumination', 'led_on', {'channel': 'BF', 'illumination_ma': 10.0}, 'io'),
+    ('illumination', 'led_on_by_address', {'address': 3, 'illumination_ma': 10.0}, 'io'),
+    ('camera', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
-        'start_move_absolute',
-        {'axis': 'Z', 'position': 100.0},
+        'start_move_z',
+        {'z_um': 100.0},
         'io',
     ),
     # The camera-settings cluster: every public camera-state writer is a
@@ -73,7 +77,7 @@ FAMILIES = [
     # by a running protocol -- and this table is what keeps them (and
     # any future sibling) on the dispatcher.
     (
-        'imaging',
+        'camera',
         'set_auto_gain',
         {
             'state': True,
@@ -81,21 +85,15 @@ FAMILIES = [
         },
         'camera',
     ),
-    ('imaging', 'set_auto_exposure_time', {'state': True}, 'camera'),
-    ('imaging', 'set_frame_size', {'w': 640, 'h': 480}, 'camera'),
-    ('imaging', 'set_binning_size', {'size': 1}, 'camera'),
-    ('imaging', 'set_pixel_format', {'pixel_format': 'Mono8'}, 'camera'),
-    ('imaging', 'set_conversion_gain_mode', {'mode': 'High'}, 'camera'),
-    ('imaging', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
-    ('imaging', 'set_black_level', {'value': 4.0}, 'camera'),
+    ('camera', 'set_auto_exposure', {'mode': CameraAutoMode.CONTINUOUS}, 'camera'),
+    ('camera', 'set_frame_size', {'width': 640, 'height': 480}, 'camera'),
+    ('camera', 'set_binning', {'size': 1}, 'camera'),
+    ('camera', 'set_image_mode', {'mode': '8bit'}, 'camera'),
+    ('camera', 'set_high_conversion_gain', {'enabled': True}, 'camera'),
+    ('camera', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
+    ('camera', 'set_black_level', {'level': 4.0}, 'camera'),
     (
-        'imaging',
-        'update_auto_gain_target_brightness',
-        {'target_brightness': 0.5},
         'camera',
-    ),
-    (
-        'imaging',
         'auto_gain_once',
         {
             'state': True,
@@ -106,9 +104,9 @@ FAMILIES = [
         'camera',
     ),
     (
-        'imaging',
-        'apply_layer_camera_settings',
-        {'gain_db': 1.0, 'exposure_ms': 10.0, 'layer': 'BF'},
+        'camera',
+        'apply',
+        {'gain_db': 1.0, 'exposure_ms': 10.0, 'channel': 'BF'},
         'camera',
     ),
     # The LED-tier sibling of the camera cluster: an ownership-scoped off
@@ -123,12 +121,35 @@ FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 # A member that answers by raising: its body's answer says only whether the
 # camera was there, so it returns nothing rather than passing the answer on.
 _RETURNS_NOTHING = frozenset(
-    {'set_binning_size', 'set_pixel_format', 'set_conversion_gain_mode', 'set_line_noise_reduction'}
+    {
+        'set_image_mode',
+        'set_high_conversion_gain',
+        'set_line_noise_reduction',
+        'auto_gain_once',
+    }
 )
 
+# A member that answers with the frame the camera delivers. The frame
+# setter's body is the frame write, so its probe answers a frame; the
+# binning setter's body answers only whether the camera was there, and the
+# frame it then applies at the new binning is the camera's own.
+_RETURNS_THE_FRAME = frozenset({'set_frame_size', 'set_binning'})
+_PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning': True}
+
 # A member whose body is not named after it: the start members share the
-# move bodies with the waited members.
-_BODY_OF = {'start_move_absolute': '_move_absolute_impl'}
+# move bodies with the waited members, and the image mode and the high
+# conversion gain are applied by the pixel-format and conversion-gain
+# bodies; the camera's apply body is named apart from the LED lease's
+# _apply_impl; a name's light resolves its address in its own body, and an
+# address's light is the lane's body itself.
+_BODY_OF = {
+    'apply': '_apply_settings_impl',
+    'led_on': '_led_on_by_name_impl',
+    'led_on_by_address': '_led_on_impl',
+    'start_move_z': '_move_z_impl',
+    'set_image_mode': '_set_pixel_format_impl',
+    'set_high_conversion_gain': '_set_conversion_gain_mode_impl',
+}
 
 
 @pytest.fixture
@@ -161,7 +182,7 @@ def _install_probe(scope, family, member):
 
     def _probe(*args, **kwargs):
         threads.append(threading.current_thread().name)
-        return IMPL_RESULT
+        return _PROBE_ANSWER.get(member, IMPL_RESULT)
 
     setattr(sub, _BODY_OF.get(member, f'_{member}_impl'), _probe)
     return sub, threads
@@ -236,7 +257,12 @@ def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, 
         f'has; body ran on {threads}'
     )
     assert caller not in threads
-    assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
+    if member in _RETURNS_THE_FRAME:
+        assert result == (
+            FrameSize(**_PROBE_ANSWER[member]) if member == 'set_frame_size' else sub.frame_size
+        )
+    else:
+        assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
 
 
 def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
@@ -252,10 +278,11 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     drain-and-recheck deadline, or a deep legitimate drain surfaces as an
     executor TimeoutError instead of the body's loud None."""
     imaging = sim_scope.imaging
+    camera = sim_scope.camera
     recorded = {}
     # Settle work pending at submit, so the validity term is not zero.
-    imaging.frame_validity.invalidate('auto_gain')
-    pending = imaging.frame_validity.frames_until_valid()
+    imaging.frame_validity.invalidate('auto_gain', began_ns=None)
+    pending = imaging.frame_validity.owed().frames
     assert pending > 0
 
     class _RecordingFuture:
@@ -264,10 +291,10 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
             return None
 
     with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
-        imaging.capture_and_wait(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
+        imaging.capture_still(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
 
     frame_cost = max(
-        imaging.exposure_ms_cached / 1000.0,
+        camera.exposure_ms / 1000.0,
         imaging._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
     )
     expected = (
@@ -282,15 +309,44 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     )
 
 
-def test_no_public_imaging_member_writes_the_camera_inline():
+def test_capture_wait_carries_the_time_a_clock_rule_change_is_owed(sim_scope, executors):
+    """Under the clock rule a change is owed time, not frames: a frame counts
+    once it starts after the change plus its delay. The executor wait carries
+    that time, as the body's deadline does (one settle term for both), or a
+    long measured delay surfaces as an executor TimeoutError."""
+    imaging = sim_scope.imaging
+    delay_s = 40.0
+    rules = dict(imaging.frame_validity.credit_rules())
+    rules['gain'] = FrameRule(
+        rule=Rule.CLOCK,
+        count=rules['gain'].count,
+        delay_us=delay_s * 1e6,
+        provenance={'run_id': 'run-1', 'measured_date': '2026-10-20'},
+    )
+    imaging.frame_validity.use_rules(rules)
+    sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
+    recorded = {}
+
+    class _RecordingFuture:
+        def result(self, timeout=None):
+            recorded['timeout'] = timeout
+            return None
+
+    with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
+        imaging.capture_still()
+
+    assert recorded['timeout'] > imaging._CAPTURE_WAIT_TIMEOUT_S + delay_s - 1.0
+
+
+def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
     """Shape tripwire for the whole member class, not a spelling grep.
 
-    A public ImagingAPI method that reaches ``_camera_write`` or frame
-    invalidation in its own body executes camera-state writes on the
-    caller's thread -- unserialized against the camera lane and
+    A public CameraAPI or ImagingAPI method that reaches ``_camera_write``
+    or frame invalidation in its own body executes camera-state writes on
+    the caller's thread -- unserialized against the camera lane and
     invisible to the protocol fence (an inline body never meets the
     executor's refusal). The dispatch shape puts every such write in a
-    ``_impl`` behind ``_dispatch_camera``, so this walks the class and
+    ``_impl`` behind ``_dispatch_camera``, so this walks both classes and
     fails on any public def whose body touches the write/invalidate
     seams directly. A literal grep for the invalidation spellings
     missed a member of this class once (a public method reaching the
@@ -302,32 +358,36 @@ def test_no_public_imaging_member_writes_the_camera_inline():
 
     import tests.ast_seams as ast_seams
 
-    tree = ast_seams.parse_module('modules/lumascope_api/imaging.py')
-    cls = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef) and node.name == 'ImagingAPI'
-    )
     WRITE_SEAMS = {'_camera_write', 'invalidate', 'force_invalidate'}
     offenders = []
-    for node in cls.body:
-        if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
-            continue
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Call):
-                callee = sub.func
-                name = (
-                    callee.attr
-                    if isinstance(callee, ast.Attribute)
-                    else callee.id
-                    if isinstance(callee, ast.Name)
-                    else None
-                )
-                if name in WRITE_SEAMS:
-                    offenders.append(f'{node.name}:{sub.lineno}')
+    for path, class_name in (
+        ('modules/lumascope_api/camera.py', 'CameraAPI'),
+        ('modules/lumascope_api/imaging.py', 'ImagingAPI'),
+    ):
+        tree = ast_seams.parse_module(path)
+        cls = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        )
+        for node in cls.body:
+            if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
+                continue
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    callee = sub.func
+                    name = (
+                        callee.attr
+                        if isinstance(callee, ast.Attribute)
+                        else callee.id
+                        if isinstance(callee, ast.Name)
+                        else None
+                    )
+                    if name in WRITE_SEAMS:
+                        offenders.append(f'{class_name}.{node.name}:{sub.lineno}')
     assert not offenders, (
-        'public ImagingAPI members must dispatch camera-state writes, never '
-        f'execute them inline in their own body; inline writers found: {offenders}'
+        'public CameraAPI and ImagingAPI members must dispatch camera-state writes, '
+        f'never execute them inline in their own body; inline writers found: {offenders}'
     )
 
 
@@ -344,6 +404,7 @@ def test_no_dispatcher_has_a_lane_less_branch():
     offenders = []
     for path in (
         'modules/lumascope_api/illumination.py',
+        'modules/lumascope_api/camera.py',
         'modules/lumascope_api/imaging.py',
         'modules/lumascope_api/motion.py',
         'modules/lumascope_api/_lumascope.py',

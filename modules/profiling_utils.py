@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import cProfile
-import datetime
 import pathlib
 import pstats
 
-from lib import profile_trace
+from modules.path_utils import get_log_dir
+import modules.wall_time as wall_time
 
 
 class ProfilingHelper:
@@ -18,12 +18,7 @@ class ProfilingHelper:
             # directory: an installed build runs with its CWD in the install
             # folder, where mkdir is denied, and this constructor's mkdir is
             # unguarded on a path reached at startup whenever the flag is set.
-            self._profile_artifact_path = (
-                pathlib.Path(profile_trace._appdata_root())
-                / 'logs'
-                / 'cprofile'
-                / self._get_timestamp()
-            )
+            self._profile_artifact_path = get_log_dir().parent / 'cprofile' / self._get_timestamp()
         else:
             self._profile_artifact_path = pathlib.Path(save_path)
 
@@ -33,7 +28,7 @@ class ProfilingHelper:
         self._profile_artifact_path.mkdir(exist_ok=True, parents=True)
 
     def _get_timestamp(self):
-        return datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        return wall_time.now().strftime('%Y%m%d_%H%M%S')
 
     def enable(self):
         self._profile = cProfile.Profile()
@@ -44,7 +39,9 @@ class ProfilingHelper:
         self._profile.disable()
         self._profile.dump_stats(self._profile_artifact_path / f'LumaViewProApp_{ts}.profile')
 
-        with open(self._profile_artifact_path / f'LumaViewProApp_{ts}.stats', 'w') as stream:
+        with open(
+            self._profile_artifact_path / f'LumaViewProApp_{ts}.stats', 'w', encoding='utf-8'
+        ) as stream:
             stats = pstats.Stats(
                 str(self._profile_artifact_path / f'LumaViewProApp_{ts}.profile'), stream=stream
             )

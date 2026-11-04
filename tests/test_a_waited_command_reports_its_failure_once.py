@@ -57,7 +57,7 @@ def _notices(caplog):
 def _dispatchers(scope):
     return {
         'camera': (
-            lambda: scope.imaging._dispatch_camera(_boom, 'boom', timeout_s=5.0),
+            lambda: scope.camera._dispatch_camera(_boom, 'boom', timeout_s=5.0),
             scope._camera_executor,
         ),
         'led': (lambda: scope.illumination._dispatch_led(_boom, 'boom'), scope._io_executor),

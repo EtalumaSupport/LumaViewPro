@@ -65,19 +65,6 @@ def test_a_frozen_build_asks_git_nothing():
     assert _revision(code, REPO) == 'None'
 
 
-def test_a_profile_trace_names_the_one_readers_commit_and_whether_the_tree_was_clean():
-    code = (
-        'import json, pathlib, lvp_logger; from lib import profile_trace; '
-        f'identity = profile_trace._build_identity(pathlib.Path({str(REPO)!r})); '
-        'print(json.dumps([identity["git_sha"], lvp_logger.git_revision(), identity["git_dirty"]]))'
-    )
-
-    sha, revision, dirty = json.loads(_revision(code, REPO))
-
-    assert sha == revision and sha
-    assert isinstance(dirty, bool)
-
-
 def test_the_banner_reads_the_commit_guid_from_line_3_and_names_no_branch(tmp_path):
     (tmp_path / 'version.txt').write_text('4.0.0-x\n2026-10-09 00:00\nabcd1234\n')
     code = (

@@ -19,9 +19,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import app_context as _app_ctx
-from modules.lumascope_api import AxisPosition, AxisState
+from modules.lumascope_api import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import iter_package_modules
+from tests.scope_fakes import home_sim_scope
 from ui.listener_bridge import UIListenerBridge
 from ui.vertical_control import VerticalControl
 
@@ -39,21 +39,19 @@ class _Slider:
 
 
 @pytest.fixture
-def control(monkeypatch):
-    target = {'Z': 2500.0}
-    motion = SimpleNamespace(get_target_position=lambda axis: target[axis])
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(lumaview=SimpleNamespace(scope=SimpleNamespace(motion=motion))),
-    )
+def control(gui_ctx):
+    """The Z panel over a simulated session; its Z target is where Z was last sent."""
+    if gui_ctx.scope.capabilities.has_focus:
+        home_sim_scope(gui_ctx.scope)
     ctrl = VerticalControl.__new__(VerticalControl)
     ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
-    ctrl.target = target
+    ctrl.motion = gui_ctx.scope.motion
     return ctrl
 
 
 def test_the_slider_shows_the_target_and_the_text_the_polled_z(control):
+    control.motion.move_z(2500.0)
+
     control.show_z(1800.0)
 
     assert control.ids['obj_position'].value == 2500.0
@@ -61,6 +59,7 @@ def test_the_slider_shows_the_target_and_the_text_the_polled_z(control):
 
 
 def test_a_held_slider_is_left_under_the_users_drag(control):
+    control.motion.move_z(2500.0)
     control.ids['obj_position'].value = 900.0
     control.ids['obj_position'].user_interacting = True
 
@@ -70,8 +69,9 @@ def test_a_held_slider_is_left_under_the_users_drag(control):
     assert control.ids['z_position_id'].text == '1800.00'
 
 
-def test_no_target_leaves_the_slider_where_it_is(control):
-    control.target['Z'] = None
+@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)
+def test_a_scope_with_no_z_leaves_the_slider_where_it_is(control):
+    """An LS620 has no focus motor, so the API holds no Z target."""
     control.ids['obj_position'].value = 900.0
 
     control.show_z(1800.0)
@@ -79,19 +79,69 @@ def test_no_target_leaves_the_slider_where_it_is(control):
     assert control.ids['obj_position'].value == 900.0
 
 
-def test_a_run_does_not_silence_the_z_display(control, monkeypatch):
-    # The run gate dropped every engine Z update; the display now has none.
-    _app_ctx.ctx.session = SimpleNamespace(run_in_progress=True)
-    shown = []
-    monkeypatch.setattr(control, '_show_z_target', lambda: shown.append('target'))
+def test_the_display_shows_the_apis_z_as_it_answers_it(control):
+    """No floor: a negative target or reading is shown as the API gives it,
+    never as a plausible 0. A move past the configured travel is how Z gets
+    there."""
+    control.motion.move_z(-3.5, ignore_limits=True)
+
+    control.show_z(-2.0)
+
+    assert control.ids['obj_position'].value == -3.5
+    assert control.ids['z_position_id'].text == '-2.00'
+
+
+def _draw_now(monkeypatch):
+    """Run ``update_gui``'s deferred draw where it is posted."""
     monkeypatch.setattr(
         'ui.vertical_control.Clock.schedule_once', lambda fn, dt: fn(dt), raising=False
     )
-    monkeypatch.setattr('ui.vertical_control.run_reported', lambda _o, fn, _n: fn())
+
+
+def test_a_finished_move_redraws_the_arrived_z(control, monkeypatch):
+    """A move's completion redraws the panel from the API, run or not: the
+    slider at the Z target, the text where Z arrived. The display reads no
+    run state."""
+    control.motion.move_z(2500.0)
+    _draw_now(monkeypatch)
 
     control.update_gui()
 
-    assert shown == ['target']
+    assert control.ids['obj_position'].value == 2500.0
+    assert control.ids['z_position_id'].text == '2500.00'
+
+
+def test_a_redraw_shows_no_z_while_the_api_does_not_know_it(gui_ctx, monkeypatch):
+    """Unhomed, Z is UNKNOWN while its target still answers a number (the
+    position cache's seed): the text says Z is not known, never that number,
+    and the slider shows the target. A scope comes up this way, and a failed
+    home leaves Z the same."""
+    motion = gui_ctx.scope.motion
+    assert motion.axis_positions()['Z'] == AxisPosition(AxisState.UNKNOWN, None)
+    target = motion.get_target_positions()['Z']
+    assert target is not None
+    ctrl = VerticalControl.__new__(VerticalControl)
+    ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
+    ctrl.ids['obj_position'].value = target + 100.0
+    _draw_now(monkeypatch)
+
+    ctrl.update_gui()
+
+    assert ctrl.ids['z_position_id'].text == '--'
+    assert ctrl.ids['obj_position'].value == target
+
+
+@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)
+def test_a_redraw_on_a_scope_with_no_z_draws_nothing(control):
+    """An LS620 has no focus motor: the panel is left as it is. Called
+    directly, not through ``update_gui``, whose reporter would catch a read
+    of the Z the scope does not have and leave the panel as it is too."""
+    control.ids['obj_position'].value = 900.0
+
+    control.redraw_z()
+
+    assert control.ids['obj_position'].value == 900.0
+    assert control.ids['z_position_id'].text == ''
 
 
 @pytest.fixture
@@ -127,7 +177,7 @@ def test_a_homing_z_draws_the_z_display_with_no_position(bridge):
 def test_a_turret_change_draws_the_turret_without_asking_the_objective(bridge):
     b, z_ctrl, _ = bridge
 
-    b._on_position_change('T', AxisPosition(AxisState.IDLE, 2.0))
+    b._on_turret_change(TurretStatus(AxisState.IDLE, 2))
 
     z_ctrl.show_turret_state.assert_called_once_with(prompt=False)
 

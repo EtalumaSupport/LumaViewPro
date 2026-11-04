@@ -16,16 +16,16 @@ import pandas as pd
 
 from modules.protocol import Protocol
 from tests.ast_seams import REPO_ROOT
+from tests.locale_fixtures import a_latin1_locale
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW
-from tests.test_protocol_roundtrip import TILING_CONFIGS
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 TYPED = 'exp/2026:10'
 PREFIX = 'exp202610'
 
 
 def _protocol(capture_root=''):
-    return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -65,9 +65,24 @@ class TestTheRootAndItsPrefix:
         assert _protocol(TYPED).capture_prefix() == PREFIX
 
     def test_a_loaded_root_keeps_its_text_and_gives_the_same_prefix(self, tmp_path):
-        loaded = Protocol.from_file(_file(tmp_path, TYPED), tiling_configs_file_loc=TILING_CONFIGS)
+        loaded = protocol_from_file(
+            _file(tmp_path, TYPED),
+        )
 
         assert (loaded.capture_root(), loaded.capture_prefix()) == (TYPED, PREFIX)
+
+    def test_a_root_outside_ascii_opens_on_a_machine_with_another_locale(self, tmp_path):
+        """A protocol saved where the locale encoding is not UTF-8, as on
+        Windows, opens with its root intact where it is, as on a Mac."""
+        accented = 'C:/Users/Jos\u00e9/\u00b5m'
+        protocol = protocol_from_file(_file(tmp_path, TYPED))
+        protocol.modify_capture_root(accented)
+        saved = tmp_path / 'saved.tsv'
+
+        with a_latin1_locale():
+            protocol.to_file(saved)
+
+        assert protocol_from_file(saved).capture_root() == accented
 
     def test_no_root_is_no_prefix(self):
         assert _protocol('').capture_prefix() == ''

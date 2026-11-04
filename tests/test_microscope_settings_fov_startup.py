@@ -16,14 +16,14 @@ load_settings shows the turret and objective through
 VerticalControl.show_turret_state, the one display of the API's answer,
 and that refreshes the FOV readout through
 MicroscopeSettings.refresh_fov_labels -- the same refresher frame-size
-changes use, blank while the objective is unknown. Its computation is
-tested by behaviour in test_microscope_settings.py.
+changes use, which shows the scope's field of view
+(``RuntimeState.get_field_of_view``). Its display is tested by behaviour in
+test_microscope_settings.py.
 
 Test approach
 -------------
 Source-level structural lock via AST on the chain: load_settings ->
-show_turret_state -> refresh_fov_labels -> get_field_of_view with the
-frame and binning.
+show_turret_state -> refresh_fov_labels -> the scope's get_field_of_view.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class TestLoadSettingsFovStartup:
         method = _method_node('ui/vertical_control.py', 'VerticalControl', 'show_turret_state')
         assert 'refresh_fov_labels' in _calls(method)
 
-    def test_the_refresher_uses_binning_and_frame_size(self):
+    def test_the_refresher_shows_the_scopes_field_of_view(self):
         method = _method_node(
             'ui/microscope_settings.py', 'MicroscopeSettings', 'refresh_fov_labels'
         )
@@ -72,6 +72,7 @@ class TestLoadSettingsFovStartup:
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr == 'get_field_of_view'
             ):
-                assert {'frame_size', 'binning_size'} <= {kw.arg for kw in node.keywords}
+                # The scope decides: the GUI hands it nothing to compute from.
+                assert (node.args, node.keywords) == ([], [])
                 return
-        raise AssertionError('refresh_fov_labels computes no field of view')
+        raise AssertionError('refresh_fov_labels shows no field of view')

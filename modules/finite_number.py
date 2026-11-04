@@ -39,3 +39,36 @@ def refuse_unless_finite_number(value: object, argument: str) -> None:
     """
     if not is_finite_number(value):
         raise ArgumentRefusedError('not_a_number', argument=argument, value=value)
+
+
+def refuse_outside(value: object, argument: str, limits: tuple[float, float]) -> None:
+    """Refuse ``value`` unless it is a finite number within ``limits``, ends included.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``.
+    """
+    refuse_unless_finite_number(value, argument)
+    low, high = limits
+    if not low <= value <= high:
+        raise ArgumentRefusedError('out_of_range', argument=argument, value=value, limits=limits)
+
+
+# The longest wait a caller may ask for, in seconds: 30 days, room for a
+# multi-day protocol's run, and short of the smallest wait the host can
+# hold. Python's waits raise past threading.TIMEOUT_MAX, which is about
+# 292 years on macOS and Linux but 49.7 days on Windows, so a bound read
+# from the host would accept a wait on one platform it refuses on another.
+WAIT_S = (0.0, 30 * 24 * 3600.0)
+
+
+def refuse_unless_wait_s(value: object, argument: str) -> None:
+    """Refuse ``value`` unless it is a wait every host can hold: 0 to 30 days.
+
+    Every member that takes a wait from its caller asks this where the wait
+    enters, before anything starts, so a wait too long for the host is a
+    refusal rather than an ``OverflowError`` out of the wait itself.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``.
+    """
+    refuse_outside(value, argument, WAIT_S)

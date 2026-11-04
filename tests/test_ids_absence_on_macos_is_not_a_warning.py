@@ -9,33 +9,36 @@ stays: a frozen build missing the IDS library once made an IDS scope look
 like it had no camera.
 """
 
+import logging
 import sys
-from unittest.mock import MagicMock
 
 from modules.lumascope_api import _lumascope
+from tests.log_capture import records_of
 
 
-def _attempt(monkeypatch, platform):
-    log = MagicMock()
-    monkeypatch.setattr(_lumascope, 'logger', log)
+def _attempt(monkeypatch, caplog, platform):
+    """The registration's answer and (level, message) for each line the scope module logged."""
     # The import fails the way it does on a host without the IDS SDK.
     monkeypatch.setitem(sys.modules, 'drivers.idscamera', None)
-    return _lumascope._register_ids_camera(platform), log
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        camera = _lumascope._register_ids_camera(platform)
+    return camera, [(r.levelno, r.getMessage()) for r in records_of(caplog, _lumascope)]
 
 
-def test_on_macos_the_absence_is_info_and_the_driver_is_not_attempted(monkeypatch):
-    camera, log = _attempt(monkeypatch, 'darwin')
+def test_on_macos_the_absence_is_info_and_the_driver_is_not_attempted(monkeypatch, caplog):
+    camera, lines = _attempt(monkeypatch, caplog, 'darwin')
     assert camera is None
-    log.warning.assert_not_called()
-    (message,), _ = log.info.call_args
+    assert [m for level, m in lines if level == logging.WARNING] == [], lines
+    message = [m for level, m in lines if level == logging.INFO][-1]
     assert 'not supported on macOS' in message
 
 
-def test_on_windows_and_linux_a_missing_driver_is_still_a_warning(monkeypatch):
+def test_on_windows_and_linux_a_missing_driver_is_still_a_warning(monkeypatch, caplog):
     for platform in ('win32', 'linux'):
-        camera, log = _attempt(monkeypatch, platform)
+        camera, lines = _attempt(monkeypatch, caplog, platform)
         assert camera is None
-        (message,), _ = log.warning.call_args
+        message = [m for level, m in lines if level == logging.WARNING][-1]
         assert 'IDS camera driver unavailable' in message
 
 

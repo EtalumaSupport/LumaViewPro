@@ -36,9 +36,9 @@ running-state only between prepare and start, inside the shared
 refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import ast
 import datetime
-import pathlib
 import threading
 import time
 from concurrent.futures import Future
@@ -47,12 +47,19 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.settings_fixtures import complete_settings
-from tests.protocol_drives import run_identity
+from tests.protocol_drives import bare_capture_runner, run_identity, scr_run_kwargs
 
 
-from modules.activity_claim import ActivityClaim
+from modules.lumascope_api.bring_up import Part
+from modules.activity_claim import ActivityClaim, acting
+from modules.caller import Caller, calling
 from modules.autofocus_thread import AutofocusSweep
-from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
+from modules.exceptions import (
+    ControlSessionRefusedError,
+    ProtocolNotSavedError,
+    ProtocolRunRefusedError,
+    RunCheckFailedError,
+)
 from modules.run_events import RunEvents
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
@@ -62,13 +69,16 @@ from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
+from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED2
+from tests.protocol_fixtures import protocol_of
 
-COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
 FILES_WAIT_S = 60
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +96,7 @@ def _make_simulated_scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     return s
 
 
@@ -94,10 +104,10 @@ def _make_executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='REFUSAL_IO'),
-        'file_io': SequentialIOExecutor(name='REFUSAL_FILE'),
-        'camera': SequentialIOExecutor(name='REFUSAL_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='REFUSAL_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='REFUSAL_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_AF'),
     }
     for e in execs.values():
         e.start()
@@ -123,7 +133,6 @@ def _make_autogain_settings():
         'target_brightness': 0.3,
         'min_gain_db': 0.0,
         'max_gain_db': 20.0,
-        'max_duration': datetime.timedelta(seconds=1),
     }
 
 
@@ -144,7 +153,7 @@ def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return protocol_of(config=config)
 
 
 def _make_single_step_protocol(color='BF'):
@@ -169,10 +178,13 @@ def _make_single_step_protocol(color='BF'):
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
     return _build_real_protocol([step])
@@ -228,6 +240,8 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -235,7 +249,6 @@ def executor(scope, executors):
 def _prepare(executor, protocol, tmp_path, events=None, sequence_name='refusal_contract'):
     return executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name=sequence_name,
         image_capture_config=_make_image_capture_config(),
@@ -258,7 +271,7 @@ def _run_to_completion(executor, protocol, tmp_path):
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete within timeout'
     # Its files land after it lets go of the scope, and prepare() refuses
     # the next run until they have.
-    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
+    assert handle.files.result(timeout=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
 def _wait_for_executors_out_of_protocol_mode(executor, timeout=5.0):
@@ -332,13 +345,6 @@ class TestHeadlessRefusalDoesNotHang:
         from modules.scope_session import ScopeSession
 
         settings = {
-            'BF': {'autofocus': False},
-            'PC': {'autofocus': False},
-            'DF': {'autofocus': False},
-            'Red': {'autofocus': False},
-            'Green': {'autofocus': False},
-            'Blue': {'autofocus': False},
-            'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
             # The objective this file's protocols name: a scope with no turret
@@ -347,7 +353,6 @@ class TestHeadlessRefusalDoesNotHang:
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },
@@ -357,18 +362,18 @@ class TestHeadlessRefusalDoesNotHang:
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         try:
             # First: a valid run that completes.
             done = threading.Event()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda *_ended: done.set()),
             )
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
+            settled = first.result(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
@@ -377,23 +382,23 @@ class TestHeadlessRefusalDoesNotHang:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            assert first.wait_for_files(timeout_s=FILES_WAIT_S) is not None
+            assert first.files.result(timeout=FILES_WAIT_S) is not None
 
-            # A refused run raises out of run_single_scan; nothing waits.
+            # A refused run raises out of start_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_build_real_protocol([]),
                     sequence_name='refusal_headless_refused',
                     parent_dir=str(tmp_path),
                 )
             assert excinfo.value.reason == 'empty_protocol'
-            assert not session.is_protocol_running, (
+            assert session.activity_claim.run_holder is None, (
                 'a refused run must not leave the session reporting a live run'
             )
 
             # The session is not wedged: a subsequent valid run works.
             done2 = threading.Event()
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_second',
                 parent_dir=str(tmp_path),
@@ -477,15 +482,47 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
         )
 
-        def _refused(**kwargs):
-            raise OSError('No space left on device')
+        def _refused(file_path):
+            # As Protocol.to_file answers a write the file system refused.
+            raise ProtocolNotSavedError(file_path, OSError(28, 'No space left on device'))
 
         monkeypatch.setattr(plan.protocol, 'to_file', _refused)
-        outcome = executor.start(plan).wait(COMPLETION_TIMEOUT)
+        outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
+        assert 'The protocol was not saved' in outcome.message
+        assert 'No space left on device' in outcome.message
         assert [c.status for c in completions] == ['failed_at_start']
         assert len(captured) == 1, f'a failed-at-start run must notify exactly once; got {captured}'
+        assert _wait_for_executors_out_of_protocol_mode(executor)
+
+    def test_a_defect_in_the_run_folders_setup_is_not_named_a_folder_failure(
+        self, executor, tmp_path, monkeypatch
+    ):
+        plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+
+        def _defect(file_path):
+            # a stand-in by design: our own defect in the protocol's copy,
+            # which no file system answer produces
+            raise TypeError('scripted defect')
+
+        monkeypatch.setattr(plan.protocol, 'to_file', _defect)
+        outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
+
+        assert (outcome.status, outcome.reason) == ('failed_at_start', 'start_failed')
+        assert _wait_for_executors_out_of_protocol_mode(executor)
+
+    def test_a_capture_location_it_may_not_write_fails_at_start_naming_it(self, executor, tmp_path):
+        locked = tmp_path / 'locked'
+        locked.mkdir()
+        plan = _prepare(executor, _make_single_step_protocol(), locked)
+        locked.chmod(0o500)
+        try:
+            outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
+        finally:
+            locked.chmod(0o700)
+
+        assert (outcome.status, outcome.reason) == ('failed_at_start', 'capture_location_failed')
         assert _wait_for_executors_out_of_protocol_mode(executor)
 
     def test_refused_prepare_preserves_previous_run_state(self, executor, tmp_path, monkeypatch):
@@ -495,7 +532,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         first_num_scans = executor.num_scans()
         # The completed run released the scope, so nobody holds it -- the
         # state the refused prepare below must also leave untouched.
-        assert executor.run_trigger_source() is None, (
+        assert executor.run_started_by() is None, (
             'a settled run still names itself as the holder of the scope'
         )
         listing_after_first = sorted(p.name for p in output_dir.iterdir())
@@ -511,6 +548,13 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         with pytest.raises(RunCheckFailedError) as excinfo:
             _prepare(executor, protocol2, tmp_path)
         assert excinfo.value.reason == 'validation_crashed'
+        # The crash is chained for the log, never quoted to the person.
+        assert 'OSError' not in str(excinfo.value)
+        assert 'labware config unreadable' not in str(excinfo.value)
+        # Its words say whose failure it is: the check's, inside LumaViewPro,
+        # never the person's labware or objectives configuration.
+        assert 'inside LumaViewPro' in str(excinfo.value)
+        assert 'configuration' not in str(excinfo.value)
 
         # Observationally a no-op: the record getters still answer for
         # the FIRST run, nothing holds the scope, and the disk is
@@ -520,7 +564,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             'into it would target the wrong location'
         )
         assert executor.num_scans() == first_num_scans
-        assert executor.run_trigger_source() is None, (
+        assert executor.run_started_by() is None, (
             'a refused prepare must not make the runner claim to hold the scope'
         )
         assert sorted(p.name for p in output_dir.iterdir()) == listing_after_first, (
@@ -543,7 +587,6 @@ class TestTheCompositeChannelFloor:
     def _prepare_composite(executor, protocol, tmp_path):
         return executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
             sequence_name='composite_floor',
             image_capture_config=_make_image_capture_config(),
@@ -554,7 +597,7 @@ class TestTheCompositeChannelFloor:
 
     @pytest.mark.parametrize(
         'protocol_factory',
-        [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol('Blue')],
+        [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol(LED0)],
         ids=['no_channel', 'one_channel'],
     )
     def test_fewer_than_two_channels_is_refused_and_posts_nothing(
@@ -564,6 +607,22 @@ class TestTheCompositeChannelFloor:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             self._prepare_composite(executor, protocol_factory(), tmp_path)
         assert excinfo.value.reason == 'composite_needs_two_channels'
+        assert list(captured) == [], captured
+        assert not executor.run_in_progress()
+
+    def test_two_transmitted_channels_are_refused_before_any_capture(
+        self, executor, tmp_path, centre_posts
+    ):
+        # A composite takes one transmitted plane; with BF and PC both set
+        # to capture, the run would take both and its composite be refused.
+        steps = [
+            _make_single_step_protocol(c).step_row(step_index=0).to_dict()
+            for c in ('BF', 'PC', LED2)
+        ]
+        captured = _capture_notifications(centre_posts)
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            self._prepare_composite(executor, _build_real_protocol(steps), tmp_path)
+        assert excinfo.value.reason == 'composite_two_transmitted_layers'
         assert list(captured) == [], captured
         assert not executor.run_in_progress()
 
@@ -633,10 +692,18 @@ RUNNER_REFUSAL_COVERAGE = {
     'already_running': _FUNNEL_LOOP,
     'files_writing': _FUNNEL_LOOP,
     'files_writing_stalled': _FUNNEL_LOOP,
+    'post_processing_running': (
+        'tests/test_a_capture_does_not_start_while_a_build_runs.py::'
+        'test_a_run_asked_while_a_build_runs_is_refused_for_its_state'
+    ),
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
     'layer_not_on_scope': _FUNNEL_LOOP,
+    'channel_unknown': (
+        'tests/test_an_old_protocol_runs_the_leds_it_was_made_with.py::'
+        'test_on_a_unit_without_the_led_an_old_name_is_its_stock_key'
+    ),
     'objectives_require_turret': (
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
@@ -644,6 +711,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
     'positions_unreachable': ('tests/test_a_run_needs_the_axes_it_moves.py::test_the_rule'),
+    'step_position_missing': (
+        'tests/test_a_step_may_have_no_position.py::'
+        'test_a_step_without_x_and_y_is_refused_by_every_door_on_a_stage_scope'
+    ),
     'positions_outside_travel': (
         'tests/test_a_run_is_refused_outside_the_stage_travel.py::'
         'test_a_step_past_the_end_of_z_is_refused_naming_the_step_and_the_axis'
@@ -672,6 +743,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
         'test_an_overlap_outside_0_to_50_is_refused_and_posts_nothing'
     ),
+    'values_out_of_range': (
+        'tests/test_a_protocols_out_of_range_values_are_refused_before_any_store.py::'
+        'test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_each'
+    ),
     'tiles_outside_travel': (
         'tests/test_a_build_outside_the_travel_is_refused.py::'
         'test_a_grid_with_a_tile_outside_the_travel_is_refused'
@@ -693,24 +768,23 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_audit_fixes.py::TestRunPreValidationFiresNotificationOnException'
     ),
     'hardware_state_unknown': (
-        'tests/test_audit_fixes.py::TestRule14_A5_AreAllConnectedExceptionNotify'
+        'tests/test_the_ls720_in_the_simulator.py::'
+        'test_a_run_whose_lid_read_fails_is_not_checked_not_refused'
     ),
-    'hardware_disconnected': _FUNNEL_LOOP,
+    'not_connected': _FUNNEL_LOOP,
     'camera_not_streaming': _FUNNEL_LOOP,
+    'camera_not_delivering': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
-    'lid_open': _FUNNEL_LOOP,
+    'lid_open_before_motion': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
-    'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
+    'recording_active': ('test_start_refused_while_recording_holds_activity_claim'),
+    'exclusive_activity_running': ('test_start_refused_while_a_diagnostic_holds_activity_claim'),
     # Raised at prepare() only for a composite run, so the SINGLE_SCAN
     # loop cannot reach it; its own class drives prepare() in that mode.
     'composite_needs_two_channels': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
     ),
-    # Raised at reset(), not prepare(): it refuses a STOP naming a run
-    # that has ended while another is live, so there is no plan to drive
-    # and it cannot ride the loop.
-    'run_not_live': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
     # Raised by the protocol BUILDER, before prepare() is reached at all:
     # a stack cannot be built from a range of zero, so there is no plan to
     # drive it with. The builder does its own log-notify-raise, and that
@@ -726,10 +800,20 @@ RUNNER_REFUSAL_COVERAGE = {
     # click or a script call that would add nothing is refused where the
     # layer set is known, and the GUI's Add Step handler no longer decides.
     'no_acquiring_layer': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
-    'turret_objective_unset': (
-        'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
+    # Raised by an update, not a run: the add the step belongs to already
+    # takes the channel; its owner's test drives the update.
+    'channel_already_in_add': (
+        'tests/test_an_add_is_one_channel_group.py::TestAnUpdateCannotDoubleAChannelInItsAdd'
     ),
-    'objective_unknown': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    # Raised at prepare() only on a turret scope whose steps cannot say
+    # which slot they mean; its owner's test drives prepare() and the step
+    # navigation alike.
+    'turret_slot_ambiguous': ('tests/test_a_step_records_its_turret_slot.py::TestOldProtocols'),
+    'turret_slot_reassigned': ('tests/test_a_step_records_its_turret_slot.py::TestAReassignedSlot'),
+    # Raised at prepare() only for a composite run, like the channel floor.
+    'composite_two_transmitted_layers': (
+        'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
+    ),
     'objective_not_in_catalogue': (
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'
@@ -778,8 +862,8 @@ class TestTheRefusalFunnel:
             mp.setattr(protocol, 'validate_for_run', lambda **kw: ['step 1: out of bounds'])
             return protocol
 
-        def hardware_disconnected(mp):
-            mp.setattr(scope, 'unconnected_parts', lambda: ('camera',))
+        def not_connected(mp):
+            mp.setattr(scope, 'unconnected_parts', lambda: (Part.CAMERA,))
             return _make_single_step_protocol()
 
         def camera_not_streaming(mp):
@@ -787,6 +871,16 @@ class TestTheRefusalFunnel:
             # queued commands says so too.
             mp.setattr(scope.imaging, 'is_streaming', lambda: False)
             return _make_single_step_protocol()
+
+        def camera_not_delivering(mp):
+            # Streaming, with no rate measured within the start's wait (this
+            # bare scope runs no stream check, so none ever is), and a video
+            # step with no Recording max FPS: the disk the step will write
+            # cannot be sized.
+            row = _make_single_step_protocol().step_row(step_index=0)
+            return _build_real_protocol(
+                [{**row, 'Acquire': 'video', 'Video Config': {'duration': 1}}]
+            )
 
         def position_unknown(mp):
             # Stated rather than inherited from the fixture's un-homed scope,
@@ -807,7 +901,7 @@ class TestTheRefusalFunnel:
             mp.setattr(
                 executor.autofocus_thread,
                 'in_flight_sweep',
-                AutofocusSweep(future=Future(), run=run_identity('autofocus')),
+                AutofocusSweep(future=Future(), run=run_identity()),
             )
             return _make_single_step_protocol()
 
@@ -828,7 +922,7 @@ class TestTheRefusalFunnel:
         def layer_not_on_scope(mp):
             # The suite's scope has no Lumi layer.
             return _build_real_protocol(
-                [{**_make_single_step_protocol().step(idx=0), 'Color': 'Lumi'}]
+                [{**_make_single_step_protocol().step_row(step_index=0), 'Color': 'Lumi'}]
             )
 
         return [
@@ -839,11 +933,12 @@ class TestTheRefusalFunnel:
             ('empty_protocol', empty_protocol),
             ('turret_objectives_unassigned', turret_objectives_unassigned),
             ('validation_failed', validation_failed),
-            ('hardware_disconnected', hardware_disconnected),
+            ('not_connected', not_connected),
             ('camera_not_streaming', camera_not_streaming),
+            ('camera_not_delivering', camera_not_delivering),
             ('position_unknown', position_unknown),
             ('layer_not_on_scope', layer_not_on_scope),
-            ('lid_open', lid_open),
+            ('lid_open_before_motion', lid_open),
         ]
 
     def test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing(
@@ -898,7 +993,12 @@ class TestTheRefusalFunnel:
             )
         finally:
             recording.release()
-        assert excinfo.value.reason == 'exclusive_activity_running'
+        # A recording holding the scope is the recording's own condition,
+        # under the reason a recording start already uses for it.
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'recording_active',
+            'Recording Active',
+        )
         assert 'recording' in excinfo.value.message.lower(), (
             'the recording-holder branch must name the recording, not the '
             f'generic other-activity copy; got {excinfo.value.message!r}'
@@ -927,84 +1027,63 @@ class TestTheRefusalFunnel:
         assert 'diagnostic' in excinfo.value.message, excinfo.value.message
         assert list(captured) == [], f'the refusal is raised, not posted; got {captured}'
 
+    def test_a_run_is_refused_at_prepare_while_someone_else_holds_control(self, executor, tmp_path):
+        """While a client holds the control session, a run asked for by
+        anyone else is refused at its first gate with the class every door
+        refuses a held session with, naming the session, and the holder's own
+        run passes that gate."""
+        claim = executor._activity_claim
+        with calling(Caller.REST):
+            controller = claim.take_control('plate reader', finishing=lambda: False)
+        try:
+            with pytest.raises(ControlSessionRefusedError) as excinfo:
+                _prepare(executor, _make_single_step_protocol(), tmp_path)
+            assert excinfo.value.reason == 'control_session_held'
+            assert excinfo.value.control_session == 'plate reader'
+            assert excinfo.value.holder_trigger == Caller.REST
+            assert claim.holder is None, 'a refused run takes nothing'
+            with acting(controller):
+                _prepare(executor, _make_single_step_protocol(), tmp_path)
+        finally:
+            claim.end_control(controller.id)
 
-# ---------------------------------------------------------------------------
-# 5. A run that cannot resolve its data root fails at start.
-# ---------------------------------------------------------------------------
 
+class TestARunThatFailsValidationIsRefusedWithItsErrors:
+    """A run whose pre-run validation fails is refused before it starts,
+    titled for the person, its words the first five errors. That the
+    refusal is raised with its reason and posts nothing is the funnel
+    loop's (``TestTheRefusalFunnel``)."""
 
-class TestARunThatCannotResolveItsDataRootFailsAtStart:
-    """The run's data root is resolved at start, on the caller's thread.
-
-    The post-run merge and stack build both read data/tiling.json, and
-    both run on a daemon thread long after start() returned. A scope
-    whose source path was never registered cannot answer for that file
-    at all -- so resolving it late means the run captures a full plate
-    and then fails where nobody is waiting. Resolving it at start makes
-    the failure the caller's: the run never commits to disk, the
-    terminal callback carries failed_at_start, and the user is told
-    once.
-    """
-
-    def test_an_unresolvable_data_root_fails_the_run_at_start(
-        self, tmp_path, monkeypatch, centre_posts
-    ):
-        from modules.notification_center import Severity
-        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        output_dir = tmp_path / 'out'
+    def _refused_with(self, errors):
         runner = bare_capture_runner()
-        runner._scope.protocols.tiling_configs_path.side_effect = RuntimeError(
-            'the tiling config path could not be resolved'
-        )
-        # A post-run step spawned here would carry the failure onto a
-        # daemon thread, which is the shape this contract replaces.
-        spawned = []
-        monkeypatch.setattr(
-            runner, '_spawn_post_run_step', lambda **kwargs: spawned.append(kwargs['name'])
-        )
+        kwargs = scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.return_value = errors
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            runner.prepare(**kwargs)
+        assert refused.value.reason == 'validation_failed'
+        return runner, kwargs['protocol'], refused.value
 
-        completions = []
-        plan = runner.prepare(
-            **scr_run_kwargs(
-                parent_dir=output_dir,
-                disable_saving_artifacts=False,
-                events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
-            )
+    def test_it_is_titled_for_the_person_and_nothing_starts(self):
+        runner, protocol, refusal = self._refused_with(['step 1: X position outside axis limits'])
+        assert refusal.title == 'Validation failed', (
+            f"the refusal's title must be 'Validation failed'; got {refusal.title!r}"
         )
-        # start() resolves the outcome rather than raising, so the caller
-        # is released with an answer on this path like every other.
-        runner.start(plan)
+        assert not protocol.copy_for_execution.called, (
+            'run must abort at validation, before snapshotting the protocol'
+        )
+        assert not runner.run_in_progress(), 'run must not start'
 
-        runner._scope.protocols.tiling_configs_path.assert_called_once_with()
-        assert len(completions) == 1, (
-            'the terminal callback must fire exactly once for a run that '
-            f'could not resolve its data root; got {completions}'
+    def test_its_words_list_five_errors_and_point_to_the_log_for_the_rest(self):
+        errors = [f'error number {i}' for i in range(1, 8)]
+        _, _, refusal = self._refused_with(errors)
+        body = refusal.message
+        for i in range(1, 6):
+            assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
+        assert 'error number 6' not in body and 'error number 7' not in body, (
+            f'errors past the fifth must be truncated from the words; got: {body}'
         )
-        assert completions[0].status == 'failed_at_start', (
-            f'run_ended must carry the failed-at-start status; got {completions[0]}'
-        )
-        notified = [
-            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
-        ]
-        failed_to_start = [args for args in notified if 'Run failed to start' in args]
-        assert len(failed_to_start) == 1, (
-            f'the user must be told once that the run failed to start; got {notified}'
-        )
-        assert notified == failed_to_start, (
-            f'a failed-at-start run raises exactly that one error; got {notified}'
-        )
-        # The path is resolved BEFORE the run directory is created, so a
-        # run that cannot resolve it leaves no half-made directory behind.
-        assert not output_dir.exists() or not list(output_dir.iterdir()), (
-            'a run that failed before it could resolve its data root must '
-            f'leave the capture location untouched; found {list(output_dir.iterdir())}'
-        )
-        assert not runner.run_in_progress(), (
-            'a run that failed at start must not stay marked in progress'
-        )
-        assert not spawned, (
-            f'a run that never captured anything has nothing to post-process; got {spawned}'
+        assert 'and 2 more (see log)' in body, (
+            f'overflow must point the user to the log for full details; got: {body}'
         )
 
 
@@ -1048,10 +1127,11 @@ def test_every_runner_refusal_reason_is_covered():
 
         def visit_Call(self, node):
             callee = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
-            # Any _refuse* funnel, not one exact spelling: a second refusal
-            # site naming its funnel for what it refuses would otherwise be
-            # invisible to this census, which is the drift it exists to stop.
-            is_funnel = callee is not None and callee.startswith('_refuse')
+            # Any _refuse* funnel or _refusal* builder, not one exact spelling:
+            # a second refusal site naming its funnel for what it refuses would
+            # otherwise be invisible to this census, which is the drift it
+            # exists to stop.
+            is_funnel = callee is not None and callee.startswith('_refus')
             if is_funnel or callee in ('ProtocolRunRefusedError', 'RunCheckFailedError'):
                 for kw in node.keywords:
                     if kw.arg != 'reason':

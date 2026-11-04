@@ -16,9 +16,7 @@ import pytest
 
 from modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
 from modules.notification_center import Severity
-from modules.protocol import Protocol
 from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
-    _TILING,
     _standalone_config,
     sim_scope,
 )
@@ -34,12 +32,8 @@ def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
     sim_scope, centre_posts
 ):
     with pytest.raises(ProtocolRunRefusedError) as refusal:
-        Protocol.from_config(
-            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        sim_scope.protocols.create_protocol(
+            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0})
         )
     assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
     _report(refusal.value)

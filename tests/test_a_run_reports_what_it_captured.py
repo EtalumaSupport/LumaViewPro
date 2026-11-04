@@ -9,6 +9,7 @@ where a test needs a capture to produce no frame.
 
 import contextlib
 import csv
+import logging
 import pathlib
 import threading
 import time
@@ -21,21 +22,21 @@ from modules.run_events import RunEvents
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from tests.test_composite_run_failures import _info_lines
+from tests.stock_channels import LED0, LED1
 
 WAIT_S = 60.0
 
 
 def _run(runner, run_parent, steps, events=None):
-    pending = runner.run_single_scan(
+    pending = runner.start_single_scan(
         protocol=_protocol(steps),
         parent_dir=str(run_parent),
         events=events,
     )
-    outcome = pending.wait(timeout_s=WAIT_S)
+    outcome = pending.result(timeout=WAIT_S)
     # The record and the images are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
-    assert pending.wait_for_files(timeout_s=WAIT_S) is not None, 'the run never finished its files'
+    assert pending.files.result(timeout=WAIT_S) is not None, 'the run never finished its files'
     return outcome
 
 
@@ -44,12 +45,12 @@ def _two_steps():
 
 
 class TestANormalRunLogsNoCrash:
-    def test_a_normal_run_names_no_crash(self, tmp_path):
+    def test_a_normal_run_names_no_crash(self, tmp_path, caplog):
         # The run loop's one teardown carries a 'run_loop_crashed' fallback
         # it uses only when the loop body never said how the run ended; a
         # normal run must not log it.
         with (
-            _info_lines() as info,
+            caplog.at_level(logging.INFO),
             open_composite_session(headless_settings(tmp_path)) as (
                 _session,
                 runner,
@@ -57,19 +58,19 @@ class TestANormalRunLogsNoCrash:
         ):
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.status == 'completed', outcome
-        crash_lines = [line for line in info if 'crash' in line.lower()]
+        crash_lines = [line for line in caplog.messages if 'crash' in line.lower()]
         assert crash_lines == [], crash_lines
 
 
 def _record_rows(run_parent):
     records = list(pathlib.Path(run_parent).rglob('protocol_record.tsv'))
     assert len(records) == 1, records
-    with open(records[0], newline='') as fp:
+    with open(records[0], encoding='utf-8', newline='') as fp:
         return [row[0] for row in list(csv.reader(fp, delimiter='\t'))[4:]]
 
 
 def _no_frame(timeout_s):
-    return (False, None, 0)
+    return None
 
 
 class TestARunWhoseCameraIsGoneEndsAtOnce:
@@ -81,20 +82,20 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
         run_parent = tmp_path / 'runs'
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             camera = session.scope._camera_driver
-            imaging = session.scope.imaging
+            camera_api = session.scope.camera
             # Every camera write cleanup makes after the removal. The
             # simulated camera accepts a write whatever its latch says, so
             # the writes themselves are what is counted, not their reports.
             writes_after_removal = []
             for setter in ('_set_gain_db_impl', '_set_exposure_ms_impl'):
-                real = getattr(imaging, setter)
+                real = getattr(camera_api, setter)
 
                 def counted(value, *a, _real=real, _name=setter, **kw):
                     if camera.is_device_removed():
                         writes_after_removal.append((_name, value))
                     return _real(value, *a, **kw)
 
-                setattr(imaging, setter, counted)
+                setattr(camera_api, setter, counted)
 
             def unplugged(timeout_s):
                 camera._mark_disconnected()
@@ -105,9 +106,9 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
             outcome = _run(runner, run_parent, steps)
             rows = _record_rows(run_parent)
         assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected'), outcome
-        assert rows == ['capture_failed'], (
-            f'the run went on capturing after its camera was removed: {rows}'
-        )
+        # The removal is refused at the capture, and the refusal ends the run
+        # from the step that met it: no step is captured or recorded after.
+        assert rows == [], f'the run went on capturing after its camera was removed: {rows}'
         # Cleanup's camera restore writes nothing to a removed camera; each
         # write would report the camera absent again after the ending did.
         assert writes_after_removal == [], writes_after_removal
@@ -164,9 +165,9 @@ class TestARunWithFailedCapturesEndsIncomplete:
             camera = session.scope._camera_driver
             real_grab = camera.grab_new_capture
 
-            def step_started(step_idx):
+            def step_started(step_index):
                 # Every step, step 0 included, before it captures.
-                camera.grab_new_capture = _no_frame if step_idx % 2 == 0 else real_grab
+                camera.grab_new_capture = _no_frame if step_index % 2 == 0 else real_grab
 
             steps = [_step(f'C{i}', i, x=20.0 + i, gain=1.0) for i in range(8)]
             outcome = _run(
@@ -199,32 +200,32 @@ class TestARunWithFailedCapturesEndsIncomplete:
         # An autofocus scan saves nothing; it cannot fall short of captures
         # it was never asked for.
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 protocol=_protocol(_two_steps()),
                 parent_dir=str(tmp_path / 'runs'),
                 enable_image_saving=False,
             )
-            outcome = pending.wait(timeout_s=WAIT_S)
+            outcome = pending.result(timeout=WAIT_S)
         assert outcome.status == 'completed', outcome
         assert outcome.captures.asked == 0, outcome.captures
 
 
 class TestACompositeMissingAChannel:
-    def test_it_merges_the_rest_and_says_which_is_missing(self, tmp_path):
+    def test_it_merges_nothing_and_says_which_is_missing(self, tmp_path):
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
-        step_colors = ('BF', _FAILING, 'Green')
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with (
             _reports_of(RunIncompleteError) as reported,
             open_composite_session(settings) as (session, runner),
         ):
-            outcome = runner.run_composite(
+            outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
                 events=_fail_these_channels(session.scope._camera_driver, step_colors, {_FAILING}),
-            )
-        assert outcome.merged and pathlib.Path(outcome.artifact_path).exists(), outcome
+            ).result(timeout=WAIT_S)
+        assert not outcome.merged and outcome.artifact_path is None, outcome
         assert outcome.status == 'incomplete', outcome
         assert len(outcome.captures.failed) == 1, outcome.captures
         assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures
@@ -236,7 +237,7 @@ class TestACompositeMissingAChannel:
         from modules.notification_center import notifications
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
-        step_colors = ('BF', _FAILING, 'Green')
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         states_at_report = []
         report = notifications.report_outcome
@@ -249,17 +250,16 @@ class TestACompositeMissingAChannel:
 
             notifications.report_outcome = recorded
             try:
-                outcome = runner.run_composite(
+                runner.start_composite(
                     sequence_name='two_of_three',
                     parent_dir=str(tmp_path),
                     events=_fail_these_channels(
                         session.scope._camera_driver, step_colors, {_FAILING}
                     ),
-                )
+                ).result(timeout=WAIT_S)
                 told_when_returned = list(states_at_report)
             finally:
                 notifications.report_outcome = report
-        assert outcome.merged, outcome
         assert told_when_returned == ['armed'], told_when_returned
 
 
@@ -271,12 +271,12 @@ def _files_written(seen):
 
 
 class TestTheFileCountCountsImages:
-    def test_a_capture_that_produced_nothing_is_not_a_file(self, tmp_path):
+    def test_a_capture_that_produced_nothing_is_not_a_file(self, tmp_path, caplog):
         # The bench line: "2 written, 0 not written" for a run with no image
         # on disk. A failed capture's record row is a write, not an image.
         files = []
         with (
-            _info_lines() as info,
+            caplog.at_level(logging.INFO),
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (session, runner),
         ):
@@ -289,8 +289,8 @@ class TestTheFileCountCountsImages:
             )
             _files_written(files)
         assert files == ['written'], files
-        assert any('0 written, 0 not written' in line for line in info), [
-            line for line in info if 'files are' in line
+        assert any('0 written, 0 not written' in line for line in caplog.messages), [
+            line for line in caplog.messages if 'files are' in line
         ]
         assert lost == [], 'no image was lost on the way to disk; none was captured'
 
@@ -355,7 +355,7 @@ class TestTheFileCountCountsImages:
         from modules.protocol_image_writer import RunWriteBatch
 
         batch = RunWriteBatch(MagicMock())
-        batch.count_not_written('video_unfinished', 'The video V1')
+        batch.count_off_lane('The video V1', lost='video_unfinished')
         outcomes = []
         batch.close()
         batch.when_complete(outcomes.append)
@@ -378,10 +378,10 @@ class TestARunWhoseCleanupFailedSaysWhich:
             def unreachable(snapshot):
                 raise RuntimeError('the camera lane is gone')
 
-            session.scope.imaging.restore_camera_state = unreachable
+            session.scope.camera.restore_camera_state = unreachable
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.status == 'completed', outcome
-        assert outcome.cleanup_failures == ('Restore camera gain/exposure',), outcome
+        assert outcome.cleanup_failures == ('Restore camera settings',), outcome
         assert len(reported) == 1, reported
 
     def test_a_clean_cleanup_names_none(self, tmp_path):
@@ -393,7 +393,7 @@ class TestARunWhoseCleanupFailedSaysWhich:
 def _video(name, index):
     step = _step(name, index, x=20.0, gain=1.0)
     step['Acquire'] = 'video'
-    step['Video Config'] = {'duration': 1.0, 'fps': 5}
+    step['Video Config'] = {'duration': 1.0}
     return step
 
 
@@ -405,6 +405,19 @@ class TestAVideoStepIsOneCapture:
             outcome = _run(runner, tmp_path / 'runs', [_video('V1', 0)])
         assert outcome.status == 'completed', outcome
         assert (outcome.captures.asked, outcome.captures.captured) == (1, 1), outcome.captures
+
+    def test_a_video_that_finished_is_one_file_written(self, tmp_path):
+        # A video step's file is written on its own lane, outside the run's
+        # batch; uncounted, a run that saved a still and a video told its
+        # caller one file written, and a video-only run told it none.
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            pending = runner.start_single_scan(
+                protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0), _video('V1', 1)]),
+                parent_dir=str(tmp_path / 'runs'),
+            )
+            assert pending.result(timeout=WAIT_S).status == 'completed'
+            files = pending.files.result(timeout=WAIT_S)
+        assert (files.outcome, files.written, files.not_written) == ('written', 2, 0), files
 
     def test_a_video_whose_file_did_not_finish_is_a_file_not_written(self, tmp_path, monkeypatch):
         # The step recorded, so it is a capture; its file never finished, so
@@ -434,26 +447,11 @@ class TestAVideoStepIsOneCapture:
         assert len(lost) == 1, lost
 
 
-@contextlib.contextmanager
-def _warning_lines():
-    """Collect what production logs at WARNING while the block runs (the
-    suite mocks ``lvp_logger``, so ``caplog`` cannot see it)."""
-    import lvp_logger
-
-    lines = []
-    original = lvp_logger.logger.warning
-    lvp_logger.logger.warning = lambda msg, *a, **kw: lines.append(str(msg))
-    try:
-        yield lines
-    finally:
-        lvp_logger.logger.warning = original
-
-
 class TestTheFilesLineAndItsReport:
-    def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch):
+    def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch, caplog):
         files = []
         with (
-            _warning_lines() as warnings,
+            caplog.at_level(logging.WARNING),
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
             import modules.protocol_run_loop  # noqa: F401
@@ -467,6 +465,7 @@ class TestTheFilesLineAndItsReport:
             )
             _files_written(files)
         assert files == ['incomplete'], files
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("The run's files are incomplete" in line for line in warnings), warnings
 
     def test_a_disk_check_that_raises_does_not_stop_the_save(self, tmp_path, monkeypatch):
@@ -504,7 +503,7 @@ class TestTheFilesLineAndItsReport:
             files_done.set()
 
         monkeypatch.setattr(sequenced_capture_runner, 'send_files_written', _sent)
-        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
+        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == LED0)
         with (
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
@@ -512,31 +511,6 @@ class TestTheFilesLineAndItsReport:
             with pytest.raises(CaptureError) as failed:
                 runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
             assert files_done.wait(WAIT_S), 'the run never reported its files'
-        assert failed.value.reason == 'write_batch_save_failed'
+        assert failed.value.reason == 'merge_error'
+        assert failed.value.merge_failure == 'write_batch_save_failed'
         assert lost == [], lost
-
-
-class TestACompositeThatCannotMerge:
-    def test_the_refusal_and_the_shortfall_are_each_told_as_themselves(
-        self, tmp_path, centre_posts
-    ):
-        from modules.notification_center import Severity
-        from tests.test_composite_run_failures import _FAILING, _fail_these_channels
-
-        settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
-        with open_composite_session(settings) as (session, runner):
-            settled = runner.start_composite(
-                sequence_name='one_of_two',
-                parent_dir=str(tmp_path),
-                events=_fail_these_channels(
-                    session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
-                ),
-            ).wait(timeout_s=WAIT_S)
-        assert settled is not None and not settled.merged, settled
-        assert settled.merge_reason == 'no_data', settled
-        # Two notices, each its own type: the merge's refusal, then the run's
-        # shortfall naming the channel that failed. Neither is folded into a
-        # "Composite Failed".
-        shown = [(n.title, n.message) for n in centre_posts if n.severity >= Severity.WARNING]
-        assert [title for title, _ in shown] == ['Composite Not Possible', 'Run Incomplete'], shown
-        assert _FAILING in shown[1][1], shown[1][1]

@@ -13,17 +13,19 @@ own columns; a file no LumaViewPro writer produces is refused naming it.
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 from modules.common_utils import read_table
 from modules.exceptions import PostProcessingRefusedError
 from modules.post_processing import (
     PostProcessing,
-    default_cell_count_method,
     read_cell_count_results,
 )
-from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol import ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
 from tests.test_post_processing_stays_inside_its_folder import _project, _run_folder
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from modules.protocol import StoredNames
+from tests.protocol_fixtures import protocol_from_file
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
 
@@ -58,7 +60,7 @@ def test_a_step_renamed_to_a_missing_value_word_reloads_with_that_name(tmp_path,
     path = tmp_path / 'protocol.tsv'
     protocol.to_file(path)
 
-    step = Protocol.from_file(path, TILING_CONFIGS).step(idx=0)
+    step = protocol_from_file(path).step_row(step_index=0)
 
     assert (step['Label'], step['Name']) == (name, f'{name}_BF_Z0')
 
@@ -70,17 +72,17 @@ def _saved_with_well_cell(tmp_path, text):
     return path
 
 
-@pytest.mark.parametrize('runnable', [True, False])
+@pytest.mark.parametrize('to_run', [True, False], ids=['to-run', 'stored-names'])
 @pytest.mark.parametrize(
     ('cell', 'words'), [('A\x001', 'NUL'), ('"A1', 'not a well-formed table')], ids=['nul', 'quote']
 )
 def test_a_protocol_whose_step_cell_no_writer_produces_is_refused_naming_it(
-    tmp_path, runnable, cell, words
+    tmp_path, to_run, cell, words
 ):
     path = _saved_with_well_cell(tmp_path, cell)
 
     with pytest.raises(ProtocolFormatError, match=words) as refused:
-        Protocol.from_file(path, TILING_CONFIGS, runnable=runnable)
+        protocol_from_file(path, unit=None if to_run else StoredNames.KEPT)
 
     assert refused.value.file == path
 
@@ -143,9 +145,7 @@ def test_a_count_of_images_named_outside_ascii_reads_back(tmp_path):
     image = np.zeros((64, 64), dtype=np.uint8)
     image[10:30, 10:30] = 200
     cv2.imwrite(str(tmp_path / NON_ASCII_IMAGE), image)
-    PostProcessing().apply_cell_count_to_folder(
-        path=str(tmp_path), settings=default_cell_count_method()
-    )
+    PostProcessing().apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod())
 
     assert (tmp_path / 'results.csv').read_bytes().decode('utf-8')
     assert read_cell_count_results(tmp_path / 'results.csv')['file'].tolist() == [NON_ASCII_IMAGE]

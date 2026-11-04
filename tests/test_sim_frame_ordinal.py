@@ -92,27 +92,25 @@ class TestTheOrdinalAdvancesWithTheFrame:
     def test_two_frames_apart_return_two_ordinals(self):
         cam = _cam()
         try:
-            _r1, _t1, seq1 = grab_a_frame_made_after_now(cam)
-            _r2, _t2, seq2 = grab_a_frame_made_after_now(cam)
+            seq1 = grab_a_frame_made_after_now(cam).seq
+            seq2 = grab_a_frame_made_after_now(cam).seq
         finally:
             cam.stop_grabbing()
-        assert seq1 is not None and seq2 is not None
         assert seq2 > seq1, 'a newer frame must not reuse the previous number'
 
     def test_the_ordinal_a_poll_returns_is_the_one_the_gate_reads(self):
         cam = _cam()
         grab_a_frame_made_after_now(cam)
         cam.stop_grabbing()
-        _r, _i, _t, _b, seq = cam.grab_latest()
-        assert seq == cam.frames_delivered
+        assert cam.grab().seq == cam.frames_delivered
 
     def test_callback_frames_are_the_counted_frames(self):
         cam = _cam()
         seen = []
         second_frame = threading.Event()
 
-        def on_frame(img, ts, chunks):
-            seen.append(ts)
+        def on_frame(frame):
+            seen.append(frame.seq)
             if len(seen) >= 2:
                 second_frame.set()
 
@@ -136,19 +134,19 @@ class TestABufferedFrameKeepsItsOwnFields:
         cam = _cam()
         grab_a_frame_made_after_now(cam)
         cam.stop_grabbing()
-        first = cam.grab_latest()
-        second = cam.grab_latest()
-        assert second[4] == first[4], 'the buffered frame was handed back under a new number'
+        first = cam.grab()
+        second = cam.grab()
+        assert second.seq == first.seq, 'the buffered frame was handed back under a new number'
 
     def test_a_buffered_frame_keeps_the_depth_it_was_generated_under(self):
         cam = _cam()
         cam.set_pixel_format('Mono12')
         grab_a_frame_made_after_now(cam)
         cam.stop_grabbing()
-        first = cam.grab_latest()
+        first = cam.grab()
         cam.set_pixel_format('Mono8')
-        _r, _i, _t, bits, _s = cam.grab_latest()
-        assert first[3] == 12
+        bits = cam.grab().significant_bits
+        assert first.significant_bits == 12
         assert bits == 12, 'the buffered 12-bit frame was labelled with the new format depth'
 
 
@@ -167,7 +165,7 @@ class TestFieldsSurviveConcurrentStores:
         # must be handed out as ordinal n, however reads and stores interleave.
         counter = itertools.count(1)
 
-        def stamped():
+        def stamped(_exposure_us):
             frame = np.zeros((24, 32), dtype=np.uint8)
             frame[0, 0] = next(counter) % 251
             return frame
@@ -180,8 +178,8 @@ class TestFieldsSurviveConcurrentStores:
 
             def poll():
                 nonlocal polls
-                _r, img, _ts, _bits, seq = cam.grab_latest()
-                assert img is not None
+                frame = cam.grab()
+                img, seq = frame.image, frame.seq
                 assert img[0, 0] == seq % 251, (
                     f'frame stamped {img[0, 0]} was handed out as ordinal {seq}'
                 )
@@ -193,15 +191,26 @@ class TestFieldsSurviveConcurrentStores:
         assert polls >= 10
 
     def test_the_ordinal_never_runs_backwards_under_concurrency(self):
+        """Read back to back until ten distinct frames are seen. A reader that
+        has caught up with the stream waits on the camera's own store, which
+        bounds the read: a poller descheduled through the stores sees fewer
+        distinct frames in the same number of stores, so ten stores is no
+        count of what was read."""
         cam = _cam()
         cam.exposure_t(1.0)
+        handler = cam.cam_image_handler
         seen = []
         try:
             grab_a_frame_made_after_now(cam)
-            _poll_across_ten_stores(cam, lambda: seen.append(cam.grab_latest()[4]))
+            while len(set(seen)) < 10:
+                seq = cam.grab().seq
+                if seen and seq == seen[-1]:
+                    assert handler.wait_for_frame_after(seq, 5.0), (
+                        'the camera stopped storing frames'
+                    )
+                seen.append(seq)
         finally:
             cam.stop_grabbing()
-        assert len(set(seen)) >= 10, 'too few distinct frames for the check to mean anything'
         assert all(b >= a for a, b in itertools.pairwise(seen)), 'an ordinal went backwards'
 
 
@@ -210,19 +219,18 @@ class TestThePreviewPollCanRetireASettleCount:
     frames and a hardware write can actually settle in sim."""
 
     def test_preview_polls_settle_a_write(self):
-        from modules.frame_validity import FrameValidity
+        from modules.frame_validity import Counter, FrameValidity
 
         cam = _cam()
         try:
             fv = FrameValidity(lambda: cam.frames_delivered)
-            fv.invalidate('gain')
-            assert not fv.is_valid
+            fv.invalidate('gain', began_ns=None)
+            assert fv.owed().frames > 0
             for _ in range(12):
                 grab_a_frame_made_after_now(cam)
-                _r, _i, _t, _b, seq = cam.grab_latest()
-                fv.count_frame(seq)
-                if fv.is_valid:
+                fv.count_frame(cam.grab().seq, by=Counter.GRAB)
+                if fv.owed().frames == 0:
                     break
         finally:
             cam.stop_grabbing()
-        assert fv.is_valid, 'preview frames never retired the skip count'
+        assert fv.owed().frames == 0, 'preview frames never retired the skip count'

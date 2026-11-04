@@ -29,13 +29,15 @@ from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
 
+from modules.caller import Caller, calling
+from modules.exceptions import ControlSessionRefusedError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 
 
 def _turret_token(session) -> str:
-    """The token the writer renders for the turret position the scope holds."""
-    return f'Turret{int(session.scope.motion.get_current_position("T"))}'
+    """The token the writer renders for the turret slot in the light path."""
+    return f'Turret{session.scope.motion.turret_status().slot}'
 
 
 def _saved_frames(tmp_path) -> list[str]:
@@ -69,19 +71,49 @@ class TestTheSessionRecordsTheMode:
             assert 'Turret' not in name, f'{name} carries a turret token outside engineering mode'
 
 
+class TestTheModeHasOneWriter:
+    def test_the_writer_sets_the_mode_and_logs_it(self, sim_session, caplog):
+        """``set_engineering_mode`` is the mode's one writer, and the log
+        records each change once; a write that changes nothing logs nothing."""
+        with caplog.at_level('INFO'):
+            sim_session.set_engineering_mode(True)
+            sim_session.set_engineering_mode(True)
+
+        assert sim_session.engineering_mode is True
+        said = [r.getMessage() for r in caplog.records if 'Engineering mode' in r.getMessage()]
+        assert said == ['[Session  ] Engineering mode on']
+
+    def test_a_store_to_the_read_is_refused(self, sim_session):
+        """The read is a property with no setter: a store to it raises, and
+        the mode stays as it was."""
+        with pytest.raises(AttributeError):
+            sim_session.engineering_mode = True
+
+        assert sim_session.engineering_mode is False
+
+    def test_a_write_while_another_holds_control_is_refused(self, sim_session):
+        with calling(Caller.REST):
+            sim_session.take_control('plate reader')
+
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.set_engineering_mode(True)
+
+        assert refused.value.reason == 'control_session_held'
+        assert sim_session.engineering_mode is False
+
+
 class TestAModeTurnedOnAfterTheSessionIsBuiltIsTheRuns:
     def test_a_composite_runs_in_the_mode_the_session_holds_when_it_starts(self, tmp_path):
         """A plugin turns the session's mode on after the session exists; the
         run reads the session's flag when it starts, not the mode it was
         built in."""
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            session.engineering_mode = True
+            session.set_engineering_mode(True)
             outcome = runner.start_composite(
                 sequence_name='gui',
                 parent_dir=str(tmp_path),
-                run_trigger_source='composite',
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
             assert settled is not None and settled.merged, 'the run never settled'
             token = _turret_token(session)
 
@@ -130,6 +162,7 @@ class TestTheWriterIsHandedTheMode:
             'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
             'timestamp_overlay': True,
             'video_max_fps': 0,
+            'video_sizing_fps': None,
             'run_claim': lent_run_claim(),
             'labware': plate(),
             'to_plate': None,

@@ -23,9 +23,12 @@ vacuously, which is precisely the blind spot being pinned.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
+import contextlib
 import datetime
 import pathlib
+import sys
 import threading
 import time
 
@@ -39,17 +42,19 @@ from modules.run_events import RunEvents
 from modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.layer_record import release_colors
+from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-
 
 def _ending(status: str = 'completed') -> RunEnding:
-    return RunEnding(status=status, reason='stopped', title='t', message='m')
+    return RunEnding(status=status, reason='stopped', message='m')
 
 
 def _make_af_step_protocol():
@@ -63,10 +68,10 @@ def _make_af_step_protocol():
         'Auto_Focus': True,
         'Color': 'BF',
         'False_Color': False,
-        'Illumination': 50.0,
+        'Illumination': 1.0,
         'Gain': 1.0,
         'Auto_Gain': False,
-        'Exposure': 10.0,
+        'Exposure': 2.5,  # the 10x's light: brightfield falls as the square of the magnification
         'Sum': 1,
         'Objective': '10x Oly',
         'Well': 'A1',
@@ -76,10 +81,13 @@ def _make_af_step_protocol():
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'AF_test',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
     config = {
@@ -91,7 +99,23 @@ def _make_af_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return protocol_of(config=config)
+
+
+@contextlib.contextmanager
+def _reported(monkeypatch):
+    """Every outcome reported while the block runs."""
+    from modules.notification_center import notifications
+
+    reported = []
+    report = notifications.report_outcome
+
+    def recorded(outcome, *args, **kwargs):
+        reported.append(outcome)
+        return report(outcome, *args, **kwargs)
+
+    monkeypatch.setattr(notifications, 'report_outcome', recorded)
+    yield reported
 
 
 class _AfRig:
@@ -111,11 +135,15 @@ class _AfRig:
         self.scope._led_driver.set_timing_mode('fast')
         self.scope._motion_driver.set_timing_mode('fast')
         self.scope._camera_driver.set_timing_mode('fast')
-        self.scope.imaging.start_streaming()
+        self.scope.imaging.enable_streaming()
 
-        self.io_executor = SequentialIOExecutor(name='AFOUT_IO')
-        self.file_io_executor = SequentialIOExecutor(name='AFOUT_FILE')
-        self.camera_executor = SequentialIOExecutor(name='AFOUT_CAMERA')
+        self.io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AFOUT_IO')
+        self.file_io_executor = SequentialIOExecutor(
+            closed_answer=session_lane_closed, name='AFOUT_FILE'
+        )
+        self.camera_executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='AFOUT_CAMERA'
+        )
         for e in (self.io_executor, self.file_io_executor, self.camera_executor):
             e.start()
         self.protocol_thread = ProtocolThread()
@@ -135,6 +163,8 @@ class _AfRig:
             autofocus_thread=self.af_thread,
             activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
+            channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
         )
 
     def run_autofocus(
@@ -146,7 +176,7 @@ class _AfRig:
         )
         assert self._done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
         assert self._files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_written did not fire'
-        outcome = pending.wait(timeout_s=COMPLETION_TIMEOUT)
+        outcome = pending.result(timeout=COMPLETION_TIMEOUT)
         assert outcome is not None, 'the AF run never settled its outcome'
         return outcome
 
@@ -156,7 +186,6 @@ class _AfRig:
         *,
         save_data: bool,
         borrowed_claim=None,
-        run_trigger_source: str = 'autofocus',
         run_mode: SequencedCaptureRunMode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
     ):
         """Prepare one standalone AF run; the plan, not yet started."""
@@ -164,7 +193,6 @@ class _AfRig:
         files_done = self._files_done = threading.Event()
         return self.runner.prepare(
             protocol=_make_af_step_protocol(),
-            run_trigger_source=run_trigger_source,
             run_mode=run_mode,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -172,7 +200,6 @@ class _AfRig:
                 'target_brightness': 0.3,
                 'min_gain_db': 0.0,
                 'max_gain_db': 20.0,
-                'max_duration': datetime.timedelta(seconds=1),
             },
             parent_dir=parent_dir,
             enable_image_saving=False,
@@ -235,6 +262,7 @@ class TestOutcomeReportsDeliveredAutofocusData:
         assert written.read_text().strip(), 'the reported characterization file is empty'
         assert char_dir in written.parents
 
+    @pytest.mark.slow
     def test_a_later_run_that_saves_nothing_reports_nothing(self, tmp_path):
         """A populated folder from an earlier run is not this run's answer.
 
@@ -381,29 +409,30 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
             'moments later'
         )
 
-    def test_a_cancelled_write_does_not_cost_the_bound(self):
-        """An aborting run discards the queued save on purpose.
-
-        clear_protocol_pending cancels the task rather than running it, so
-        the wait must end on the cancellation and not sit out the timeout --
-        an abort exists to give the user control back.
-        """
+    def test_a_write_the_lane_will_not_finish_does_not_cost_the_bound(self):
+        """A save the close finds unstarted, or still running when its stuck
+        writer is replaced, ends the wait at once: neither will be told later,
+        and the sweep reports no data file."""
         from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+        from modules.exceptions import FileWriterReplacedError
+        from modules.executor_registry import session_lane_closed
         from modules.sequential_io_executor import _ReusableTaskWaiter
 
-        runner = self._bare_runner()
-        waiter = _ReusableTaskWaiter()
-        waiter.cancel()
-        runner._data_write_future = waiter
+        for answer in (session_lane_closed('save'), FileWriterReplacedError('save')):
+            runner = self._bare_runner()
+            waiter = _ReusableTaskWaiter()
+            waiter.set_exception(answer)
+            runner._data_write_future = waiter
 
-        started = time.monotonic()
-        runner._await_data_write()
-        elapsed = time.monotonic() - started
+            started = time.monotonic()
+            runner._await_data_write()
+            elapsed = time.monotonic() - started
 
-        assert elapsed < AF_DATA_WRITE_WAIT_S / 2, (
-            f'a cancelled write should end the wait at once, not sit out the '
-            f'{AF_DATA_WRITE_WAIT_S}s bound (took {elapsed:.3f}s)'
-        )
+            assert elapsed < AF_DATA_WRITE_WAIT_S / 2, (
+                f'{type(answer).__name__} should end the wait at once, not sit out the '
+                f'{AF_DATA_WRITE_WAIT_S}s bound (took {elapsed:.3f}s)'
+            )
+            assert runner.saved_data_path() is None
 
     def test_nothing_queued_needs_no_wait(self):
         """A refused submit returns no waiter, and saved_data_path stays None."""
@@ -470,7 +499,7 @@ class TestARunUnderALentClaim:
                 rig.prepare_autofocus(tmp_path, save_data=False)
             assert excinfo.value.reason == 'exclusive_activity_running', excinfo.value.reason
             assert excinfo.value.holder == 'diagnostic'
-            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            pending.result(timeout=COMPLETION_TIMEOUT)
             assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
         finally:
             diagnostic.release()
@@ -492,7 +521,7 @@ class TestARunUnderALentClaim:
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
                 rig.runner.start(stale)
             assert excinfo.value.holder == 'diagnostic', excinfo.value.holder
-            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            pending.result(timeout=COMPLETION_TIMEOUT)
             assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
         finally:
             diagnostic.release()
@@ -558,23 +587,78 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         assert outcome.af_focus_z_um is not None, 'a sweep that focused reported no focus'
         assert abs(outcome.af_focus_z_um - stage_z) < 1.0, (outcome.af_focus_z_um, stage_z)
 
-    def test_a_sweep_that_chose_nothing_reports_none_though_the_run_completed(
-        self, tmp_path, monkeypatch
-    ):
+    def test_a_flat_curve_ends_the_run_failed_told_once_by_autofocus(self, tmp_path, monkeypatch):
         import modules.autofocus_functions as autofocus_functions
+        from modules.exceptions import AutofocusFailedError, RunFailedError
 
         # Every frame scores zero: the flat-curve branch, where the sweep
         # chooses no focus and returns the stage to where it started.
-        monkeypatch.setattr(autofocus_functions, 'focus_function', lambda **kwargs: 0.0)
+        monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
         rig = _AfRig()
+        try:
+            with _reported(monkeypatch) as reported:
+                outcome = rig.run_autofocus(tmp_path, save_data=False)
+        finally:
+            rig.close()
+        assert (outcome.status, outcome.reason, outcome.title) == (
+            'failed',
+            'autofocus_failed',
+            'Autofocus Failed',
+        ), outcome
+        assert outcome.message == str(AutofocusFailedError('flat_focus_curve'))
+        assert outcome.af_focus_z_um is None
+        assert [type(told) for told in reported] == [AutofocusFailedError], (
+            'autofocus tells its failure once, and the run ending does not tell it again'
+        )
+        assert not any(isinstance(told, RunFailedError) for told in reported)
+
+    def test_an_autofocus_refused_out_of_travel_ends_the_run_not_started(
+        self, tmp_path, monkeypatch
+    ):
+        from modules.exceptions import AutofocusOutOfTravelError
+
+        # The window is centred on where Z stands; a step a micrometre above
+        # the bottom of travel reaches past it before anything moves.
+        near_the_floor = _make_af_step_protocol()
+        near_the_floor.modify_step_z_height(step_index=0, z=1.0)
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            '_make_af_step_protocol',
+            lambda: near_the_floor,
+        )
+        rig = _AfRig()
+        try:
+            with _reported(monkeypatch) as reported:
+                outcome = rig.run_autofocus(tmp_path, save_data=False)
+        finally:
+            rig.close()
+        assert (outcome.status, outcome.reason, outcome.title) == (
+            'failed',
+            'autofocus_not_started',
+            'Autofocus Not Started',
+        ), outcome
+        assert [type(told) for told in reported] == [AutofocusOutOfTravelError]
+
+    def test_a_failed_autofocus_that_lost_z_ends_the_run_position_lost(self, tmp_path, monkeypatch):
+        import modules.autofocus_functions as autofocus_functions
+
+        rig = _AfRig()
+        lost = {}
+        real = rig.scope.motion.axes_without_position
+
+        def flat_and_losing_z(**kwargs):
+            # a stand-in by design: the simulator cannot yet lose Z on the
+            # failed sweep's restore, so the sweep's first score loses it.
+            lost['Z'] = 'UNKNOWN'
+            return 0.0
+
+        monkeypatch.setattr(autofocus_functions, 'autofocus_score', flat_and_losing_z)
+        monkeypatch.setattr(rig.scope.motion, 'axes_without_position', lambda: dict(lost) or real())
         try:
             outcome = rig.run_autofocus(tmp_path, save_data=False)
         finally:
             rig.close()
-        assert outcome.status == 'completed', (
-            'precondition: a step whose autofocus gave up does not fail the run'
-        )
-        assert outcome.af_focus_z_um is None
+        assert (outcome.status, outcome.reason) == ('failed', 'position_lost'), outcome
 
 
 class TestEverySettlePathCarriesTheRecordedFocus:

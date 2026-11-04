@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 import re
 
-from tests.ast_seams import iter_package_modules, production_modules, walk_defs
+from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
 _STORE_MODULE = 'modules/kivy_utils.py'
 _DOOR_MODULE = 'modules/scope_session.py'
@@ -24,7 +24,7 @@ _DOOR_DEF = 'ScopeSession.set_ui_dispatcher'
 _WRITER = '_set_ui_dispatcher'
 # The door's own name is how every caller reaches the store; the writer's
 # name is policed by the second test.
-_ALLOWED = frozenset({'set_ui_dispatcher', _WRITER})
+_ALLOWED = MemberNames((_DOOR_MODULE, _STORE_MODULE), {'set_ui_dispatcher', _WRITER})
 # A name that holds one, not one that merely contains the letters (``gui_dispatcher``).
 _HOLDER = re.compile(r'(?<![a-z])ui_dispatch')
 

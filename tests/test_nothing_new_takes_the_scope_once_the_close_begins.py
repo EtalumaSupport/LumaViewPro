@@ -16,7 +16,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import SessionClosingError
+from modules.exceptions import PostProcessingOperation, SessionClosingError
 from tests.protocol_drives import run_identity
 
 
@@ -48,15 +48,15 @@ def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session,
     sim_session.activity_claim.begin_closing()
     assert sim_session.live_work.closing is True
 
-    runner = sim_session.create_protocol_runner()
-    protocol = _build_real_protocol([_make_single_step_protocol().step(idx=0)])
+    runner = sim_session.protocol_runner()
+    protocol = _build_real_protocol([_make_single_step_protocol().step_row(step_index=0)])
     _refused(
-        lambda: runner.run_single_scan(
+        lambda: runner.start_single_scan(
             protocol=protocol, sequence_name='closing', parent_dir=str(tmp_path)
         ),
         'protocol',
     )
-    _refused(lambda: sim_session.manual_recording.start(layer='BF'), 'recording')
+    _refused(lambda: sim_session.manual_recording.start(), 'recording')
     _refused(lambda: sim_session.scope.motion.home('Z'), 'home')
 
     def a_diagnostic():
@@ -101,6 +101,7 @@ def _built(message, folder):
         output_root=pathlib.Path(folder),
         artifact_paths=(),
         degraded_outputs=(),
+        excluded_inputs=(),
     )
 
 
@@ -112,4 +113,29 @@ def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
     def build(folder, *, on_progress):
         return built
 
-    assert sim_session.post_processing._run(build, 'stitch', tmp_path) is built
+    assert (
+        sim_session.post_processing._run(
+            build, 'stitch', tmp_path, operation=PostProcessingOperation.STITCH
+        )
+        is built
+    )
+
+
+def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
+    """The close's start and end are told as every claim edge is, so a client
+    that subscribes -- the LiveWork event over REST, a GUI of its own -- can
+    stop its listeners when the close begins, not after the scope has gone."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    heard = []
+    session.add_run_state_listener(
+        lambda: heard.append((session.live_work.closing, session.live_work.closed))
+    )
+    heard.clear()
+
+    session.shutdown()
+
+    assert (True, False) in heard, heard
+    assert heard[-1] == (False, True), heard

@@ -25,8 +25,8 @@ from tests.camera_fakes import bare_image_handler
 def _store_one(handler, chunks=None):
     handler._store_frame(
         np.zeros((4, 4), dtype=np.uint16),
-        timestamp=1.0,
         chunks=chunks,
+        handed_over=handler.hand_over(),
         significant_bits=12,
         wire_bytes=0,
     )
@@ -56,18 +56,17 @@ class TestPylonHandlerBaseSurface:
         assert handler.frames_delivered == 1
         assert parent.frames_delivered == 1
 
-    def test_get_last_chunks_reports_the_stored_frames_chunks(self):
+    def test_the_stored_frame_carries_its_chunks(self):
         handler, _parent = bare_image_handler()
-        assert handler.get_last_chunks() is None
+        assert handler.get_last_image() is None
         _store_one(handler, chunks={'ExposureTime': 10000.0, 'Gain': 0.0})
-        assert handler.get_last_chunks() == {'ExposureTime': 10000.0, 'Gain': 0.0}
+        assert dict(handler.get_last_image().chunks) == {'ExposureTime': 10000.0, 'Gain': 0.0}
 
-    def test_detached_device_reports_no_chunks_and_no_frame(self):
+    def test_detached_device_reports_no_frame(self):
         from drivers.camera import Camera
 
         handler, parent = bare_image_handler()
         _store_one(handler, chunks={'ExposureTime': 10000.0})
         Camera._mark_disconnected(parent)
         assert parent._device_removed is True
-        assert handler.get_last_chunks() is None
-        assert handler.get_last_image() == ImageHandlerBase.NO_FRAME
+        assert handler.get_last_image() is None

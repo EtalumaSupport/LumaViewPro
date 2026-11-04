@@ -14,6 +14,10 @@ Key requirements:
 """
 
 import datetime
+import errno
+import itertools
+import re
+import xml.etree.ElementTree as ET
 from unittest import mock
 
 import numpy as np
@@ -21,6 +25,9 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
+from modules.layer_record import GREY, release_catalogue, release_color
+from tests.ome_schema import q, valid_description
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # ---------------------------------------------------------------------------
@@ -32,18 +39,15 @@ def _make_metadata():
     """Build minimal metadata dict that write_tiff / generate_tiff_data require."""
     return {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
+        'channel': LED1,
         'significant_bits': 8,
-        'objective': '10x',
+        'objective': {'id': '10x'},
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-        'datetime': '2026:03:16 12:00:00',
-        'camera_make': 'Test',
-        'microscope': 'TestScope',
-        'well_label': 'A1',
+        'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
         'well_site': '1',
     }
 
@@ -124,9 +128,10 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -139,9 +144,10 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], 'BF/PC/DF should not have colormap tag 320'
@@ -154,9 +160,10 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), f'Expected (100,100), got {info["shape"]}'
@@ -165,7 +172,7 @@ class TestTiff8BitBrightfield:
 class TestTiff8BitFluorescence:
     """8-bit fluorescence should be PALETTE with colormap (false color in Windows + FIJI)."""
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_photometric_palette(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -173,14 +180,15 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.PALETTE
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_has_colormap(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -188,9 +196,10 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             page = f.pages[0]
@@ -198,7 +207,7 @@ class TestTiff8BitFluorescence:
             assert page.colormap is not None, '8-bit fluorescence must have colormap'
             assert page.colormap.shape[1] == 256, 'Colormap should have 256 entries'
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_single_channel(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -206,9 +215,10 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -220,9 +230,10 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -238,9 +249,10 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Red',
+            color=release_color(LED2),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -265,9 +277,10 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -280,9 +293,10 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
@@ -295,9 +309,10 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['is_imagej'], '16-bit non-OME should be ImageJ format'
@@ -310,9 +325,10 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -321,7 +337,7 @@ class TestTiff16BitBrightfield:
 class TestTiff16BitFluorescenceDefault:
     """16-bit fluorescence (default setting): MINISBLACK, single channel, Windows-compatible."""
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_photometric_minisblack(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -329,14 +345,15 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
         """Windows Preview requires no tag 320 on uint16 images."""
         path = tmp_tiff()
@@ -345,16 +362,17 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], (
             'uint16 must not have colormap tag 320 (breaks Windows Preview)'
         )
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_single_channel(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -362,14 +380,15 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_imagej_format(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -377,14 +396,15 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['is_imagej']
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_imagej_has_lut_metadata(self, img_16bit, metadata, tmp_tiff, color):
         """ImageJ LUT metadata should be present (even though FIJI ignores it for single images)."""
         path = tmp_tiff()
@@ -393,9 +413,10 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         ij = info['imagej_metadata']
@@ -417,7 +438,7 @@ class TestTiff16BitFalseColorOn:
         mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
         return mock.patch('modules.app_context.ctx', mock_ctx)
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
         # save_encoding='rgb' drives the false-color widening: 16-bit
         # fluorescence widens to 3-channel RGB for Windows-Preview color.
@@ -428,9 +449,10 @@ class TestTiff16BitFalseColorOn:
                 file_loc=path,
                 metadata=metadata,
                 ome=False,
-                color=color,
+                color=release_color(color),
                 significant_bits=16,
                 save_encoding='rgb',
+                white_bits=None,
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3), (
@@ -448,9 +470,10 @@ class TestTiff16BitFalseColorOn:
                 file_loc=path,
                 metadata=metadata,
                 ome=False,
-                color='BF',
+                color=release_color('BF'),
                 significant_bits=16,
                 save_encoding='rgb',
+                white_bits=None,
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), 'BF should stay single-channel'
@@ -464,7 +487,7 @@ class TestTiff16BitFalseColorOn:
 class TestOmeTiff:
     """OME-TIFF format tests."""
 
-    @pytest.mark.parametrize('color', ['BF', 'Green', 'Red'])
+    @pytest.mark.parametrize('color', ['BF', LED1, LED2])
     def test_is_ome(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -472,9 +495,10 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['is_ome'], 'OME flag should produce OME-TIFF'
@@ -486,9 +510,10 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -500,9 +525,10 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -514,9 +540,10 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -528,9 +555,10 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert not info['is_imagej'], 'OME-TIFF should not be ImageJ format'
@@ -551,9 +579,10 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -565,9 +594,10 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3)
@@ -579,9 +609,10 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -602,9 +633,10 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         info = _read_tiff(path)
         assert info['software'] is not None
@@ -619,9 +651,10 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
@@ -636,9 +669,10 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
@@ -651,9 +685,10 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             tag_codes = {t.code for t in f.pages[0].tags.values()}
@@ -670,21 +705,46 @@ class TestTimestampMetadata:
     embedded in every saved frame.
     """
 
-    def test_timestamp_iso_emitted_when_provided(self, img_8bit, metadata):
+    def test_timestamp_iso_emitted_with_the_source_its_producer_states(self, img_8bit, metadata):
+        """The file names the clock the producer says its time came from: a
+        still's and a recorded frame's come from different clocks."""
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'camera_rebased'
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit,
+            metadata=metadata,
+            image_type='imagej',
+            color=release_color('BF'),
+            white_bits=None,
         )
         plane = result['metadata']['Plane']
         assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
-        assert plane['TimestampSource'] == 'host_wallclock'
+        assert plane['TimestampSource'] == 'camera_rebased'
+
+    def test_a_time_without_its_source_is_refused(self, img_8bit, metadata):
+        """No source is assumed: a defaulted one would name the wrong clock
+        for every producer that forgot to state its own."""
+        metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        with pytest.raises(KeyError, match='timestamp_source'):
+            image_utils.generate_tiff_data(
+                data=img_8bit,
+                metadata=metadata,
+                image_type='imagej',
+                color=release_color('BF'),
+                white_bits=None,
+            )
 
     def test_camera_ticks_emitted_when_provided(self, img_8bit, metadata):
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'camera_frame_start'
         metadata['timestamp_camera_ticks'] = 1234567890123
         metadata['timestamp_camera_tick_hz'] = 1_000_000_000
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit,
+            metadata=metadata,
+            image_type='imagej',
+            color=release_color('BF'),
+            white_bits=None,
         )
         plane = result['metadata']['Plane']
         assert plane['TimestampCameraTicks'] == 1234567890123
@@ -693,7 +753,11 @@ class TestTimestampMetadata:
     def test_frame_id_emitted_when_provided(self, img_8bit, metadata):
         metadata['frame_id'] = 42
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit,
+            metadata=metadata,
+            image_type='imagej',
+            color=release_color('BF'),
+            white_bits=None,
         )
         plane = result['metadata']['Plane']
         assert plane['FrameID'] == 42
@@ -702,7 +766,11 @@ class TestTimestampMetadata:
         # Default metadata fixture has no timestamp_* keys; Plane should
         # not gain spurious fields.
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit,
+            metadata=metadata,
+            image_type='imagej',
+            color=release_color('BF'),
+            white_bits=None,
         )
         plane = result['metadata']['Plane']
         assert 'Timestamp' not in plane
@@ -712,11 +780,17 @@ class TestTimestampMetadata:
         assert 'FrameID' not in plane
 
     def test_partial_timestamp_metadata_emits_only_what_provided(self, img_8bit, metadata):
-        # Provide host wall-clock only (camera doesn't support ChunkTimestamp,
-        # e.g. IDS today). The host fields appear; the camera fields do not.
+        # Provide the host's arrival time only (camera doesn't support
+        # ChunkTimestamp, e.g. IDS today). The host fields appear; the camera
+        # fields do not.
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'host_arrival'
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit,
+            metadata=metadata,
+            image_type='imagej',
+            color=release_color('BF'),
+            white_bits=None,
         )
         plane = result['metadata']['Plane']
         assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
@@ -739,57 +813,40 @@ class TestWindowsPreviewCompat:
     These tests ensure we never produce those combinations.
     """
 
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_no_palette(self, img_16bit, metadata, tmp_tiff, color):
-        """No 16-bit image should use PALETTE photometric."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=color,
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert info['photometric'] != tf.PHOTOMETRIC.PALETTE, (
-            f'16-bit {color} must not use PALETTE (breaks Windows Preview)'
+    @staticmethod
+    def _written(img_16bit, metadata, tmp_tiff, *, ome):
+        """Each catalogue channel's 16-bit file, read back, by channel."""
+        written = {}
+        for channel in release_catalogue():
+            path = tmp_tiff()
+            image_utils.write_tiff(
+                data=img_16bit,
+                file_loc=path,
+                metadata=metadata,
+                ome=ome,
+                color=release_color(channel),
+                significant_bits=16,
+                save_encoding='right_aligned',
+                white_bits=None,
+            )
+            written[channel] = _read_tiff(path)
+        return written
+
+    def test_no_16bit_tiff_uses_a_palette_or_a_colormap_tag(self, img_16bit, metadata, tmp_tiff):
+        """No channel's 16-bit TIFF uses PALETTE photometric or carries tag 320."""
+        written = self._written(img_16bit, metadata, tmp_tiff, ome=False)
+        palette = [
+            c for c, info in written.items() if info['photometric'] == tf.PHOTOMETRIC.PALETTE
+        ]
+        colormap = [c for c, info in written.items() if info['has_colormap_tag']]
+        assert (palette, colormap) == ([], []), (
+            f'16-bit PALETTE {palette} and tag 320 {colormap} break Windows Preview'
         )
 
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
-        """No 16-bit single-channel image should have tag 320."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=color,
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert not info['has_colormap_tag'], (
-            f'16-bit {color} must not have colormap tag 320 (breaks Windows Preview)'
-        )
-
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_ome_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
+    def test_no_16bit_ome_tiff_carries_a_colormap_tag(self, img_16bit, metadata, tmp_tiff):
         """OME-TIFF 16-bit should also not have tag 320."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=True,
-            color=color,
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert not info['has_colormap_tag']
+        written = self._written(img_16bit, metadata, tmp_tiff, ome=True)
+        assert [c for c, info in written.items() if info['has_colormap_tag']] == []
 
 
 # ---------------------------------------------------------------------------
@@ -799,31 +856,31 @@ class TestWindowsPreviewCompat:
 
 class TestGetTiffColormap:
     def test_green_colormap_shape(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         assert cmap.shape == (3, 256)
 
     def test_green_only_green_channel(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         assert cmap[0].sum() == 0  # Red = 0
         assert cmap[1].sum() > 0  # Green has values
         assert cmap[2].sum() == 0  # Blue = 0
 
     def test_gray_all_channels_equal(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GRAY, np.uint8)
+        cmap = image_utils.get_tiff_colormap(GREY, np.uint8)
         np.testing.assert_array_equal(cmap[0], cmap[1])
         np.testing.assert_array_equal(cmap[1], cmap[2])
 
     def test_rejects_uint16(self):
         with pytest.raises(NotImplementedError):
-            image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint16)
+            image_utils.get_tiff_colormap(release_color(LED1), np.uint16)
 
     @pytest.mark.parametrize(
         'colormap',
         [
-            image_utils.LvpColormap.RED,
-            image_utils.LvpColormap.GREEN,
-            image_utils.LvpColormap.BLUE,
-            image_utils.LvpColormap.GRAY,
+            release_color(LED2),
+            release_color(LED1),
+            release_color(LED0),
+            GREY,
         ],
     )
     def test_colormap_spans_tiff_full_scale(self, colormap):
@@ -837,7 +894,7 @@ class TestGetTiffColormap:
         assert cmap.max() == 65535, f'{colormap}: ramp must reach TIFF full scale'
 
     def test_green_ramp_steps_by_257(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         np.testing.assert_array_equal(cmap[1], np.arange(256, dtype=np.uint16) * 257)
 
 
@@ -859,9 +916,10 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             assert not f.pages[0].is_tiled, '8-bit still output must use strips'
@@ -873,9 +931,10 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -885,35 +944,20 @@ class TestTiffStripsAndPaletteScale:
                 'ramp reads ~0.4% brightness in compliant readers.'
             )
 
-    def test_8bit_video_frame_uses_strips(self, img_8bit, metadata, tmp_tiff):
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_8bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color='BF',
-            significant_bits=8,
-            save_encoding='8bit',
-            video_frame=True,
-        )
-        with tf.TiffFile(str(path)) as f:
-            assert not f.pages[0].is_tiled, 'video-frame output must use strips'
-
 
 class TestGetImagejLut:
     def test_green_lut_shape(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GREEN)
+        lut = image_utils.get_imagej_lut(release_color(LED1))
         assert lut.shape == (3, 256)
 
     def test_green_lut_correct(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GREEN)
+        lut = image_utils.get_imagej_lut(release_color(LED1))
         assert lut[0].sum() == 0  # Red = 0
         assert lut[1].sum() > 0  # Green has values
         assert lut[2].sum() == 0  # Blue = 0
 
     def test_gray_lut_all_equal(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GRAY)
+        lut = image_utils.get_imagej_lut(GREY)
         np.testing.assert_array_equal(lut[0], lut[1])
         np.testing.assert_array_equal(lut[1], lut[2])
 
@@ -921,7 +965,7 @@ class TestGetImagejLut:
 class TestAddFalseColor:
     def test_green_produces_3ch(self):
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Green')
+        result = image_utils.add_false_color(data, release_color(LED1))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 1].sum() > 0
         assert result[:, :, 0].sum() == 0
@@ -929,18 +973,18 @@ class TestAddFalseColor:
 
     def test_bf_passthrough(self):
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'BF')
+        result = image_utils.add_false_color(data, release_color('BF'))
         assert result.shape == (10, 10), 'BF should not be false-colored'
 
     def test_already_rgb_passthrough(self):
         data = np.ones((10, 10, 3), dtype=np.uint8) * 128
-        result = image_utils.add_false_color(data, 'Green')
+        result = image_utils.add_false_color(data, release_color(LED1))
         assert result.shape == (10, 10, 3)
 
     def test_red_indexed_at_0(self):
         """RGB convention: Red channel data lands at index 0."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Red')
+        result = image_utils.add_false_color(data, release_color(LED2))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() > 0, 'Red channel (index 0) should have data'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -949,7 +993,7 @@ class TestAddFalseColor:
     def test_blue_indexed_at_2(self):
         """RGB convention: Blue channel data lands at index 2."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Blue')
+        result = image_utils.add_false_color(data, release_color(LED0))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -958,7 +1002,7 @@ class TestAddFalseColor:
     def test_lumi_indexed_at_2(self):
         """RGB convention: Lumi maps to Blue (index 2)."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Lumi')
+        result = image_utils.add_false_color(data, release_color('Lumi'))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -966,7 +1010,7 @@ class TestAddFalseColor:
 
 
 class TestOmeMetadataReadback:
-    """read_postproc_input_metadata recovers acquisition context from an
+    """read_file_record recovers acquisition context from an
     OME-TIFF input (which carries no shaped_metadata) via the OME-XML
     fallback, instead of returning None and dropping all context on the
     derived output."""
@@ -978,40 +1022,22 @@ class TestOmeMetadataReadback:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as t:
             assert not t.shaped_metadata, 'OME write should carry no shaped_metadata'
             assert t.ome_metadata, 'OME write should carry an OME-XML description'
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None, 'OME-TIFF input must recover via the OME fallback'
         assert recovered['plate_pos_mm']['x'] == pytest.approx(metadata['plate_pos_mm']['x'])
         assert recovered['plate_pos_mm']['y'] == pytest.approx(metadata['plate_pos_mm']['y'])
         assert recovered['z_pos_um'] == pytest.approx(metadata['z_pos_um'])
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['pixel_size_um'] == pytest.approx(metadata['pixel_size_um'])
-
-    def test_ome_input_defaults_dropped_fields(self, img_16bit, metadata, tmp_tiff):
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=True,
-            color='Green',
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        recovered = image_utils.read_postproc_input_metadata(path)
-        # Gain / Illumination / Objective are dropped by tifffile's auto-OME
-        # serializer, so the read-back states none of them: no invented zero
-        # gain or illumination, and the writer's empty objective.
-        assert 'gain_db' not in recovered
-        assert 'illumination_ma' not in recovered
-        assert recovered['objective'] == {}
 
 
 class TestStructuredReadbackOptionalGainExposure:
@@ -1029,9 +1055,10 @@ class TestStructuredReadbackOptionalGainExposure:
             file_loc=path,
             metadata=md,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
 
     def test_missing_gain_exposure_still_recovers_positions(self, img_8bit, metadata, tmp_tiff):
@@ -1041,7 +1068,7 @@ class TestStructuredReadbackOptionalGainExposure:
         del md['gain_db']
         self._write(img_8bit, md, path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None, (
             'A plane missing only the optional gain/exposure fields must '
             'not be discarded wholesale (positions + pixel size lost)'
@@ -1061,7 +1088,7 @@ class TestStructuredReadbackOptionalGainExposure:
         path = tmp_tiff()
         self._write(img_8bit, metadata, path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
@@ -1071,10 +1098,10 @@ class TestStructuredReadbackOptionalGainExposure:
     ):
         stated = tmp_tiff()
         self._write(img_8bit, {**metadata, 'black_level': 4.0}, stated)
-        assert image_utils.read_postproc_input_metadata(stated)['black_level'] == 4.0
+        assert image_utils.read_file_record(stated)['black_level'] == 4.0
         unstated = tmp_tiff()
         self._write(img_8bit, metadata, unstated)
-        assert 'black_level' not in image_utils.read_postproc_input_metadata(unstated)
+        assert 'black_level' not in image_utils.read_file_record(unstated)
 
 
 # Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
@@ -1114,9 +1141,10 @@ class TestResolutionRationalOwner:
             file_loc=path,
             metadata=meta,
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             xnum = f.pages[0].tags['XResolution'].value[0]
@@ -1133,7 +1161,7 @@ class TestFalseColorRgbDepth:
     """
 
     def test_false_color_rgb_fills_container(self, tmp_tiff):
-        # A bright 12-bit Green frame (right-aligned 0..4095) in false-color RGB
+        # A bright 12-bit LED 1 frame (right-aligned 0..4095) in false-color RGB
         # mode must brighten to fill the 16-bit container (4095 << 4 = 65520),
         # not stay dark at 4095.
         raw = np.full((64, 64), 4095, dtype=np.uint16)
@@ -1145,9 +1173,10 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='rgb',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             arr = f.pages[0].asarray()
@@ -1170,9 +1199,10 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tf.TiffFile(str(path)) as f:
             arr = f.pages[0].asarray()
@@ -1203,9 +1233,10 @@ class TestReportedDepthMatchesFile:
             file_loc=path,
             metadata={**metadata, 'significant_bits': capture_depth},
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=capture_depth,
             save_encoding=save_encoding,
+            white_bits=None,
         )
         file_bits = image_utils.read_tiff_significant_bits(path)
         reported = image_utils.written_significant_bits(
@@ -1225,7 +1256,7 @@ class TestReportedDepthMatchesFile:
 
 
 class TestPostprocMetadataRoundTrip:
-    """read_postproc_input_metadata must recover acquisition context from every
+    """read_file_record must recover acquisition context from every
     container write_tiff can emit -- shaped JSON (8-bit), ImageJ (16-bit mono),
     and OME-XML. A 16-bit non-OME scan tile lands in the ImageJ container; if the
     reader cannot parse that container, pixel_size comes back None and stitching
@@ -1238,22 +1269,23 @@ class TestPostprocMetadataRoundTrip:
             file_loc=path,
             metadata=metadata,
             ome=ome,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=significant_bits,
             save_encoding=save_encoding,
+            white_bits=None,
         )
 
     def _assert_full(self, result):
         assert result is not None
         assert result['pixel_size_um'] == 0.5
         assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
-        assert result['channel'] == 'Green'
-        assert result['objective'] == '10x'
+        assert result['channel'] == LED1
+        assert result['objective'] == {'id': '10x'}
 
     def test_shaped_8bit(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         self._write(img_8bit, metadata, path, ome=False, significant_bits=8, save_encoding='8bit')
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
         # 16-bit mono non-OME routes through tifffile's ImageJ container -- the
@@ -1262,7 +1294,7 @@ class TestPostprocMetadataRoundTrip:
         self._write(
             img_16bit, metadata, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_imagej_16bit_numpy_positions(self, img_16bit, metadata, tmp_tiff):
         # Real scan tiles keep stage positions as numpy scalars, which the ImageJ
@@ -1278,27 +1310,779 @@ class TestPostprocMetadataRoundTrip:
         self._write(
             img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_ome_16bit(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         self._write(
             img_16bit, metadata, path, ome=True, significant_bits=16, save_encoding='right_aligned'
         )
-        result = image_utils.read_postproc_input_metadata(path)
+        result = image_utils.read_file_record(path)
         # tifffile's auto-OME serializer keeps pixel size, positions, and channel;
         # objective is dropped (documented OME lossiness, out of scope for this fix).
         assert result is not None
         assert result['pixel_size_um'] == 0.5
         assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
-        assert result['channel'] == 'Green'
+        assert result['channel'] == LED1
 
     def test_timestamp_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
         # The per-frame timestamp reader shared the same ImageJ blindness.
-        md = {**metadata, 'timestamp_iso': '2026-03-16T12:00:00'}
+        md = {
+            **metadata,
+            'timestamp_iso': '2026-03-16T12:00:00',
+            'timestamp_source': 'host_wallclock',
+        }
         path = tmp_tiff()
         self._write(
             img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        ts = image_utils.read_frame_timestamp(path)
+        ts = image_utils.load_pixels_with_timestamp(path)[3]
         assert ts == datetime.datetime.fromisoformat('2026-03-16T12:00:00')
+
+
+# ---------------------------------------------------------------------------
+# Every key a save records reads back from the file
+# ---------------------------------------------------------------------------
+
+# Recorded keys the file carries in another form, so the reader returns them
+# under no key of their own; each names where it is.
+_IN_THE_FILE_AS = {
+    'significant_bits': 'tag 65123',
+}
+
+
+# A layer's own settings: a derived file on another channel states none of them.
+_PER_CHANNEL = (
+    'channel_display',
+    'excitation_nm',
+    'illumination_ma',
+    'illumination_by_channel_ma',
+    'illumination_timing',
+    'exposure_time_ms',
+    'gain_db',
+    'black_level',
+    'frames_summed',
+)
+
+
+def _a_full_still(
+    scope,
+    tmp_path,
+    *,
+    save_encoding,
+    significant_bits,
+    dtype,
+    output_format,
+    labware='96 well microplate',
+    well_label='A1',
+    judgments=(),
+):
+    """A BF still with every field of its record set, lit by BF's LED, on
+    ``labware`` in ``well_label``, judged as ``judgments`` say: the record the
+    save built, and the file it wrote."""
+    from modules import image_save
+    from modules.layer_record import release_colors
+    from tests.frame_records import frame_record, plate
+    from tests.scope_fakes import bind_settings_like_a_session
+
+    bind_settings_like_a_session(
+        scope, objective_id='4x Oly', protocol={'labware': '96 well microplate'}
+    )
+    bf_address = scope.channel_identity.find('BF').led_addresses[0]
+    record = frame_record(
+        black_level=0.0,
+        illumination_ma={bf_address: 50.0},
+        frame_significant_bits=significant_bits,
+        camera_timestamp_ticks=123,
+        camera_tick_hz=1_000_000_000,
+        frame_id=7,
+        binning_size=2,
+        camera_model='daA3840-45um',
+        saturated_fraction=0.25,
+        dark=False,
+        held_channel='BF',
+        judgments=judgments,
+    )
+    where = {'plate_x_mm': 10.0, 'plate_y_mm': 20.0, 'stage_z_um': 5000.0}
+    common = {
+        'objective_id': '4x Oly',
+        'frame_record': record,
+        'labware': plate(labware),
+        'well_label': well_label,
+        'fallback_focus': 'no focus peak',
+    }
+    recorded = image_save.generate_image_metadata(scope, 'BF', **where, **common)
+    path = image_save.save_image(
+        scope,
+        np.zeros((8, 8), dtype=dtype),
+        save_folder=str(tmp_path),
+        file_root='rt_',
+        append='a',
+        tail_id_mode=None,
+        channel='BF',
+        false_color_on=False,
+        output_format=output_format,
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        white_bits=None,
+        channel_colors=release_colors(),
+        **where,
+        **common,
+    )
+    return recorded, path
+
+
+@pytest.mark.parametrize(
+    ('save_encoding', 'significant_bits', 'dtype', 'output_format'),
+    # parametrize-justified: the shaped-JSON, ImageJ and OME containers are
+    # three writers with three readers.
+    [
+        ('8bit', 8, np.uint8, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    ],
+)
+def test_every_key_a_save_records_reads_back_from_the_file(
+    sim_scope, tmp_path, save_encoding, significant_bits, dtype, output_format
+):
+    """The writer copies the record into the file key by key, so a key the save
+    records and the writer does not copy is lost without a word (the held
+    layer and the binning were). Every key of a record with every field set
+    is read back, in every container. Each recorded key has its row in the
+    one table the writer and the readers read."""
+    recorded, path = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        dtype=dtype,
+        output_format=output_format,
+    )
+
+    assert sorted(set(recorded) - set(image_utils.FILE_FACTS)) == [], 'a recorded key has no row'
+    read = image_utils.read_file_record(path)
+    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
+    assert lost == [], f'recorded but not in the file: {lost}'
+    assert (read['binning_size'], read['camera_held_a_channel'], read['camera_held_channel']) == (
+        2,
+        True,
+        'BF',
+    )
+
+
+def test_a_stills_record_reads_back_value_for_value_from_ome_and_imagej(
+    sim_scope, tmp_path, monkeypatch
+):
+    """A still's record states no empty value, so an OME and an ImageJ file of
+    the same frame read back the same record, value for value: on a plate
+    with a standard, from a scope with no serial on a plate whose catalogue
+    entry has no standard, and on the Blank labware, which is no plate."""
+    cases = {
+        'full': {},
+        'no serial, no standard': {'labware': '6 well microplate'},
+        'blank': {'labware': 'Blank', 'well_label': None},
+    }
+    read = {}
+    for case, where in cases.items():
+        if case == 'no serial, no standard':
+            # a stand-in by design: the simulated motor board has no
+            # firmware that answers FULLINFO without a serial (a simulator gap).
+            monkeypatch.setattr(sim_scope._motion_driver, 'get_serial_number', lambda: None)
+        for output_format in ('TIFF', 'OME-TIFF'):
+            folder = tmp_path / case / output_format
+            folder.mkdir(parents=True)
+            recorded, path = _a_full_still(
+                sim_scope,
+                folder,
+                save_encoding='right_aligned',
+                significant_bits=12,
+                dtype=np.uint16,
+                output_format=output_format,
+                **where,
+            )
+            read[case, output_format] = image_utils.read_file_record(path)
+        stated = {key: recorded.get(key) for key in ('instrument', 'plate')}
+        assert {key: read[case, 'TIFF'].get(key) for key in stated} == stated, case
+
+    assert {case: read[case, 'OME-TIFF'] for case in cases} == {
+        case: read[case, 'TIFF'] for case in cases
+    }
+    assert 'serial_number' not in read['no serial, no standard', 'TIFF']['instrument']
+    assert 'standard' not in read['no serial, no standard', 'TIFF']['plate']
+    assert 'plate' not in read['blank', 'TIFF']
+
+
+def test_a_stills_well_is_stated_inside_its_plate_in_every_container(sim_scope, tmp_path):
+    """A well is a place on a plate, so a still's record states it inside its
+    plate, and the shaped, ImageJ and OME files of that still read back the
+    plate with its well."""
+    containers = {
+        'shaped': ('8bit', 8, np.uint8, 'TIFF'),
+        'imagej': ('right_aligned', 12, np.uint16, 'TIFF'),
+        'ome': ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    }
+    read = {}
+    for container, (save_encoding, significant_bits, dtype, output_format) in containers.items():
+        folder = tmp_path / container
+        folder.mkdir()
+        recorded, path = _a_full_still(
+            sim_scope,
+            folder,
+            save_encoding=save_encoding,
+            significant_bits=significant_bits,
+            dtype=dtype,
+            output_format=output_format,
+            well_label='B7',
+        )
+        read[container] = image_utils.read_file_record(path).get('plate')
+
+    assert recorded['plate']['well_label'] == 'B7'
+    assert read == dict.fromkeys(containers, recorded['plate'])
+
+
+def test_a_derived_file_states_a_well_only_with_the_plate_every_input_was_on(sim_scope, tmp_path):
+    """A derived file states the plate its inputs agree on, well and all:
+    from inputs in one well, the plate with that well; from inputs on one
+    plate in two wells, no plate, never the plate without its well."""
+    records = {}
+    for well in ('A1', 'A2'):
+        folder = tmp_path / well
+        folder.mkdir()
+        _, path = _a_full_still(
+            sim_scope,
+            folder,
+            save_encoding='8bit',
+            significant_bits=8,
+            dtype=np.uint8,
+            output_format='TIFF',
+            well_label=well,
+        )
+        records[well] = image_utils.read_file_record(path)
+
+    def derived(name, inputs):
+        out = tmp_path / f'{name}.tiff'
+        image_utils.write_tiff(
+            data=np.zeros((8, 8), dtype=np.uint8),
+            file_loc=out,
+            metadata=image_utils.build_postproc_output_metadata(
+                inputs, 'BF', significant_bits=8, adds_frames=False
+            ),
+            ome=False,
+            color=GREY,
+            significant_bits=8,
+            save_encoding='8bit',
+            white_bits=None,
+        )
+        return image_utils.read_file_record(out)
+
+    one_well = derived('one_well', [records['A1'], records['A1']])
+    two_wells = derived('two_wells', [records['A1'], records['A2']])
+
+    assert one_well['plate'] == records['A1']['plate']
+    assert one_well['plate']['well_label'] == 'A1'
+    assert 'plate' not in two_wells
+
+
+def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_layers_setting(
+    sim_scope, tmp_path
+):
+    """A stitch and a composite are written from a still's record; every key
+    each keeps, its algorithm among them, reads back from its own file, plain
+    or OME, and the composite, whose channel is no input's, keeps none of a
+    layer's settings."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='TIFF',
+    )
+    stitch = image_utils.build_postproc_output_metadata(
+        [image_utils.read_file_record(still)],
+        'BF',
+        significant_bits=12,
+        adds_frames=False,
+        algorithm='registered',
+    )
+    composite = image_utils.build_postproc_output_metadata(
+        [image_utils.read_file_record(still)], 'Composite', significant_bits=8, adds_frames=False
+    )
+
+    assert [key for key in _PER_CHANNEL if key in composite] == []
+    for (name, metadata, data), ome in itertools.product(
+        (
+            ('stitch', stitch, np.zeros((8, 8), dtype=np.uint16)),
+            ('composite', composite, np.zeros((8, 8, 3), dtype=np.uint8)),
+        ),
+        (False, True),
+    ):
+        path = tmp_path / f'{name}{".ome" if ome else ""}.tiff'
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=ome,
+            color=GREY,
+            significant_bits=metadata['significant_bits'],
+            save_encoding='right_aligned',
+            white_bits=None,
+        )
+        read = image_utils.read_file_record(path)
+        lost = sorted(set(metadata) - set(read) - set(_IN_THE_FILE_AS))
+        assert lost == [], f'the {name} (OME {ome}) kept but its file does not state: {lost}'
+
+
+def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads(
+    sim_scope, tmp_path
+):
+    """The objective's one home in a still is Plane.Objective, under the
+    objective's own field names, each naming its unit; Instrument.Objective is
+    a rendering of it with the working distance's unit stated. A file written
+    under the catalogue's keys reads back under the field names."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='OME-TIFF',
+    )
+    catalogue = sim_scope.objectives['4x Oly']
+    stated = image_utils.read_file_record(still)['objective']
+    assert (stated['id'], stated['working_distance_mm']) == (
+        '4x Oly',
+        catalogue.working_distance_mm,
+    )
+    rendered = valid_description(still).find(f'{q("Instrument")}/{q("Objective")}')
+    assert (float(rendered.get('WorkingDistance')), rendered.get('WorkingDistanceUnit')) == (
+        catalogue.working_distance_mm,
+        'mm',
+    )
+
+    older = tmp_path / 'older.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint8),
+        file_loc=older,
+        metadata={
+            'pixel_size_um': 0.5,
+            'channel': 'BF',
+            'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
+            'objective': {'aperture': 0.16, 'working_distance': 13.0, 'DOF': 40.0},
+        },
+        ome=False,
+        color=GREY,
+        significant_bits=8,
+        save_encoding='8bit',
+        white_bits=None,
+    )
+    assert image_utils.read_file_record(older)['objective'] == {
+        'numerical_aperture': 0.16,
+        'working_distance_mm': 13.0,
+        'depth_of_field_um': 40.0,
+    }
+
+
+def test_each_fact_has_one_key(sim_scope, tmp_path):
+    """The scope's maker and model live in ``instrument``, the position in
+    ``plate_pos_mm``, the depth in tag 65123, the well in ``plate``: a still's
+    record holds no second name for any of them, and an ImageJ file names its
+    scope in ``Instrument`` and its plate and well in ``Plate``, with no
+    ``Document`` block repeating them."""
+    recorded, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='TIFF',
+    )
+    second_names = ('camera_make', 'microscope', 'microscope_model', 'x_pos', 'y_pos', 'well_label')
+    assert [key for key in second_names if key in recorded] == []
+    with tf.TiffFile(str(still)) as tif:
+        description = tif.imagej_metadata
+    assert [key for key in ('significantbits', 'document') if key in description] == []
+
+
+def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_scope, tmp_path):
+    """TIFF 6.0's DateTime is ``YYYY:MM:DD HH:MM:SS``; a derived file wrote
+    the ISO form and a hyperstack none. Each file's time is its build's, in
+    the one form, and reads back as a time."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='TIFF',
+    )
+    derived = tmp_path / 'derived.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint8),
+        file_loc=derived,
+        metadata=image_utils.build_postproc_output_metadata(
+            [image_utils.read_file_record(still)], 'BF', significant_bits=8, adds_frames=False
+        ),
+        ome=False,
+        color=GREY,
+        significant_bits=8,
+        save_encoding='8bit',
+        white_bits=None,
+    )
+    hyperstack = tmp_path / 'stack.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        iter([np.zeros((8, 8), dtype=np.uint8)]),
+        hyperstack,
+        shape=(1, 1, 1, 8, 8),
+        dtype=np.uint8,
+        hyperstack_metadata=image_utils.build_hyperstack_output_metadata(
+            [image_utils.read_file_record(still)],
+            channel_names=['BF'],
+            channel_colors=[GREY],
+            plane_positions={
+                'PositionX': [None],
+                'PositionY': [None],
+                'PositionZ': [None],
+                'DeltaT': None,
+            },
+            significant_bits=8,
+            pixel_size_um=None,
+        ),
+        hyperstack_options={'photometric': 'minisblack'},
+    )
+
+    stated = {}
+    for name, path in (('derived', derived), ('hyperstack', hyperstack)):
+        with tf.TiffFile(str(path)) as tif:
+            tag = tif.pages[0].tags.get('DateTime')
+        stated[name] = tag.value if tag else None
+    for name, value in stated.items():
+        assert value is not None and re.fullmatch(r'\d{4}:\d\d:\d\d \d\d:\d\d:\d\d', value), (
+            f'the {name} states its time as {value!r}'
+        )
+    assert isinstance(image_utils.read_file_record(derived)['datetime'], datetime.datetime)
+
+
+# ---------------------------------------------------------------------------
+# A write cut short
+# ---------------------------------------------------------------------------
+
+
+def _write_16bit(path, img_16bit, metadata):
+    image_utils.write_tiff(
+        data=img_16bit,
+        file_loc=path,
+        metadata=metadata,
+        ome=False,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+
+
+def test_a_write_cut_short_leaves_nothing_under_the_name(img_16bit, metadata, tmp_tiff):
+    """A truncated file under the real name reads later as an unreadable frame."""
+    path = tmp_tiff()
+
+    def full_disk(self, *args, **kwargs):
+        # A stand-in by design: a full disk the suite cannot make. The file is
+        # open, as it is when the disk fills, and the write raises.
+        raise OSError(errno.ENOSPC, 'No space left on device')
+
+    with mock.patch.object(tf.TiffWriter, 'write', full_disk), pytest.raises(OSError):
+        _write_16bit(path, img_16bit, metadata)
+
+    assert list(path.parent.iterdir()) == []
+
+
+def test_a_whole_write_leaves_only_the_file(img_16bit, metadata, tmp_tiff):
+    path = tmp_tiff()
+
+    _write_16bit(path, img_16bit, metadata)
+
+    assert list(path.parent.iterdir()) == [path]
+    assert _read_tiff(path)['shape'] == img_16bit.shape
+
+
+def _the_view(path) -> list[tuple[str, str]]:
+    """The pairs a person is shown of the file at ``path``, read where Fiji
+    reads them for its container: an OME file's OriginalMetadata
+    annotations, an ImageJ file's Info, a plain file's first description."""
+    with tf.TiffFile(str(path)) as tif:
+        if tif.is_ome:
+            root = ET.fromstring(tif.ome_metadata)
+            pairs = []
+            for annotation in root.iter(q('XMLAnnotation')):
+                if annotation.get('Namespace') != 'openmicroscopy.org/OriginalMetadata':
+                    continue
+                pair = annotation.find(f'{q("Value")}/{q("OriginalMetadata")}')
+                pairs.append((pair.find(q('Key')).text, pair.find(q('Value')).text or ''))
+            return pairs
+        text = tif.imagej_metadata['Info'] if tif.is_imagej else tif.pages[0].description
+    return [tuple(line.split(' = ', 1)) for line in text.splitlines()]
+
+
+def _flat(key, value) -> list[tuple[str, str]]:
+    """The test's own flattening of one fact, as the plan states it: fields
+    joined by ``.``, items by index, flags ``true``/``false``, a time ISO
+    8601, a None no pair."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [pair for field, item in value.items() for pair in _flat(f'{key}.{field}', item)]
+    if isinstance(value, list):
+        return [pair for index, item in enumerate(value) for pair in _flat(f'{key}.{index}', item)]
+    if isinstance(value, bool):
+        return [(key, str(value).lower())]
+    if isinstance(value, datetime.datetime):
+        return [(key, value.isoformat())]
+    return [(key, str(value))]
+
+
+def _flattened_record(record: dict) -> list[tuple[str, str]]:
+    return [
+        pair for key in image_utils.FILE_FACTS if key in record for pair in _flat(key, record[key])
+    ]
+
+
+@pytest.mark.parametrize(
+    ('save_encoding', 'significant_bits', 'dtype', 'output_format'),
+    # parametrize-justified: the shaped-JSON, ImageJ and OME containers are
+    # three writers, each with its own place Fiji reads.
+    [
+        ('8bit', 8, np.uint8, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    ],
+)
+def test_a_still_shows_its_whole_record_where_fiji_reads_its_container(
+    sim_scope, tmp_path, save_encoding, significant_bits, dtype, output_format
+):
+    """Fiji showed a person none of a saved file's record: an OME file's
+    rides in a JSON MapAnnotation its Display metadata does not list, a
+    default 8-bit file's in one line of JSON, a 16-bit file's as Python dict
+    text. Every container now carries the whole record as plain pairs under
+    the record's own names, where Fiji reads that container: every fact the
+    save stated, the depth its writer stamped among them, and nothing the
+    writer was handed that is no fact (the save path). An OME file stays
+    valid against the schema."""
+    recorded, path = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        dtype=dtype,
+        output_format=output_format,
+    )
+    if output_format == 'OME-TIFF':
+        valid_description(path)
+
+    view = _the_view(path)
+
+    # The save stamps its own time as it writes; the file's is the one shown.
+    written = {**recorded, 'significant_bits': significant_bits}
+    written['datetime'] = dict(view)['datetime']
+    assert [pair for pair in view if pair[0] != 'datetime'] == [
+        pair for pair in _flattened_record(written) if pair[0] != 'datetime'
+    ]
+    assert ('plate.well_label', 'A1') in view
+    assert (
+        datetime.datetime.fromisoformat(dict(view)['datetime']).replace(microsecond=0)
+        == image_utils.read_file_record(path)['datetime']
+    )
+
+
+def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
+    """A hyperstack's record is built from its frames' and its time is its
+    build's: Display metadata lists both, the one channel it is of among
+    them, the time with its offset, and the DateTime tag states the same
+    time to the second, in the form that has no offset."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='OME-TIFF',
+    )
+    metadata = image_utils.build_hyperstack_output_metadata(
+        [image_utils.read_file_record(still)],
+        channel_names=['BF'],
+        channel_colors=[GREY],
+        plane_positions={
+            'PositionX': [10.0],
+            'PositionY': [20.0],
+            'PositionZ': [5000.0],
+            'DeltaT': None,
+        },
+        significant_bits=12,
+        pixel_size_um=0.65,
+    )
+    hyperstack = tmp_path / 'stack.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        iter([np.zeros((8, 8), dtype=np.uint16)]),
+        hyperstack,
+        (1, 1, 1, 8, 8),
+        np.uint16,
+        metadata,
+        {'photometric': 'minisblack'},
+    )
+    valid_description(hyperstack)
+    with tf.TiffFile(str(hyperstack)) as tif:
+        stamped = tif.pages[0].tags['DateTime'].value
+
+    view = _the_view(hyperstack)
+
+    built_at = metadata['record']['datetime']
+    assert built_at.utcoffset() is not None
+    assert stamped == built_at.strftime('%Y:%m:%d %H:%M:%S')
+    assert view == _flattened_record(metadata['record'])
+    assert ('channel', 'BF') in view
+    assert ('plate.well_label', 'A1') in view
+
+
+def test_a_derived_file_shows_the_record_it_states(sim_scope, tmp_path):
+    """A projection, a stitch and a composite write through the one writer,
+    so a derived OME file shows the record it states: what its inputs agree
+    on, and its own channel, time and depth."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='OME-TIFF',
+    )
+    metadata = image_utils.build_postproc_output_metadata(
+        [image_utils.read_file_record(still)], 'BF', significant_bits=12, adds_frames=False
+    )
+    derived = tmp_path / 'derived.ome.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint16),
+        file_loc=derived,
+        metadata=metadata,
+        ome=True,
+        color=GREY,
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+
+    assert _the_view(derived) == _flattened_record(metadata)
+    assert ('plate.well_label', 'A1') in _the_view(derived)
+
+
+def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
+    """No quotes, braces or Python reprs: a string is its text, a number its
+    digits, a flag ``true``/``false``, a time ISO 8601, a structured fact's
+    fields and a list's items each their own pair, and a None no pair. A
+    plain TIFF's description is ASCII, so a character outside it is written
+    as its escape there, and an OME file, which is UTF-8, keeps it."""
+    record = {
+        'objective': {'id': '20x Oly', 'magnification': 20},
+        'pixel_size_um': None,
+        'channel': 'BF',
+        'exposure_time_ms': 50.0,
+        'frame_validity': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
+        'plate': {'name': '96 well \u00b5plate', 'well_label': 'D6'},
+        'datetime': datetime.datetime(2026, 10, 30, 9, 15, 2, 250000),
+    }
+    shown = {}
+    for name, ome, dtype, bits, encoding in (
+        ('plain.tiff', False, np.uint8, 8, '8bit'),
+        ('frame.ome.tiff', True, np.uint16, 12, 'right_aligned'),
+    ):
+        image_utils.write_tiff(
+            data=np.zeros((8, 8), dtype=dtype),
+            file_loc=tmp_path / name,
+            metadata=record,
+            ome=ome,
+            color=GREY,
+            significant_bits=bits,
+            save_encoding=encoding,
+            white_bits=None,
+        )
+        shown[name] = _the_view(tmp_path / name)
+
+    plain = [
+        ('objective.id', '20x Oly'),
+        ('objective.magnification', '20'),
+        ('exposure_time_ms', '50.0'),
+        ('frame_validity.0.source', 'led'),
+        ('frame_validity.0.counts', 'true'),
+        ('frame_validity.1.source', 'gain'),
+        ('frame_validity.1.counts', 'false'),
+        ('channel', 'BF'),
+    ]
+    assert shown['plain.tiff'] == [
+        *plain,
+        ('plate.name', '96 well \\u00b5plate'),
+        ('plate.well_label', 'D6'),
+        ('datetime', '2026-10-30T09:15:02.250000'),
+        ('significant_bits', '8'),
+    ]
+    assert shown['frame.ome.tiff'] == [
+        *plain,
+        ('plate.name', '96 well \u00b5plate'),
+        ('plate.well_label', 'D6'),
+        ('datetime', '2026-10-30T09:15:02.250000'),
+        ('significant_bits', '12'),
+    ]
+
+
+def _a_judgment_by_each_rule():
+    """A gain change judged by the credit rule, and a settled Z move by the
+    clock rule: between them every field a judgment can state."""
+    from modules.frame_validity import FrameValidity
+    from tests.test_a_capture_records_whether_its_frame_counts import (
+        _clocked,
+        _frame,
+        _mapping_at,
+    )
+
+    credit = FrameValidity(lambda: 0)
+    gain = credit.invalidate('gain', began_ns=None)
+    clock = _clocked('z_move', delay_us=0.0, settle_check=lambda source: True)
+    move = clock.invalidate('z_move', began_ns=None)
+    clock.motion_settled('z_move', at_ns=move.written_ns + 1_000_000, moving_seen_ns=None)
+    move = clock.changes()['z_move']
+    return (
+        credit.judge(_frame(3), gain, None),
+        clock.judge(
+            _frame(2, arrived_ns=move.in_force_ns + 4_000_000, started_ticks=10**12),
+            move,
+            _mapping_at(move.written_ns),
+        ),
+    )
+
+
+def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
+    """The published facts table listed a structured fact as one row, so a
+    caller could not learn that the well is ``plate.well_label``. Each
+    structured fact declares its fields and the table lists them, and a
+    record the save builds states exactly those: a field the save adds and
+    the table lacks, or one the table names and no save states, fails here.
+    The objective's focus-peak width is stated once it is measured."""
+    from tests.api_reference import _file_facts_table
+
+    recorded, _ = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='TIFF',
+        judgments=_a_judgment_by_each_rule(),
+    )
+
+    unmeasured = {'objective': {'focus_peak_fwhm_dense_um'}}
+    structured = {key: fact for key, fact in image_utils.FILE_FACTS.items() if fact.fields}
+    assert set(structured) == {'objective', 'plate_pos_mm', 'frame_validity', 'instrument', 'plate'}
+    for key, fact in structured.items():
+        entries = recorded[key] if isinstance(recorded[key], list) else [recorded[key]]
+        stated = set().union(*entries)
+        assert stated == set(fact.fields) - unmeasured.get(key, set()), key
+    rows = {line.split(' | ')[0]: line for line in _file_facts_table().splitlines()}
+    assert '`well_label`' in rows['| `plate`']
+    assert 'keyed by layer name' in rows['| `illumination_by_channel_ma`']

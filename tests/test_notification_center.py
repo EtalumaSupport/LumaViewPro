@@ -1,8 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for the centralized notification system."""
 
+import logging
+import operator
 import threading
 import time
+
+import pytest
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -31,6 +35,35 @@ class TestNotificationCenter:
         nc.error('Test', 'Err', 'msg')
         assert len(received) == 1
         assert received[0].severity == Severity.ERROR
+
+    def test_each_severity_is_logged_at_its_logging_level(self, caplog):
+        nc = NotificationCenter()
+        with caplog.at_level(logging.DEBUG, logger='LVP.notifications'):
+            for severity in Severity:
+                nc.notify(severity, 'Test', severity.name, 'msg')
+        assert [
+            (r.getMessage(), r.levelno) for r in caplog.records if r.name == 'LVP.notifications'
+        ] == [
+            ('[Test] DEBUG: msg', logging.DEBUG),
+            ('[Test] INFO: msg', logging.INFO),
+            ('[Test] NOTICE: msg', 25),
+            ('[Test] WARNING: msg', logging.WARNING),
+            ('[Test] ERROR: msg', logging.ERROR),
+            ('[Test] CRITICAL: msg', logging.CRITICAL),
+        ]
+
+    def test_two_severities_are_ordered_by_their_levels_never_their_names(self):
+        assert Severity.INFO.level < Severity.NOTICE.level < Severity.WARNING.level
+        for compare in (
+            lambda: Severity.INFO < Severity.ERROR,
+            lambda: Severity.INFO <= Severity.ERROR,
+            lambda: Severity.INFO > Severity.ERROR,
+            lambda: Severity.INFO >= Severity.ERROR,
+            # A plain string on the left still reaches Severity's own comparison.
+            lambda: operator.gt('ERROR', Severity.INFO),
+        ):
+            with pytest.raises(TypeError, match=r'\.level'):
+                compare()
 
     def test_debug_listener_gets_everything(self):
         nc = NotificationCenter()
@@ -304,23 +337,19 @@ class TestEveryHostReadsAnOutcomeAlike:
     """``outcome_of`` is the one reading of what an exception is: the reporter and the REST server both use it."""
 
     def test_each_kind_is_read_from_its_type(self):
-        import datetime
-
         from modules.exceptions import (
             CaptureFailedError,
+            RunWaitExpiredError,
             LiveFolderPathRefusedError,
             RefusalCause,
-            RunAlreadyEndedError,
             SingleScanNotice,
         )
         from modules.notification_center import OutcomeKind, outcome_of
 
         refusal = outcome_of(LiveFolderPathRefusedError('outside_live_folder', '..', 'Not there.'))
-        notice = outcome_of(
-            SingleScanNotice(period=datetime.timedelta(0), duration=datetime.timedelta(0))
-        )
-        quiet = outcome_of(RunAlreadyEndedError('The run has ended.'))
-        typed = outcome_of(CaptureFailedError('The camera returned nothing.', 'no_frame_returned'))
+        notice = outcome_of(SingleScanNotice(period_s=0.0, duration_s=0.0))
+        quiet = outcome_of(RunWaitExpiredError('run_composite', 5.0, None))
+        typed = outcome_of(CaptureFailedError('no_frame'))
         untyped = outcome_of(ValueError('bad shape (3,)'))
 
         assert (refusal.kind, refusal.title, refusal.reason, refusal.words) == (
@@ -335,12 +364,12 @@ class TestEveryHostReadsAnOutcomeAlike:
             'single_scan',
             None,
         )
-        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.REQUEST)
+        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.STATE)
         assert quiet.for_person
         assert (typed.kind, typed.title, typed.reason, typed.for_person, typed.cause) == (
             OutcomeKind.FAULT,
             'Capture Failed',
-            'no_frame_returned',
+            'no_frame',
             True,
             None,
         )

@@ -51,8 +51,8 @@ def test_non_string_objective_ids_keep_raising_config_error(loader, unusable):
     is "not a string", which would have converted these working typed failures
     into a silent None landing on callers that dereference it -- `protocol.py`
     at its focal_length read, `autofocus_runner` in `_calculate_params`, and
-    `config_helpers.get_current_objective_info`, which propagates its result to
-    thirteen sites. The refusal is the contract.
+    the settings lanes that name the selected objective. The refusal is the
+    contract.
     """
     with pytest.raises(CatalogueNameRefusedError) as refused:
         loader.get_objective_info(objective_id=unusable)
@@ -107,7 +107,7 @@ def test_a_partial_id_is_refused_not_guessed(loader):
     assert '10x Phase' in loader.get_objectives_list()
     with pytest.raises(CatalogueNameRefusedError, match="'10x' is not one"):
         loader.get_objective_info(objective_id='10x')
-    assert loader.get_objective_info(objective_id='10x Oly')['short_name'] == '10xOly'
+    assert loader.get_objective_info(objective_id='10x Oly').short_name == '10xOly'
 
 
 def test_the_catalogue_key_is_the_only_way_to_name_an_objective(loader):
@@ -124,4 +124,4 @@ def test_the_catalogue_key_is_the_only_way_to_name_an_objective(loader):
     parameters = list(inspect.signature(loader.get_objective_info).parameters)
     assert parameters == ['objective_id']
     assert not hasattr(loader, 'find_objective_id_from_short_name')
-    assert loader.get_objective_info(objective_id='4x Oly')['short_name'] == '4xOly'
+    assert loader.get_objective_info(objective_id='4x Oly').short_name == '4xOly'

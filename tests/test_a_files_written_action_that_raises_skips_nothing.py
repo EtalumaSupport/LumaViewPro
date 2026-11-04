@@ -11,6 +11,7 @@ logged. Each is now contained on its own, and reported.
 
 import time
 
+from modules import live_work
 import modules.protocol_cleanup as protocol_cleanup
 import modules.run_events as run_events
 from modules.notification_center import notifications
@@ -39,9 +40,9 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
 
     deliver = protocol_cleanup.deliver
 
-    def _cannot_send_run_ended(handler, event, *args, **kwargs):
+    def _cannot_send_run_ended(events, event, *args, **kwargs):
         if event != 'run_ended':
-            return deliver(handler, event, *args, **kwargs)
+            return deliver(events, event, *args, **kwargs)
 
         def _refused(func, timeout=0):
             raise _SendError('run_ended could not be sent')
@@ -51,30 +52,32 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
         schedule = run_events.schedule_ui
         run_events.schedule_ui = _refused
         try:
-            return deliver(handler, event, *args, **kwargs)
+            return deliver(events, event, *args, **kwargs)
         finally:
             run_events.schedule_ui = schedule
 
     monkeypatch.setattr(protocol_cleanup, 'deliver', _cannot_send_run_ended)
     files = []
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
             events=RunEvents(
                 run_ended=lambda outcome, run_dir, protocol: None,
                 files_written=lambda run_dir, written: files.append(written),
+                # Through the dispatcher, whose refusal is what is under test.
+                on_ui_thread=True,
             ),
         )
         # A run_ended that could not be sent is told all the same: the
         # wait does not run out its bound on a delivery that never comes.
-        assert outcome.wait(timeout_s=WAIT_S) is not None
+        assert outcome.result(timeout=WAIT_S) is not None
         deadline = time.monotonic() + WAIT_S
         while not files and time.monotonic() < deadline:
             time.sleep(0.02)
 
         assert files == ['written'], 'files_written never came after run_ended raised'
-        assert not session.protocol_files_draining
+        assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
     assert reported, 'the raise was not reported'
 
 
@@ -116,7 +119,9 @@ def test_a_files_written_handler_that_fails_is_reported_as_itself(monkeypatch):
     def _raising(run_dir, files):
         raise failure
 
-    run_events.deliver(_raising, 'files_written', pathlib.Path('run'), 'written')
+    run_events.deliver(
+        RunEvents(files_written=_raising), 'files_written', pathlib.Path('run'), 'written'
+    )
 
     [(ex, kwargs)] = reported
     assert ex is failure

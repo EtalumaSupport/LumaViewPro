@@ -15,6 +15,7 @@ import pytest
 
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -23,6 +24,8 @@ def session():
     s = ScopeSession.create(
         complete_settings(microscope='LS850T'), simulate=True, warn_pre_release=False
     )
+    # Homed: the turret home is refused while any axis is unhomed.
+    home_sim_scope(s.scope)
     yield s
     s.shutdown()
 
@@ -39,7 +42,7 @@ def test_the_home_the_lane_runs_carries_the_homes_declared_cost(session, monkeyp
         return real_call(task, member, *args, **kwargs)
 
     monkeypatch.setattr(lane, 'call', call)
-    impl, _ = session.scope.motion._home_body(axis)
+    impl = session.scope.motion._home_body(axis)
     declared = IOTask(action=impl).declared_slow_task_budget()
     assert declared is not None and declared > IOTask.DEFAULT_SLOW_TASK_THRESHOLD_SEC
 

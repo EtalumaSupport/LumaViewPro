@@ -8,7 +8,9 @@ answered False, ``get_axis_limits`` raised whatever the driver raised, and
 the drive-status read passed it to the driver. A home took ``'all'``, and a
 fan duty of 101 reached the board. Each is now one check, asked first,
 refused with ``ArgumentRefusedError`` whose cause is the request's, so a
-client is told to change it rather than to retry. An axis the model lacks is
+client is told to change it rather than to retry: a name outside the axis
+set the member takes is ``'not_offered'`` (``Axis``, ``StageAxis``,
+``HomeTarget``). An axis the model lacks is
 still a name, and keeps the answer a missing axis gives. A value that is not
 a name or a number at all -- None, ``True``, NaN for a duty -- is the
 ``@api`` door's (``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``).
@@ -18,25 +20,23 @@ import math
 
 import pytest
 
+from modules.coord_transformations import PlateLocation
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
+from tests.case_walk import failing_cases
 
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
+# The turret has a slot, not a position, so the position reads take the stage axes.
+STAGE_AXES = ('X', 'Y', 'Z')
+STAGE_ONLY = {'get_actual_position', 'get_current_position'}
 
 AXIS_MEMBERS = {
-    'position_is_known': lambda s, a: s.motion.position_is_known(a),
     'get_axis_state': lambda s, a: s.motion.get_axis_state(a),
     'get_actual_position': lambda s, a: s.motion.get_actual_position(a),
-    'get_target_position': lambda s, a: s.motion.get_target_position(a),
     'get_current_position': lambda s, a: s.motion.get_current_position(a),
     'get_axis_limits': lambda s, a: s.motion.get_axis_limits(a),
-    'set_precision_mode': lambda s, a: s.motion.set_precision_mode(a, True),
     'get_target_status': lambda s, a: s.motion.get_target_status(a),
     'get_limit_switch_status': lambda s, a: s.motion.get_limit_switch_status(a),
-    'move_absolute': lambda s, a: s.motion.move_absolute(a, 0),
-    'move_relative': lambda s, a: s.motion.move_relative(a, 0),
-    'start_move_absolute': lambda s, a: s.motion.start_move_absolute(a, 0),
-    'start_move_relative': lambda s, a: s.motion.start_move_relative(a, 0),
     'refuse_unknown_positions': lambda s, a: s.motion.refuse_unknown_positions(
         [a], recording=True, then='move it'
     ),
@@ -62,71 +62,78 @@ def _refused(call, reason):
 def _motion_state(scope):
     motion = scope.motion
     states = {axis: motion.get_axis_state(axis) for axis in EVERY_AXIS}
-    return states, motion.get_target_position(), motion.get_turret_slot()
+    return states, motion.get_target_positions(), motion.turret_status().slot
 
 
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
 
 
-@pytest.mark.parametrize('member, name', NO_AXIS)
-def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope, member, name):
-    before = _motion_state(scope)
+def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope):
+    def check(member, name):
+        before = _motion_state(scope)
 
-    refusal = _refused(lambda: AXIS_MEMBERS[member](scope, name), 'axis_unknown')
+        refusal = _refused(lambda: AXIS_MEMBERS[member](scope, name), 'not_offered')
 
-    assert (refusal.argument, refusal.value, refusal.offered) == ('axis', name, EVERY_AXIS)
-    assert _motion_state(scope) == before
+        offered = STAGE_AXES if member in STAGE_ONLY else EVERY_AXIS
+        argument = 'axes' if member == 'refuse_unknown_positions' else 'axis'
+        assert (refusal.argument, refusal.value, refusal.offered) == (argument, name, offered)
+        assert _motion_state(scope) == before
+
+    failed = failing_cases(NO_AXIS, check)
+    assert not failed, failed
+
+
+def test_a_position_read_of_the_turret_is_refused(scope):
+    # The turret's place is a slot (turret_status), never a
+    # position in the stage's unit.
+    for member in sorted(STAGE_ONLY):
+        refusal = _refused(lambda member=member: AXIS_MEMBERS[member](scope, 'T'), 'not_offered')
+        assert (refusal.value, refusal.offered) == ('T', STAGE_AXES), member
 
 
 @pytest.mark.parametrize('name', ['X', 'all', 'z'])
 @pytest.mark.parametrize('member', ['home', 'start_home'])
 def test_a_home_takes_z_the_turret_or_all_in_capitals(scope, member, name):
-    refusal = _refused(lambda: getattr(scope.motion, member)(name), 'axis_unknown')
+    refusal = _refused(lambda: getattr(scope.motion, member)(name), 'not_offered')
     assert refusal.offered == ('Z', 'T', 'ALL')
 
 
-@pytest.mark.parametrize(
-    'member', ['move_absolute', 'start_move_relative', 'set_precision_mode', 'home']
-)
+@pytest.mark.parametrize('member', ['get_axis_limits', 'home'])
 def test_a_name_that_is_no_axis_is_refused_whatever_the_scope_is_doing(tmp_path, member):
     """Refused at the door, so a shut scope does not answer for the name."""
     session = _session(tmp_path, 'LS850')
     session.shutdown()
     calls = {
-        'move_absolute': lambda m: m.move_absolute('Q', 0),
-        'start_move_relative': lambda m: m.start_move_relative('Q', 0),
-        'set_precision_mode': lambda m: m.set_precision_mode('Q', True),
+        'get_axis_limits': lambda m: m.get_axis_limits('Q'),
         'home': lambda m: m.home('Q'),
     }
-    _refused(lambda: calls[member](session.scope.motion), 'axis_unknown')
+    _refused(lambda: calls[member](session.scope.motion), 'not_offered')
 
 
 def test_an_axis_the_model_lacks_is_a_name_and_keeps_its_answers(tmp_path):
     session = _session(tmp_path, 'LS850')
     try:
         assert session.scope.motion.get_axis_state('T') == 'unknown'
-        assert session.scope.motion.position_is_known('T') is False
+        assert 'T' not in session.scope.motion.axes_without_position()
         assert session.scope.diagnostics.read_motor_drv_status('T') == 0
     finally:
         session.shutdown()
 
 
-def test_a_frame_is_refused_before_the_hardware_is_asked(tmp_path):
+def test_a_plate_target_for_z_is_refused_at_the_door(tmp_path):
+    # An LS820 has no motor for X or Y: the refusal is the argument's,
+    # given before the scope is asked anything.
     session = _session(tmp_path, 'LS820')
     try:
         refusal = _refused(
-            lambda: session.scope.motion.move_absolute('X', 0, frame='bogus'), 'frame_unknown'
+            lambda: session.scope.motion.move_to_plate(
+                PlateLocation(x_mm=10.0, y_mm=None, z_um=0.0)
+            ),
+            'plate_frame_axis',
         )
-        assert refusal.offered == ('stage', 'plate')
+        assert (refusal.value, refusal.offered) == ('Z', ('X', 'Y'))
     finally:
         session.shutdown()
-
-
-def test_a_plate_target_for_z_is_refused_by_the_plate_owner(scope):
-    refusal = _refused(
-        lambda: scope.motion.move_absolute('Z', 0, frame='plate'), 'plate_frame_axis'
-    )
-    assert (refusal.value, refusal.offered) == ('Z', ('X', 'Y'))
 
 
 @pytest.mark.parametrize(
@@ -158,6 +165,6 @@ def test_a_fan_duty_on_the_scale_is_written(scope, monkeypatch):
 
 def test_a_reason_takes_offered_values_exactly_when_its_words_name_them():
     with pytest.raises(TypeError):
-        ArgumentRefusedError('axis_unknown', argument='axis', value='Q')
+        ArgumentRefusedError('not_offered', argument='axis', value='Q')
     with pytest.raises(TypeError):
         ArgumentRefusedError('not_a_number', argument='gain_db', value=math.nan, offered=('X',))

@@ -1,24 +1,33 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import abc
-import datetime
 import pathlib
 import time
+from collections.abc import Callable
 
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.post_derivation as post_derivation
 import modules.path_utils as path_utils
+import modules.wall_time as wall_time
 import modules.recording_frames as recording_frames
+from modules.acquire_mode import AcquireMode
 from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
+    ExcludedInput,
+    InputFramesUnusableError,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.objectives_loader import objective_short_name
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.stitch_mode import StitchMode
+from modules.tiling_config import TilingGrids
 
 from lvp_logger import logger
 
@@ -36,19 +45,28 @@ from lvp_logger import logger
 # fit is the defect this table exists to avoid.
 _EXCLUDED_REMEDY = {
     (PostFunction.STITCHED, PostFunction.COMPOSITE): (
-        ' Stitch the channels first, then composite the result.'
+        ' Composites are not stitched; Composite builds them from the stitched channels.'
     ),
 }
 
 # Each operation's name as a person reads it, for the titles and words of
 # its outcomes; the enum values are file-record keys, not prose.
 _OPERATION_LABELS = {
-    PostFunction.COMPOSITE: 'Composite',
-    PostFunction.STITCHED: 'Stitch',
-    PostFunction.ZPROJECT: 'Z-Projection',
-    PostFunction.VIDEO: 'Video',
-    PostFunction.HYPERSTACK: 'Hyperstack',
+    PostFunction.COMPOSITE: PostProcessingOperation.COMPOSITE,
+    PostFunction.STITCHED: PostProcessingOperation.STITCH,
+    PostFunction.ZPROJECT: PostProcessingOperation.Z_PROJECTION,
+    PostFunction.VIDEO: PostProcessingOperation.VIDEO,
+    PostFunction.HYPERSTACK: PostProcessingOperation.HYPERSTACK,
 }
+
+
+def operation_key(post_function: PostFunction) -> str:
+    """The key that ties a build's start notice to the outcome answering it.
+
+    Derived in one place so the two ends cannot drift apart, for a caller
+    that announces a build it does not construct.
+    """
+    return f'post-processing:{post_function.value}'
 
 
 def _remedy_for(post_function, excluded_kinds) -> str:
@@ -71,7 +89,90 @@ _MULTI_FRAME_REQUIREMENT = {
 }
 
 
+def _missing(df: pd.DataFrame) -> pd.Series:
+    """Which rows stand for images the records name and the folder lacks.
+
+    The loader marks them (``Missing``): a raw frame the run recorded, or a
+    derived image the post-processing record names; a table with no such
+    column holds none.
+    """
+    marks = df.get('Missing')
+    if marks is None:
+        return pd.Series(False, index=df.index)
+    return marks.fillna('').astype(str) != ''
+
+
+def _recording_frames(df: pd.DataFrame) -> pd.Series:
+    """Which rows are a recording's frames: told by the frame's file name,
+    or, for a raw frame the folder lacks, by its step."""
+    # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
+    # indexing with the resulting non-bool series degrades from a row
+    # mask to column selection -- silently dropping every column.
+    frames = df['Filepath'].map(recording_frames.is_video_frame).astype(bool)
+    # Only a raw row has a step's Acquire: a derived image is never a
+    # recording's frame, and a folder of derived images alone (a selected
+    # 'ZProject/') has no Acquire column at all.
+    missing = _missing(df)
+    if missing.any():
+        missing_raw = missing & ~_derived(df)
+        if missing_raw.any():
+            frames = frames | (missing_raw & (df['Acquire'] == AcquireMode.VIDEO))
+    return frames
+
+
+def _derived(df: pd.DataFrame) -> pd.Series:
+    """Which rows are derived images: a raw capture's derivation is empty.
+
+    Asked only of a table holding a missing row: what a gone image is
+    decides how it is answered, and a table the loader marked carries
+    every row's derivation.
+    """
+    return df['Derivation'].astype(str) != ''
+
+
+def _made_by(derivation: str) -> PostProcessingOperation:
+    """The build that made an image derived as *derivation*."""
+    return _OPERATION_LABELS[post_derivation.steps(derivation)[-1].kind]
+
+
+def _removed(group: pd.DataFrame) -> bool:
+    """Whether every image of *group* is a derived image gone from the folder.
+
+    A build's outputs deleted whole -- its folder emptied -- were removed,
+    not damaged: the group is named and not built, where a group missing
+    only some of its images fails. A group never mixes raw and derived
+    images (every build groups by Derivation), and a raw frame gone is
+    always a failure: nothing builds it again.
+    """
+    return bool(_missing(group).all() and _derived(group).all())
+
+
+def _missing_frames_error(missing: pd.DataFrame) -> str:
+    """Why a group was not built: each recorded image it lacks, and why."""
+    if _derived(missing).all():
+        named = [
+            f'{row["Filepath"]} (not in the folder; build '
+            f'{_made_by(row["Derivation"])} again to restore it)'
+            for _, row in missing.iterrows()
+        ]
+        return f'{len(named)} image(s) its record names are missing -- ' + '; '.join(named)
+    named = []
+    for _, row in missing.iterrows():
+        if row['Missing'] == 'not_on_disk':
+            why = f'not in the folder: {row["Filepath"]}'
+        else:
+            why = f'its capture failed during the run: {row["Missing"]}'
+        named.append(f'{row["Name"]} scan {row["Scan Count"] + 1} ({why})')
+    return f'{len(named)} frame(s) the run recorded are missing -- ' + '; '.join(named)
+
+
 class ProtocolPostProcessor(abc.ABC):
+    # The place an image fills in this build's output, as a person reads it.
+    _PLACE = 'place'
+    # What two acquisitions in one place should have been, for a build that
+    # groups by Add; empty for one that does not.
+    _ONE_PER_ADD = ''
+
     def __init__(
         self,
         post_function: PostFunction,
@@ -101,9 +202,7 @@ class ProtocolPostProcessor(abc.ABC):
         frame numbers collide. Stills share the one sentinel so their
         cross-scan grouping is untouched.
         """
-        recording_scan = df['Scan Count'].where(
-            df['Filepath'].map(recording_frames.is_video_frame), -1
-        )
+        recording_scan = df['Scan Count'].where(_recording_frames(df), -1)
         return df.assign(**{'Recording Scan': recording_scan})
 
     @staticmethod
@@ -117,14 +216,53 @@ class ProtocolPostProcessor(abc.ABC):
         real. Video frames belong to exactly two consumers, Create Video
         and the per-(well, scan) hyperstack, which do NOT call this.
         """
-        # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
-        # indexing with the resulting non-bool series degrades from a row
-        # mask to column selection -- silently dropping every column.
-        return df[~df['Filepath'].map(recording_frames.is_video_frame).astype(bool)]
+        return df[~_recording_frames(df)]
 
     @abc.abstractmethod
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
+        """The output's file name, its post tokens ``post`` rendered from its derivation."""
         raise NotImplementedError('Implement in child class')
+
+    @abc.abstractmethod
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        """This build of ``group``: every setting that decides the output's pixels."""
+        raise NotImplementedError('Implement in child class')
+
+    @abc.abstractmethod
+    def _places(self, group: pd.DataFrame) -> pd.Series | None:
+        """The place each image of ``group`` fills in the output; None when each has its own."""
+        raise NotImplementedError('Implement in child class')
+
+    def _two_images_in_one_place(self, group: pd.DataFrame) -> str | None:
+        """Why ``group`` is not built because two of its images fill one place, or None.
+
+        An output takes one image per place: a mosaic one per tile position,
+        a projection one per slice, a video one per scan, a composite and a
+        hyperstack one per plane. Two in one place are two acquisitions (a
+        run folder from before steps recorded their Add) or two derivations
+        an earlier release made without recording how; building from both
+        would keep one and drop the other, or mix them.
+        """
+        places = self._places(group)
+        if places is None:
+            return None
+        doubled = places[places.duplicated(keep=False)]
+        if doubled.empty:
+            return None
+        named = '; '.join(
+            ', '.join(str(path) for path in group.loc[rows.index, 'Filepath'])
+            for _, rows in doubled.groupby(doubled, sort=False)
+        )
+        said = f'Not built: more than one image for one {self._PLACE} ({named}).'
+        if any(
+            post_derivation.made_unrecorded(derivation)
+            for derivation in group.loc[doubled.index, 'Derivation']
+        ):
+            return (
+                f'{said} An earlier release made them without recording how; build them '
+                'again with this release.'
+            )
+        return f'{said}{self._ONE_PER_ADD}'
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -145,17 +283,32 @@ class ProtocolPostProcessor(abc.ABC):
 
     def _planned_output(
         self, root_path: pathlib.Path, group: pd.DataFrame, **kwargs
-    ) -> tuple[str, pd.Series, pathlib.Path]:
-        """What ``group`` builds: its file name, the flags its record carries, and where it lands."""
-        output_filename = self._generate_filename(df=group, **kwargs)
-        record_data_post_functions = group.iloc[0][PostFunction.list_values()]
-        record_data_post_functions[self._post_function.value] = True
+    ) -> tuple[str, str, pathlib.Path]:
+        """What ``group`` builds: its file name, its derivation, and where it lands.
+
+        A group's images share one derivation (every build groups by it), so
+        the output's is theirs extended by this build, and its name and
+        folder are rendered from that. Its format is the one its images
+        share (``image_utils.derived_file_format``), whenever it is built;
+        the name states it, and the build writes the format its name states.
+        """
+        output_format = image_utils.derived_file_format(group['Filepath'])
+        derivation = post_derivation.extended(
+            group.iloc[0]['Derivation'],
+            self._derivation_step(group, output_format=output_format, **kwargs),
+        )
+        output_filename = self._generate_filename(
+            df=group,
+            post=post_derivation.name_tokens(derivation),
+            output_format=output_format,
+            **kwargs,
+        )
         output_subfolder = self._post_processing_helper.generate_output_dir_name(
-            record=record_data_post_functions
+            record=pd.Series(post_derivation.kinds(derivation))
         )
         return (
             output_filename,
-            record_data_post_functions,
+            derivation,
             root_path / output_subfolder / output_filename,
         )
 
@@ -179,7 +332,7 @@ class ProtocolPostProcessor(abc.ABC):
         own wording so the shared loop does not hardcode a stitch-only vocabulary
         for zproject / composite / stack outputs.
         """
-        return f'{count} {self._post_function.value.lower()} artifact(s) used a fallback method.'
+        return f'{count} {self.operation_label} artifact(s) used a fallback method.'
 
     @staticmethod
     def _prepend_capture_root(name: str, kwargs: dict) -> str:
@@ -198,8 +351,9 @@ class ProtocolPostProcessor(abc.ABC):
     def load_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
+        select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
         """Run this operation over a captured folder; return the complete result.
@@ -211,6 +365,14 @@ class ProtocolPostProcessor(abc.ABC):
         never posts, because only the caller knows whether someone is
         waiting on it.
 
+        Args:
+            select: Which of the folder's rows this build takes, for a build
+                in a chain (``PostProcessingAPI.build``); None takes every
+                row. A chained build's answer says what it carries forward
+                (``carried_forward``): its input with the rows it consumed
+                replaced by what it made from them. A row its own filter
+                drops is carried, not left out.
+
         Raises:
             PostProcessingRefusedError: The folder cannot yield this output.
             PostProcessingFailedError: The build did not produce everything
@@ -218,8 +380,9 @@ class ProtocolPostProcessor(abc.ABC):
         """
         return self._load_folder_inner(
             path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             on_progress=on_progress,
+            select=select,
             **kwargs,
         )
 
@@ -234,9 +397,9 @@ class ProtocolPostProcessor(abc.ABC):
 
         A caller that announces a long build passes this with both ends, or
         the outcome opens a second modal instead of replacing the "please
-        wait" one. Derived in one place so the two ends cannot drift apart.
+        wait" one.
         """
-        return f'post-processing:{self._post_function.value}'
+        return operation_key(self._post_function)
 
     def _incomplete(
         self,
@@ -248,8 +411,15 @@ class ProtocolPostProcessor(abc.ABC):
         dropped_frames: int,
         artifact_paths: list,
         output_root: str,
+        accounting_note: str,
+        excluded_inputs: tuple[ExcludedInput, ...],
     ) -> PostProcessingFailedError:
-        """The outcome of a build that did not produce everything asked of it."""
+        """The outcome of a build that did not produce everything asked of it.
+
+        It carries what the build left out as a complete result does, so a
+        group that failed does not also silence the inputs that were never
+        tried.
+        """
         label = self.operation_label.lower()
         missing = []
         if group_errors:
@@ -273,10 +443,11 @@ class ProtocolPostProcessor(abc.ABC):
         sentence = '; '.join(missing)
         return PostProcessingFailedError(
             operation=self.operation_label,
-            missing=f'{sentence[0].upper()}{sentence[1:]}.',
+            missing=f'{sentence[0].upper()}{sentence[1:]}.{accounting_note}',
             produced_paths=artifact_paths,
             output_root=output_root,
             errors=group_errors,
+            excluded_inputs=excluded_inputs,
         )
 
     def _refuse(self, reason: str, message: str) -> PostProcessingRefusedError:
@@ -287,18 +458,19 @@ class ProtocolPostProcessor(abc.ABC):
     def _load_folder_inner(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
+        select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
-        start_ts = datetime.datetime.now()
+        start_ts = wall_time.now()
         if not path:
             raise self._refuse('invalid_path', 'No folder was given to process.')
 
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
             path=selected_path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
         )
 
         if results['status'] is False:
@@ -314,6 +486,11 @@ class ProtocolPostProcessor(abc.ABC):
                 'No image files were found in the selected folder. '
                 'Check that the folder contains captured scan images.',
             )
+        if select is not None:
+            # A chained build takes only what the build before it carried
+            # forward; the rest of the folder is not its input, so not an
+            # input it left out either.
+            df = df[select(df)]
 
         # Composite, stitch, and z-projection re-read the source frames via
         # tifffile, which cannot decode JPG. A scan saved as JPG has no
@@ -322,7 +499,7 @@ class ProtocolPostProcessor(abc.ABC):
         unsupported_source = next(
             (
                 pathlib.Path(str(filepath))
-                for filepath in df['Filepath']
+                for filepath in df.loc[~_missing(df), 'Filepath']
                 if pathlib.Path(str(filepath)).suffix.lower() not in image_utils.TIFF_SUFFIXES
             ),
             None,
@@ -331,7 +508,7 @@ class ProtocolPostProcessor(abc.ABC):
             source_format = unsupported_source.suffix.lstrip('.').upper() or 'unknown'
             raise self._refuse(
                 'unsupported_source_format',
-                f'{self._post_function.value} requires TIFF or OME-TIFF source images. '
+                f'{self.operation_label} requires TIFF or OME-TIFF source images. '
                 f'First unsupported {source_format} file: {unsupported_source.name}. '
                 'Reacquire the scan as TIFF or OME-TIFF before post-processing.',
             )
@@ -354,32 +531,75 @@ class ProtocolPostProcessor(abc.ABC):
         # and empty-result messages are built from survivors, so uncounted
         # drops misattribute the outcome (a composite-only folder read as
         # "lacks multi-tile structure"). Dropped rows self-describe their
-        # category through their own PostFunction flags.
+        # category through their own PostFunction flags. A dropped row that
+        # carries this operation's own flag is its own earlier output, already
+        # made rather than left out (a stitched composite is a stitch's own,
+        # though it is a composite too): it is counted only to explain a
+        # folder that holds nothing else.
         pre_filter_df = df
         df = self._filter_ignored_types(df=df)
-        excluded_counts: dict[str, int] = {}
-        excluded_kinds: set = set()
+        own_flag = self._post_function.value
+        left_out_counts: dict[PostFunction, int] = {}
+        already_made = 0
         dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
+        # A derived image gone from the folder is not a file in it: neither
+        # an output already made nor an input left out.
+        gone = _missing(dropped_rows)
+        if gone.any():
+            dropped_rows = dropped_rows[~(gone & _derived(dropped_rows))]
+        # A recording's frames are no stills build's input, and nobody looks
+        # for them in one: only Video takes them, so they are not left out.
+        dropped_rows = dropped_rows[~_recording_frames(dropped_rows)]
+        # What a chained build carries forward: every input row it does not
+        # consume (its filter's drops, a single-image group's, ...), and in
+        # place of each group it consumes, that group's output.
+        carried = set(pre_filter_df['Filepath'])
         for _, dropped in dropped_rows.iterrows():
-            for flag in PostFunction.list_values():
-                if dropped[flag]:
-                    category = f'{flag.lower()} file(s)'
-                    excluded_kinds.add(PostFunction(flag))
-                    break
-            else:
-                category = 'other file(s)'
-            excluded_counts[category] = excluded_counts.get(category, 0) + 1
-        if excluded_counts:
-            excluded_text = ', '.join(
-                f'{count} {category}' for category, count in sorted(excluded_counts.items())
-            )
+            if dropped[own_flag]:
+                already_made += 1
+                continue
+            kind = next((flag for flag in PostFunction.list_values() if dropped[flag]), None)
+            if kind is None:
+                # Every filter drops a row by its output flag or as a
+                # recording's frame, so a dropped row with neither is a filter
+                # this accounting does not know.
+                raise RuntimeError(
+                    f'{self._name}: {dropped["Filepath"]} was dropped with no output kind'
+                )
+            left_out = PostFunction(kind)
+            left_out_counts[left_out] = left_out_counts.get(left_out, 0) + 1
+        excluded_kinds = set(left_out_counts)
+        # The record names each kind by its operation; the words a person
+        # reads name it by its files, as the build flags do.
+        left_out_in_order = sorted(left_out_counts.items(), key=lambda item: item[0].value.lower())
+        excluded_inputs = tuple(
+            ExcludedInput(kind=_OPERATION_LABELS[kind], count=count)
+            for kind, count in left_out_in_order
+        )
+        excluded_text = ', '.join(
+            f'{count} {kind.value.lower()} file(s)' for kind, count in left_out_in_order
+        )
+        derived_counts = {kind.value.lower(): count for kind, count in left_out_counts.items()}
+        if already_made:
+            derived_counts[own_flag.lower()] = already_made
+        derived_text = ', '.join(
+            f'{count} {word} file(s)' for word, count in sorted(derived_counts.items())
+        )
+        if derived_text:
             logger.info(
                 f'[{self._name} ] {len(dropped_rows)} input file(s) excluded from '
-                f'{self._post_function.value.lower()} generation: {excluded_text}'
+                f'{own_flag.lower()} generation: {derived_text}'
             )
-        else:
-            excluded_text = ''
-            excluded_kinds = set()
+
+        # A folder whose only images are a recording holds nothing a stills
+        # build takes. Asked of the frames present: a recording deleted since
+        # its run is one Video cannot build either.
+        if df.empty and (_recording_frames(pre_filter_df) & ~_missing(pre_filter_df)).any():
+            raise self._refuse(
+                'no_data',
+                f'No {self.operation_label} was generated: this folder holds a recording, '
+                'not stills; Video builds it.',
+            )
 
         groups = self._get_groups(df)
 
@@ -399,9 +619,9 @@ class ProtocolPostProcessor(abc.ABC):
         # group is checked before any is built, so a refusal writes no output.
         planned_names = {}
         for _, group in groups:
-            if len(group) <= 1:
+            if len(group) <= 1 or _removed(group):
                 continue
-            name, _flags, output_file_loc = self._planned_output(root_path, group, **kwargs)
+            name, _derivation, output_file_loc = self._planned_output(root_path, group, **kwargs)
             if not path_utils.resolves_inside(root_path, output_file_loc):
                 raise self._refuse(
                     'output_outside_folder',
@@ -432,6 +652,8 @@ class ProtocolPostProcessor(abc.ABC):
         output_significant_bits = None
         completed_group_ms = []
         skipped_single_paths = []
+        # The build that made each removed group's images (``_removed``).
+        removed_groups: list[PostProcessingOperation] = []
         # Where each produced artifact landed. The return used to carry only
         # the output ROOT, which tells a caller a directory was touched but
         # not whether its own file exists -- an unattended caller could not
@@ -443,14 +665,30 @@ class ProtocolPostProcessor(abc.ABC):
             if len(group) == 0:
                 continue
 
-            if len(group) == 1:
-                skipped_single_paths.append(str(group.iloc[0]['Filepath']))
-                logger.debug(
-                    f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
+            # Before the single-image skip, so a removed group of one image
+            # is named too.
+            if _removed(group):
+                removed_groups.append(_made_by(group.iloc[0]['Derivation']))
+                carried -= set(group['Filepath'])
+                logger.info(
+                    f'[{self._name} ] Not building from {group.iloc[0]["Filepath"]} and the '
+                    f'{len(group) - 1} other image(s) of its group: all removed from the folder.'
                 )
                 continue
 
-            output_filename, record_data_post_functions, output_file_loc = self._planned_output(
+            # A row for a missing recording stands for its frames, so the
+            # group it is in counts as the group it would have been.
+            missing = group[_missing(group)]
+            frames = len(group) - len(missing) + int(missing['Frames'].sum() if len(missing) else 0)
+            if frames == 1:
+                if missing.empty:
+                    skipped_single_paths.append(str(group.iloc[0]['Filepath']))
+                    logger.debug(
+                        f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
+                    )
+                continue
+
+            output_filename, derivation, output_file_loc = self._planned_output(
                 root_path, group, **kwargs
             )
             if output_filename in colliding_names:
@@ -458,33 +696,71 @@ class ProtocolPostProcessor(abc.ABC):
                 continue
             row0 = group.iloc[0]
             output_file_loc_rel = output_file_loc.relative_to(root_path)
-            group_label = (
-                f'well={row0.get("Well", "")} color={row0.get("Color", "")} '
-                f'tile_group={row0.get("Tile Group ID", "")} '
-                f'tiles={len(group)} output={output_file_loc_rel}'
+            # Each column names every value the group holds: a composite's or
+            # a hyperstack's group spans its colours, so one row's colour names
+            # only part of it. Its images are counted as images, since only a
+            # stitch's are tiles.
+            held = ' '.join(
+                f'{key}={"+".join(str(value) for value in group[column].unique())}'
+                for key, column in (
+                    ('well', 'Well'),
+                    ('color', 'Color'),
+                    ('tile_group', 'Tile Group ID'),
+                )
+                if column in group
             )
+            group_label = f'{held} images={len(group)} output={output_file_loc_rel}'
 
-            if protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel):
+            # Already made only while its file is there: one deleted since is
+            # built again, and the record's row for it replaced.
+            if (
+                protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel)
+                and (root_path / output_file_loc_rel).is_file()
+            ):
                 logger.info(
                     f'[{self._name} ] {output_file_loc_rel} already exists in record, skipping for generation.'
                 )
                 existing_count += (
                     1  # Count this so we don't error out if no other matches are found
                 )
+                carried -= set(group['Filepath'])
+                carried.add(output_file_loc_rel)
+                continue
+
+            doubled = self._two_images_in_one_place(group)
+            if doubled is not None:
+                last_error = doubled
+                group_errors.append(f'{output_file_loc_rel}: {doubled}')
+                logger.error(f'Not generating {output_file_loc_rel}: {doubled}')
+                continue
+
+            # Built whole or not at all: a group missing a frame the run
+            # recorded -- deleted since, or never captured -- is this group's
+            # failure, never an output short of it.
+            if not missing.empty:
+                last_error = _missing_frames_error(missing)
+                group_errors.append(f'{output_file_loc_rel}: {last_error}')
+                logger.error(f'Not generating {output_file_loc_rel}: {last_error}')
                 continue
 
             kwargs['output_file_loc'] = output_file_loc_rel
 
             group_t0 = time.perf_counter()
             logger.info(f'[PostProcPerf] {self._name} group start: {group_label}')
-            alg_results = self._group_algorithm(
-                path=root_path,
-                df=group,
-                on_progress=on_progress,
-                total_groups=group_count,
-                current_group=current_group,
-                **kwargs,
-            )
+            try:
+                alg_results = self._group_algorithm(
+                    path=root_path,
+                    df=group,
+                    on_progress=on_progress,
+                    total_groups=group_count,
+                    current_group=current_group,
+                    **kwargs,
+                )
+            except InputFramesUnusableError as unusable:
+                # Frames this group cannot use -- one that will not decode,
+                # sizes or pixel types that cannot share one output -- cost
+                # this group, not the groups after it: answered as its failure.
+                alg_results = PostProcResult.failed(str(unusable))
             group_ms = (time.perf_counter() - group_t0) * 1000.0
 
             if not alg_results.status:
@@ -537,12 +813,14 @@ class ProtocolPostProcessor(abc.ABC):
                 root_path=root_path,
                 file_path=output_file_loc_rel,
                 row0=row0,
-                **record_data_post_functions.to_dict(),
+                derivation=derivation,
             )
 
             # Recorded after the relocation resolve above, so the path names
             # the file that actually exists rather than the one requested.
             artifact_paths.append(str(root_path / output_file_loc_rel))
+            carried -= set(group['Filepath'])
+            carried.add(output_file_loc_rel)
 
             new_count += 1
             current_group += 1
@@ -558,7 +836,7 @@ class ProtocolPostProcessor(abc.ABC):
                 if self._name == 'Stitcher':
                     mode_label = (
                         'Fast Preview'
-                        if kwargs.get('stitching_mode') == 'fast_preview'
+                        if kwargs.get('stitching_mode') == StitchMode.FAST_PREVIEW
                         else 'Quality'
                     )
                     # current_group already names the group now starting, which
@@ -591,11 +869,22 @@ class ProtocolPostProcessor(abc.ABC):
             if skipped_single_paths
             else ''
         )
-        excluded_note = f' Excluded from this operation: {excluded_text}.' if excluded_text else ''
-        accounting_note = f'{single_skip_note}{excluded_note}'
+        remedy = _remedy_for(self._post_function, excluded_kinds)
+        excluded_note = (
+            f' Excluded from this operation: {excluded_text}.{remedy}' if excluded_text else ''
+        )
+        removed_note = ''
+        if removed_groups:
+            makers = ', '.join(sorted(set(removed_groups)))
+            removed_note = (
+                f' {len(removed_groups)} group(s) not built: their {makers} images were '
+                'removed from the folder.'
+            )
+        accounting_note = f'{single_skip_note}{excluded_note}{removed_note}'
 
-        if (new_count == 0) and (existing_count == 0):
-            fname = self._post_function.value
+        # A removed group is a complete answer, as an output already made is.
+        if (new_count == 0) and (existing_count == 0) and not removed_groups:
+            fname = self.operation_label
             if refused_count > 0 and last_error is None:
                 # Every eligible group collided; nothing could be generated.
                 raise self._refuse(
@@ -605,16 +894,16 @@ class ProtocolPostProcessor(abc.ABC):
                     f'artifacts would be indistinguishable. See '
                     f'lumaviewpro.log for the colliding names.',
                 )
-            if excluded_text and last_error is None:
+            if derived_text and last_error is None:
                 # The emptiness is explained by what the filter excluded, not
                 # by the folder's structure -- a structural hint here sent
                 # users hunting for missing tiles a composite folder has.
-                fname_lower = fname.lower()
-                remedy = _remedy_for(self._post_function, excluded_kinds)
+                # Own earlier outputs count here: a folder of nothing else
+                # is explained by them.
                 raise self._refuse(
                     'excluded_inputs',
-                    f'No {fname_lower} was generated: this folder holds only '
-                    f'{excluded_text}, which are derived outputs.'
+                    f'No {fname} was generated: this folder holds only '
+                    f'{derived_text}, which are derived outputs.'
                     f'{remedy}{single_skip_note}',
                 )
             needed = _MULTI_FRAME_REQUIREMENT.get(
@@ -642,9 +931,11 @@ class ProtocolPostProcessor(abc.ABC):
                 dropped_frames=dropped_frames,
                 artifact_paths=artifact_paths,
                 output_root=str(root_path),
+                accounting_note=accounting_note,
+                excluded_inputs=excluded_inputs,
             )
 
-        end_ts = datetime.datetime.now()
+        end_ts = wall_time.now()
         elapsed_time = end_ts - start_ts
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
@@ -662,7 +953,9 @@ class ProtocolPostProcessor(abc.ABC):
                 'new_count': new_count,
                 'output_root': str(root_path),
                 'artifact_paths': artifact_paths,
+                'carried_forward': frozenset(carried),
                 'accounting_note': accounting_note,
+                'excluded_inputs': excluded_inputs,
             }
         return {
             'status': True,
@@ -670,5 +963,7 @@ class ProtocolPostProcessor(abc.ABC):
             'new_count': new_count,
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,
+            'carried_forward': frozenset(carried),
             'accounting_note': accounting_note,
+            'excluded_inputs': excluded_inputs,
         }

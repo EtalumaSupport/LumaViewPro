@@ -4,6 +4,7 @@ flag, acquire mode, video duration, stim params, and the three focus buttons."""
 import time
 import traceback
 import harness
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p9')
 sc = s.scope
@@ -14,7 +15,7 @@ def show(label, v):
 
 
 try:
-    lay = 'Blue'
+    lay = LED0
     # --- settings-backed capabilities: write the one store, read it back ---
     with s.settings_lock:
         s.settings[lay]['sum'] = 4
@@ -44,19 +45,19 @@ try:
     show('motion.get_current_position(Z)', z)
     with s.settings_lock:
         s.settings[lay]['focus'] = z  # == save_focus's layer write
-    show('settings[Blue][focus]', s.get_settings_snapshot()[lay]['focus'])
+    show(f'settings[{LED0}][focus]', s.get_settings_snapshot()[lay]['focus'])
     proto = sc.protocols.create_protocol(input_config=s.get_sequenced_capture_config())
-    show('protocol.modify_step_z_height', proto.modify_step_z_height(step_idx=0, z=z + 5))
-    show('step 0 Z after modify', proto.step(idx=0)['Z'])
+    show('protocol.modify_step_z_height', proto.modify_step_z_height(step_index=0, z=z + 5))
+    show('step 0 Z after modify', proto.step_row(step_index=0)['Z'])
     show(
         'protocol.apply_focus_all_layer_steps',
         proto.apply_focus_all_layer_steps(layer=lay, z=z + 9),
     )
-    show('step Blue Z after apply', proto.steps()[proto.steps()['Color'] == lay]['Z'].iloc[0])
+    show(f'step {LED0} Z after apply', proto.steps()[proto.steps()['Color'] == lay]['Z'].iloc[0])
     # goto_focus == a Z move to the stored focus
     show(
-        'motion.move_absolute(Z, focus)',
-        sc.motion.move_absolute('Z', z + 9),
+        'motion.move_z(focus)',
+        sc.motion.move_z(z + 9),
     )
     show('Z after goto', sc.motion.get_current_position('Z'))
     harness.assert_no_ui()

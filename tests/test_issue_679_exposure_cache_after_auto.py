@@ -11,7 +11,7 @@ the entire run. End-of-Run-1 cleanup invalidated the cache (cache !=
 hardware via the restore-from-snapshot path), so Run 2 actually
 wrote the requested 0.1 ms.
 
-Fix: ``set_auto_gain(state=False)``, ``set_auto_exposure_time(state=
+Fix: ``set_auto_gain(state=False)``, ``set_auto_exposure(state=
 False)``, and ``auto_gain_once`` resync the cache from hardware
 before returning. The off-transition is the only moment when the
 auto SDK path's hardware drives can desync from the cache; refreshing
@@ -26,31 +26,9 @@ auto-off).
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
-
-
-@pytest.fixture
-def sim_imaging():
-    """Build a SimulatedCamera-backed ImagingAPI with a minimal scope
-    stub holding the locks the setters acquire."""
-    cam = SimulatedCamera()
-    cam.active = True
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_camera_capabilities(scope, cam)
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    return imaging, cam
+from modules.lumascope_api.camera import CameraAutoMode
 
 
 class TestSetAutoExposureRefreshesCacheAtAutoOff:
@@ -59,32 +37,32 @@ class TestSetAutoExposureRefreshesCacheAtAutoOff:
     the cache so the next ``set_exposure_ms`` call actually writes
     hardware."""
 
-    def test_auto_exposure_off_refreshes_cache_after_hardware_drift(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_exposure_ms(0.1)
-        assert imaging.exposure_ms_cached == pytest.approx(0.1)
-        imaging.set_auto_exposure_time(state=True)
+    def test_auto_exposure_off_refreshes_cache_after_hardware_drift(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_exposure_ms(0.1)
+        assert camera.exposure_ms == pytest.approx(0.1)
+        camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         # Mimic the AE-Continuous-drove-hardware-away path: poke the
         # simulator's hardware-truth attribute directly. Real Pylon does
         # this internally during a Continuous AE cycle.
         with cam._lock:
             cam._exposure_us = 14.0
-        imaging.set_auto_exposure_time(state=False)
-        assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
-            f'cache must reflect hardware truth after AE-off; got {imaging.exposure_ms_cached}'
+        camera.set_auto_exposure(CameraAutoMode.OFF)
+        assert camera.exposure_ms == pytest.approx(0.014, abs=0.001), (
+            f'cache must reflect hardware truth after AE-off; got {camera.exposure_ms}'
         )
 
-    def test_set_exposure_after_ae_off_actually_writes_hardware(self, sim_imaging):
+    def test_set_exposure_after_ae_off_actually_writes_hardware(self, sim_camera):
         # End-to-end repro of the bug shape.
-        imaging, cam = sim_imaging
-        imaging.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
-        imaging.set_auto_exposure_time(state=True)
+        camera, cam = sim_camera
+        camera.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
+        camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         with cam._lock:
             cam._exposure_us = 14.0  # AE drove hw to 0.014 ms
-        imaging.set_auto_exposure_time(state=False)
+        camera.set_auto_exposure(CameraAutoMode.OFF)
         # Pre-fix: cache still 0.1, so the next set_exposure_ms(0.1)
         # short-circuited and hardware stayed at 0.014 ms.
-        imaging.set_exposure_ms(0.1)
+        camera.set_exposure_ms(0.1)
         assert cam.get_exposure_t() == pytest.approx(0.1, abs=0.001), (
             'hardware must reach the requested 0.1 ms after AE-off + '
             f'set_exposure_ms(0.1); got {cam.get_exposure_t()}'
@@ -95,11 +73,11 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
     """Symmetric gain-side: AG-off resyncs both gain and exposure
     (auto cycles couple them in the Pylon driver)."""
 
-    def test_auto_gain_off_refreshes_cache_after_hardware_drift(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(5.0)
-        assert imaging.gain_db_cached == pytest.approx(5.0)
-        imaging.set_auto_gain(
+    def test_auto_gain_off_refreshes_cache_after_hardware_drift(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_gain_db(5.0)
+        assert camera.gain_db == pytest.approx(5.0)
+        camera.set_auto_gain(
             state=True,
             settings={
                 'target_brightness': 0.5,
@@ -111,7 +89,7 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
         with cam._lock:
             cam._gain = 17.2
             cam._exposure_us = 14.0
-        imaging.set_auto_gain(
+        camera.set_auto_gain(
             state=False,
             settings={
                 'target_brightness': 0.5,
@@ -119,25 +97,25 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
                 'max_gain_db': 24.0,
             },
         )
-        assert imaging.gain_db_cached == pytest.approx(17.2), (
-            f'cache must reflect hardware gain after AG-off; got {imaging.gain_db_cached}'
+        assert camera.gain_db == pytest.approx(17.2), (
+            f'cache must reflect hardware gain after AG-off; got {camera.gain_db}'
         )
-        assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
-            f'cache must reflect hardware exposure after AG-off; got {imaging.exposure_ms_cached}'
+        assert camera.exposure_ms == pytest.approx(0.014, abs=0.001), (
+            f'cache must reflect hardware exposure after AG-off; got {camera.exposure_ms}'
         )
 
-    def test_set_auto_gain_state_true_does_not_refresh_cache(self, sim_imaging):
+    def test_set_auto_gain_state_true_does_not_refresh_cache(self, sim_camera):
         # AG-on transition: cache stays at pre-AG truth (auto cycle is
         # still running; refresh would race with the SDK adjustments).
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(5.0)
-        imaging.set_exposure_ms(0.1)
+        camera, cam = sim_camera
+        camera.set_gain_db(5.0)
+        camera.set_exposure_ms(0.1)
         # Drift hardware after caching but before AG-on -- if AG-on
         # were to refresh, cache would jump to the drifted values.
         with cam._lock:
             cam._gain = 17.2
             cam._exposure_us = 14.0
-        imaging.set_auto_gain(
+        camera.set_auto_gain(
             state=True,
             settings={
                 'target_brightness': 0.5,
@@ -145,30 +123,30 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
                 'max_gain_db': 24.0,
             },
         )
-        assert imaging.gain_db_cached == pytest.approx(5.0), (
+        assert camera.gain_db == pytest.approx(5.0), (
             'cache must NOT refresh on AG-on (auto cycle still active)'
         )
-        assert imaging.exposure_ms_cached == pytest.approx(0.1)
+        assert camera.exposure_ms == pytest.approx(0.1)
 
 
 class TestAutoGainOnceRefreshesCache:
     """One-shot AG always ends with the auto cycle complete; the
     refresh must fire regardless of the ``state`` argument."""
 
-    def test_auto_gain_once_refreshes_cache(self, sim_imaging):
+    def test_auto_gain_once_refreshes_cache(self, sim_camera):
         # The simulator's auto_gain_once converges gain to the
         # midpoint of [min_gain_db, max_gain_db]; that's the hardware
         # value the cache must catch up to.
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(5.0)
-        imaging.set_exposure_ms(0.1)
+        camera, cam = sim_camera
+        camera.set_gain_db(5.0)
+        camera.set_exposure_ms(0.1)
         # Drift hardware exposure independently of the simulator's
         # one-shot (the sim's auto_gain_once only touches gain, so an
         # exposure drift survives across the call -- exercises the
         # symmetric exposure-side refresh.)
         with cam._lock:
             cam._exposure_us = 14.0
-        imaging.auto_gain_once(
+        camera.auto_gain_once(
             state=True,
             target_brightness=0.5,
             min_gain_db=0.0,
@@ -176,11 +154,10 @@ class TestAutoGainOnceRefreshesCache:
         )
         # Cache should match whatever hardware ended up at, not the
         # pre-call cached value (which would still read 5.0 / 0.1).
-        assert imaging.gain_db_cached == pytest.approx(cam.get_gain(), abs=0.001), (
-            f'cache gain {imaging.gain_db_cached} must match hardware '
-            f'{cam.get_gain()} after auto_gain_once'
+        assert camera.gain_db == pytest.approx(cam.get_gain(), abs=0.001), (
+            f'cache gain {camera.gain_db} must match hardware {cam.get_gain()} after auto_gain_once'
         )
-        assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
-            f'cache exposure {imaging.exposure_ms_cached} must match '
+        assert camera.exposure_ms == pytest.approx(0.014, abs=0.001), (
+            f'cache exposure {camera.exposure_ms} must match '
             f'drifted hardware 0.014 ms after auto_gain_once refresh'
         )

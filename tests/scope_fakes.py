@@ -60,9 +60,8 @@ from unittest.mock import create_autospec
 
 #: What `build_scope` and `give_stub_lanes` built and no test teardown has
 #: stopped yet, oldest first, as the call that stops each. The autouse fixture
-#: in `conftest.py` runs the ones a test built when it ends; a scope a
-#: module-scoped fixture built before the test began is that fixture's to
-#: disconnect.
+#: in `conftest.py` runs the ones a test built when it ends, and its
+#: module-scoped twin the ones a module's fixtures built when the module ends.
 _TEARDOWNS: list = []
 
 
@@ -82,10 +81,17 @@ def build_scope(**kwargs):
     brought up, so its camera would otherwise stream its whole sensor, a
     size the instrument does not run at and several times the frame to
     render.
+
+    A real scope a test names no folder for is built on an installation of
+    its own (``installation_of_its_own``): it takes its installation's
+    instance lock, which on the repo's folder would meet a LumaViewPro
+    running beside the suite.
     """
     from modules.lumascope_api import Lumascope
-    from tests.settings_fixtures import complete_settings
+    from tests.settings_fixtures import complete_settings, installation_of_its_own
 
+    if not kwargs.get('simulate') and kwargs.get('source_path') is None:
+        kwargs['source_path'] = installation_of_its_own()
     # A simulated scope no test names a model for is the LS850T, the
     # model every bare test scope has been built on; a scope with no
     # session's settings would otherwise take the template's model, and
@@ -96,7 +102,7 @@ def build_scope(**kwargs):
     _TEARDOWNS.append(scope.disconnect)
     if kwargs.get('simulate') and scope.camera_connected:
         frame = complete_settings()['frame']
-        scope.imaging._set_frame_size_impl(frame['width'], frame['height'])
+        scope.camera._set_frame_size_impl(frame['width'], frame['height'])
     return scope
 
 
@@ -129,9 +135,13 @@ def real_executor_bundle(**members):
     import dataclasses
 
     from modules.executor_registry import create_default
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    io, camera = SequentialIOExecutor(name='IO'), SequentialIOExecutor(name='CAMERA')
+    io, camera = (
+        SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO'),
+        SequentialIOExecutor(closed_answer=scope_lane_closed, name='CAMERA'),
+    )
     io.start()
     camera.start()
     bundle = create_default(io, camera)
@@ -175,22 +185,69 @@ def shut_down_when_the_test_ends(session):
     _TEARDOWNS.append(stop)
 
 
+def session_on_a_simulated_scope(*, settings=None, file_io_executor=None, **kwargs):
+    """A `ScopeSession` over a simulated scope that is never brought up.
+
+    For the claims the session itself owns -- its activity claim, its
+    run-state records, its metrics lifecycle -- where bring-up's motion and
+    settings are not the subject; a test of what bring-up does takes the
+    `sim_session` fixture. *settings* defaults to none at all;
+    *file_io_executor* replaces the file lane, for a test that plants writes
+    and decides when they land; *kwargs* go to the constructor. The test's
+    teardown shuts the session down.
+    """
+    from modules.scope_session import ScopeSession
+
+    lanes = {} if file_io_executor is None else {'file_io_executor': file_io_executor}
+    return ScopeSession(
+        settings={} if settings is None else settings,
+        scope=build_scope(simulate=True),
+        executor_bundle=real_executor_bundle(**lanes),
+        **kwargs,
+    )
+
+
 def give_stub_lanes(scope):
     """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
 
     A stub skips the constructor, so it has no lanes, and every dispatcher
-    runs its command on one. The test's teardown shuts them. Returns the
-    scope.
+    runs its command on one; nor has it the claim slot beside them, empty as
+    on a scope no session composes, which every guarded write reads. The
+    test's teardown shuts the lanes. Returns the scope.
     """
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    scope._io_executor = SequentialIOExecutor(name='IO')
-    scope._camera_executor = SequentialIOExecutor(name='CAMERA')
+    scope._io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
+    scope._camera_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='CAMERA')
     scope._camera_override_key = None
+    scope._activity_claim = None
     for lane in (scope._io_executor, scope._camera_executor):
         lane.start()
         _TEARDOWNS.append(lane.shutdown)
     return scope
+
+
+_NO_LED_BOARD = object()
+
+
+def capabilities_of(camera=None, led=_NO_LED_BOARD):
+    """The capabilities the production constructor builds for a scope with
+    no motor board and no model: ``camera``'s facts, and ``led``'s when an
+    LED driver is given (no LED board otherwise)."""
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from modules.layer_record import UNRESOLVED
+    from modules.scope_capabilities import ScopeCapabilities
+
+    return ScopeCapabilities.from_drivers(
+        motion=NullMotionBoard(),
+        led=NullLEDBoard() if led is _NO_LED_BOARD else led,
+        camera=camera,
+        channel_identity=UNRESOLVED,
+        scope_models={},
+        timing_record=None,
+    )
 
 
 def give_camera_capabilities(scope, camera):
@@ -200,19 +257,73 @@ def give_camera_capabilities(scope, camera):
     stub's static camera facts are the ones its camera reports. Returns the
     scope.
     """
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
-    from modules.layer_record import UNRESOLVED
-    from modules.scope_capabilities import ScopeCapabilities
+    scope.capabilities = capabilities_of(camera)
+    return scope
 
-    scope.capabilities = ScopeCapabilities.from_drivers(
-        motion=NullMotionBoard(),
-        led=NullLEDBoard(),
-        camera=camera,
-        layer_identity=UNRESOLVED,
-        scope_models={},
+
+def give_capabilities_of_a_camera_without_auto_modes(scope):
+    """Give a stub over a duck-typed fake driver the capabilities its camera and capture read.
+
+    No ``ScopeCapabilities`` can be built from such a fake (it reports no
+    model or profile), and a built scope always has them before its camera
+    API, which reads whether the camera has hardware auto-gain and
+    auto-exposure as it brings its held modes up. This camera has neither,
+    so the API holds both Off and never asks the fake. A capture reads the
+    active objective, which asks whether the scope has a turret (this one
+    has none) and records its optics (unknown here). Returns the scope.
+    """
+    import types
+
+    # a stand-in by design: the fake reports nothing a ScopeCapabilities is
+    # built from, and the tests using it are about other members.
+    scope.capabilities = types.SimpleNamespace(
+        camera_supports_auto_gain=False,
+        camera_supports_auto_exposure=False,
+        has_turret=False,
+        pixel_size_um=None,
+        lens_focal_length_mm=None,
     )
     return scope
+
+
+def give_camera_and_imaging(scope):
+    """Give a `Lumascope.__new__` stub the camera and capture sub-APIs a built scope has.
+
+    Built as the constructor builds them: the scope's one frame validity,
+    then ``scope.camera`` over it, then ``scope.imaging`` with both. The stub
+    needs its camera driver (``_camera_driver``), lanes and capabilities set
+    first, since the camera reads its cache from the driver as it is built.
+    It is given the objective catalogue too, which a capture reads for the
+    active objective's scale. Returns the camera.
+    """
+    from modules.frame_validity import FrameValidity
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.camera import CameraAPI
+    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.objectives_loader import ObjectiveLoader
+
+    scope.objective_helper = ObjectiveLoader()
+    scope.frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
+    scope.camera = CameraAPI(scope, scope.frame_validity)
+    scope.imaging = ImagingAPI(scope, scope.camera, scope.frame_validity)
+    return scope.camera
+
+
+def set_camera_limits(monkeypatch, scope, **limits):
+    """Give ``scope`` a camera whose limits differ from its camera's by ``limits``.
+
+    ``capabilities.camera_limits`` is read once at connect, so a test that
+    needs a camera declaring another range (a floor above 0 dB, no floor at
+    all) states it here; the test's end restores the scope's own. Returns
+    the new limits.
+    """
+    import dataclasses
+
+    changed = dataclasses.replace(scope.capabilities.camera_limits, **limits)
+    monkeypatch.setattr(
+        scope, 'capabilities', dataclasses.replace(scope.capabilities, camera_limits=changed)
+    )
+    return changed
 
 
 def swap_lanes(scope, *, io=None, camera=None):
@@ -239,6 +350,38 @@ def swap_lanes(scope, *, io=None, camera=None):
             getattr(scope, slot).shutdown(wait=False)
             setattr(scope, slot, lane)
     return scope
+
+
+def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
+    """Measure the scope's delivered rate as a session does, and wait for the first.
+
+    A session starts the imaging API's stream check at bring-up; a bare scope
+    has none, so it reads ``NOT_DELIVERING``, and a run with a video step and
+    no Recording max FPS is refused ``camera_not_delivering``. This starts the
+    check on a scheduler of its own, stopped with the test's other teardowns,
+    and returns once the camera's rate is measured (two of the check's 1 s
+    ticks). A scope whose rate is already measured is left as it is.
+    """
+    from modules.scheduler import ThreadingTimerScheduler
+
+    if scope.imaging.get_delivered_rate().frame_rate_fps > 0:
+        return
+
+    scheduler = ThreadingTimerScheduler(name_prefix='TestStreamCheck')
+    scope.imaging.start_stream_check(scheduler)
+
+    def stop():
+        scope.imaging.stop_stream_check()
+        scheduler.shutdown()
+
+    _TEARDOWNS.append(stop)
+    deadline = time.monotonic() + timeout_s
+    while scope.imaging.get_delivered_rate().frame_rate_fps <= 0:
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f'the simulated camera delivered no measured rate in {timeout_s} s'
+            )
+        time.sleep(0.05)
 
 
 def teardown_mark() -> int:
@@ -317,16 +460,28 @@ def home_sim_scope(scope):
     return scope
 
 
-def record_turret_answer(scope):
-    """Record whether a bare simulated scope has a turret, and return it.
+def led_reading(scope, address):
+    """The reading of one LED board address, named or not, from ``get_led_states()``.
 
-    Bring-up (``Lumascope.initialize``) records the answer; until it does,
-    the scope's objective is unknown and cannot be set. For the fixtures
-    that build a bare scope and skip bring-up, this records the answer
-    bring-up would when the board is talking: the scope's own capability.
+    A test about an address, or about one the unit's identity does not
+    name, reads it here; a test about a layer reads ``channel_reading``.
     """
-    scope.runtime_state.set_turreted(scope.capabilities.has_turret)
-    return scope
+    (reading,) = [r for r in scope.illumination.get_led_states() if r.address == address]
+    return reading
+
+
+def channel_reading(illumination, channel):
+    """The reading of the LED ``channel`` lights, from ``get_led_states()``; None with no LED board.
+
+    ``channel`` is a layer name, mapped to its address through the unit's
+    identity (``color2ch``).
+    """
+    readings = illumination.get_led_states()
+    if readings is None:
+        return None
+    address = illumination.color2ch(channel)
+    (reading,) = [r for r in readings if r.address == address]
+    return reading
 
 
 def spec_scope(**attrs):
@@ -345,8 +500,8 @@ def spec_scope(**attrs):
 
     Example:
         scope = spec_scope(camera_connected=True)
-        scope.illumination.led_on(channel=0, mA=100)   # ok
-        scope.led_on_fast(channel=0, mA=100)           # AttributeError
+        scope.illumination.led_on(channel='BF', illumination_ma=100)   # ok
+        scope.led_on_fast(channel='BF', illumination_ma=100)           # AttributeError
     """
     real = build_real_sim_scope()
     try:
@@ -357,6 +512,21 @@ def spec_scope(**attrs):
         # double answers both as the real scope does, not as a mock.
         double.settings_template = real.settings_template
         double.source_path = real.source_path
+        # Each sub-API's spec is taken on first access, from the real one:
+        # taken here, while its drivers are up, since a read the API refuses
+        # with no camera (imaging.significant_bits) would raise from a
+        # disconnected scope's.
+        for sub_api in (
+            'camera',
+            'capabilities',
+            'diagnostics',
+            'illumination',
+            'imaging',
+            'motion',
+            'protocols',
+            'runtime_state',
+        ):
+            getattr(double, sub_api)
     finally:
         # The spec is captured by create_autospec; the live object has
         # served its purpose and must not keep simulated drivers open.
@@ -387,20 +557,21 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     """Give a hand-built test scope the settings a session would bind it to.
 
     The scope reads its labware, stage offset, turret map, objective and
-    scale bar from a session's settings (``Lumascope.bind_settings``), and a
-    scope no session bound refuses those reads. A test about something else
-    binds its bare scope here, to the shipped template with ``overrides``
-    laid over it (``complete_settings``), read through the Session's own
-    reader so the answers are the ones a session gives. Called again for a
+    scale bar from a session's settings, and its camera saves the settings it
+    changes there (``Lumascope.bind_settings``); a scope no session bound
+    refuses both. A test about something else binds its bare scope here, to
+    the shipped template with ``overrides`` laid over it
+    (``complete_settings``), read and written through the Session's own
+    reader and writer so the answers are the ones a session gives. Called again for a
     scope it bound, it lays ``overrides`` over the settings already bound.
 
     Returns:
         The settings dict the scope now reads; a test may change it.
     """
     import functools
-    import threading
     import types
 
+    from modules.activity_claim import ActivityClaim
     from modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
@@ -415,8 +586,20 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     )
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
-    holder = types.SimpleNamespace(settings=settings, settings_lock=threading.Lock())
-    scope.bind_settings(functools.partial(ScopeSession.get_setting, holder))
+    from modules.scope_session import SettingsLock
+
+    holder = types.SimpleNamespace(
+        settings=settings,
+        # The store's own lock, which records what _store_setting stores; told to no one.
+        settings_lock=SettingsLock(lambda paths: None),
+        _settings_saver=None,
+        activity_claim=ActivityClaim(),
+    )
+    holder._store_setting = functools.partial(ScopeSession._store_setting, holder)
+    scope.bind_settings(
+        functools.partial(ScopeSession._read_stored_setting, holder),
+        functools.partial(ScopeSession._store_settings, holder),
+    )
     return settings
 
 
@@ -453,35 +636,79 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
         ),
         stage_offset={'x': 0.0, 'y': 0.0},
     )
-    # Bring-up also records whether the scope has a turret, and startup homes
-    # every axis: the turret lands in slot 1 -- the active objective is that
+    # Startup homes every axis: the turret lands in slot 1 -- the active objective is that
     # slot's assignment, unknown until the slot is -- and a run's moves need
     # a known stage, since the run moves every step itself.
-    record_turret_answer(scope)
     home_sim_scope(scope)
 
 
-def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> None:
-    """Give a fake imaging surface the API's own ``applied_auto_gain_for``.
+def answer_auto_gain_like_the_api(camera, *, has_auto_gain: bool = True) -> None:
+    """Give a fake camera surface the API's own ``applied_auto_gain_for``.
 
     A bare MagicMock answers a MagicMock, which is truthy, so a caller asking
     whether a step's auto-gain applies would always hear yes. This wires the
     real member over a camera that does or does not have hardware auto-gain,
     so the fake gives the API's decision rather than one of its own.
     """
-    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.camera import CameraAPI
 
-    imaging._camera_has_auto_gain = lambda: has_auto_gain
-    imaging.applied_auto_gain_for = ImagingAPI.applied_auto_gain_for.__get__(imaging)
+    camera._camera_has_auto_gain = lambda: has_auto_gain
+    camera.applied_auto_gain_for = CameraAPI.applied_auto_gain_for.__get__(camera)
 
 
-def scope_delivering_nothing():
-    """A scope whose camera delivers nothing, for a caller that only reads
-    ``scope.imaging.get_delivered_rate()`` (the metrics line)."""
-    import types
+def identity_with_layers(keys, *, model=None, filterset=''):
+    """A unit carrying the layers ``keys``, resolved by the real resolver.
 
-    from modules.lumascope_api.imaging import NOT_DELIVERING
+    Each layer's row is the one the shipped catalogue's models state for it
+    (the first model listing the key), and the rows are resolved as a unit's
+    own block is, against the shipped release catalogue: every record
+    carries the fields the production resolver fills.
+    """
+    from modules import layer_record
 
-    return types.SimpleNamespace(
-        imaging=types.SimpleNamespace(get_delivered_rate=lambda: NOT_DELIVERING)
+    shipped = {}
+    for entry in layer_record.load_scope_models().values():
+        for record in entry.channels:
+            shipped.setdefault(record.key_name, record)
+    channels = {
+        key: {
+            'display_name': shipped[key].display_name,
+            'led_channel': list(shipped[key].led_addresses) or None,
+            'excitation_nm': shipped[key].excitation_nm,
+        }
+        for key in keys
+    }
+    return layer_record.resolve_layer_identity(
+        board_block={'Channels': channels, 'Filterset': filterset},
+        board_config_read_ok=True,
+        motor_model=model,
+        configured_model=None,
+        models={},
+        catalogue=layer_record.release_layers(),
+        report=refuse_a_report,
     )
+
+
+def stock_unit():
+    """A stock LS850's identity, resolved from the release's model rows.
+
+    The unit a test reads a protocol to run on when the test is not about
+    the unit: each channel name the file holds is read as this unit's key
+    for it (``Protocol.from_file``'s ``unit``).
+    """
+    from modules import layer_record
+
+    return layer_record.resolve_layer_identity(
+        board_block=None,
+        board_config_read_ok=True,
+        motor_model='LS850',
+        configured_model=None,
+        models=layer_record.load_scope_models(),
+        catalogue=layer_record.release_layers(),
+        report=refuse_a_report,
+    )
+
+
+def refuse_a_report(notice):
+    """An identity reporter for a resolve that has nothing to report."""
+    raise AssertionError(f'the identity resolve reported {notice!r}')

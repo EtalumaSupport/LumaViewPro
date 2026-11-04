@@ -25,17 +25,22 @@ import pytest
 
 from modules.exceptions import HardwareCommandRefusedError, HomingStoppedError
 from modules.notification_center import OutcomeKind, outcome_of
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from modules.scope_session import ScopeSession
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    build_scope,
+    home_sim_scope,
+)
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture(params=['LS720', 'LS850', 'LS850T'])
 def homed(request):
     s = build_scope(simulate=True, sim_model=request.param, source_path='.', register_atexit=False)
-    record_turret_answer(s)
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
     s.motion.home()
-    s.motion.move_absolute('X', 30_000)
-    s.motion.move_absolute('Z', 2_000)
+    s.motion.move_xy(x_um=30_000)
+    s.motion.move_z(2_000)
     yield s
     s.disconnect()
 
@@ -60,7 +65,7 @@ def _press_stop_during_the_apis_switch_read(scope, monkeypatch):
 def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, monkeypatch, axis):
     if axis != 'ALL' and axis not in homed.capabilities.axes:
         pytest.skip(f'this scope has no {axis}')
-    before = homed.motion.get_current_position()
+    before = homed.motion.get_current_positions()
     _press_stop_during_the_apis_switch_read(homed, monkeypatch)
 
     with pytest.raises(HomingStoppedError) as ended:
@@ -71,7 +76,7 @@ def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, 
     assert ended.value.axes == ()
     assert 'before it began' in str(ended.value)
     assert homed.motion.axes_without_position() == {}
-    assert homed.motion.get_current_position() == before
+    assert homed.motion.get_current_positions() == before
 
 
 # Whether the model's motor board can take a STOP while it homes.
@@ -82,7 +87,7 @@ def _announce_the_board_homing(scope, monkeypatch, axis):
     """An Event set once the board has begun the home, before it ends."""
     driver = scope._motion_driver
     homing = threading.Event()
-    if scope.capabilities.model == 'LS720':
+    if scope.channel_identity.model == 'LS720':
         # The first step of the TMCM-6110's home after it clears the abort
         # a stop sets: a stop before it would be forgotten by design.
         name = '_set_switch_polarities'
@@ -105,26 +110,26 @@ def _announce_the_board_homing(scope, monkeypatch, axis):
 def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
     homed, monkeypatch, axis
 ):
+    """Through the started home's ``stop()``, which is ``stop_motion``."""
     if axis != 'ALL' and axis not in homed.capabilities.axes:
         pytest.skip(f'this scope has no {axis}')
     homing = _announce_the_board_homing(homed, monkeypatch, axis)
 
-    with concurrent.futures.ThreadPoolExecutor(1) as pool:
-        home = pool.submit(homed.motion.home, axis)
-        assert homing.wait(30)
-        if _STOPS_A_HOME[homed.capabilities.model]:
-            homed.motion.stop_motion()
-            with pytest.raises(HomingStoppedError) as ended:
-                home.result(60)
-            assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
-            assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
-            assert ended.value.axes
-        else:
-            with pytest.raises(HardwareCommandRefusedError) as refused:
-                homed.motion.stop_motion()
-            assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
-            assert home.result(60) is None
-            assert homed.motion.axes_without_position() == {}
+    home = homed.motion.start_home(axis)
+    assert homing.wait(30)
+    if _STOPS_A_HOME[homed.channel_identity.model]:
+        home.stop()
+        with pytest.raises(HomingStoppedError) as ended:
+            home.result(60)
+        assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+        assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
+        assert ended.value.axes
+    else:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            home.stop()
+        assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
+        assert home.result(60) is None
+        assert homed.motion.axes_without_position() == {}
 
 
 def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):
@@ -139,7 +144,68 @@ def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):
             assert homing.wait(30)
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 scope.motion.stop_motion()
-            assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+            assert (refused.value.reason, refused.value.member) == (
+                'home_not_stoppable',
+                'stop_motion',
+            )
             assert home.result(60) is None
     finally:
         scope.disconnect()
+
+
+@pytest.fixture
+def session(tmp_path):
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        home_sim_scope(s.scope)
+        yield s
+    finally:
+        s.shutdown()
+        s.scope.disconnect()
+
+
+def _stop_as_the_scope_is_let_go(session, started):
+    """Ask ``started[0].stop()`` from the run-state listener the home's
+    release calls: the home is over and the scope free, but its operation
+    is not yet done. Returns the commands the board was sent from then on."""
+    driver = session.scope._motion_driver
+    sent = []
+    real = driver.exchange_command
+    asked = []
+
+    def stop_when_free():
+        if started and not asked and session.activity_claim.owner is None:
+            asked.append(True)
+            sent.clear()
+            started[0].stop()
+
+    def recorded(command, *args, **kwargs):
+        sent.append(command)
+        return real(command, *args, **kwargs)
+
+    driver.exchange_command = recorded
+    session.add_run_state_listener(stop_when_free)
+    return sent, asked
+
+
+def test_a_homes_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
+    """A home's ``stop()`` stops the board only while the home drives: one
+    asked once it has let go of the scope, before its operation is done,
+    would halt whatever took the scope next."""
+    started = []
+    sent, asked = _stop_as_the_scope_is_let_go(session, started)
+    started.append(session.scope.motion.start_home('Z'))
+
+    assert started[0].result(60) is None
+    assert asked, 'the listener never saw the scope let go'
+    assert 'STOP' not in sent
+
+
+def test_the_startup_motions_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
+    started = []
+    sent, asked = _stop_as_the_scope_is_let_go(session, started)
+    started.append(session.start_application_session())
+
+    assert started[0].result(60) is None
+    assert asked, 'the listener never saw the scope let go'
+    assert 'STOP' not in sent

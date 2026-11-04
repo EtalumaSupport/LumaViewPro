@@ -6,17 +6,16 @@ exchange used to hand that on as the reply ''. Neither board ever answers
 a command with an empty line, so '' always meant silence, and every caller
 that checked for None took silence for an answer: a move nobody
 acknowledged was a move, a fan write was a success, a stop probe cached
-STOP as supported.
+STOP as supported. The exchange now raises BoardNoReplyError naming the
+command, and each caller hands it on.
 
 Each test runs the production driver over the firmware-backed simulator
 (the field firmware) and loses one reply on the wire.
 """
 
-import sys
-
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, HardwareError
 from drivers.firmware_updater import BOARD_CONFIGS, BoardType, _run_post_update_test
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
@@ -26,10 +25,7 @@ from modules.lumascope_api.diagnostics import NO_REPLY, DiagnosticsAPI
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tools import firmware_tools
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture
@@ -54,17 +50,26 @@ def led():
         board.disconnect()
 
 
-def test_a_lost_reply_is_none(motor):
+def test_a_motor_read_is_bounded(motor):
+    """pyserial waits forever on a read with no timeout, so a board that
+    never answers would hang its caller. Read off the driver: the emulated
+    port's lost reply still sends a line, so no read here waits the bound out."""
+    board, _sim = motor
+    assert board.timeout is not None and board.timeout > 0
+
+
+def test_a_lost_reply_raises_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
-    assert board.exchange_command('ACTUAL_RZ', timeout=0.5) is None
+    with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RZ: no reply from the board'):
+        board.exchange_command('ACTUAL_RZ', timeout=0.5)
 
 
 @pytest.mark.slow
 def test_a_move_the_board_did_not_acknowledge_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='did not happen'):
+    with pytest.raises(BoardNoReplyError, match=r'^TARGET_WZ1000: no reply from the board'):
         board.move('Z', 1000)
 
 
@@ -72,7 +77,7 @@ def test_a_move_the_board_did_not_acknowledge_raises(motor):
 def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^STATUS_RZ: no reply from the board'):
         board.target_status('Z')
 
 
@@ -80,7 +85,7 @@ def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
 def test_an_spi_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^SPIZ0xcb100: no reply from the board'):
         board.spi_write('Z', 0x4B, 100)
 
 
@@ -88,7 +93,7 @@ def test_an_spi_write_with_no_reply_raises(motor):
 def test_a_fan_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^FAN:50: no reply from the board'):
         board.set_fan_duty(50)
 
 
@@ -101,17 +106,36 @@ def test_a_stop_with_no_reply_raises_and_caches_nothing(motor):
     with pytest.raises(HardwareError):
         board.motor_stop()
     assert getattr(board, '_supports_stop_cached', None) is None
-    # The next stop reaches the board, which answers that it has no STOP.
-    assert board.motor_stop() is False
+    # The next stop reaches the board, which answers that it has no STOP,
+    # and halts it axis by axis instead.
+    assert board.motor_stop() is True
     assert board._supports_stop_cached is False
 
 
 @pytest.mark.slow
-def test_an_acceleration_read_with_no_reply_is_not_cached(motor):
+def test_an_acceleration_read_with_no_reply_raises_and_the_next_asks_again(motor):
     board, sim = motor
     sim.drop_next_reply()
-    board.acceleration_limit('X', 'acceleration')
-    assert 'X_acceleration' not in (board._accel_cache or {})
+    with pytest.raises(BoardNoReplyError, match=r'^AMAXX: no reply from the board'):
+        board.acceleration_limit('X', 'acceleration')
+    assert board.acceleration_limit('X', 'acceleration') > 0, 'nothing was cached in its place'
+
+
+def test_a_version_query_with_no_reply_is_recorded_as_not_responding(motor):
+    board, sim = motor
+    assert board.firmware_responding
+    sim.drop_next_reply()
+    board.detect_firmware_version()
+    assert (board.firmware_responding, board.firmware_version) == (False, None)
+
+
+def test_a_version_query_on_a_closed_port_is_the_port_s_failure(motor):
+    from drivers.exceptions import BoardPortFailedError
+
+    board, _sim = motor
+    board._close_driver()
+    with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed$'):
+        board.detect_firmware_version()
 
 
 @pytest.mark.slow
@@ -125,7 +149,9 @@ def test_a_diagnostic_command_with_no_reply_is_no_reply(motor):
 def test_the_tools_move_reports_a_move_with_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
-    assert 'did not happen' in firmware_tools._move_to_step(board, 'Z', 1000, timeout=2)
+    assert firmware_tools._move_to_step(board, 'Z', 1000, timeout=2) == (
+        'TARGET_WZ1000: no reply from the board'
+    )
 
 
 def test_the_tools_homing_cycle_moves_away_and_homes_through_the_driver(monkeypatch, capsys, motor):
@@ -150,6 +176,20 @@ def test_leaving_engineering_mode_answers_whether_it_happened(led):
     board, _ = led
     assert board.enter_engineering_mode(timeout=5)
     assert board.exit_engineering_mode() is True
+
+
+def test_an_led_write_the_slowest_shipped_firmware_answers_is_confirmed(led):
+    """The 2024-06-05 LED firmware answers a 1000 mA write in about 150 ms."""
+    board, sim = led
+    sim.delay_next_reply(0.15)
+    board.led_on(1, 1000)  # raises if unanswered
+
+
+def test_an_led_write_answered_past_the_wait_raises(led):
+    board, sim = led
+    sim.delay_next_reply(0.5)
+    with pytest.raises(BoardNoReplyError, match=r'^LED1_1000: no reply from the board'):
+        board.led_on(1, 1000)
 
 
 def test_the_simulated_board_answers_its_exit_as_the_real_one_does():

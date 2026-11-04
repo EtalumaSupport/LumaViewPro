@@ -1,0 +1,34 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""The camera's live exposure floor is read from the camera, and a failed read raises.
+
+``scope.camera.read_exposure_min_ms()`` answers the shortest exposure the
+camera takes now: on IDS bodies it rises above the floor read at connect
+(``capabilities.camera_limits.exposure_min_ms``) as the camera's other
+settings change. None means no camera; a read that fails on a connected
+camera is a different fact, so it raises, and a caller that sizes an
+exposure sweep from the answer never mistakes it for an absent camera or a
+floor. It replaced ``get_camera_profile_info``'s ``exposure_min_ms``.
+"""
+
+import pytest
+
+from drivers.exceptions import CameraReadFailedError
+from modules.exceptions import HardwareCommandRefusedError, MissingPart
+
+
+def test_a_connected_camera_answers_its_floor(sim_scope):
+    # The simulated camera declares 14 us.
+    assert sim_scope.camera.read_exposure_min_ms() == pytest.approx(0.014)
+
+
+def test_with_no_camera_the_read_is_refused_naming_it(sim_scope):
+    sim_scope._camera_driver.active = False
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        sim_scope.camera.read_exposure_min_ms()
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
+
+
+def test_a_failed_read_raises(sim_scope):
+    sim_scope.simulation.refuse_camera_read('minimum_exposure', 'failed')
+    with pytest.raises(CameraReadFailedError, match='minimum exposure'):
+        sim_scope.camera.read_exposure_min_ms()

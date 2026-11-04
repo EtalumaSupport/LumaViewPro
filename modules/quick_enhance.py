@@ -7,7 +7,6 @@ the live display worker.
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import pathlib
@@ -20,13 +19,18 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from modules import common_utils, image_utils
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules import image_mode, image_utils, wall_time
+from modules.layer_record import GREY, ChannelColors, Color, stored_key
+from modules.exceptions import (
+    PostProcessingFailedError,
+    PostProcessingOperation,
+    PostProcessingRefusedError,
+)
 
 
 PIPELINE_VERSION = '3'
 # The operation's name as a person reads it, in its refusals and failures.
-QUICK_ENHANCE_OPERATION = 'Quick Enhance'
+QUICK_ENHANCE_OPERATION = PostProcessingOperation.QUICK_ENHANCE
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
@@ -90,17 +94,15 @@ class QuickEnhancer:
         cls,
         source_path: pathlib.Path,
         *,
-        source_pixels: np.ndarray | None = None,
-        source_metadata: dict | None = None,
+        source_pixels: np.ndarray,
+        source_record: dict | None,
     ) -> str | None:
-        metadata = source_metadata or image_utils.read_postproc_input_metadata(source_path) or {}
-        channel = metadata.get('channel')
+        channel = source_record.get('channel') if source_record is not None else None
         if isinstance(channel, str) and channel:
             return channel
-        if source_pixels is not None:
-            legacy_channel = cls._legacy_false_color_channel(source_pixels)
-            if legacy_channel is not None:
-                return legacy_channel[0]
+        legacy_channel = cls._legacy_false_color_channel(source_pixels)
+        if legacy_channel is not None:
+            return legacy_channel[0]
         # Foreign inputs only. This path admits PNG/JPG/BMP and third-party
         # TIFFs, none of which carry a channel field; files this application
         # writes always state theirs and are answered by the metadata branch
@@ -123,15 +125,27 @@ class QuickEnhancer:
         return None
 
     @staticmethod
-    def colorize_mono_for_visual_output(image: np.ndarray, channel: str | None) -> np.ndarray:
-        """Return RGB false color for a mono fluorescence derived image.
+    def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
+        """The colour a derived image of ``channel`` is shown in: a layer's
+        colour in ``channel_colors`` (a stored old name's is its stock key's),
+        and grey for a source that names none (a foreign file, a composite,
+        an unrecognised token)."""
+        return channel_colors.get(stored_key(channel), GREY)
 
-        Quick Enhance is a visual-export path. It retains transmitted-light
-        and unknown mono images as mono, while recognized fluorescence layers
-        receive their established display color only in the derived output.
+    @staticmethod
+    def colorize_mono_for_visual_output(
+        image: np.ndarray, channel: str | None, channel_colors: ChannelColors
+    ) -> np.ndarray:
+        """Return RGB false color for a mono derived image of a coloured channel.
+
+        Quick Enhance is a visual-export path. It retains mono images of a
+        grey channel (transmitted light, an unknown source) as mono, while
+        a coloured channel receives its display color only in the derived
+        output.
         """
-        if image.ndim == 2 and channel in common_utils.get_image_layers():
-            return image_utils.mono_to_rgb_falsecolor(image, channel)
+        color = QuickEnhancer._channel_color(channel, channel_colors)
+        if image.ndim == 2 and color != GREY:
+            return image_utils.mono_to_rgb_falsecolor(image, color)
         return image
 
     @staticmethod
@@ -273,34 +287,6 @@ class QuickEnhancer:
         plane = plane.astype(np.float32, copy=False)
         return np.maximum(plane, 1.0 / 65535.0, out=plane)
 
-    def preview(
-        self,
-        image: np.ndarray,
-        settings: QuickEnhanceSettings,
-        significant_bits: int,
-        max_dimension: int = 1200,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return 8-bit before/after display arrays; intended for a worker task."""
-        preview_source = self._downsample(image, max_dimension)
-        preview_after = self.apply(preview_source, settings, significant_bits)
-        return (
-            image_utils.convert_to_8bit(preview_source, significant_bits),
-            image_utils.convert_to_8bit(preview_after, significant_bits),
-        )
-
-    @staticmethod
-    def _downsample(image: np.ndarray, max_dimension: int) -> np.ndarray:
-        height, width = image.shape[:2]
-        current = max(height, width)
-        if current <= max_dimension:
-            return image.copy()
-        scale = max_dimension / current
-        return cv2.resize(
-            image,
-            (max(1, round(width * scale)), max(1, round(height * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
-
     def recipe_dict(
         self,
         *,
@@ -316,7 +302,7 @@ class QuickEnhancer:
             'derived_filename': output_path.name,
             'pipeline': 'Quick Enhance',
             'pipeline_version': PIPELINE_VERSION,
-            'timestamp': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+            'timestamp': wall_time.now().isoformat(timespec='seconds'),
             'input_dtype': np.dtype(input_dtype).name,
             'output_dtype': np.dtype(output_dtype).name,
             'significant_bits': int(significant_bits),
@@ -352,11 +338,24 @@ class QuickEnhancer:
         source_path: str | pathlib.Path,
         settings: QuickEnhanceSettings,
         display_callback: Callable[[np.ndarray, int], None] | None = None,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
         source_path = pathlib.Path(source_path)
-        source_pixels, significant_bits = image_utils.load_pixels(
-            source_path, collapse_legacy_false_color=False
-        )
+        try:
+            # The white is not used: the enhance stretches its output across
+            # the depth's whole range, so the output is shown at its depth.
+            source_pixels, significant_bits, _ = image_utils.load_pixels(
+                source_path, collapse_legacy_false_color=False
+            )
+        except ValueError as e:
+            # Refused as the cell count refuses the same file: what is wrong
+            # is the file the caller chose, not the enhance.
+            raise PostProcessingRefusedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                reason='unreadable',
+                message=f'{source_path.name} cannot be enhanced: {e}.',
+            ) from e
         legacy_channel = self._legacy_false_color_channel(source_pixels)
         image = (
             source_pixels[..., legacy_channel[1]].copy()
@@ -364,27 +363,28 @@ class QuickEnhancer:
             else source_pixels
         )
         output = self.apply(image, settings, significant_bits)
-        output_path = self._next_output_path(source_path)
-        recipe_path = output_path.with_suffix('.recipe.json')
+        output_path, recipe_path = self._next_output_paths(source_path)
 
         temp_output = output_path.with_name(f'.{output_path.stem}.{uuid.uuid4().hex}.tmp.tif')
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
         try:
-            source_metadata = image_utils.read_postproc_input_metadata(source_path) or {}
+            # Read once: the channel and the output's record both come from it.
+            source_record = image_utils.read_file_record(source_path)
             channel = str(
                 self._source_channel(
                     source_path,
                     source_pixels=source_pixels,
-                    source_metadata=source_metadata,
+                    source_record=source_record,
                 )
                 or 'Unknown'
             )
             metadata = image_utils.build_postproc_output_metadata(
-                input_path=source_path,
+                input_records=[source_record],
                 channel=channel,
                 significant_bits=significant_bits,
+                adds_frames=False,
             )
-            output_for_write = self.colorize_mono_for_visual_output(output, channel)
+            output_for_write = self.colorize_mono_for_visual_output(output, channel, channel_colors)
             if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:
                 # The TIFF writer supports RGB samples, not RGBA. Alpha is a
                 # display-only component for these composite inputs, so retain
@@ -398,15 +398,17 @@ class QuickEnhancer:
                     output_for_write,
                     cv2.COLOR_BGR2RGB,
                 )
-            render_color = channel if channel in common_utils.get_layers() else 'BF'
+            render_color = self._channel_color(channel, channel_colors)
             image_utils.write_tiff(
                 data=output_for_write,
                 file_loc=temp_output,
                 metadata=metadata,
-                ome=False,
+                # The format its name states, its source's.
+                ome=image_utils.is_ome_tiff(output_path),
                 color=render_color,
                 significant_bits=significant_bits,
                 save_encoding='right_aligned',
+                white_bits=None,
             )
             recipe = self.recipe_dict(
                 source_path=source_path,
@@ -443,6 +445,8 @@ class QuickEnhancer:
         settings: QuickEnhanceSettings,
         progress_callback: Callable[[int, int, pathlib.Path], None] | None = None,
         display_callback: Callable[[np.ndarray, int], None] | None = None,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
         """Enhance every supported image in *folder*, each to its own derived file.
 
@@ -472,18 +476,31 @@ class QuickEnhancer:
                         source_path,
                         settings,
                         display_callback=display_callback,
+                        channel_colors=channel_colors,
                     )
                 )
-            except (OSError, ValueError, cv2.error, MemoryError) as exc:
+            except (PostProcessingRefusedError, OSError, ValueError, cv2.error, MemoryError) as exc:
                 logger.warning('[QuickEnhance] Skipping %s: %s', source_path, exc, exc_info=True)
-                skipped.append({'source_path': source_path, 'error': str(exc)})
+                skipped.append(
+                    {
+                        'source_path': source_path,
+                        'error': str(exc),
+                        'refused': isinstance(exc, PostProcessingRefusedError),
+                    }
+                )
             if progress_callback is not None:
                 progress_callback(completed, total, source_path)
-        if not files:
+        # Nothing enhanced and nothing failed in the enhance itself: the
+        # folder holds no image this can read, as the cell count says of it.
+        if not created and all(item['refused'] for item in skipped):
             raise PostProcessingRefusedError(
                 operation=QUICK_ENHANCE_OPERATION,
                 reason='no_data',
-                message='The folder holds no image Quick Enhance can read.',
+                message=(
+                    f'None of the {total} image(s) in the folder can be read by Quick Enhance.'
+                    if files
+                    else 'The folder holds no image Quick Enhance can read.'
+                ),
             )
         if skipped:
             produced = [str(item['output_path']) for item in created]
@@ -512,14 +529,31 @@ class QuickEnhancer:
         return pathlib.Path(output_path).parent if output_path is not None else None
 
     @staticmethod
-    def _next_output_path(source_path: pathlib.Path) -> pathlib.Path:
-        base = source_path.with_name(f'{source_path.stem}_enhanced.tif')
-        if not base.exists():
-            return base
-        for index in range(2, 10_002):
-            candidate = source_path.with_name(f'{source_path.stem}_enhanced_{index}.tif')
-            if not candidate.exists():
-                return candidate
+    def _next_output_paths(source_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+        """Where an enhance of *source_path* is written, and its recipe.
+
+        In its source's format: ``a.ome.tiff`` gives ``a_enhanced.ome.tiff``,
+        anything else ``<name>_enhanced.tiff``. The name is the source's
+        without its format's suffix -- ``.ome.tiff`` taken off whole, else
+        only the last suffix, so ``exp1.5uM_BF.tiff`` keeps its ``.5uM``. A
+        name is taken while the image in either format or the recipe exists,
+        so ``a.tiff`` and ``a.ome.tiff`` in one folder never share a recipe.
+        """
+        if image_utils.is_ome_tiff(source_path):
+            base = source_path.name[: -len(''.join(source_path.suffixes[-2:]))]
+            output_format = image_mode.OutputFormat.OME_TIFF
+        else:
+            base = source_path.stem
+            output_format = image_mode.OutputFormat.TIFF
+        suffix = image_utils.derived_file_suffix(output_format)
+        for index in range(1, 10_002):
+            stem = f'{base}_enhanced' if index == 1 else f'{base}_enhanced_{index}'
+            taken = (f'{stem}.ome.tiff', f'{stem}.tiff', f'{stem}.recipe.json')
+            if not any(source_path.with_name(name).exists() for name in taken):
+                return (
+                    source_path.with_name(f'{stem}{suffix}'),
+                    source_path.with_name(f'{stem}.recipe.json'),
+                )
         raise FileExistsError(
             f'Could not choose a derived filename for {source_path.name}: too many existing exports.'
         )

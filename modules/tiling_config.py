@@ -1,16 +1,19 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import dataclasses
 import itertools
-import json
 import pathlib
 import re
+import types
+import typing
 from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
-from modules.exceptions import ProtocolRunRefusedError
-from modules.api_surface import api, api_fields
+from modules.exceptions import InstallationFileError, ProtocolRunRefusedError
+from modules.api_surface import api_fields
+from modules.path_utils import read_installation_file
 
 if TYPE_CHECKING:
     from modules.scope_capabilities import ScopeCapabilities
@@ -34,6 +37,30 @@ def _row_label(index: int) -> str:
     return label
 
 
+# The tile overlap a grid may be built with, in percent, ends included.
+OVERLAP_PERCENT_RANGE: typing.Final = (0.0, 50.0)
+
+
+def _refuse_unless_whole(contents: dict, path: pathlib.Path) -> None:
+    """Refuse a tiling.json that is not the shape its readers need."""
+    grids = contents.get('data')
+    if not isinstance(grids, dict):
+        raise InstallationFileError(path, "has no 'data' object of tiling grids")
+    for label, grid in grids.items():
+        if not (
+            isinstance(grid, dict) and all(type(grid.get(field)) is int for field in ('m', 'n'))
+        ):
+            raise InstallationFileError(
+                path, f"has a grid {label!r} without a whole-number 'm' and 'n'"
+            )
+    metadata = contents.get('metadata')
+    default = metadata.get('default') if isinstance(metadata, dict) else None
+    if not isinstance(default, str) or default not in grids:
+        raise InstallationFileError(
+            path, f"names no default grid among its own ('metadata.default' is {default!r})"
+        )
+
+
 def _split_row_col(tile_label: str) -> tuple[str, int]:
     """Split a tile label into its row letters and integer column."""
     letters = ''.join(itertools.takewhile(str.isalpha, tile_label))
@@ -41,77 +68,62 @@ def _split_row_col(tile_label: str) -> tuple[str, int]:
 
 
 @api_fields('available', 'default', record=True)
+@dataclasses.dataclass(frozen=True)
 class TilingConfig:
-    """The tiling grids an installation offers, read from its tiling.json.
+    """The tiling grids an installation offers.
 
     Attributes:
         available: Each grid's label, as ``create_protocol`` and
             ``Protocol.apply_tiling`` accept it.
-        default: The grid to preselect; None when the file names none.
+        default: The grid to preselect, one of ``available``.
     """
 
     available: tuple[str, ...]
-    default: str | None
+    default: str
+
+
+class TilingGrids:
+    """The installation's tiling grids, read from its tiling.json, and the tile layout over them.
+
+    Read once, by the scope at bring-up; every protocol lays its tiles out
+    against that one copy, so the grids a session offers and the grids a
+    protocol accepts are one set. The grids never change after
+    construction: a grid's size is handed out as a new dict each time it is
+    asked.
+    """
 
     DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
     }
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path):
-        try:
-            with open(tiling_configs_file_loc) as fp:
-                self._available_configs = json.load(fp)
-        except FileNotFoundError as e:
-            logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')
-            raise RuntimeError(
-                f'Required file tiling.json not found at {tiling_configs_file_loc}. '
-                'Please reinstall or restore from backup.'
-            ) from e
-        except json.JSONDecodeError as e:
-            logger.error(f'[Tiling    ] tiling.json is corrupt: {e}')
-            raise RuntimeError(
-                f'tiling.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
+        """Read the installation's tiling.json.
 
-        self._validate_tiling(tiling_configs_file_loc)
-        self.available = tuple(self._available_configs['data'].keys())
-        self.default = self._available_configs.get('metadata', {}).get('default')
-
-    def _validate_tiling(self, filepath):
-        """Check tiling.json has required structure."""
-        cfg = self._available_configs
-        if not isinstance(cfg, dict):
-            raise ValueError(f'tiling.json at {filepath}: expected dict, got {type(cfg).__name__}')
-        if 'metadata' not in cfg:
-            logger.warning(f"[Tiling    ] missing 'metadata' key in {filepath}")
-        if 'data' not in cfg:
-            raise ValueError(f"tiling.json at {filepath}: missing required 'data' key")
-        if not isinstance(cfg['data'], dict):
-            raise ValueError(f"tiling.json at {filepath}: 'data' must be a dict")
-        for label, entry in cfg['data'].items():
-            if not isinstance(entry, dict):
-                logger.warning(f"[Tiling    ] '{label}' should be dict in {filepath}")
-                continue
-            for field in ('m', 'n'):
-                if field not in entry:
-                    logger.warning(f"[Tiling    ] '{label}' missing '{field}' in {filepath}")
-                elif not isinstance(entry[field], int):
-                    logger.warning(
-                        f"[Tiling    ] '{label}'.'{field}' should be int, "
-                        f'got {type(entry[field]).__name__} in {filepath}'
-                    )
-
-    @api(in_process=True)
-    def available_configs(self) -> list[str]:
-        """``available``, as a list."""
-        return list(self.available)
+        Raises:
+            InstallationFileError: the file is missing, unreadable or not a
+                JSON object, or is not the shape every reader of it needs: a
+                ``data`` object of grids, each with a whole-number ``m`` and
+                ``n``, and a ``metadata.default`` naming one of them. A grid
+                left out of a broken file would be a grid the person cannot
+                choose and a run could not lay out, so the file is refused
+                whole, where it is read.
+        """
+        contents = read_installation_file(tiling_configs_file_loc)
+        _refuse_unless_whole(contents, pathlib.Path(tiling_configs_file_loc))
+        self._grids = types.MappingProxyType(
+            {label: (grid['m'], grid['n']) for label, grid in contents['data'].items()}
+        )
+        self.config = TilingConfig(
+            available=tuple(self._grids), default=contents['metadata']['default']
+        )
 
     def get_mxn_size(self, config_label: str) -> dict:
-        return self._available_configs['data'][config_label]
+        m, n = self._grids[config_label]
+        return {'m': m, 'n': n}
 
     def get_label_from_mxn_size(self, m: int, n: int) -> str | None:
-        for config_label, config_data in self._available_configs['data'].items():
-            if (config_data['m'] == m) and (config_data['n'] == n):
+        for config_label, mxn in self._grids.items():
+            if mxn == (m, n):
                 return config_label
 
         return None
@@ -161,13 +173,6 @@ class TilingConfig:
 
         return self.get_label_from_mxn_size(m=m, n=n)
 
-    @api(in_process=True)
-    def default_config(self) -> str:
-        """``default``; KeyError when the file names none."""
-        if self.default is None:
-            raise KeyError('default')
-        return self.default
-
     @staticmethod
     def no_tiling_label() -> str:
         """The label for a single, un-tiled field of view.
@@ -204,7 +209,6 @@ class TilingConfig:
             # misaligned montage, which is worse than no tiling -- refuse.
             raise ProtocolRunRefusedError(
                 reason='tiling_scale_unknown',
-                title='Tiling Not Available',
                 message=(
                     'This microscope cannot report its pixel size, so the spacing of a '
                     'tile grid is unknown. Build the protocol without tiling (1x1).'
@@ -293,14 +297,15 @@ class TilingConfig:
         except (TypeError, ValueError):
             raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}') from None
 
-        if overlap_percent < 0.0 or overlap_percent > 50.0:
+        low, high = OVERLAP_PERCENT_RANGE
+        if not low <= overlap_percent <= high:
             raise ValueError(
-                f'Tile overlap must be between 0 and 50 percent, got {overlap_percent}'
+                f'Tile overlap must be between {low:g} and {high:g} percent, got {overlap_percent}'
             )
         return overlap_percent
 
     @staticmethod
     def fill_factor_from_overlap_percent(overlap_percent: float) -> float:
-        overlap_percent = TilingConfig.validate_overlap_percent(overlap_percent)
+        overlap_percent = TilingGrids.validate_overlap_percent(overlap_percent)
         overlap_fraction = overlap_percent / 100.0
         return 1.0 - overlap_fraction

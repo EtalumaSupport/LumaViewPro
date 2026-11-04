@@ -15,10 +15,9 @@ Contract under test, two halves:
    Stop left behind. The run-state edge that says nothing holds the
    scope any more draws it, through the one writer of the displays
    every run shares.
-2. The indicator write itself gates on the RUNNER's truth, not the
-   ctx.protocol_running lockout flag: that flag deliberately outlives
-   the run through the "Writing Files..." window, where a manual step
-   would re-create the stale write with no later healer.
+2. Step navigation writes no indicator at all, during a run or after
+   it: the button shows the LED, and the listener bridge draws it from
+   the LED state store (Eric, 2026-10-12: "Always the LED truth").
 """
 
 import sys
@@ -62,10 +61,13 @@ _real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import modules.app_context as _app_ctx
+from modules.live_work import LiveWork
+from modules.scope_session import ControlsLock
 import ui.protocol_settings as ps_module
 import ui.ui_helpers as ui_helpers
 from ui.listener_bridge import UIListenerBridge
 from ui.step_navigation import go_to_step_update_ui
+from tests.stock_channels import LED1
 
 
 class _Button:
@@ -86,8 +88,8 @@ class _Stand:
         }
 
 
-def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
-    """Fake ctx + real bridge; returns (stand, layers) with BF stale 'down'."""
+def _build_env(monkeypatch, scope, files_draining=False, run_in_progress=False):
+    """Fake ctx + real bridge over ``scope``; returns (stand, layers) with BF stale 'down'."""
     layers = {}
 
     def layer_lookup(layer):
@@ -97,9 +99,6 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
                 set_step_state=lambda step: None,
             )
         return layers[layer]
-
-    scope = MagicMock()
-    scope.illumination.get_led_state.return_value = {'enabled': False}
 
     ctx = SimpleNamespace(
         ready=True,
@@ -142,21 +141,28 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
     return stand, layers
 
 
-def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch):
-    _stand, layers = _build_env(monkeypatch)
+def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch, sim_scope):
+    _stand, layers = _build_env(monkeypatch, sim_scope)
+    # The run left a channel lit: its toggle is drawn ON from the same read.
+    sim_scope.illumination.led_on(LED1, 50.0)
 
-    ui_helpers.draw_shared_run_displays()
+    # The idle edge: nothing holds the scope, nothing is still writing.
+    ui_helpers.draw_shared_run_displays(
+        ControlsLock(run_named=None, control_named=None, recording=False),
+        LiveWork(work=(), closing=False, closed=False),
+    )
 
     assert layers['BF'].ids['enable_led_btn'].state == 'normal', (
         'run-complete must reconcile enable-toggles from driver truth; '
         'the stale ON indicator survived the run end'
     )
+    assert layers[LED1].ids['enable_led_btn'].state == 'down', 'a lit LED is drawn ON'
 
 
-def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch):
+def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch, sim_scope):
     """Writing-files window: lockout flag still set, runner idle. A manual
     step must NOT force the indicator 'down' -- nothing later heals it."""
-    _stand, layers = _build_env(monkeypatch, files_draining=True, run_in_progress=False)
+    _stand, layers = _build_env(monkeypatch, sim_scope, files_draining=True, run_in_progress=False)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'Color': 'BF'})
@@ -167,12 +173,12 @@ def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch):
     )
 
 
-def test_live_run_step_still_writes_the_run_indicator(monkeypatch):
-    """Behavior-preservation guard (passes pre- and post-fix): during a
-    live run the indicator still shows the upcoming step's channel."""
-    _stand, layers = _build_env(monkeypatch, run_in_progress=True)
+def test_a_live_runs_step_leaves_the_led_button_to_the_led(monkeypatch, sim_scope):
+    """During a run, going to a step with its LED still dark leaves the
+    button off: it is drawn from the LED, not from the step."""
+    _stand, layers = _build_env(monkeypatch, sim_scope, run_in_progress=True)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'Color': 'BF'})
 
-    assert layers['BF'].ids['enable_led_btn'].state == 'down'
+    assert layers['BF'].ids['enable_led_btn'].state == 'normal'

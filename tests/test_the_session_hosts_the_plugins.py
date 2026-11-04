@@ -25,14 +25,18 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from modules.exceptions import ProtocolRunRefusedError
+
 import modules.image_mode as image_mode
+from modules.caller import Caller
 import modules.stack_builder as stack_builder
 from modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
 from modules.protocol import Protocol
 from modules.scope_session import ScopeSession
-from tests.test_a_late_write_records_its_frame import REPO_ROOT, _step
+from tests.test_a_late_write_records_its_frame import _step
 from tests.settings_fixtures import complete_settings
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
+from tests.protocol_fixtures import protocol_of
 
 WAIT_S = 60.0
 
@@ -46,7 +50,7 @@ class _EntryPoint:
         return self._module
 
 
-def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_register=None):
+def _plugin(name, *, processor=None, auto_run=False, on_register=None):
     """A plugin module that records what the host calls it with."""
     module = types.ModuleType(f'fake_plugin_{name}')
     module.spec = PluginSpec(
@@ -54,7 +58,6 @@ def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_regist
         version='0.1.0',
         requires_lvp_version='>=4.0.0',
         description=name,
-        subscribes_to=subscribes_to,
         auto_run_on_protocol_complete=auto_run,
     )
     module.calls = []
@@ -69,12 +72,8 @@ def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_regist
     def unregister(ctx):
         module.calls.append(('unregister', ctx))
 
-    def on_settings_changed(ctx, settings):
-        module.calls.append(('settings', ctx, settings))
-
     module.register = register
     module.unregister = unregister
-    module.on_settings_changed = on_settings_changed
     return module
 
 
@@ -100,8 +99,7 @@ def _recording_processor():
 
 def _one_scan_protocol(name='P1'):
     """A Full Protocol whose duration ends it after its first scan."""
-    return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step(name, 0, x=20.0, gain=1.0)]),
@@ -123,12 +121,11 @@ def _drain_lane(session):
 
 def _run_protocol(runner, tmp_path, *, sequenced_format='TIFF'):
     runner.session.update_settings('image_output_format.sequenced', sequenced_format)
-    run = runner.run_protocol(
+    run = runner.start_protocol(
         protocol=_one_scan_protocol(),
         parent_dir=str(tmp_path / 'runs'),
-        run_trigger_source='api_protocol',
     )
-    files = run.wait_for_files(timeout_s=WAIT_S)
+    files = run.files.result(timeout=WAIT_S)
     assert files is not None, 'the run never finished its files'
     return run, files
 
@@ -150,8 +147,8 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         assert files.outcome == 'written'
         assert len(opted_in.calls) == 1
         input_dir, manifest, thread_name = opted_in.calls[0]
-        assert input_dir == str(run.run_dir)
-        assert manifest['trigger_source'] == 'api_protocol'
+        assert input_dir == str(run.progress().run_dir)
+        assert manifest['trigger_source'] == Caller.API, "a run no host stamped is a script's"
         assert manifest['protocol_name'] == 'protocol'
         assert thread_name.startswith('POSTPROC'), thread_name
         assert not_opted_in.calls == []
@@ -161,6 +158,14 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('opted_in', processor=opted_in, auto_run=True))
             first, _files = _run_protocol(runner, tmp_path)
+            # A run is refused while the lane has work, its predecessor's
+            # hand-off included, so the second starts once the lane is idle:
+            # the condition the refusal reads, which no event signals.
+            assert opted_in.called.wait(WAIT_S), 'the first protocol was not handed on'
+            for _ in range(int(WAIT_S / 0.05)):
+                if not session.post_processing.has_work():
+                    break
+                threading.Event().wait(0.05)
             second, _files = _run_protocol(runner, tmp_path)
             _drain_lane(session)
             for _ in range(int(WAIT_S / 0.05)):
@@ -169,24 +174,24 @@ class TestAFullProtocolRunsTheOptedInProcessors:
                 threading.Event().wait(0.05)
 
         assert sorted(call[0] for call in opted_in.calls) == sorted(
-            [str(first.run_dir), str(second.run_dir)]
+            [str(first.progress().run_dir), str(second.progress().run_dir)]
         )
 
     def test_a_scan_hands_nothing_on(self, tmp_path):
         opted_in = _recording_processor()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('opted_in', processor=opted_in, auto_run=True))
-            scan = runner.run_single_scan(
+            scan = runner.start_single_scan(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
-            assert scan.wait_for_files(timeout_s=WAIT_S) is not None
+            assert scan.files.result(timeout=WAIT_S) is not None
             # The positive barrier: a Full Protocol after the scan is handed
             # on, so a hand-off the scan owed would have come first.
             protocol, _files = _run_protocol(runner, tmp_path)
             assert opted_in.called.wait(WAIT_S), 'the protocol after the scan was not handed on'
             _drain_lane(session)
 
-        assert [call[0] for call in opted_in.calls] == [str(protocol.run_dir)]
+        assert [call[0] for call in opted_in.calls] == [str(protocol.progress().run_dir)]
 
     def test_a_session_without_plugins_runs_its_protocol(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -217,13 +222,15 @@ class TestAFullProtocolRunsTheOptedInProcessors:
 
     def test_the_processor_runs_after_the_hyperstack_build(self, tmp_path, monkeypatch):
         build_ended = threading.Event()
-        real_build = stack_builder.build_hyperstacks_for_run
+        real_load = stack_builder.StackBuilder.load_folder
 
-        def _build(**kwargs):
-            real_build(**kwargs)
-            build_ended.set()
+        def _load_then_say(self, *args, **kwargs):
+            try:
+                return real_load(self, *args, **kwargs)
+            finally:
+                build_ended.set()
 
-        monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _build)
+        monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_then_say)
         seen_build_ended = []
 
         def processor(*_args):
@@ -232,7 +239,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
 
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('after_build', processor=processor, auto_run=True))
-            _run_protocol(runner, tmp_path, sequenced_format=image_mode.OUTPUT_FORMAT_HYPERSTACK)
+            _run_protocol(runner, tmp_path, sequenced_format=image_mode.OutputFormat.HYPERSTACK)
             _drain_lane(session)
             deadline = threading.Event()
             for _ in range(int(WAIT_S / 0.05)):
@@ -254,14 +261,17 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         try:
             with open_composite_session(headless_settings(tmp_path)) as (session, runner):
                 _load(session, _plugin('held', processor=held, auto_run=True))
+                # The run's files are done while its processor is still held
+                # (the helper waits for them); the next run waits for the
+                # processor, as for any build on the lane: a capture and a
+                # build never overlap.
                 _run_protocol(runner, tmp_path)
                 assert started.wait(WAIT_S), 'the processor never started'
-                # The run's files are done while its processor is still held,
-                # and the scope takes the next run.
-                second = runner.run_single_scan(
-                    protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
-                )
-                assert second.wait_for_files(timeout_s=WAIT_S) is not None
+                with pytest.raises(ProtocolRunRefusedError) as refused:
+                    runner.start_single_scan(
+                        protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
+                    )
+                assert refused.value.reason == 'post_processing_running'
                 release.set()
                 _drain_lane(session)
         finally:
@@ -328,10 +338,10 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
                 handed_on.set()
 
             monkeypatch.setattr(session.plugins, 'run_protocol_complete_processors', _spy)
-            run = runner.run_protocol(
+            run = runner.start_protocol(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
-            files = run.wait_for_files(timeout_s=WAIT_S)
+            files = run.files.result(timeout=WAIT_S)
             assert files is not None and files.outcome == 'incomplete'
             assert handed_on.wait(WAIT_S), 'the run was never handed on'
 
@@ -345,27 +355,6 @@ class TestTheSessionIsThePluginsHost:
         with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
             _load(session, plugin)
             assert plugin.calls == [('register', session)]
-
-    def test_a_setting_changed_before_the_first_save_is_told_at_it(self, tmp_path):
-        plugin = _plugin('listener', subscribes_to=('image_output_format.sequenced',))
-        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            _load(session, plugin)
-            session.update_settings('image_output_format.sequenced', 'OME-TIFF')
-            session.save_settings(str(tmp_path / 'current.json'))
-
-        told = [call for call in plugin.calls if call[0] == 'settings']
-        assert len(told) == 1
-        _kind, ctx, settings = told[0]
-        assert ctx is session
-        assert settings['image_output_format']['sequenced'] == 'OME-TIFF'
-
-    def test_a_save_that_changes_nothing_subscribed_tells_nothing(self, tmp_path):
-        plugin = _plugin('listener', subscribes_to=('image_output_format.sequenced',))
-        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            _load(session, plugin)
-            session.save_settings(str(tmp_path / 'current.json'))
-
-        assert [call for call in plugin.calls if call[0] == 'settings'] == []
 
     def test_health_is_the_registrys_once_plugins_load(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
@@ -402,7 +391,7 @@ class TestTheSessionIsThePluginsHost:
 class TestOneEngineeringMode:
     def test_a_plugin_that_turns_engineering_mode_on_turns_it_on_for_the_session(self, tmp_path):
         def turn_on(session):
-            session.engineering_mode = True
+            session.set_engineering_mode(True)
 
         settings = headless_settings(tmp_path)
         # Where a still is saved: the one key a still reads that a run does not.
@@ -411,16 +400,14 @@ class TestOneEngineeringMode:
             assert session.engineering_mode is False
             _load(session, _plugin('engineering', on_register=turn_on))
             runner.run_composite(sequence_name='eng', parent_dir=str(tmp_path / 'runs'))
-            token = f'Turret{int(session.scope.motion.get_current_position("T"))}'
-            still = session.manual_capture.capture(layer='BF', false_color_on=False).result(
-                timeout=WAIT_S
-            )
+            token = f'Turret{session.scope.motion.turret_status().slot}'
+            still = session.manual_capture.capture(false_color_on=False).result(timeout=WAIT_S)
 
         frames = sorted(p.name for p in single_run_dir(tmp_path / 'runs').glob('*.tiff'))
         assert frames, 'the run wrote no frames'
         for name in frames:
             assert token in name, f'{name} carries no turret position; expected {token}'
-        assert token in still[0].name, f'{still[0].name} carries no turret position'
+        assert token in still[0].file.name, f'{still[0].file.name} carries no turret position'
 
     def test_the_application_context_holds_no_engineering_flag(self):
         from modules.app_context import AppContext
@@ -466,3 +453,24 @@ class TestNoEngineering:
             assert other.calls == [('register', session)]
         finally:
             session.shutdown()
+
+
+def test_a_session_loads_its_plugins_once(tmp_path):
+    """A second load would register every plugin again; it is refused, for good."""
+    from modules.exceptions import AlreadyStartedError, RefusalCause
+
+    plugin = _plugin('once')
+    session = ScopeSession.create(complete_settings(), simulate=True, no_engineering=True)
+    try:
+        _load(session, plugin)
+        with pytest.raises(AlreadyStartedError) as refused:
+            _load(session, plugin)
+        session.unload_plugins()
+        with pytest.raises(AlreadyStartedError):
+            _load(session, plugin)
+    finally:
+        session.shutdown()
+
+    assert (refused.value.reason, refused.value.cause) == ('plugins_loaded', RefusalCause.REQUEST)
+    assert isinstance(refused.value, RuntimeError), 'still what it was documented as'
+    assert [call[0] for call in plugin.calls].count('register') == 1

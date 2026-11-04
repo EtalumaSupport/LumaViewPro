@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every lane of a session hands its callbacks to the process's one UI dispatcher.
 
-A session built over a caller's scope used to build its file,
-post-processing, worker-pool and diagnostics lanes with no dispatcher, so on
-the GUI host those lanes ran their callbacks on the worker while the scope's
-own delivered on the UI thread. Each lane now reads the one store at the
-moment it dispatches, whoever built the scope.
+A session's file, post-processing, worker-pool and diagnostics lanes were
+once built with no dispatcher when its scope was built elsewhere, so on the
+GUI host those lanes ran their callbacks on the worker while the scope's own
+delivered on the UI thread. Each lane reads the one store at the moment it
+dispatches.
 """
 
 from __future__ import annotations
@@ -52,11 +52,10 @@ def _delivered_through_the_store(lane, scheduled) -> bool:
 
 
 @pytest.mark.parametrize('lane_name', LANES)
-def test_a_session_over_a_callers_scope_dispatches_every_lane_through_the_store(
-    lane_name, scheduled, tmp_path
-):
-    scope = build_scope(simulate=True, warn_pre_release=False)
-    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
+def test_a_session_dispatches_every_lane_through_the_store(lane_name, scheduled, tmp_path):
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
+    )
     try:
         lane = getattr(session.executor_bundle, lane_name)
         assert _delivered_through_the_store(lane, scheduled), (
@@ -64,7 +63,6 @@ def test_a_session_over_a_callers_scope_dispatches_every_lane_through_the_store(
         )
     finally:
         session.shutdown()
-        scope.disconnect()
 
 
 def test_with_no_dispatcher_a_lane_calls_its_callback_on_the_worker(tmp_path):

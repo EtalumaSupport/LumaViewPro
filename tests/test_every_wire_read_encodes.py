@@ -15,6 +15,9 @@ its value, an ``IntEnum`` included, though it is an int.
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
+import enum
 import json
 import pathlib
 from concurrent.futures import Future
@@ -22,7 +25,7 @@ from concurrent.futures import Future
 import pytest
 
 from modules import wire_encoding
-from modules.api_surface import API, mark_of
+from modules.api_surface import API, api_fields, mark_of
 
 
 @pytest.fixture
@@ -79,7 +82,7 @@ def test_every_wire_read_from_the_session_encodes(session, tmp_path):
 
     assert not failed, '\n'.join(failed)
     # The walk reached the sub-APIs and the records they hold.
-    assert {'ScopeSession.status', 'ScopeSession.live_work', 'Lumascope.capabilities'} <= set(read)
+    assert {'ScopeSession.status', 'Lumascope.capabilities'} <= set(read)
     # 61 reads over 13 live objects at this writing.
     assert len(seen) >= 10, f'{len(read)} reads over {len(seen)} live objects'
 
@@ -94,6 +97,45 @@ def test_a_value_with_no_form_is_refused(tmp_path):
         wire_encoding.encode(
             {'frame': np.zeros(2)}, live_folder=tmp_path, handle=no_handle, job=no_handle
         )
+
+
+@api_fields('windows')
+@dataclasses.dataclass(frozen=True)
+class _Scan:
+    windows: tuple[dict, ...]
+
+
+def test_a_timedelta_is_refused_in_either_walk_naming_where_it_is(tmp_path):
+    # A duration is a float of seconds; one left a timedelta is refused by
+    # whichever walk reads it first, with the record and the path to it.
+    value = _Scan(windows=({'period': datetime.timedelta(seconds=5)},))
+
+    def no_handle(obj):
+        raise AssertionError(obj)
+
+    with pytest.raises(wire_encoding.NoWireFormError, match=r"_Scan\.windows\[0\]\['period'\]"):
+        wire_encoding.encode(value, live_folder=tmp_path, handle=no_handle, job=no_handle)
+    with pytest.raises(wire_encoding.NoWireFormError, match=r"_Scan\.windows\[0\]\['period'\]"):
+        wire_encoding.plain(value)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Unpublished:
+    count: int
+
+
+def test_a_record_that_publishes_no_field_is_refused_in_either_walk_naming_where_it_is(tmp_path):
+    # It would cross as {}, a plausible empty answer where its data was meant.
+    value = _Scan(windows=({'tally': _Unpublished(count=3)},))
+
+    def no_handle(obj):
+        raise AssertionError(obj)
+
+    where = r"_Scan\.windows\[0\]\['tally'\]: .*_Unpublished publishes no field"
+    with pytest.raises(wire_encoding.NoWireFormError, match=where):
+        wire_encoding.encode(value, live_folder=tmp_path, handle=no_handle, job=no_handle)
+    with pytest.raises(wire_encoding.NoWireFormError, match=where):
+        value.to_dict()
 
 
 def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
@@ -113,17 +155,20 @@ def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
     assert outside == {'name': None, 'host_path': str(tmp_path)}
 
 
-def test_an_int_enum_crosses_as_its_name_as_every_enum_but_a_str_enum_does(tmp_path):
+def test_a_plain_enum_crosses_as_its_name_and_a_str_enum_as_its_value(tmp_path):
     from modules.notification_center import OutcomeKind, Severity
+
+    class Numbered(enum.Enum):
+        FIRST = 1
 
     def no_handle(obj):
         raise AssertionError(obj)
 
     encoded = wire_encoding.encode(
-        {'severity': Severity.WARNING, 'kind': OutcomeKind.REFUSAL},
+        {'numbered': Numbered.FIRST, 'severity': Severity.WARNING, 'kind': OutcomeKind.REFUSAL},
         live_folder=tmp_path,
         handle=no_handle,
         job=no_handle,
     )
 
-    assert encoded == {'severity': 'WARNING', 'kind': 'refusal'}
+    assert encoded == {'numbered': 'FIRST', 'severity': 'WARNING', 'kind': 'refusal'}

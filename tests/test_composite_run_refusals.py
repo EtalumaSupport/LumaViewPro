@@ -77,7 +77,7 @@ class _StepGate:
 def _plain_scan_protocol(session):
     """The steps a composite would capture, for a NON-composite run.
 
-    ``run_single_scan`` needs a Protocol, and production assembly already
+    ``start_single_scan`` needs a Protocol, and production assembly already
     builds one from the same settings snapshot the composite uses. Borrow
     it rather than hand-rolling a DataFrame: what makes this a rival is
     the run MODE and the claim it takes, not which positions it visits.
@@ -86,7 +86,7 @@ def _plain_scan_protocol(session):
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
         session.settings,
-        session.objective_helper,
+        session.scope.objective_helper,
         position=session.get_current_plate_position(),
     )
     return session.scope.protocols.create_protocol(input_config=input_config)
@@ -135,7 +135,9 @@ class TestARivalRunRefusesTheComposite:
         )
         try:
             assert gate.reached.wait(timeout=60), 'the first composite never reached a step'
-            assert session.is_protocol_running, 'the parked run does not hold the claim'
+            assert session.activity_claim.run_holder is not None, (
+                'the parked run does not hold the claim'
+            )
             with pytest.raises(ProtocolRunRefusedError) as refusal:
                 runner.start_composite(sequence_name='rival_second', parent_dir=str(tmp_path))
         finally:
@@ -146,7 +148,7 @@ class TestARivalRunRefusesTheComposite:
             f'{refusal.value.reason!r}, not for the run already holding the scope'
         )
 
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
         assert settled is not None and settled.merged, (
             f'the refused second click cost the first run its merge: {settled}'
         )
@@ -164,7 +166,7 @@ class TestARivalRunRefusesTheComposite:
         session, runner, tmp_path = composite_session
         gate = _StepGate()
 
-        pending = runner.run_single_scan(
+        pending = runner.start_single_scan(
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),
@@ -172,7 +174,9 @@ class TestARivalRunRefusesTheComposite:
         )
         try:
             assert gate.reached.wait(timeout=60), 'the scan never reached a step'
-            assert session.is_protocol_running, 'the parked scan does not hold the claim'
+            assert session.activity_claim.run_holder is not None, (
+                'the parked scan does not hold the claim'
+            )
             with pytest.raises(ProtocolRunRefusedError) as refusal:
                 runner.start_composite(sequence_name='composite_second', parent_dir=str(tmp_path))
         finally:
@@ -184,11 +188,13 @@ class TestARivalRunRefusesTheComposite:
         )
         # Waited on through the scan's own handle: the refused composite
         # returned none.
-        settled = pending.wait(timeout_s=120)
+        settled = pending.result(timeout=120)
         assert settled is not None and settled.status == 'completed', (
             f'the scan never completed: {settled}'
         )
-        assert not session.is_protocol_running, 'the scan finished still holding the claim'
+        assert session.activity_claim.run_holder is None, (
+            'the scan finished still holding the claim'
+        )
         # The scan's own directory, and only it.
         assert single_run_dir(tmp_path)
 
@@ -211,10 +217,12 @@ class TestADisconnectedCameraRefusesTheComposite:
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             runner.start_composite(sequence_name='camera_off', parent_dir=str(tmp_path))
 
-        assert refusal.value.reason == 'hardware_disconnected', (
+        assert refusal.value.reason == 'not_connected', (
             f'a composite with no camera was refused for {refusal.value.reason!r}'
         )
-        assert not session.is_protocol_running, 'the refused run left the activity claim held'
+        assert session.activity_claim.run_holder is None, (
+            'the refused run left the activity claim held'
+        )
         assert _run_dirs(tmp_path) == [], (
             f'the refused run created a run directory: {_run_dirs(tmp_path)}'
         )
@@ -224,7 +232,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         # the run flag or the claim set, the next click reports
         # 'already_running' -- a phantom run the user can neither see nor
         # stop, and every later click refused for it. The reason staying
-        # 'hardware_disconnected' is what proves the first refusal
+        # 'not_connected' is what proves the first refusal
         # released everything it touched.
         session, runner, tmp_path = composite_session
         session.scope._camera_driver.disconnect()
@@ -234,7 +242,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         with pytest.raises(ProtocolRunRefusedError) as second:
             runner.start_composite(sequence_name='camera_off_2', parent_dir=str(tmp_path))
 
-        assert second.value.reason == 'hardware_disconnected', (
+        assert second.value.reason == 'not_connected', (
             f'the second click was refused for {second.value.reason!r} -- the first '
             f'refusal left run state behind, so the camera is no longer the reason'
         )
@@ -251,7 +259,7 @@ class TestADisconnectedCameraRefusesTheComposite:
             runner.start_composite(sequence_name='camera_off', parent_dir=str(tmp_path))
 
         session.scope._camera_driver.connect()
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
 
         artifact = pathlib.Path(
             runner.run_composite(sequence_name='after', parent_dir=str(tmp_path)).artifact_path
@@ -307,7 +315,9 @@ class TestFewerThanTwoChannels:
                 f'{refusal.value.reason!r}, not for the channel count'
             )
             assert led_calls == [], f'the refused composite lit the board: {led_calls}'
-            assert not session.is_protocol_running, 'the refused run left the activity claim held'
+            assert session.activity_claim.run_holder is None, (
+                'the refused run left the activity claim held'
+            )
             assert _run_dirs(tmp_path) == [], (
                 f'the refused run created a run directory: {_run_dirs(tmp_path)}'
             )

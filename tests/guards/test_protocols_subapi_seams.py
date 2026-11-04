@@ -3,11 +3,7 @@
 
 Three things are locked here:
 
-1. Both Lumascope constructor paths expose the SAME sub-API roster.
-   `__init__` and `create_diagnostic` open-code their wiring separately,
-   so a sub-API added to one and forgotten in the other raises
-   AttributeError only on the diagnostic path -- which nobody exercises
-   until a customer needs a support report.
+1. The Lumascope constructor wires every sub-API in the roster.
 2. `source_path` is stored in exactly one place, on the scope, given at
    its construction; ProtocolsAPI reads it and keeps no copy.
 3. The migration itself: production callers reach the cluster through
@@ -22,27 +18,37 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT, find_def, iter_package_modules, parse_module
+from tests.ast_seams import (
+    REPO_ROOT,
+    MemberNames,
+    RetiredNames,
+    find_def,
+    iter_package_modules,
+    parse_module,
+)
 from tests.scope_fakes import build_scope
 
 _LUMASCOPE_SRC = 'modules/lumascope_api/_lumascope.py'
 _PROTOCOLS_SRC = 'modules/lumascope_api/protocols.py'
 
 # Every sub-API both constructor paths must wire.
-_SUB_APIS = (
-    'motion',
-    'illumination',
-    'imaging',
-    'diagnostics',
-    'capabilities',
-    'protocols',
-    'runtime_state',
+_SUB_APIS = MemberNames(
+    'modules/lumascope_api/_lumascope.py',
+    {
+        'motion',
+        'illumination',
+        'imaging',
+        'diagnostics',
+        'capabilities',
+        'protocols',
+        'runtime_state',
+    },
 )
 
 # Members moving off Lumascope onto ProtocolsAPI. sanitize_step_name is
 # on this list because it retires rather than moves -- its callers go
 # direct to Protocol, which is already its canonical home.
-_MOVED_MEMBERS = frozenset(
+_MOVED_MEMBERS = RetiredNames(
     {
         'load_protocol',
         'create_protocol',
@@ -51,12 +57,14 @@ _MOVED_MEMBERS = frozenset(
     }
 )
 
-_RETIRED_FROM_LUMASCOPE = (
-    'load_protocol',
-    'create_protocol',
-    'register_source_path',
-    'tiling_configs_path',
-    'sanitize_step_name',
+_RETIRED_FROM_LUMASCOPE = RetiredNames(
+    {
+        'load_protocol',
+        'create_protocol',
+        'register_source_path',
+        'tiling_configs_path',
+        'sanitize_step_name',
+    }
 )
 
 
@@ -97,7 +105,7 @@ def _legacy_call_sites():
 
 
 class TestSubApiRoster:
-    """Both constructor paths wire an identical sub-API roster."""
+    """The constructor wires every sub-API in the roster."""
 
     def test_init_path_wires_every_sub_api(self):
         scope = _new_scope()
@@ -106,13 +114,6 @@ class TestSubApiRoster:
         finally:
             scope.disconnect()
         assert not missing, f'__init__ did not wire: {missing}'
-
-    def test_diagnostic_path_wires_every_sub_api(self, diagnostic_scope):
-        missing = [name for name in _SUB_APIS if not hasattr(diagnostic_scope, name)]
-        assert not missing, (
-            f'create_diagnostic did not wire: {missing}. The two constructor '
-            f'paths wire sub-APIs separately; both must be updated together.'
-        )
 
 
 class TestSourcePathHasOneHome:
@@ -145,13 +146,11 @@ class TestConstructorsRefuseToGuess:
     """The folder the sub-API resolves against, asserted against the sub-API
     directly so it survives the forwarder retirement unchanged."""
 
-    def test_registration_resolves_the_tiling_config(self):
-        # The folder is given at construction; the sub-API resolves from it.
+    def test_the_folder_is_the_one_given_at_construction(self):
         root = REPO_ROOT
         scope = build_scope(simulate=True, register_atexit=False, source_path=root)
         try:
             assert pathlib.Path(scope.source_path) == root
-            assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
         finally:
             scope.disconnect()
 

@@ -1,28 +1,30 @@
 # Copyright Etaluma, Inc.
-"""A manual still capture names the channel it imaged the way a manual recording does.
+"""A manual still capture names the channel it imaged as a manual recording does: the shown layer.
 
 The still capture used to find its channel by scanning the layer accordions
 for the open one, inside the camera-executor task. With no drawer open the scan
 bound nothing: the wrong layer's folder was created and remembered, and the save
-then raised on a name that was never assigned. With a LED lit on a different
-channel than the open drawer, the file was named for the drawer while the light
-was the truth -- the rule the manual recording already follows.
+then raised on a name that was never assigned. With an LED lit on another
+channel than the open drawer, the file was named for the drawer and lit by
+another light; that still is now refused.
 
-These tests pin the rule and the seam: the channel is resolved once, by the one
-function both manual outputs share (a lit LED wins, else the open layer, else
-brightfield); every widget read happens on the button, before the capture guard
-is armed; and the open-layer scan has one implementation.
+These tests pin the rule and the seam: a still and a recording are named for
+the Session's shown channel, and each refuses another LED lit by the one
+function they share (``lit_other_than``); every widget read happens on the
+button, before the capture guard is armed; and the open-layer scan has one
+implementation.
 """
 
 import ast
-import json
 from types import SimpleNamespace
 
 import pytest
 import tifffile as tf
 
-from tests.ast_seams import REPO_ROOT, find_def, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_catalogue, release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 PLATE = '24 well microplate'
@@ -43,12 +45,12 @@ def identity_scope(sim_scope):
 
 def _read_channel_name(path) -> str:
     with tf.TiffFile(str(path)) as handle:
-        description = json.loads(handle.pages[0].description)
+        description = handle.shaped_metadata[0]
         return description['Channel']['Name'][0]
 
 
-def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_folders):
-    """Drive the one manual-capture path with the values the button snapshots.
+def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separate_folders):
+    """Drive the one manual-capture path with the shown layer the Session hands it.
 
     The save underneath is real: the defect lived in what reached the disk,
     so a test that patches the save cannot see it. Returns the files on disk
@@ -64,12 +66,18 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
         image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
         image_mode='8bit',
     )
-    for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
+    for name in release_catalogue():
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
+        scope=scope,
+        settings_snapshot=lambda: settings,
+        shown_layer=lambda: shown_layer,
+        # No layer is put on this camera, so the still's hold writes nothing.
+        layer_camera_request=lambda layer: None,
+        engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
-    reported = capture.capture(layer=layer, false_color_on=false_color_on).result(timeout=30)
+    reported = capture.capture(false_color_on=false_color_on).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').rglob('*.tiff')), reported
 
@@ -79,20 +87,20 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
 # ---------------------------------------------------------------------------
 
 
-def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
-    """Green drawer open with false colour on, Red LED lit: the file is named,
-    labelled and rendered as Red. The light is the truth; the drawer's toggle
-    only says the frame is rendered in colour."""
-    identity_scope.illumination.led_on(channel='Red', illumination_ma=100)
+@pytest.mark.slow
+def test_the_shown_lit_channel_names_and_colours_the_still(identity_scope, tmp_path):
+    """LED2 shown and lit, false colour on: the file is named, labelled and
+    rendered as LED2; the toggle only says the frame is rendered in colour."""
+    identity_scope.illumination.led_on(channel=LED2, illumination_ma=100)
 
     written, _ = _run_manual_capture(
-        tmp_path, identity_scope, layer='Green', false_color_on=True, separate_folders=False
+        tmp_path, identity_scope, shown_layer=LED2, false_color_on=True, separate_folders=False
     )
 
     assert len(written) == 1
     path = written[0]
-    assert 'Red' in path.name and 'Green' not in path.name, path.name
-    assert _read_channel_name(path) == 'Red'
+    assert LED2 in path.name, path.name
+    assert _read_channel_name(path) == LED2
     # An 8-bit still with false colour on is written PALETTE with a (3, 256)
     # colormap; the imaged channel decides which row carries the ramp.
     with tf.TiffFile(str(path)) as handle:
@@ -112,32 +120,51 @@ def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _illumination(states):
-    return SimpleNamespace(get_led_states=lambda: states)
+def _illumination(*readings):
+    # a stand-in by design: the subject is the other-light check, and these readings
+    # are its interchangeable input, built to each clause
+    return SimpleNamespace(get_led_states=lambda: readings)
 
 
-def _state(enabled):
-    return {'enabled': enabled, 'illumination_ma': 100 if enabled else None, 'owner': ''}
+def _lit(address, name):
+    from modules.lumascope_api.illumination import LedReading, LedState
+
+    return LedReading(address, name, LedState.LIT, 100.0)
 
 
-def test_resolver_clauses():
-    from modules.common_utils import resolve_channel_identity
+def _dark(address, name):
+    from modules.lumascope_api.illumination import LedReading, LedState
 
-    lit_red = {'BF': _state(False), 'Red': _state(True), 'Green': _state(False)}
-    assert resolve_channel_identity(_illumination(lit_red), 'Green') == 'Red'
-    assert resolve_channel_identity(_illumination(lit_red), None) == 'Red'
-    none_lit = {'BF': _state(False), 'Red': _state(False)}
-    assert resolve_channel_identity(_illumination(none_lit), 'Green') == 'Green'
-    assert resolve_channel_identity(_illumination(none_lit), None) == 'BF'
-    assert resolve_channel_identity(_illumination({}), None) == 'BF'
-    two_lit = {'Blue': _state(True), 'Red': _state(True)}
-    assert resolve_channel_identity(_illumination(two_lit), 'Green') == 'Blue'
+    return LedReading(address, name, LedState.DARK, None)
+
+
+def test_another_light_clauses():
+    """Another named LED lit is named; the layer's own LED lit, or nothing,
+    is no other light; two others lit are both named, in address order; a
+    lit address the identity names no layer for is named by its address; no
+    board (None) is nothing lit; given a frame's lit addresses, those are
+    the ones read."""
+    from modules.lumascope_api.illumination import lit_other_than
+
+    lit_red = _illumination(_dark(1, LED1), _lit(2, LED2), _dark(3, 'BF'))
+    assert lit_other_than(lit_red, LED1) == [LED2]
+    assert lit_other_than(lit_red, LED2) == []
+    none_lit = _illumination(_dark(2, LED2), _dark(3, 'BF'))
+    assert lit_other_than(none_lit, LED1) == []
+    two_lit = _illumination(_lit(0, LED0), _lit(2, LED2))
+    assert lit_other_than(two_lit, LED1) == [LED0, LED2]
+    unnamed_lit = _illumination(_lit(6, None), _dark(2, LED2))
+    assert lit_other_than(unnamed_lit, LED1) == ['LED address 6']
+    no_board = SimpleNamespace(get_led_states=lambda: None)
+    assert lit_other_than(no_board, LED1) == []
+    assert lit_other_than(none_lit, LED1, {2: 100.0}) == [LED2]
 
 
 def test_both_manual_outputs_share_the_resolver():
-    """The recording controller no longer carries its own copy; both the
-    still capture and the recording call the one function, and the default
-    layer lives with it."""
+    """The recording controller no longer carries its own copy; the still,
+    the held capture beneath it and the recording's start refuse another
+    light through the one function, each recorded frame is named through
+    ``light_of``, and the default layer lives with it."""
     recording = parse_module('modules/manual_recording.py')
     private = [
         n.name
@@ -146,17 +173,22 @@ def test_both_manual_outputs_share_the_resolver():
     ]
     assert private == [], 'the recording controller still carries a private resolver'
 
-    for rel in ('modules/manual_recording.py', 'modules/manual_capture.py'):
+    for rel, resolver in (
+        ('modules/manual_capture.py', 'lit_other_than'),
+        ('modules/lumascope_api/imaging.py', 'lit_other_than'),
+        ('modules/manual_recording.py', 'lit_other_than'),
+        ('modules/recording_frames.py', 'light_of'),
+    ):
         calls = [
             n
             for n in ast.walk(parse_module(rel))
             if isinstance(n, ast.Call)
             and (
-                (isinstance(n.func, ast.Name) and n.func.id == 'resolve_channel_identity')
-                or (isinstance(n.func, ast.Attribute) and n.func.attr == 'resolve_channel_identity')
+                (isinstance(n.func, ast.Name) and n.func.id == resolver)
+                or (isinstance(n.func, ast.Attribute) and n.func.attr == resolver)
             )
         ]
-        assert calls, f'{rel} does not call resolve_channel_identity'
+        assert calls, f'{rel} does not call {resolver}'
 
     defined_in = []
     dead = []
@@ -177,17 +209,13 @@ def test_both_manual_outputs_share_the_resolver():
 # ---------------------------------------------------------------------------
 
 
-def test_capture_task_reads_no_widget_and_the_button_snapshots_the_open_layer():
-    """The capture lives below the GUI and reads nothing of it; the button
-    reads the widgets on the main thread and hands the member what it saw."""
+def test_capture_task_reads_no_widget():
+    """The capture lives below the GUI and reads nothing of it: the channel
+    is the Session's shown channel, and the caller hands it only the
+    false-colour toggle it read on the main thread."""
     body = ast.unparse(parse_module('modules/manual_capture.py'))
     for forbidden in ('_app_ctx', 'accordion_item_lookup', '.collapse', 'ids[', 'scope_display'):
         assert forbidden not in body, f'the capture reads GUI state ({forbidden!r})'
-
-    button = ast.unparse(
-        find_def('ui/composite_capture.py', 'live_capture', class_name='CompositeCapture')
-    )
-    assert 'get_opened_layer' in button, 'the button does not snapshot the open layer'
 
 
 # ---------------------------------------------------------------------------
@@ -236,14 +264,14 @@ def test_specific_layers_is_always_handed_a_list():
 
 
 # ---------------------------------------------------------------------------
-# The open-layer scan has one implementation, and it names its one skip
+# No code reads the open drawer to say which channel is shown
 # ---------------------------------------------------------------------------
 
 
 def _first_open_scan_loops():
     """Every loop over the layer vocabulary that reads `.collapse` off an
-    accordion lookup, deduplicated on (file, line): a nested function's loop
-    is walked under its enclosure as well."""
+    accordion lookup, deduplicated on (file, function): a nested function's
+    loop is walked under its enclosure as well."""
     seen = set()
     for rel in _production_modules():
         tree = parse_module(rel)
@@ -259,35 +287,8 @@ def _first_open_scan_loops():
     return seen
 
 
-def test_the_open_layer_scan_has_one_implementation():
-    """Only the canonical scan finds the first open drawer. The two loops in
-    the image-settings panel iterate EVERY drawer to act on each -- one sets
-    collapse on all, one reconciles LEDs -- and are not scans."""
-    allowed = {
-        ('modules/common_utils.py', 'get_opened_layer'),
-        ('ui/image_settings.py', 'set_expanded_layer'),
-        ('ui/image_settings.py', '_do_accordion_collapse'),
-    }
-    extra = sorted(_first_open_scan_loops() - allowed)
-    assert extra == [], f'inline open-layer scans re-implement get_opened_layer: {extra}'
-
-
-def test_get_opened_layer_skips_only_an_unbuilt_drawer():
-    """A catalogue layer with no built drawer raises KeyError from the lookup
-    and is simply not open; any other failure is a bug and stays loud instead
-    of being read as 'nothing is open'."""
-    from modules.common_utils import get_opened_layer
-
-    def lookup_missing_then_open(layer):
-        if layer == 'BF':
-            raise KeyError('BF_accordion')
-        return SimpleNamespace(collapse=(layer != 'Red'))
-
-    settings = SimpleNamespace(accordion_item_lookup=lookup_missing_then_open)
-    assert get_opened_layer(settings) == 'Red'
-
-    def lookup_broken(layer):
-        raise RuntimeError('widget tree torn down')
-
-    with pytest.raises(RuntimeError):
-        get_opened_layer(SimpleNamespace(accordion_item_lookup=lookup_broken))
+def test_no_code_scans_the_drawers_for_the_shown_channel():
+    """The Session's shown channel says which channel is shown; the drawers
+    display it. The one loop over the drawers' collapse is the one that
+    draws them, and it writes them rather than reading them."""
+    assert _first_open_scan_loops() == {('ui/image_settings.py', 'draw_shown_channel')}

@@ -12,6 +12,7 @@ where does the stored value live?
 from harness import check, run
 
 from modules.exceptions import SettingRefusedError
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -43,36 +44,31 @@ def body(s):
     s.select_labware('96 well microplate')
 
     # 3. reconstruct the SET half by hand, the way the GUI handler does
-    m.move_absolute('Z', 3300.0)
-    m.move_absolute('X', 40.0, frame='plate')
-    m.move_absolute('Y', 30.0, frame='plate')
+    m.move_z(3300.0)
+    m.move_to_plate(PlateLocation(x_mm=40.0, y_mm=30.0, z_um=None))
     saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
         'a script can SAVE the bookmark through the Session',
-        s.get_settings_snapshot()['bookmark'] == saved,
+        s.bookmark == saved,
         str(saved),
     )
 
-    # 4. reconstruct the GOTO half
-    m.move_absolute('Z', 500.0)
-    m.move_absolute('X', 10.0, frame='plate')
-    m.move_absolute('Y', 10.0, frame='plate')
-    bm = s.get_settings_snapshot()['bookmark']
-    m.move_absolute('Z', bm['z'])
-    m.move_absolute('X', bm['x'], frame='plate')
-    m.move_absolute('Y', bm['y'], frame='plate')
+    # 4. the GOTO half, through the Session as the buttons go
+    m.move_z(500.0)
+    m.move_to_plate(PlateLocation(x_mm=10.0, y_mm=10.0, z_um=None))
+    s.go_to_bookmark(('X', 'Y', 'Z'))
     back = s.get_current_plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',
-        abs(back['x'] - saved['x']) < 0.05
-        and abs(back['y'] - saved['y']) < 0.05
-        and abs(m.get_current_position('Z') - saved['z']) < 5.0,
-        f'asked {saved} got x={back["x"]:.2f} y={back["y"]:.2f} z={m.get_current_position("Z")}',
+        abs(back.x_mm - saved.x_mm) < 0.05
+        and abs(back.y_mm - saved.y_mm) < 0.05
+        and abs(m.get_current_position('Z') - saved.z_um) < 5.0,
+        f'asked {saved} got x={back.x_mm:.2f} y={back.y_mm:.2f} z={m.get_current_position("Z")}',
     )
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus
-    z = s.save_all_bookmarks()
-    on_scope = [record.key_name for record in s.scope.layer_identity.layers]
+    z = s.save_all_bookmarks().z_um
+    on_scope = [record.key_name for record in s.scope.channel_identity.channels]
     after = s.get_settings_snapshot()
     check(
         'a script can stamp every layer focus (the Set-All half)',

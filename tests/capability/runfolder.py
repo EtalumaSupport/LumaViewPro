@@ -27,17 +27,17 @@ def run_protocol_folder(
         # z-stack lanes put into this config.
         config['positions'] = positions
     protocol = session.scope.protocols.create_protocol(input_config=config)
-    launch = runner.run_single_scan if single_scan else runner.run_protocol
+    launch = runner.start_single_scan if single_scan else runner.start_protocol
     pending = launch(
         protocol=protocol,
         sequence_name=sequence_name,
         parent_dir=str(live),
         enable_image_saving=True,
     )
-    outcome = pending.wait(timeout_s=600)
+    outcome = pending.result(timeout=600)
     # The outcome answers before the run's files drain, so a build that reads
     # the folder at once can meet a half-written image: every probe builds
     # from the folder once the run has finished writing it.
-    assert pending.wait_for_files(timeout_s=60) is not None, "the run's files never finished"
+    assert pending.files.result(timeout=60) is not None, "the run's files never finished"
     records = sorted(live.rglob('protocol_record.tsv'))
     return outcome, (records[0].parent if records else None)

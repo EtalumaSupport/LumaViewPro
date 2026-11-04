@@ -28,18 +28,20 @@ import pandas as pd
 import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.run_events import RunEvents
 from modules.protocol import Protocol
+from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.recording_frames import FrameFact
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_manual_capture_member import (
-    _capture,
+    _files,
     _open_session,
     _settings,
     over_the_first_well,
 )
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -60,10 +62,10 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Auto_Focus': autofocus,
         'Color': 'BF',
         'False_Color': False,
-        'Illumination': 50.0,
+        'Illumination': 1.0,
         'Gain': gain,
         'Auto_Gain': False,
-        'Exposure': 10.0,
+        'Exposure': 2.5,  # the 10x's light: brightfield falls as the square of the magnification
         'Sum': sum_count,
         'Objective': '10x Oly',
         'Well': name,
@@ -73,17 +75,19 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Tile Group ID': -1,
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
-        'Video Config': {'duration': 1.0, 'fps': 5},
+        'Video Config': {'duration': 1.0},
         'Stim_Config': {},
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
 def _protocol(steps):
-    return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(steps),
@@ -112,7 +116,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
 
         def _held(scope, **kwargs):
             time.sleep(WRITE_HELD_S)
-            write_started[kwargs['append']] = datetime.datetime.now()
+            write_started[kwargs['append']] = datetime.datetime.now().astimezone()
             return real_save(scope, **kwargs)
 
         monkeypatch.setattr(protocol_image_writer, 'save_image', _held)
@@ -129,12 +133,12 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
         # file that merely exists may still be mid-write, and one read in
         # its first few hundred bytes has no metadata at all.
         files_written = threading.Event()
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_protocol(steps),
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_written: files_written.set()),
         )
-        result = outcome.wait(timeout_s=120.0)
+        result = outcome.result(timeout=120.0)
         assert result is not None and result.status == 'completed', result
         assert files_written.wait(FILES_TIMEOUT_S), "the run's files were never written"
 
@@ -142,7 +146,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
     for step in steps:
         [path] = [p for p in run_parent.rglob('*.tiff') if step['Name'] in p.name]
         [started] = [t for append, t in write_started.items() if step['Name'] in append]
-        files[step['Name']] = (read_postproc_input_metadata(path) or {}, started)
+        files[step['Name']] = (read_file_record(path) or {}, started)
     return files
 
 
@@ -165,12 +169,16 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} records gain {metadata.get("gain_db")}, not the {gain} dB it was '
                 'captured at -- the record was read when the write ran'
             )
-            assert metadata.get('illumination_ma') == 50.0, (
+            assert metadata.get('illumination_ma') == 1.0, (
                 f'{name} records LED current {metadata.get("illumination_ma")}, not the '
-                '50 mA it was lit at -- by write time the run had turned the LED off'
+                '1 mA it was lit at -- by write time the run had turned the LED off'
             )
-            assert metadata.get('well_label') == well, (
-                f'{name} records well {metadata.get("well_label")!r}, not {well!r}: the step '
+            assert metadata.get('illumination_by_channel_ma') == {'BF': 1.0}, (
+                f'{name} records {metadata.get("illumination_by_channel_ma")}: a run lights '
+                "its step's one LED, and its file says so"
+            )
+            assert metadata['plate'].get('well_label') == well, (
+                f'{name} records well {metadata["plate"].get("well_label")!r}, not {well!r}: the step '
                 "position on the protocol's 6-well plate"
             )
             recorded = datetime.datetime.fromisoformat(metadata['timestamp_iso'])
@@ -178,6 +186,20 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} is stamped {recorded}, after its write started at {write_started} '
                 '-- the timestamp is the write, not the grab'
             )
+
+    def test_the_runs_row_and_its_file_state_one_instant(self, tmp_path, monkeypatch):
+        """A captured step's row in the run record states the instant its
+        file states, the frame record's: one frame has one time, not the
+        grab's in the file and a second clock read, after the capture, in
+        the row post-processing reads a frame's time from."""
+        files = _run_with_every_write_held(
+            tmp_path, monkeypatch, [_step('D1', 0, x=20.0, gain=1.0)]
+        )
+
+        [record_file] = (tmp_path / 'runs').rglob(ProtocolExecutionRecord.DEFAULT_FILENAME)
+        [row] = ProtocolExecutionRecord.from_file(record_file).saved_entries()
+        metadata, _ = files['D1']
+        assert row['Timestamp'] == datetime.datetime.fromisoformat(metadata['timestamp_iso'])
 
     def test_a_summed_file_says_how_many_frames_it_sums(self, tmp_path, monkeypatch):
         """The exposure a summed file records is per frame; the file says how
@@ -188,8 +210,9 @@ class TestALateWriteRecordsItsFrame:
 
         metadata, _ = files['C1']
         assert metadata.get('frames_summed') == 3, metadata.get('frames_summed')
-        assert metadata.get('exposure_time_ms') == 10.0, metadata.get('exposure_time_ms')
+        assert metadata.get('exposure_time_ms') == 2.5, metadata.get('exposure_time_ms')
 
+    @pytest.mark.slow
     def test_an_autofocused_file_records_the_z_it_was_taken_at(self, tmp_path, monkeypatch):
         """Autofocus leaves the stage at its best focus and the frame is taken
         there; the step row the capture was handed is the one read before the
@@ -204,7 +227,7 @@ class TestALateWriteRecordsItsFrame:
 
         def _note_stage_z(writer, step):
             reported = writer._scope.motion.axis_positions()['Z']
-            stage_z_at_capture[step['Name']] = reported.position
+            stage_z_at_capture[step['Name']] = reported.position_um
 
         files = _run_with_every_write_held(
             tmp_path,
@@ -229,12 +252,12 @@ class TestAFileNamesTheWellAtThePositionItRecords:
     so a file cannot name a well while stating no position."""
 
     def test_an_unknown_position_names_no_well(self):
-        fact = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=5000.0, moving=False, channel='BF')
+        fact = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=5000.0, moving=False)
 
         assert fact.well_label(plate('6 well microplate')) is None
 
     def test_a_known_position_names_the_well_it_lies_in(self):
-        fact = FrameFact(plate_x_mm=60.0, plate_y_mm=20.0, z_um=5000.0, moving=False, channel='BF')
+        fact = FrameFact(plate_x_mm=60.0, plate_y_mm=20.0, z_um=5000.0, moving=False)
 
         assert fact.well_label(plate('6 well microplate')) == 'A2'
 
@@ -247,8 +270,8 @@ class TestAFileNamesTheWellAtThePositionItRecords:
 
         metadata, _ = files['B3']
         assert metadata.get('plate_pos_mm') is None, metadata.get('plate_pos_mm')
-        assert not metadata.get('well_label'), (
-            f'the file states no position but names well {metadata.get("well_label")!r}, '
+        assert 'well_label' not in metadata['plate'], (
+            f'the file states no position but names well {metadata["plate"]["well_label"]!r}, '
             "the well under the step's planned X/Y"
         )
 
@@ -261,9 +284,9 @@ class TestAManualStillRecordsItsFrame:
         with _open_session(_settings(tmp_path)) as session:
             well = over_the_first_well(session)
             session.scope.illumination.led_on('BF', 40.0)
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
-        metadata = read_postproc_input_metadata(path)
+        metadata = read_file_record(path)
         assert metadata.get('illumination_ma') == 40.0, metadata.get('illumination_ma')
-        assert metadata.get('well_label') == well, (well, metadata.get('well_label'))
+        assert metadata['plate'].get('well_label') == well, (well, metadata['plate'])
         assert metadata.get('frames_summed') == 1

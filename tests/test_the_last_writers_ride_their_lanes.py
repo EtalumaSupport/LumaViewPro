@@ -19,7 +19,9 @@ import pytest
 from modules import sequential_io_executor
 from modules.activity_claim import acting
 from modules.exceptions import HardwareCommandRefusedError
+from modules.lumascope_api.illumination import LedReading, LedState
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -45,16 +47,14 @@ def _lane_now():
 _GATED = [
     (
         'set_acceleration_limit',
-        lambda sc: sc.motion.set_acceleration_limit(val_pct=50),
+        lambda sc: sc.motion.set_acceleration_limit(limit_pct=50),
         '_motion_driver',
         'set_acceleration_limits',
         'io',
     ),
     (
         'restore_led_state',
-        lambda sc: sc.illumination.restore_led_state(
-            {'tag': 't', 'states': {'Blue': {'enabled': True, 'illumination_ma': 10}}}
-        ),
+        lambda sc: sc.illumination.restore_led_state((LedReading(0, LED0, LedState.LIT, 10.0),)),
         '_led_driver',
         'led_on',
         'io',
@@ -95,15 +95,15 @@ _GATED = [
         'io',
     ),
     (
-        'stop_streaming',
-        lambda sc: sc.imaging.stop_streaming(),
+        'disable_streaming',
+        lambda sc: sc.imaging.disable_streaming(),
         '_camera_driver',
         'stop_grabbing',
         'camera',
     ),
     (
-        'start_streaming',
-        lambda sc: sc.imaging.start_streaming(),
+        'enable_streaming',
+        lambda sc: sc.imaging.enable_streaming(),
         '_camera_driver',
         'open_and_start',
         'camera',
@@ -208,7 +208,7 @@ class TestAcceleration:
         monkeypatch.setattr(type(sc), 'motor_connected', property(lambda self: False))
         spy, lanes = _spy(sc, '_motion_driver', 'set_acceleration_limits')
         with spy, pytest.raises(HardwareCommandRefusedError):
-            sc.motion.set_acceleration_limit(val_pct=50)
+            sc.motion.set_acceleration_limit(limit_pct=50)
         assert lanes == []
 
 
@@ -246,13 +246,13 @@ class TestTheSupportReportDuringARun:
         run = sim_session.activity_claim.try_claim('protocol', run=run_identity())
         try:
             with led_cmd, led_multi, motor_cmd, motor_multi:
-                sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
+                sn = report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
         finally:
             run.release()
 
         assert led_sent == [] and led_multi_sent == [], 'an LED command went out during a run'
         assert motor_sent == [] and motor_multi_sent == [], 'a motor command went out during a run'
-        assert sn == sc.diagnostics.get_motor_info()['serial_number']
+        assert sn == sc.diagnostics.get_motor_info().serial_number
         motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
         assert sn in motor_info and 'SKIPPED' in motor_info
         for rel in (

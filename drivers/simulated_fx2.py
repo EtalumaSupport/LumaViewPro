@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A simulated Lumascope Classic FX2: the device behind the real FX2 drivers.
 
-A simulated LS620 or LS560 runs the production ``FX2Camera`` and
+A simulated LS620, LS560 or LS720 runs the production ``FX2Camera`` and
 ``FX2LEDController`` over this device, so what an integrator sees is the
 FX2's: the MT9P031's window, exposure and gain as its registers hold them,
 LED commands as the peripheral receives them, frames at the sensor's period
@@ -12,7 +12,9 @@ The device answers only what the driver sends on the wire: the firmware
 upload on the bootloader, then ``VR_I2C_WRITE`` to the sensor or the LED
 peripheral and the stream's start and stop on the running firmware. Any
 other request, or an I2C address it does not model, raises, so a new driver
-request cannot pass unmodelled.
+request cannot pass unmodelled. A fault of the device's own (off the bus, a
+stalled pipe) raises ``OSError``, as the USB libraries do; a request the
+driver should not have sent raises as the driver's own defect.
 
 It imports no USB library: the transport below stands where the platform
 transports stand, behind the same connection.
@@ -27,7 +29,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from lvp_logger import logger
+from lib.log_helpers import logger
 from drivers.fx2driver import (
     COLUMN_SIZE_OVER_WIDTH,
     FRAME_DELIM,
@@ -49,15 +51,22 @@ from drivers.fx2driver import (
     VR_I2C_WRITE,
     VR_START_STREAMING,
     VR_STOP_STREAMING,
+    _CH_TO_I2C,
     _ByteStream,
     _FX2Connection,
+    FX2LEDController,
     _register_to_gain_db,
     exposure_s,
     frame_layout,
     frame_time_s,
     parse_intel_hex,
 )
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
+from drivers.usb_driver_binding import (
+    FX2_BOOTLOADER,
+    FX2_FIRMWARE,
+    DeviceBinding,
+)
 
 TIMINGS = ('instant', 'realistic')
 
@@ -84,6 +93,10 @@ TRANSFER_S = ISO_NUM_PACKETS * 125e-6
 
 _LED_PREAMBLE = 0xFF
 _LED_CHANNELS = (ord('A'), ord('B'), ord('C'), ord('D'))
+# The LED address each peripheral channel lights, and the current a
+# brightness byte drives: the peripheral's full scale over 255 steps.
+_I2C_TO_ADDRESS = {i2c: address for address, i2c in _CH_TO_I2C.items()}
+_MA_PER_STEP = FX2LEDController._MAX_MA / 255.0
 
 
 def bytes_per_transfer(w: int, h: int, frame_period_s: float) -> float:
@@ -197,6 +210,14 @@ class _LedPeripheral:
     def lit(self) -> bool:
         return any(self.brightness.values())
 
+    def lit_ma(self) -> dict[int, float]:
+        """The current each lit LED address drives, in mA."""
+        return {
+            _I2C_TO_ADDRESS[channel]: byte * _MA_PER_STEP
+            for channel, byte in self.brightness.items()
+            if byte
+        }
+
 
 class SimulatedFX2Device:
     """One simulated FX2, from its bootloader to its stream.
@@ -206,7 +227,14 @@ class SimulatedFX2Device:
             ``'realistic'`` waits the bench's ``REENUMERATE_S``.
     """
 
-    def __init__(self, *, timing: str = 'instant'):
+    def __init__(
+        self,
+        *,
+        timing: str = 'instant',
+        light_of: Callable[[int], float] | None = None,
+        stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
+        pixel_size: Callable[[], float | None] | None = None,
+    ):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
         self._timing = timing
@@ -217,11 +245,21 @@ class SimulatedFX2Device:
         self._image = bytearray()
         self.sensor = _Mt9p031()
         self.leds = _LedPeripheral()
+        # The light per mA-second at unity gain the layer an LED address
+        # lights renders; unwired, any lit LED shows the field at the
+        # reference exposure's grey levels, whatever its current.
+        self._light_of = light_of
+        # Where the stage stands, and the objective's image scale (um of
+        # stage per pixel), asked as each frame starts, so the sensor sees
+        # the sample the stand-in camera sees there. Unwired, or answering
+        # None, the frame is drawn at 0 and at the scene's nominal scale.
+        self._stage_xy = stage_xy
+        self._pixel_size = pixel_size
         self._sink: Callable[[bytes], None] | None = None
         self._streaming = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._specimen: dict[tuple[int, int], list[np.ndarray]] = {}
+        self._specimen = the_specimen()
         self._frame_index = 0
         self._pending: deque[bytes] = deque()
         self.extra_rows = 0
@@ -230,6 +268,12 @@ class SimulatedFX2Device:
         self.lost_delimiter_every = 0
         self.wrong_delimiter_every = 0
         self._frames_sent = 0
+        # How many STARTs from now the firmware refuses, as the Windows
+        # bench's device refused the control transfer.
+        self.refused_starts = 0
+        # How many LED bytes from now the firmware refuses, the device
+        # staying on the bus.
+        self.refused_led_writes = 0
 
     # -- the wire ------------------------------------------------------------
 
@@ -241,18 +285,24 @@ class SimulatedFX2Device:
             self._load(value, bytes(data))
             return len(data)
         if self.pid != PID_APP:
-            raise RuntimeError('the simulated FX2 is not on the bus')
+            raise OSError('the simulated FX2 is not on the bus')
         if request == VR_I2C_WRITE:
             written = bytes(data[:_I2C_MAX_BYTES])
             if index == I2C_SENSOR:
                 self.sensor.write(written)
             elif index == I2C_LED:
+                if self.refused_led_writes:
+                    self.refused_led_writes -= 1
+                    raise OSError('VR_I2C_WRITE refused: the control pipe stalled')
                 for byte in written:
                     self.leds.receive(byte)
             else:
                 raise ValueError(f'the simulated FX2 models no I2C device at 0x{index:02X}')
             return len(written)
         if request == VR_START_STREAMING:
+            if self.refused_starts:
+                self.refused_starts -= 1
+                raise OSError('VR_START_STREAMING refused: the control pipe stalled')
             self._start()
             return 0
         if request == VR_STOP_STREAMING:
@@ -394,15 +444,19 @@ class SimulatedFX2Device:
         return out
 
     def _pixels(self, w: int, h: int) -> np.ndarray:
-        """The specimen field as this sensor sees it: black unless an LED is lit."""
+        """The specimen as this sensor sees it where the stage stands: black unless an LED is lit."""
         if not self.leds.lit():
             return np.zeros((h, w), dtype=np.uint8)
-        frames = self._specimen.get((w, h))
-        if frames is None:
-            frames = self._specimen[(w, h)] = drift_frames(specimen_field(h, w), h, w)
-        field = frames[self._frame_index % len(frames)]
+        x, y = (None, None) if self._stage_xy is None else self._stage_xy()
+        um_per_px = None if self._pixel_size is None else self._pixel_size()
+        drift = DRIFT_STEPS[self._frame_index % len(DRIFT_STEPS)]
+        field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
         self._frame_index += 1
-        scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
+        if self._light_of is None:
+            scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
+        else:
+            light = sum(ma * self._light_of(address) for address, ma in self.leds.lit_ma().items())
+            scale = self.sensor.exposure_s() * self.sensor.gain() * light
         return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
 
     def _stream_loop(self) -> None:
@@ -455,6 +509,26 @@ class SimulatedFX2Transport:
         self.device = device
         self._stream: _ByteStream | None = None
         self._on_gone: Callable[[], None] | None = None
+        # The driver each identity is bound to, as Windows would bind it
+        # with LumaViewPro's package installed.
+        self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
+
+    def bindings(self, identity: str) -> list[DeviceBinding]:
+        """The device on the bus, when it is of ``identity``, and its driver, as Windows reports it."""
+        if self.device.pid != (PID_BOOT if identity == FX2_BOOTLOADER else PID_APP):
+            return []
+        service = self.services[identity]
+        binding = DeviceBinding(
+            instance_id=f'{identity}\\SIMULATED',
+            present=True,
+            service=service,
+            provider=None if service is None else 'simulated',
+            inf=None,
+            version=None,
+            date=None,
+            problem_code=None if service is not None else 28,
+        )
+        return [binding]
 
     def find(self, pid: int) -> SimulatedFX2Device | None:
         return self.device if self.device.pid == pid else None
@@ -485,7 +559,7 @@ class SimulatedFX2Transport:
         # cannot take it, and the stop still releases the host's side.
         try:
             self.device.vendor_out(VR_STOP_STREAMING, 0, 0, b'')
-        except RuntimeError:
+        except OSError:
             self.device.stop()
         self.device.detach()
         self._stream = None
@@ -512,6 +586,24 @@ class SimulatedFX2Transport:
     def go_silent(self) -> None:
         """The stream stops while the device stays on the bus."""
         self.device.halt()
+
+    def bind(self, identity: str, service: str | None) -> None:
+        """Bind ``identity`` to the driver ``service`` (None: no driver)."""
+        self.services[identity] = service
+
+    def refuse_start(self, count: int) -> None:
+        """The next ``count`` STARTs are refused; the device stays on the bus."""
+        self.device.refused_starts = count
+
+    def allow_start(self) -> None:
+        self.device.refused_starts = 0
+
+    def refuse_led_write(self, count: int) -> None:
+        """The next ``count`` LED writes are refused; the device stays on the bus."""
+        self.device.refused_led_writes = count
+
+    def allow_led_write(self) -> None:
+        self.device.refused_led_writes = 0
 
     def misalign(self, rows: int = 1) -> None:
         """Every frame from the next one carries ``rows`` rows too many; 0 realigns.
@@ -546,8 +638,17 @@ class SimulatedFX2:
     upload into the bootloader, the wait for re-enumeration, the open.
     """
 
-    def __init__(self, *, timing: str = 'instant'):
-        self.device = SimulatedFX2Device(timing=timing)
+    def __init__(
+        self,
+        *,
+        timing: str = 'instant',
+        light_of: Callable[[int], float] | None = None,
+        stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
+        pixel_size: Callable[[], float | None] | None = None,
+    ):
+        self.device = SimulatedFX2Device(
+            timing=timing, light_of=light_of, stage_xy=stage_xy, pixel_size=pixel_size
+        )
         # Kept for its faults: the transport is where the cable is pulled.
         self.transport = SimulatedFX2Transport(self.device)
         self.connection = _FX2Connection(self.transport)

@@ -7,7 +7,6 @@ the settings dict only.
 """
 
 import datetime
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,8 +18,6 @@ from modules.config_helpers import (
     get_selected_labware_from_settings,
     get_sequenced_capture_config_from_settings,
     get_zstack_params_from_settings,
-    get_auto_gain_settings,
-    get_current_objective_info,
 )
 from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.objectives_loader import ObjectiveLoader
@@ -87,6 +84,27 @@ class TestGetProtocolTimeParams:
         assert result['period'] == datetime.timedelta(minutes=5)
         assert result['duration'] == datetime.timedelta(hours=2)
 
+    def test_an_unparseable_stored_period_is_refused_naming_it(self):
+        # The stored schedule is read in one place, the settings lane, and a
+        # value it cannot use is refused there -- never replaced by a default
+        # schedule the user did not choose.
+        from modules.protocol import ProtocolScheduleRefusedError
+
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': 'not-a-number', 'duration': '1'}}
+            )
+        assert 'period' in str(err.value)
+
+    def test_an_unparseable_stored_duration_is_refused_naming_it(self):
+        from modules.protocol import ProtocolScheduleRefusedError
+
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': '1', 'duration': 'not-a-number'}}
+            )
+        assert 'duration' in str(err.value)
+
 
 class TestGetImageCaptureConfig:
     def test_reads_config(self):
@@ -116,7 +134,7 @@ class TestGetSelectedLabware:
         settings = {'protocol': {'labware': '24 well microplate'}}
         labware_id, obj = get_selected_labware_from_settings(settings, loader)
         assert labware_id == '24 well microplate'
-        assert obj.config == loader.get_plate('24 well microplate').config
+        assert obj == loader.get_plate('24 well microplate')
 
     def test_a_retired_spelling_answers_under_the_catalogue_key(self):
         loader = _wellplate_loader()
@@ -160,9 +178,7 @@ class TestGetZstackParams:
     """
 
     def test_reads_the_stack_the_gui_wrote(self):
-        settings = complete_settings(
-            zstack={'range': 50, 'step_size': 5, 'position': 'Current Position at Top'}
-        )
+        settings = complete_settings(zstack={'range': 50, 'step_size': 5, 'position': 'top'})
         assert get_zstack_params_from_settings(settings) == {
             'range': 50.0,
             'step_size': 5.0,
@@ -216,22 +232,3 @@ class TestHeadlessTilingOverlap:
             current_z=0.0,
         )
         assert config['tiling_overlap_percent'] == 25.0
-
-
-class TestGetAutoGainSettings:
-    def test_converts_seconds_to_timedelta(self):
-        settings = {'protocol': {'autogain': {'max_duration_seconds': 30, 'target_percent': 80}}}
-        result = get_auto_gain_settings(settings)
-        assert result['max_duration'] == datetime.timedelta(seconds=30)
-        assert 'max_duration_seconds' not in result
-        assert result['target_percent'] == 80
-
-
-class TestGetCurrentObjectiveInfo:
-    def test_reads_objective(self):
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'focal_length': 10}
-        settings = {'objective_id': '20x Oly'}
-        obj_id, info = get_current_objective_info(settings, helper)
-        assert obj_id == '20x Oly'
-        assert info['focal_length'] == 10

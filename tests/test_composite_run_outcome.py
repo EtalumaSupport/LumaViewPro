@@ -14,19 +14,25 @@ that stage has a target it must satisfy, rather than being declared done
 against a surface nobody asserted.
 """
 
+import concurrent.futures
 import pathlib
 from unittest.mock import MagicMock
 
 import pytest
 
 from modules.exceptions import CaptureError
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from modules.operation import Operation
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
+from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0
 
 
-def _runner(acquiring=('BF', 'Blue')):
+def _runner(acquiring=('BF', LED0)):
     """A ProtocolRunner over a mocked session and engine.
 
     Real config assembly, mocked engine: this pins what the composite
@@ -38,8 +44,8 @@ def _runner(acquiring=('BF', 'Blue')):
     session.settings = _settings(acquiring=acquiring)
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
-    session.plate_position_on.return_value = {'x': 1.0, 'y': 2.0, 'z': 3.0}
-    session.objective_helper.get_objective_info.return_value = {'magnification': 10}
+    session.plate_position_on.return_value = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
+    session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 
@@ -55,20 +61,14 @@ class TestCompositeRunsAsItsOwnKind:
         runner.run_composite()
         assert runner._executor.prepare.call_args.kwargs['max_scans'] == 1
 
-    def test_the_trigger_source_names_the_api_caller(self):
-        runner = _runner()
-        runner.run_composite()
-        trigger = runner._executor.prepare.call_args.kwargs['run_trigger_source']
-        assert trigger == 'api_composite'
-
     def test_pre_run_lit_channels_are_restored_at_the_end(self):
         # A composite ends by handing the scope back as it was found; the
         # scan/protocol default of forcing every LED dark is a different
         # policy and would leave an interactive user's channel off.
         runner = _runner()
         runner.run_composite()
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == (
-            'return_to_original'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.RETURN_TO_ORIGINAL
         )
 
     def test_frames_are_saved(self):
@@ -85,21 +85,25 @@ class TestCompositeRunsAsItsOwnKind:
 
         runner = _runner()
         protocol = MagicMock(spec=Protocol)
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=protocol,
         )
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.OFF
+        )
 
-        runner.run_protocol(
+        runner.start_protocol(
             protocol=protocol,
         )
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.OFF
+        )
 
 
 class TestCompositeOutcomeIsObservable:
     """B17: the merge, not the capture, is what the caller learns about."""
 
-    _COMPLETED = RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished.')
+    _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
 
     def _runner_whose_run(
         self, ending, *, merged=False, artifact_path=None, merge_reason='', settle=True
@@ -111,7 +115,12 @@ class TestCompositeOutcomeIsObservable:
             settled.resolve(
                 token, merged=merged, artifact_path=artifact_path, merge_reason=merge_reason
             )
-        runner._executor.start.return_value = settled
+        # The run's operation, done with the settled outcome when the run
+        # has ended.
+        run = Operation()
+        if settle:
+            concurrent.futures.Future.set_result(run, settled.wait(timeout_s=0))
+        runner._executor.start.return_value = run
         return runner
 
     def test_run_composite_returns_the_merged_artifact_path(self):
@@ -127,13 +136,22 @@ class TestCompositeOutcomeIsObservable:
             'from a successful merge'
         )
 
-    @pytest.mark.parametrize('merge_reason', ['merge_timeout', 'merge_failed', 'no_run_dir'])
-    def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(self, merge_reason):
+    # The merge's own reason is the failure's; another vocabulary's is its field.
+    @pytest.mark.parametrize(
+        ('merge_reason', 'reason', 'merge_failure'),
+        [
+            ('merge_timeout', 'merge_error', 'merge_timeout'),
+            ('no_run_dir', 'no_run_dir', None),
+        ],
+    )
+    def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(
+        self, merge_reason, reason, merge_failure
+    ):
         runner = self._runner_whose_run(self._COMPLETED, merge_reason=merge_reason)
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert excinfo.value.reason == merge_reason, (
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == (reason, merge_failure), (
             'the failure must CARRY its machine-readable cause, so a caller '
             'can tell an aborted run from a failed merge from a timeout '
             'without pattern-matching the prose'
@@ -142,34 +160,32 @@ class TestCompositeOutcomeIsObservable:
 
     @pytest.mark.parametrize(
         ('status', 'reason'),
-        [('aborted', 'stopped'), ('failed', 'motion_timeout'), ('failed', 'disk_space_critical')],
+        [('aborted', 'stopped'), ('failed', 'position_lost'), ('failed', 'disk_space_critical')],
     )
     def test_a_run_that_never_completed_names_its_own_ending(self, status, reason):
         # There was no merge to blame: the run died first, so merge_reason
         # is empty and the code the caller gets is why the RUN stopped.
         # Collapsing both into one field is what made 'aborted' and
         # 'merge_failed' indistinguishable to anyone deciding what to retry.
-        runner = self._runner_whose_run(
-            RunEnding(status, reason, 'Protocol Stopped', 'The run did not finish.')
-        )
+        runner = self._runner_whose_run(RunEnding(status, reason, 'The run did not finish.'))
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert excinfo.value.reason == reason, (
+        assert excinfo.value.reason == 'run_not_completed'
+        assert excinfo.value.run_ending == reason, (
             f'a run that ended {status!r} for {reason!r} reported '
-            f'{excinfo.value.reason!r} to its caller'
+            f'{excinfo.value.run_ending!r} to its caller'
         )
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
-        """The caller's own merge_timeout_s ran out: a TimeoutError, quiet,
-        that is still a CaptureError; it was a fault, though nothing failed."""
+        """The caller's own timeout_s ran out: a TimeoutError, quiet, as every
+        run's waiting form raises, holding the run that is still going."""
         runner = self._runner_whose_run(self._COMPLETED, settle=False)
 
         with pytest.raises(TimeoutError) as excinfo:
-            runner.run_composite(merge_timeout_s=0.05)
-        assert isinstance(excinfo.value, CaptureError)
-        assert excinfo.value.reason == 'merge_timeout'
-        assert 'wedged' in str(excinfo.value)
+            runner.run_composite(timeout_s=0.05)
+        assert excinfo.value.reason == 'still_running'
+        assert not excinfo.value.operation.done()
         assert outcome_of(excinfo.value).kind == OutcomeKind.QUIET
 
     def test_a_refused_run_reaches_the_caller_as_a_refusal(self):
@@ -182,7 +198,7 @@ class TestCompositeOutcomeIsObservable:
 
         runner = _runner()
         runner._executor.start.side_effect = ProtocolRunRefusedError(
-            'already_running', 'Run refused', 'Another run is already in progress.'
+            'already_running', 'Another run is already in progress.'
         )
 
         with pytest.raises(ProtocolRunRefusedError):

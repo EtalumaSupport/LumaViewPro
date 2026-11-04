@@ -6,9 +6,9 @@ frame (the same values frame_validity checks the camera settled to). The
 record used to be built when the file was written, re-reading gain/exposure
 live and racing the next step's settings. The capture now builds the frame's
 record beside the grab: from the grab-time chunk (microseconds -> ms for
-exposure, dB for gain), falling back to the live-confirmed surface
-(get_live_camera_settings, which omits a field whose read did not just
-succeed) only when no chunk is present. The save writes what the record says.
+exposure, dB for gain), falling back to a fresh read of the camera, on its
+lane beside the grab, only when no chunk is present. The
+save writes what the record says.
 
 Driven behaviorally: a stub imaging API provides distinct chunk vs live
 values so each test proves which source won.
@@ -19,20 +19,22 @@ import threading
 from types import SimpleNamespace
 
 from modules.image_save import generate_image_metadata
+from modules.lumascope_api.camera import CameraAPI
+from modules.lumascope_api.frame_record import SettingSource
 from modules.lumascope_api.imaging import ImagingAPI
-from modules import layer_record
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_color
 
 
 LIVE_EXPOSURE_MS = 33.0
 LIVE_GAIN_DB = 4.5
-GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0)
+GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone()
 
 
-def _imaging(live=None, chunk_reads=None):
-    """An imaging API with just what building a frame's record touches.
+def _imaging(chunk_reads=None):
+    """An imaging API and its camera API, with just what building a frame's record touches.
 
-    live: what get_live_camera_settings answers (default: both fields read).
+    The camera's fresh reads answer ``LIVE_EXPOSURE_MS`` and ``LIVE_GAIN_DB``, and no black level.
     chunk_reads: optional list that records each read of the camera's chunks.
     """
 
@@ -41,28 +43,49 @@ def _imaging(live=None, chunk_reads=None):
             chunk_reads.append(1)
         return None
 
-    imaging = object.__new__(ImagingAPI)
-    imaging._scope = SimpleNamespace(
-        illumination=SimpleNamespace(state_ch2color=lambda ch: {3: 'BF'}[ch]),
-        capabilities=SimpleNamespace(camera_model='simcam', camera_timestamp_tick_hz=1_000_000_000),
+    # A frame missing its chunks, read back from the camera, is the
+    # simulator's gap: the simulated camera always stamps them.
+    # a stand-in by design: a chunkless frame the simulator cannot make.
+    scope = SimpleNamespace(
+        capabilities=SimpleNamespace(
+            camera_model='simcam',
+            camera_timestamp_tick_hz=1_000_000_000,
+            camera_has_clock_latch=False,
+        ),
+        camera_connected=True,
         _camera_driver=SimpleNamespace(
-            get_black_level=lambda: None,
+            active=True,
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),
     )
-    imaging._camera_cache_lock = threading.Lock()
-    imaging._camera_cache = {'binning': 1}
+    camera = object.__new__(CameraAPI)
+    camera._scope = scope
+    camera._camera_cache_lock = threading.Lock()
+    camera._camera_cache = {'binning': 1}
+    camera._state_lock = threading.Lock()
+    camera._held_layer = None
+    # The fresh reads a frame's record takes on the lane, beside the grab.
+    camera._read_fresh = {'exposure_ms': LIVE_EXPOSURE_MS, 'gain_db': LIVE_GAIN_DB}.get
+    camera._read_black_level_impl = lambda: None
+    imaging = object.__new__(ImagingAPI)
+    imaging._scope = scope
+    imaging._camera = camera
     # The reducer's account of the frame just made: one frame, 12 bits.
     imaging._state_lock = threading.Lock()
     imaging._last_frame_summing = (1, 12)
-    answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
-    imaging.get_live_camera_settings = lambda: answer
     return imaging
 
 
 def _record(imaging, chunks):
     return imaging._build_frame_record(
-        chunks=chunks or {}, lit=frozenset({(3, 50.0)}), captured_at=GRABBED_AT
+        chunks=chunks or {},
+        lit=frozenset({(3, 50.0)}),
+        captured_at=GRABBED_AT,
+        clock_mapping=None,
+        judgments=(),
+        saturated_fraction=None,
+        dark=None,
+        auto_gain=None,
     )
 
 
@@ -72,42 +95,33 @@ def test_exposure_metadata_prefers_chunk_with_us_to_ms_conversion():
         'chunk ExposureTime (us) must win over the live read and convert '
         f'to ms; got {record.exposure_ms}'
     )
+    assert record.exposure_source is SettingSource.FRAME
 
 
 def test_gain_metadata_prefers_chunk_with_live_fallback():
     record = _record(_imaging(), {'ExposureTime': 5000.0, 'Gain': 3.0})
     assert record.gain_db == 3.0, f'chunk Gain must win over the live read; got {record.gain_db}'
+    assert record.gain_source is SettingSource.FRAME
 
     no_chunk = _record(_imaging(), None)
     assert no_chunk.exposure_ms == LIVE_EXPOSURE_MS
     assert no_chunk.gain_db == LIVE_GAIN_DB
 
 
-def test_failed_live_read_omits_gain_exposure_keys():
-    """A failed live read must never be written into saved metadata as if it
-    were a real acquisition setting. get_live_camera_settings answers {} when
-    no field's read just succeeded; unknown -> the record carries none."""
-    record = _record(_imaging(live={}), None)
-    assert record.exposure_ms is None, (
-        f'failed exposure read must leave the record empty, not {record.exposure_ms}'
-    )
-    assert record.gain_db is None, (
-        f'failed gain read must leave the record empty, not {record.gain_db}'
-    )
+def test_a_value_read_beside_the_grab_says_so():
+    """A frame without its chunk states the setting read beside the grab,
+    and says it is that read, not the frame's own. Driven directly: the
+    simulated camera always stamps both chunks."""
+    no_chunk = _record(_imaging(), None)
+    assert no_chunk.exposure_source is SettingSource.READ
+    assert no_chunk.gain_source is SettingSource.READ
+
+    gain_only = _record(_imaging(), {'Gain': 3.0})
+    assert gain_only.exposure_source is SettingSource.READ
+    assert gain_only.gain_source is SettingSource.FRAME
 
 
-def test_inactive_camera_zero_exposure_omitted():
-    """Belt and braces: get_live_camera_settings can only return validated
-    values by contract, but the record keeps its own validity guard. If a
-    non-physical value (zero exposure, negative gain) ever slips through the
-    live surface, the record still carries none -- a capture racing a
-    disconnect must not fabricate exposure_time_ms=0.0 in frame metadata."""
-    record = _record(_imaging(live={'exposure_ms': 0.0, 'gain_db': -1.0}), None)
-    assert record.exposure_ms is None
-    assert record.gain_db is None
-
-
-def test_tiff_write_path_tolerates_omitted_gain_exposure():
+def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
     """The structured TIFF writer must treat the omitted keys as optional
     fields (same contract as the per-frame timestamps): a frame whose
     exposure/gain is unknown still SAVES, with those TIFF fields absent --
@@ -116,30 +130,25 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure():
 
     from modules.image_utils import generate_tiff_data
 
-    scope = SimpleNamespace(
-        runtime_state=SimpleNamespace(
-            get_objective_info=lambda objective_id: {'focal_length': 9.0}
-        ),
-        capabilities=SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None),
-        diagnostics=SimpleNamespace(
-            get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'}
-        ),
-        layer_identity=layer_record.UNRESOLVED,
-    )
     metadata = generate_image_metadata(
-        scope,
+        sim_scope,
         channel='BF',
         plate_x_mm=0,
         plate_y_mm=0,
         stage_z_um=0,
         objective_id='4x Oly',
-        frame_record=frame_record(exposure_ms=None, gain_db=None),
+        frame_record=frame_record(
+            exposure_ms=None, exposure_source=None, gain_db=None, gain_source=None
+        ),
         labware=plate(),
         well_label=None,
+        fallback_focus=None,
     )
     metadata['significant_bits'] = 8  # write_tiff supplies this in production
     data = np.zeros((4, 4), dtype=np.uint8)
-    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color='BF')
+    tiff = generate_tiff_data(
+        data, metadata=metadata, image_type='ome', color=release_color('BF'), white_bits=None
+    )
     plane = tiff['metadata']['Plane']
     assert 'ExposureTime' not in plane
     assert 'Gain' not in plane

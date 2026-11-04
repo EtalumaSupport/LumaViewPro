@@ -35,6 +35,7 @@ SCOPES = [
 ]
 
 
+# parametrize-justified: each model and tier is its own module-scoped session
 @pytest.fixture(scope='module', params=SCOPES)
 def session(request):
     model, tier = request.param
@@ -76,19 +77,19 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     # The capture a caller makes after an LED change: frame validity drains
     # the frames already in the pipeline, however many there are.
     scope.illumination.leds_off()
-    dark = scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
+    dark = scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).image
     # The saved 1900 x 1900 frame, refitted to 1700 on the LS560 (its lens).
-    side = {'LS620': 1900, 'LS560': 1700}[scope.capabilities.model]
+    side = {'LS620': 1900, 'LS560': 1700}[scope.channel_identity.model]
     assert dark is not None and dark.shape == (side, side)
     assert dark.max() == 0
 
     # At the driver's own default exposure: bring-up puts BF's stored
     # exposure on the camera, and how bright the field reads is not what
     # this asks.
-    scope.imaging.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
+    scope.camera.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
     scope.illumination.led_on('BF', 100)
     try:
-        lit = scope.imaging.capture_and_wait(timeout_s=2.0)
+        lit = scope.imaging.capture_still(timeout_s=2.0).image
     finally:
         scope.illumination.leds_off()
     assert lit.mean() > 20
@@ -109,7 +110,7 @@ def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(sessi
     # grab loop runs behind: the first frame that is not black is the first
     # rendered after it.
     scope.illumination.leds_off()
-    assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0).max() == 0
+    assert scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).image.max() == 0
     monkeypatch.setattr(device, '_pixels', numbered_rows)
     for _ in range(10):
         frame = scope.imaging.get_image(force_new_capture=True)
@@ -289,9 +290,16 @@ def test_an_image_that_is_not_the_shipped_firmware_is_refused():
     assert device.pid == fx2driver.PID_BOOT
 
 
+def test_the_fx2_led_controller_reports_no_firmware_version(session):
+    # It has no firmware of its own; the scope's model names it an FX2 scope.
+    info = session.scope.diagnostics.get_led_info()
+    assert info.firmware_version is None
+    assert info.firmware_date is None
+
+
 def test_the_support_report_says_the_led_diagnostics_are_not_supported(session):
     from modules.tech_support_report import FirmwareDiagnostics
 
-    assert session.scope.diagnostics.get_led_info()['command_set'] is None
+    assert session.scope.diagnostics.get_led_info().command_set is None
     answer = FirmwareDiagnostics(scope=session.scope).get_led_info()
     assert answer.startswith('Not supported on this LED board'), answer

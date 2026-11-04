@@ -15,7 +15,7 @@ import json
 import pytest
 
 from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.lumascope_api.diagnostics import MOTOR_COMMANDS_TEXT
+from modules.lumascope_api.diagnostics import MotorCommandSet
 from modules.scope_session import ScopeSession
 from modules.tech_support_report import NO_MOTOR_TEXT, TechSupportReport
 from tests.settings_fixtures import complete_settings
@@ -39,7 +39,7 @@ def session(tmp_path):
 
 def _without_text(monkeypatch, session):
     """The connected simulated board, as a board with no text channel; its text sends recorded."""
-    monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
+    monkeypatch.setattr(SimulatedMotorBoard, 'takes_text_commands', False)
     diagnostics = session.scope.diagnostics
     sent = []
     single = diagnostics.send_diagnostic_command
@@ -63,23 +63,25 @@ def _without_text(monkeypatch, session):
 def _report(session, tmp_path):
     out = tmp_path / 'report'
     out.mkdir()
-    TechSupportReport(session=session)._run_scope_steps(out, lambda pct, msg: None)
+    TechSupportReport(session=session)._run_scope_steps(
+        out, lambda pct, msg: None, include_bw=False
+    )
     return out
 
 
 class TestTheMotorInfoNamesTheCommandSet:
     def test_a_text_board_names_its_set(self, session):
-        assert session.scope.diagnostics.get_motor_info()['command_set'] == MOTOR_COMMANDS_TEXT
+        assert session.scope.diagnostics.get_motor_info().command_set == MotorCommandSet.TEXT
 
     def test_a_board_without_text_names_none(self, session, monkeypatch):
-        monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
+        monkeypatch.setattr(SimulatedMotorBoard, 'takes_text_commands', False)
 
-        assert session.scope.diagnostics.get_motor_info()['command_set'] is None
+        assert session.scope.diagnostics.get_motor_info().command_set is None
 
     def test_no_board_names_none(self, session, monkeypatch):
         monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
 
-        assert session.scope.diagnostics.get_motor_info()['command_set'] is None
+        assert session.scope.diagnostics.get_motor_info().command_set is None
 
 
 def test_every_text_section_says_not_applicable_and_the_board_is_sent_no_text(

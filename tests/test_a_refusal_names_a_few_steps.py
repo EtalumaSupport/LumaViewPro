@@ -20,12 +20,14 @@ from unittest.mock import patch
 import pytest
 
 import modules.protocol as protocol_module
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from tests.test_protocol_execution import _make_multi_step_protocol, scope  # noqa: F401
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
+from tests.log_capture import messages, records_of
 
 # Text order and protocol order differ: sorted, 'W10' comes before 'W2'.
 _LABELS = ['W2', 'W10', 'W1', 'W11', 'W3', 'W12', 'W4', 'W13']
@@ -53,7 +55,7 @@ def _stack_refusal(proto):
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         proto.apply_zstacking(
-            zstack_params=_STACK, axis_limits={'Z': {'min': 4960.0, 'max': 10_000.0}}
+            zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=4960.0, max_um=10_000.0)}
         )
     return str(refusal.value)
 
@@ -70,7 +72,7 @@ def test_a_stack_refusal_names_five_steps_in_protocol_order():
 
 
 def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
-    maximum = scope.imaging.max_gain_db_cached
+    maximum = scope.capabilities.camera_limits.gain_max_db
     proto = _make_multi_step_protocol(
         [{'name': f'Step {n}', 'gain_db': maximum + 10.0, 'well': f'A{n}'} for n in range(1, 9)]
     )
@@ -85,18 +87,18 @@ def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
 
 
 @pytest.fixture
-def protocol_log(monkeypatch, caplog):
-    # The suite's lvp_logger is a stand-in that records nothing.
-    monkeypatch.setattr(protocol_module, 'logger', logging.getLogger('LVP.test.protocol'))
-    caplog.set_level(logging.INFO, logger='LVP.test.protocol')
+def protocol_log(caplog):
+    caplog.set_level(logging.INFO, logger='lvp_logger')
     return caplog
 
 
 def test_a_stack_that_is_built_says_how_many_steps_it_made(protocol_log):
     proto = _build_protocol([_labeled_step(z=5000.0)])
-    proto.apply_zstacking(zstack_params=_STACK, axis_limits={'Z': {'min': 0.0, 'max': 10_000.0}})
+    proto.apply_zstacking(
+        zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=0.0, max_um=10_000.0)}
+    )
 
-    assert [r.getMessage() for r in protocol_log.records] == [
+    assert messages(records_of(protocol_log, protocol_module)) == [
         '[Protocol] Z-stack applied (range 100.0 um, step 20.0 um): 1 -> 6 steps'
     ]
 
@@ -109,12 +111,12 @@ def test_a_grid_that_is_built_says_how_many_steps_it_made(protocol_log, scale_ca
         binning_size=1,
         axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
     )
 
-    assert [r.getMessage() for r in protocol_log.records] == [
+    assert messages(records_of(protocol_log, protocol_module)) == [
         '[Protocol] Tile grid 2x2 applied: 1 -> 4 steps'
     ]

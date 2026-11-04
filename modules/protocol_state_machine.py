@@ -9,6 +9,7 @@ Pure logic -- no threading, no I/O.  Extracted from
 import enum
 
 from lvp_logger import logger
+from modules.lumascope_api.illumination import LedEndPolicy
 
 
 class SequencedCaptureRunMode(enum.Enum):
@@ -45,14 +46,14 @@ class SequencedCaptureRunMode(enum.Enum):
         )
 
     @property
-    def leds_state_at_end(self) -> str:
-        """How the run leaves the LEDs: 'return_to_original' or 'off'.
+    def led_end_policy(self) -> LedEndPolicy:
+        """How the run leaves the LEDs.
 
         A one-position run hands the illumination back the way it found it;
         a plate traverse forces every channel dark, since it may end with
         nobody there to turn them off.
         """
-        return 'return_to_original' if self.is_one_position else 'off'
+        return LedEndPolicy.RETURN_TO_ORIGINAL if self.is_one_position else LedEndPolicy.OFF
 
     @property
     def words(self) -> str:

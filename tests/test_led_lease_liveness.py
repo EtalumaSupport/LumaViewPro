@@ -19,14 +19,26 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    build_scope,
+    channel_reading,
+    home_sim_scope,
+)
+from tests.objective_records import objective
+from tests.stock_channels import LED0, LED1
 
 
 @pytest.fixture
 def scope():
     s = build_scope(simulate=True)
+    # Autofocus saves and restores the camera, whose snapshot carries the
+    # stored image mode and region: the scope reads a session's settings.
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -45,11 +57,9 @@ def _af_runner(scope):
         scope=scope,
     )
     scope.objective_helper = MagicMock()
-    scope.objective_helper.get_objective_info.return_value = {
-        'AF_range': 50.0,
-        'AF_max': 10.0,
-        'AF_min': 5.0,
-    }
+    scope.objective_helper.get_objective_info.return_value = objective(
+        autofocus_half_range_um=50.0, autofocus_step_max_um=10.0, autofocus_step_min_um=5.0
+    )
     return r
 
 
@@ -125,31 +135,33 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     ended_run.release(leave_on=False)
     holder = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert holder is not None
-    ill._led_on_impl(channel=ill.color2ch('Blue'), illumination_ma=120.0, _lease=holder)
+    ill._led_on_impl(ill.color2ch(LED0), 120.0, member='led_on', _lease=holder)
 
     runner = _af_runner(scope)
     iterations = []
     runner._iterate = lambda: iterations.append(1)
 
+    # Every Z target the board is sent, from any member.
     moves = []
-    real_move = scope.motion.move_absolute
+    driver = scope._motion_driver
+    real_write = driver.move_abs_pos
 
-    def _recording_move(axis, pos, *args, **kwargs):
+    def _recording_write(axis, pos):
         moves.append((axis, pos))
-        return real_move(axis, pos, *args, **kwargs)
+        return real_write(axis, pos)
 
-    monkeypatch.setattr(scope.motion, 'move_absolute', _recording_move)
+    monkeypatch.setattr(driver, 'move_abs_pos', _recording_write)
 
     pre_z = scope.motion.get_current_position('Z')
-    pre_gain = scope.imaging.get_gain_db()
-    pre_exposure = scope.imaging.get_exposure_ms()
+    pre_gain = scope.camera.read_gain_db()
+    pre_exposure = scope.camera.read_exposure_ms()
 
     with pytest.raises(AutofocusAborted) as aborted:
         runner.run(
             objective_id='objective-under-test',
-            run_trigger_source='manual',
+            center_um=scope.motion.get_current_position('Z'),
             abort_event=threading.Event(),
-            led_color='Green',
+            led_color=LED1,
             led_illumination=250.0,
             led_lease=ended_run,
         )
@@ -159,15 +171,15 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     assert (outcome.kind, outcome.cause, outcome.reason) == (
         OutcomeKind.QUIET,
         RefusalCause.STATE,
-        'run_ended',
+        'sweep_run_ended',
     )
     assert iterations == [], 'no focus iteration may run without the LED lease'
     z_targets = [pos for axis, pos in moves if axis == 'Z']
     assert all(abs(pos - pre_z) < 1e-6 for pos in z_targets), (
         f'the stage must not walk the AF z range on a refused run; Z moves: {z_targets}'
     )
-    assert scope.imaging.get_gain_db() == pre_gain, 'camera gain must be restored'
-    assert scope.imaging.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
+    assert scope.camera.read_gain_db() == pre_gain, 'camera gain must be restored'
+    assert scope.camera.read_exposure_ms() == pre_exposure, 'camera exposure must be restored'
     assert scope.imaging.is_focusing is False
     assert not runner.in_progress(), 'the in-progress flag must clear on the refused run'
     # The lease is refused only once the run that handed it over has ended,
@@ -181,10 +193,12 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     # AF channel was never lit.
     assert holder.held
     assert ill.led_lease_purpose == 'protocol'
-    assert ill.get_led_state('Blue')['enabled'], (
+    assert channel_reading(ill, LED0).state is LedState.LIT, (
         "the holder's lit channel must survive the refused AF"
     )
-    assert not ill.get_led_state('Green')['enabled'], 'the refused AF must not light its channel'
+    assert channel_reading(ill, LED1).state is LedState.DARK, (
+        'the refused AF must not light its channel'
+    )
     holder.release(leave_on=False)
 
 
@@ -210,9 +224,9 @@ def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(sco
         with pytest.raises(AutofocusAborted) as refused:
             runner.run(
                 objective_id='objective-under-test',
-                run_trigger_source='manual',
+                center_um=scope.motion.get_current_position('Z'),
                 abort_event=threading.Event(),
-                led_color='Green',
+                led_color=LED1,
                 led_illumination=250.0,
                 led_lease=run,
             )

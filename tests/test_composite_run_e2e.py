@@ -25,31 +25,34 @@ holds that wait down.
 import contextlib
 import pathlib
 import shutil
+import threading
 import time
 
 import pytest
 import tifffile as tf
 
-from modules.image_mode import OUTPUT_FORMAT_TIFF
+from modules.caller import Caller, calling
+from modules.image_mode import OutputFormat
 from modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.installation_fixtures import copy_installation_files
+from tests.stock_channels import LED0
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
 # so a threshold that never reached the merge fails here rather than
 # passing quietly on a fluorescence-only stack.
-_ACQUIRING = ('BF', 'Blue')
+_ACQUIRING = ('BF', LED0)
 
 
 def headless_settings(
     tmp_path,
     acquiring=_ACQUIRING,
-    sequenced_format=OUTPUT_FORMAT_TIFF,
-    live_format=OUTPUT_FORMAT_TIFF,
+    sequenced_format=OutputFormat.TIFF,
+    live_format=OutputFormat.TIFF,
 ):
     """The composite config fixture, plus what a real RUN needs on top.
 
@@ -110,7 +113,7 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
 
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     try:
         yield session, runner
     finally:
@@ -202,11 +205,11 @@ class TestCompositeRunEndToEnd:
 
         runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        assert not session.is_protocol_running, (
+        assert session.activity_claim.run_holder is None, (
             'run_composite returned while the run still held the activity claim'
         )
-        outcome = runner._executor._last_run()
-        settled = outcome.wait(timeout_s=0)
+        outcome = runner._executor._last_run().operation
+        settled = outcome.result(timeout=0)
         assert settled is not None and settled.merged, (
             f'the merge outcome was not resolved-merged at return: {settled}'
         )
@@ -221,9 +224,9 @@ class TestCompositeRunEndToEnd:
         #
         # Delaying the write is what makes the race observable: the merge
         # now reaches its wait with the frames still in flight, so a merge
-        # that skips the wait finds a directory holding fewer channels than
-        # the run captured -- which is a composite silently missing a
-        # channel, the failure the bound exists to prevent.
+        # that skips the wait finds a channel the run captured not yet in
+        # the folder, and fails for it -- a composite lost for a frame that
+        # was only late, the failure the bound exists to prevent.
         import modules.protocol_image_writer as piw
 
         real_save = piw.save_image
@@ -270,10 +273,9 @@ class TestCompositeRunEndToEnd:
 class TestStartComposite:
     """The non-blocking half: assembly and launch without the wait."""
 
-    def test_the_trigger_token_is_the_callers(self, composite_session):
-        # A constant here instead of a parameter would make a GUI click
-        # during an API composite read as that run's OWN second click, so
-        # the click would abort someone else's run instead of being refused.
+    def test_the_run_records_the_host_that_started_it(self, composite_session):
+        # Who started the run is the host's stamp on the starting thread,
+        # never a constant of the composite: the GUI's start is the GUI's.
         session, runner, tmp_path = composite_session
 
         # Observed from inside the run rather than after it: scan_started
@@ -281,18 +283,18 @@ class TestStartComposite:
         # holder while it holds rather than racing the run's end.
         # run_ended cannot: it comes after the run has let go.
         held_by = []
-        outcome = runner.start_composite(
-            sequence_name='start_token',
-            parent_dir=str(tmp_path),
-            run_trigger_source='composite',
-            events=RunEvents(
-                scan_started=lambda *_scan: held_by.append(
-                    session.activity_claim.holder.run_trigger_source
-                )
-            ),
-        )
-        assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
-        assert held_by == ['composite']
+        with calling(Caller.GUI):
+            outcome = runner.start_composite(
+                sequence_name='start_token',
+                parent_dir=str(tmp_path),
+                events=RunEvents(
+                    scan_started=lambda *_scan: held_by.append(
+                        session.activity_claim.holder.run_started_by
+                    )
+                ),
+            )
+        assert outcome.result(timeout=120) is not None, 'the run never settled'
+        assert held_by == [Caller.GUI]
 
         assert wait_until_not_running(session), 'the run never released the claim'
         assert session.activity_claim.holder is None, (
@@ -310,7 +312,7 @@ class TestStartComposite:
             parent_dir=str(tmp_path),
             events=RunEvents(run_ended=lambda outcome, run_dir, protocol: heard.append(outcome)),
         )
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
 
         assert settled is not None, 'the run never settled'
         assert heard == [settled], (
@@ -327,9 +329,9 @@ class TestStartComposite:
         _session, runner, tmp_path = composite_session
 
         first = runner.start_composite(sequence_name='own_1', parent_dir=str(tmp_path))
-        first_settled = first.wait(timeout_s=120)
+        first_settled = first.result(timeout=120)
         second = runner.start_composite(sequence_name='own_2', parent_dir=str(tmp_path))
-        second_settled = second.wait(timeout_s=120)
+        second_settled = second.result(timeout=120)
 
         assert first is not second, "the second run reused the first run's outcome object"
         assert first_settled.merged and second_settled.merged, (
@@ -356,7 +358,13 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        from modules.composite_builder import brightness_cutoff_from_percent, build_composite
+        import modules.layer_record as layer_record
+        from modules.composite_builder import (
+            CompositeChannel,
+            TransmittedBase,
+            brightness_cutoff_from_percent,
+            build_composite,
+        )
 
         _session, runner, tmp_path = composite_session
 
@@ -382,10 +390,13 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         # comparison green through a change to the real one.
         thresholds = dict.fromkeys(fluorescence, brightness_cutoff_from_percent(25))
 
+        bits = 8 if transmitted.dtype == np.uint8 else 12
         expected = build_composite(
-            channel_images=fluorescence,
-            significant_bits=8 if transmitted.dtype == np.uint8 else 12,
-            transmitted_image=transmitted,
+            channels={
+                name: CompositeChannel(arr, layer_record.release_color(name), bits, None)
+                for name, arr in fluorescence.items()
+            },
+            transmitted=TransmittedBase(transmitted, bits, None),
             brightness_thresholds=thresholds,
         )
 
@@ -396,15 +407,35 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         )
 
 
+def test_a_composite_runs_merge_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):
+    # The merge is the session's builds' work, on their lane, as a caller's
+    # composite is: a run's end does not merge on a thread of its own.
+    from modules.composite_generation import CompositeGeneration
+
+    merged_on = []
+    real_load = CompositeGeneration.load_folder
+
+    def _load(self, path, **kwargs):
+        merged_on.append(threading.current_thread().name)
+        return real_load(self, path, **kwargs)
+
+    monkeypatch.setattr(CompositeGeneration, 'load_folder', _load)
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        runner.run_composite(sequence_name='on_the_lane', parent_dir=str(tmp_path))
+        lane = session.post_processing.lane.executor_name
+
+    assert merged_on == [lane]
+
+
 class TestTheMergeReadsTheSessionsOwnDataRoot:
-    """The merge's tiling config comes from the root the session holds.
+    """The merge lays its tiles out on the grids the session read from its own root.
 
     A session is told where its installation lives, and every file the
-    run reads has to come from there. The merge resolved
+    run reads has to come from there. The merge once resolved
     ``data/tiling.json`` from the process's script root instead, so a
     session pointed at one installation merged against another one's
     tiling geometry -- silently, because both roots hold a readable file.
-    Nothing about the merged artifact shows which one was read, so this
+    Nothing about the merged artifact shows which grids were used, so this
     is asserted at the argument the loader was handed.
     """
 
@@ -427,11 +458,11 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
             def __init__(self, has_turret=False):
                 self.has_turret = has_turret
 
-            def load_folder(self, **kwargs):
+            def load_folder(self, path, **kwargs):
                 loads.append(kwargs)
-                artifact = pathlib.Path(kwargs['path']) / 'recorded_composite.tiff'
+                artifact = pathlib.Path(path) / 'recorded_composite.tiff'
                 artifact.touch()
-                return {'status': True, 'artifact_paths': [str(artifact)]}
+                return {'status': True, 'message': 'Success.', 'artifact_paths': [str(artifact)]}
 
         import modules.composite_generation as composite_generation
 
@@ -440,11 +471,12 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
         )
 
         settings = headless_settings(tmp_path)
-        with open_composite_session(settings, source_path=str(tmp_path)) as (_session, runner):
+        with open_composite_session(settings, source_path=str(tmp_path)) as (session, runner):
             runner.run_composite(sequence_name='data_root', parent_dir=str(tmp_path))
+            grids = session.scope.protocols.tiling_grids()
 
         assert len(loads) == 1, f'expected exactly one merge for one run; got {len(loads)}'
-        assert loads[0]['tiling_configs_file_loc'] == data_dir / 'tiling.json', (
-            'the merge read its tiling config from outside the root the session '
-            f'was built with: {loads[0]["tiling_configs_file_loc"]}'
+        assert loads[0]['tiling_grids'] is grids, (
+            'the merge laid its tiles out on grids other than the ones the '
+            'session read from the root it was built with'
         )

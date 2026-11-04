@@ -164,7 +164,7 @@ class NotifyRecorder:
         return [
             (n.severity.name.lower(), (n.category, n.title, n.message), {})
             for n in self._posts[self._start :]
-            if n.severity >= Severity.INFO
+            if n.severity.level >= Severity.INFO.level
         ]
 
     def severities(self):

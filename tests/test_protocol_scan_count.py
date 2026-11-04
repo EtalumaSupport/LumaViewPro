@@ -12,15 +12,13 @@ they stubbed the period as an ``int``. These tests use a real Protocol.
 """
 
 import datetime
-import pathlib
 
 import pandas as pd
 
 from modules.notification_center import Severity
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunMode, SequencedCaptureRunner
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 def _step():
@@ -45,17 +43,19 @@ def _step():
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'fps': 5, 'duration': 5},
+        'Video Config': {'duration': 5},
         'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': True,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
 def _protocol(*, period: datetime.timedelta, duration: datetime.timedelta) -> Protocol:
-    return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step()]),
@@ -86,12 +86,19 @@ def test_period_zero_runs_one_scan(centre_posts):
     assert len(_notices(centre_posts)) == 1, 'the user is told once that the run is a single scan'
 
 
+def test_a_run_capped_at_no_scans_takes_none_even_at_period_zero():
+    protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(minutes=1))
+    assert _scan_count(protocol, max_scans=0) == 0
+
+
 def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path):
     # The bench recipe that found the crash: a Period 0 protocol on disk.
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))
     path = tmp_path / 'period_zero.tsv'
     protocol.to_file(path)
-    reloaded = Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    reloaded = protocol_from_file(
+        file_path=path,
+    )
     assert _scan_count(reloaded) == 1
 
 

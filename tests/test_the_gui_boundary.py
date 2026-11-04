@@ -18,19 +18,22 @@ import types
 import pytest
 
 import modules.app_context as _app_ctx
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
 from modules.notification_center import Severity
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_outcome
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0
 
 _WAIT_S = 2.0
 
 
 @pytest.fixture
 def lane():
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.start()
     yield ex
     ex.shutdown(wait=False)
@@ -38,11 +41,13 @@ def lane():
 
 @pytest.fixture
 def pool(monkeypatch):
-    ex = SequentialIOExecutor(name='WORKER_POOL', priority_aware=True, lane=False)
+    ex = SequentialIOExecutor(
+        closed_answer=session_lane_closed, name='WORKER_POOL', priority_aware=True, lane=False
+    )
     ex.start()
     monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(worker_pool=ex))
     # Headless: a scheduled redraw runs as soon as it is scheduled.
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     yield ex
     ex.shutdown(wait=False)
 
@@ -103,7 +108,14 @@ class TestTheInlineForm:
             lambda: lane.call(IOTask(action=ran.append, args=(1,)), 'move', 5.0), None, 'T'
         )
         assert ran == []
-        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.ERROR, 'UI:T')]
+        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.WARNING, 'UI:T')]
+
+    def test_the_lane_refuses_a_wait_from_inside_the_form(self, lane):
+        ran = []
+        with inline_outcome(), pytest.raises(BlockingCallRefusedError) as refused:
+            lane.call(IOTask(action=ran.append, args=(1,)), 'move', 5.0)
+        assert (refused.value.reason, refused.value.member) == ('blocking_inline', 'move')
+        assert ran == []
 
     def test_the_mark_does_not_outlive_the_call(self, centre_posts, lane):
         run_reported(_fail, None, 'T')
@@ -179,7 +191,7 @@ class TestTheLaneForm:
 
     @pytest.fixture
     def headless(self, monkeypatch):
-        monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+        monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
 
     @pytest.fixture
     def claim(self, lane):
@@ -214,7 +226,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_at_submit_redraws_once(self, centre_posts, headless, lane, claim):
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         ran = []
         redrawn = []
         try:
@@ -239,7 +251,7 @@ class TestTheLaneForm:
         ran = []
         redrawn = []
         submit_reported(lambda: ran.append(1), lambda: redrawn.append('T'), 'T', lane=lane)
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
             gate.set()
             deadline = time.monotonic() + _WAIT_S
@@ -259,41 +271,28 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_names_the_gesture_not_the_wrapper(self, centre_posts, headless, lane, claim):
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
-            submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
+            submit_reported(lambda: None, None, f'LED_{LED0}', lane=lane)
         finally:
             held.release()
         self._settle(lane)
-        assert [n.category for n in centre_posts] == ['Task:UI:LED_Blue']
+        assert [n.category for n in centre_posts] == [f'Task:UI:LED_{LED0}']
 
 
-def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):
+def test_a_burst_of_scroll_ticks_is_one_jog_of_the_last_ticks_speed(gui_ctx, monkeypatch):
     from ui import shader
 
-    steps = []
-    moves = []
-    monkeypatch.setattr(
-        shader._app_ctx,
-        'ctx',
-        types.SimpleNamespace(
-            scope=types.SimpleNamespace(
-                motion=types.SimpleNamespace(
-                    jog_step=lambda axis, coarse: (
-                        steps.append(coarse) or (100.0 if coarse else 10.0)
-                    )
-                )
-            )
-        ),
-    )
-    monkeypatch.setattr(ui_helpers, 'move_relative', lambda axis, um, **k: moves.append((axis, um)))
+    jogs = []
+    # a stand-in by design: the subject is the debounce, which hands the
+    # jog on; the jog itself is the API's (test_a_jog_needs_a_known_objective).
+    monkeypatch.setattr(ui_helpers, 'jog', lambda *a: jogs.append(a))
     viewer = types.SimpleNamespace(_scroll_z_pending=None)
     for pending in [(1.0, False), (2.0, False), (-1.5, True)]:
         viewer._scroll_z_pending = pending
     shader.ShaderViewer._flush_scroll_z(viewer, 0)
 
-    assert moves == [('Z', -150.0)]
-    assert steps == [True], 'the step is asked for once, at the move, with the last tick coarseness'
+    assert jogs == [('Z', -1.5, True)], 'one jog, of the last tick, at its speed and coarseness'
 
 
 class TestALongMemberCarriesItsBudget:

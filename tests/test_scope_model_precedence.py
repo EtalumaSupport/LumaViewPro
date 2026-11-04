@@ -10,10 +10,13 @@ configured for the wrong axes -- the GUI corrected that in its own copy of
 the bring-up, and a headless host never did.
 """
 
+import logging
+
 import pytest
 
+from modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
 from modules.scope_session import ScopeSession
-from tests.log_capture import capture_module_log
+from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope
 
@@ -28,10 +31,12 @@ def _sim_scope(**kwargs):
 
 
 @pytest.fixture
-def session_log(monkeypatch):
+def session_log(caplog):
+    """What the session module has logged so far in the test."""
     import modules.scope_session as scope_session
 
-    return capture_module_log(monkeypatch, scope_session)
+    caplog.set_level(logging.DEBUG)
+    return lambda: records_of(caplog, scope_session)
 
 
 class TestASimulatedScopeReportsItsDeclaredModel:
@@ -41,14 +46,14 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         monkeypatch.setattr(settings_init, 'settings', {'microscope': 'LS850T'})
         scope = _sim_scope(configured_model='LS850')
         try:
-            assert scope.diagnostics.get_motor_info()['model'] == 'LS850'
+            assert scope.diagnostics.get_motor_info().model == 'LS850'
         finally:
             scope.disconnect()
 
     def test_sim_model_still_outranks_configured_model(self):
         scope = _sim_scope(sim_model='LS850T', configured_model='LS850')
         try:
-            assert scope.diagnostics.get_motor_info()['model'] == 'LS850T'
+            assert scope.diagnostics.get_motor_info().model == 'LS850T'
         finally:
             scope.disconnect()
 
@@ -59,7 +64,7 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.settings['microscope'] == 'LS850'
-            assert session.scope.diagnostics.get_motor_info()['model'] == 'LS850'
+            assert session.scope.diagnostics.get_motor_info().model == 'LS850'
             assert session.scope.capabilities.has_turret is False
         finally:
             session.shutdown()
@@ -67,85 +72,72 @@ class TestASimulatedScopeReportsItsDeclaredModel:
 
 
 class TestTheBringUpAdoptsTheReportedModel:
-    """configure_scope() step 0: the model the motor board reports lands in
+    """Bring-up's step 0: the model the motor board reports lands in
     the session's settings before anything reads the stored one."""
 
-    def _caller_scope_session(self, tmp_path, scope, **settings_overrides):
-        raw = complete_settings(live_folder=str(tmp_path), **settings_overrides)
-        return ScopeSession.create(settings=raw, scope=scope, warn_pre_release=False)
+    def _created(self, tmp_path, *, sim_model=None, sim_model_answer=None, **settings_overrides):
+        return ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), **settings_overrides),
+            simulate=True,
+            simulated=SimulatedScope(model=sim_model, model_answer=sim_model_answer),
+            warn_pre_release=False,
+        )
 
     def test_a_catalogued_model_is_written_before_the_turret_is_decided(
         self, tmp_path, session_log
     ):
         # The file says LS850 (no turret) with a stored objective; the board
-        # says LS850T. Whether the objective is stored or derived from the
+        # is an LS850T. Whether the objective is stored or derived from the
         # slot depends on the model having a turret, so the write must
         # precede that decision.
-        scope = _sim_scope(sim_model='LS850T')
-        session = self._caller_scope_session(
+        session = self._created(
             tmp_path,
-            scope,
+            sim_model='LS850T',
             microscope='LS850',
             objective_id='20x Oly',
             turret_objectives={1: '10x Oly', 2: None, 3: None, 4: None},
         )
         try:
-            session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'
-            assert session.scope.runtime_state.is_turreted(), (
+            assert session.scope.capabilities.has_turret, (
                 'the turret decided against the ADOPTED model'
             )
             # Derived from a slot no turret command has named yet, so
             # unknown -- never the stored turretless selection.
             assert session.scope.runtime_state.get_current_objective_id() is None
-            assert any('the hardware wins' in r.getMessage() for r in session_log)
+            assert any('the hardware wins' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
-            scope.disconnect()
 
-    def test_a_model_outside_the_catalogue_leaves_the_stored_one(
-        self, tmp_path, session_log, monkeypatch
-    ):
-        scope = _sim_scope(sim_model='LS850T')
-        session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
-        reported = scope.diagnostics.get_motor_info
-        monkeypatch.setattr(
-            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': 'LS999'}
+    def test_a_model_outside_the_catalogue_leaves_the_stored_one(self, tmp_path, session_log):
+        session = self._created(
+            tmp_path, sim_model_answer=SimulatedModelAnswer('LS999'), microscope='LS850T'
         )
         try:
-            session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'
-            assert any('not in the catalogue' in r.getMessage() for r in session_log)
+            assert any('not in the catalogue' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
-            scope.disconnect()
 
-    def test_no_reported_model_leaves_the_stored_one(self, tmp_path, monkeypatch):
-        scope = _sim_scope(sim_model='LS850T')
-        session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
-        reported = scope.diagnostics.get_motor_info
-        monkeypatch.setattr(
-            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': None}
+    def test_no_reported_model_leaves_the_stored_one(self, tmp_path):
+        session = self._created(
+            tmp_path, sim_model_answer=SimulatedModelAnswer(None), microscope='LS850T'
         )
         try:
-            session.configure_scope()
+            assert session.scope.diagnostics.get_motor_info().model is None
             assert session.settings['microscope'] == 'LS850T'
         finally:
             session.shutdown()
-            scope.disconnect()
 
     def test_a_matching_report_writes_nothing(self, tmp_path, session_log):
         # Green before and after the change by construction; kept so the
         # silent case stays silent.
-        scope = _sim_scope(sim_model='LS850T')
-        session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
+        session = self._created(tmp_path, microscope='LS850T')
         try:
-            session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'
-            assert not any('scope reports model' in r.getMessage() for r in session_log)
+            assert not any('scope reports model' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
-            scope.disconnect()
 
     def test_a_declared_model_survives_a_simulated_create(self, tmp_path):
         # A regression guard, green before and after: the sim reports the

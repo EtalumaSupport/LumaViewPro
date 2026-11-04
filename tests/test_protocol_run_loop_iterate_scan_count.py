@@ -13,7 +13,6 @@ This test defers the scheduled deliveries (captures them without running
 them), drives two scans, then runs them and asserts they counted down.
 """
 
-import datetime
 import threading
 import time
 from types import MethodType, SimpleNamespace
@@ -42,7 +41,7 @@ def _make_two_scan_parent():
     p._take_camera = lambda: None
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
-    p._protocol.period.return_value = datetime.timedelta(0)
+    p._protocol.period_s.return_value = 0.0
     p._parent_dir = None  # skip the disk-space branch
     # _start_t is a monotonic timestamp (seconds); set it an hour in the past so
     # the period-0 pacing check fires immediately.
@@ -74,7 +73,8 @@ def _make_two_scan_parent():
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
-    p._events = RunEvents(scan_started=mock.MagicMock())
+    # A GUI's events, which the tests below defer as the Kivy clock would.
+    p._events = RunEvents(scan_started=mock.MagicMock(), on_ui_thread=True)
     # The run loop itself increments _scan_count once per completed scan, so
     # remaining_scans() counts down across iterations without extra help here.
     return p
@@ -105,6 +105,17 @@ def test_iterate_callback_reports_per_scan_remaining_count():
     assert reported == [2, 1]
 
 
+def test_each_scan_event_names_its_scan_by_its_index_from_0():
+    p = _make_two_scan_parent()
+    p._events = RunEvents(scan_started=mock.MagicMock(), scan_ended=mock.MagicMock())
+
+    ProtocolRunLoop(p)._run_loop_inner(PendingRunOutcome())
+
+    started = [call.args[0] for call in p._events.scan_started.call_args_list]
+    ended = [call.args[0] for call in p._events.scan_ended.call_args_list]
+    assert (started, ended) == ([0, 1], [0, 1])
+
+
 def test_scan_pacing_waits_on_monotonic_period():
     """Inter-scan pacing compares a MONOTONIC elapsed against the period in
     seconds. With _start_t set to 'now' and a 100 s period, the loop must WAIT on
@@ -113,7 +124,7 @@ def test_scan_pacing_waits_on_monotonic_period():
     able to rush or stall the schedule.
     """
     p = _make_two_scan_parent()
-    p._protocol.period.return_value = datetime.timedelta(seconds=100)
+    p._protocol.period_s.return_value = 100.0
     p._start_t = time.monotonic()  # just started: ~0 s elapsed
 
     loop = ProtocolRunLoop(p)
@@ -125,7 +136,7 @@ def test_scan_pacing_waits_on_monotonic_period():
 
     deferred = []
     with (
-        mock.patch('modules.run_events.schedule_ui', lambda cb, *a, **k: deferred.append(cb)),
+        mock.patch('modules.run_events.schedule_ui', lambda cb: deferred.append(cb)),
         # The loop's own name for time, not the time module, which every
         # thread in the process shares.
         mock.patch(

@@ -62,18 +62,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import Packages, Words, iter_package_modules
 from tests.scope_fakes import build_scope
 
 # Packages that hold callers of the scope API. `drivers/` is excluded on
 # purpose: it sits BELOW the API and never holds a scope reference.
-SCANNED_PACKAGES = ('modules', 'ui')
+SCANNED_PACKAGES = Packages({'modules', 'ui'})
 
 # Receiver expressions denoting the Lumascope object. Matched on the
 # FINAL attribute so dotted chains are covered without enumerating them
 # (`self._scope`, `ctx.scope`, `_app_ctx.ctx.scope`), while near-misses
 # like `self.scope_display` are not.
-_SCOPE_TAIL_NAMES = frozenset({'scope', '_scope'})
+_SCOPE_TAIL_NAMES = Words({'scope', '_scope'})
 
 # Names allowed to be missing, keyed by NAME so the entry survives the
 # line shifts of any merge. Each entry names the owner that retires it --
@@ -201,8 +201,9 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     than run once. The census's two dead sites are both gone from the tree
     (the `led_*_fast` probes with video_capture, the `camera` probe with the
     retired frame-flow watchdog), so the proof plants the second family's
-    exact shape -- `getattr(self._scope, 'camera', None)` -- and runs it
-    through the same scan and oracle as production code.
+    shape -- the driver probed bare, now as `getattr(self._scope,
+    'camera_driver', None)`, since `camera` is the camera sub-API -- and runs
+    it through the same scan and oracle as production code.
 
     The second half is the part that matters most. `led_on_fast` DOES
     exist on the `illumination` sub-API, so an oracle built from the
@@ -212,14 +213,16 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     "simplifies" the oracle to a union, this test fails.
     """
 
-    planted = ast.parse('def frame_flow(self):\n    return getattr(self._scope, "camera", None)\n')
+    planted = ast.parse(
+        'def frame_flow(self):\n    return getattr(self._scope, "camera_driver", None)\n'
+    )
     sites = [
         site for site in _probe_sites_in('planted.py', planted) if _receiver_is_scope(site.receiver)
     ]
-    assert [site.name for site in sites] == ['camera'], (
+    assert [site.name for site in sites] == ['camera_driver'], (
         f'The scan no longer finds a scope probe of the planted shape: {sites}'
     )
-    assert 'camera' not in scope_surface, (
+    assert 'camera_driver' not in scope_surface, (
         'The oracle accepts a name Lumascope does not have, so the guard has stopped biting.'
     )
 

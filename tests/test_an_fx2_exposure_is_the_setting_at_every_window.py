@@ -19,6 +19,7 @@ import pytest
 
 from drivers import fx2driver
 from drivers.fx2driver import FX2Camera
+from tests.case_walk import failing_cases
 
 # tROW = 2 x tPIXCLK x max(W/2 + 450, 486), W = Column_Size + 1 = w + 4 (DS Table 8), in us.
 ROW_US = {1900: 121.160, 1000: 82.272, 500: 60.667, 100: 43.383}
@@ -45,21 +46,32 @@ def camera(sim):
     cam.disconnect()
 
 
-@pytest.mark.parametrize('w', sorted(ROW_US))
-def test_the_row_time_is_the_data_sheets(w):
-    assert fx2driver.row_time_s(w + 3) * 1e6 == pytest.approx(ROW_US[w], abs=0.001)
+def test_the_row_time_is_the_data_sheets():
+    def check(w):
+        assert fx2driver.row_time_s(w + 3) * 1e6 == pytest.approx(ROW_US[w], abs=0.001)
+
+    failed = failing_cases(sorted(ROW_US), check)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('w', sorted(ROW_US))
-def test_one_shutter_row_integrates_the_row_less_the_overhead(w):
-    assert fx2driver.exposure_s(1, w + 3) * 1e6 == pytest.approx(ROW_US[w] - OVERHEAD_US, abs=0.001)
+def test_one_shutter_row_integrates_the_row_less_the_overhead():
+    def check(w):
+        assert fx2driver.exposure_s(1, w + 3) * 1e6 == pytest.approx(
+            ROW_US[w] - OVERHEAD_US, abs=0.001
+        )
+
+    failed = failing_cases(sorted(ROW_US), check)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('w', sorted(ROW_US))
 @pytest.mark.parametrize('request_ms', [0.5, 50.0, 178.0])
-def test_a_request_lands_within_half_a_row_of_itself(w, request_ms):
-    rows = fx2driver.shutter_width_for(request_ms / 1000.0, w + 3)
-    assert abs(_integration_ms(rows, w) - request_ms) <= ROW_US[w] / 2000.0 + 1e-6
+def test_a_request_lands_within_half_a_row_of_itself(request_ms):
+    def check(w):
+        rows = fx2driver.shutter_width_for(request_ms / 1000.0, w + 3)
+        assert abs(_integration_ms(rows, w) - request_ms) <= ROW_US[w] / 2000.0 + 1e-6
+
+    failed = failing_cases(sorted(ROW_US), check)
+    assert not failed, failed
 
 
 @pytest.mark.parametrize('w, frame_ms', [(1900, 233.60), (1000, 84.58)])

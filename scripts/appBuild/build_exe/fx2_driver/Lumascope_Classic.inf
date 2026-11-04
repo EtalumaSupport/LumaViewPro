@@ -1,0 +1,57 @@
+; Lumascope_Classic.inf
+; Binds Microsoft's inbox WinUSB.sys to the Lumascope Classic (LS560,
+; LS620, LS720) in both of its USB identities:
+;
+;   USB\VID_04B4&PID_8613  the Cypress FX2's ROM bootloader, which
+;                          LumaViewPro uploads the firmware through
+;   USB\VID_04B4&PID_EA17  the running firmware, which LumaViewPro
+;                          streams from
+;
+; A unit has no EEPROM, so every launch passes through both.
+;
+; DriverVer is a placeholder: the build stamps it with the build's date
+; and the installer version (scripts/appBuild/config/fx2_driver_package.py),
+; because Windows ranks equally signed packages by that date, and an
+; unstamped copy is not a valid INF.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGUID   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ManufacturerName%
+DriverVer   = @DRIVER_VER@
+CatalogFile = Lumascope_Classic.cat
+
+[Manufacturer]
+%ManufacturerName% = Standard, NTamd64
+
+[Standard.NTamd64]
+%DeviceName%           = USB_Install, USB\VID_04B4&PID_EA17
+%DeviceNameBootloader% = USB_Install, USB\VID_04B4&PID_8613
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include    = winusb.inf
+AddService = WinUSB, 0x00000002, WinUSB_ServiceInstall
+
+[WinUSB_ServiceInstall]
+DisplayName   = %WinUSB_SvcDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\WinUSB.sys
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{dee824ef-729b-4a0e-9c14-b7117d33a817}"
+
+[Strings]
+ManufacturerName     = "Etaluma"
+DeviceName           = "Lumascope Classic"
+DeviceNameBootloader = "Lumascope Classic (Bootloader)"
+WinUSB_SvcDesc       = "WinUSB"

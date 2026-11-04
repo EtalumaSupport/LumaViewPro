@@ -12,18 +12,17 @@ import pathlib
 import time
 from collections.abc import Callable
 
-import cv2
 import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
-import modules.derived_output_encoding as derived_output_encoding
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
+from modules.stitch_mode import StitchAlgorithm, StitchMode
 from modules.stitch_algorithms import (
-    crop_to_content,
     estimate_overlap_offset,
     estimate_phase_offset,
-    feature_stitch,
     stitch_registered_tiles,
 )
 
@@ -44,7 +43,7 @@ def _center_metadata(df: pd.DataFrame) -> dict:
     }
 
 
-def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int]:
+def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int, int | None]:
     return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
 
 
@@ -95,10 +94,12 @@ def _write_output(
     path: pathlib.Path,
     output_file_loc: pathlib.Path | None,
     image: np.ndarray,
-    first_tile_path: pathlib.Path,
+    tile_paths: list[pathlib.Path],
     color: str,
+    channel_colors: layer_record.ChannelColors,
     center: dict,
     significant_bits: int,
+    white_bits: int | None,
     algorithm: str,
 ) -> np.ndarray | None:
     if output_file_loc is None:
@@ -108,9 +109,10 @@ def _write_output(
     output_file_loc_abs = path / output_file_loc
     output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
     metadata = image_utils.build_postproc_output_metadata(
-        input_path=first_tile_path,
+        input_records=[image_utils.read_file_record(tile) for tile in tile_paths],
         channel=color,
         significant_bits=significant_bits,
+        adds_frames=False,
         plate_pos_mm_override=center,
         algorithm=algorithm,
     )
@@ -118,10 +120,12 @@ def _write_output(
         data=image,
         file_loc=output_file_loc_abs,
         metadata=metadata,
-        ome=False,
-        color=color,
+        # The format its name states, the one its tiles share.
+        ome=image_utils.is_ome_tiff(output_file_loc),
+        color=layer_record.output_color(color, channel_colors),
         significant_bits=metadata['significant_bits'],
-        save_encoding=derived_output_encoding.resolve_output_save_encoding(image),
+        save_encoding=image_mode.encoding_for_array(image),
+        white_bits=white_bits,
     )
     logger.info(
         '[StitchPerf] write output %.1fms file=%s shape=%s dtype=%s',
@@ -141,6 +145,8 @@ def _result(
     df: pd.DataFrame,
     metadata: dict,
     significant_bits: int,
+    white_bits: int | None,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     first_row = df.iloc[0]
     color = str(first_row.get('Color', ''))
@@ -149,10 +155,12 @@ def _result(
         path=path,
         output_file_loc=output_file_loc,
         image=image,
-        first_tile_path=path / first_row['Filepath'],
+        tile_paths=[path / name for name in df['Filepath']],
         color=color,
+        channel_colors=channel_colors,
         center=center,
         significant_bits=significant_bits,
+        white_bits=white_bits,
         algorithm=metadata['algorithm'],
     )
     return {
@@ -181,7 +189,7 @@ def _failure_reason(failures: list[dict[str, str]]) -> str:
 
 
 def _run_fallback_chain(
-    chain: list[tuple[str, Callable[[], dict]]],
+    chain: list[tuple[StitchAlgorithm, Callable[[], dict]]],
     context: dict | None = None,
 ) -> dict:
     failures: list[dict[str, str]] = []
@@ -234,114 +242,16 @@ def _run_fallback_chain(
     return last_result
 
 
-def _bgr_from_uint8(image_u8: np.ndarray) -> np.ndarray:
-    """Present a uint8 tile as 3-channel BGR for OpenCV's Stitcher."""
-    if image_u8.ndim == 2:
-        return cv2.cvtColor(image_u8, cv2.COLOR_GRAY2BGR)
-    if image_u8.ndim == 3 and image_u8.shape[2] == 3:
-        return cv2.cvtColor(image_u8, cv2.COLOR_RGB2BGR)
-    if image_u8.ndim == 3 and image_u8.shape[2] == 4:
-        return cv2.cvtColor(image_u8, cv2.COLOR_RGBA2BGR)
-    raise ValueError(f'Unsupported image shape for feature stitch: {image_u8.shape}')
-
-
-def _feature_stitch_bgr_tiles(images: list[np.ndarray]) -> list[np.ndarray]:
-    """Convert a tile GROUP to BGR uint8 for OpenCV's Stitcher, scaling every
-    deep-input tile against one shared intensity range.
-
-    Per-tile min/max normalization maps each tile's own extremes to 0..255, so
-    a dim tile and a bright tile of the same specimen get different transfer
-    functions and the shared seam shows a brightness step. Deep (12/16-bit)
-    tiles are scaled against a group-wide lo/hi so intensities stay comparable
-    across the montage; tiles already uint8 are display-ready and pass through
-    unscaled.
-    """
-    deep = [image for image in images if image.dtype != np.uint8]
-    if deep:
-        # Group-wide lo/hi via a running reduction over one tile at a time.
-        # Concatenating every tile's finite pixels into one pooled array held
-        # ~2-3x the whole montage as float32 at peak; a large montage could
-        # MemoryError. The running min/max holds a single tile.
-        lo, hi = None, None
-        for image in deep:
-            pixels = np.asarray(image, dtype=np.float32)
-            finite = pixels[np.isfinite(pixels)]
-            if finite.size:
-                tile_lo, tile_hi = float(finite.min()), float(finite.max())
-                lo = tile_lo if lo is None else min(lo, tile_lo)
-                hi = tile_hi if hi is None else max(hi, tile_hi)
-        if lo is None:
-            lo, hi = 0.0, 1.0
-        if hi <= lo:
-            hi = lo + 1.0
-
-    bgr_tiles = []
-    for image in images:
-        if image.dtype == np.uint8:
-            image_u8 = image
-        else:
-            image_f = np.asarray(image, dtype=np.float32)
-            image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
-        bgr_tiles.append(_bgr_from_uint8(image_u8))
-    return bgr_tiles
-
-
-def bf_feature_stitcher(
-    path: pathlib.Path,
-    df: pd.DataFrame,
-    output_file_loc: pathlib.Path | None = None,
-) -> dict:
-    """Use OpenCV feature stitching for brightfield groups."""
-    center = _center_metadata(df)
-    try:
-        read_t0 = time.perf_counter()
-        raw_images = [_read_tile_with_depth(path, row['Filepath'])[0] for _, row in df.iterrows()]
-        feature_images = _feature_stitch_bgr_tiles(raw_images)
-        logger.info(
-            '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
-            (time.perf_counter() - read_t0) * 1000.0,
-            len(feature_images),
-        )
-        stitched_img = feature_stitch(feature_images)
-        if stitched_img is None:
-            return _failure('bf_feature_stitcher', 'BF feature stitching failed', center)
-        crop_t0 = time.perf_counter()
-        stitched_img = crop_to_content(stitched_img)
-        stitched_img = cv2.cvtColor(stitched_img, cv2.COLOR_BGR2RGB)
-        logger.info(
-            '[StitchPerf] bf_feature crop+convert %.1fms output_shape=%s dtype=%s',
-            (time.perf_counter() - crop_t0) * 1000.0,
-            stitched_img.shape,
-            stitched_img.dtype,
-        )
-    except Exception as exc:
-        return _failure(
-            'bf_feature_stitcher',
-            f'BF feature stitching failed: {type(exc).__name__}: {exc}',
-            center,
-        )
-
-    return _result(
-        image=stitched_img,
-        path=path,
-        output_file_loc=output_file_loc,
-        df=df,
-        metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
-        # Couple the tag to the ACTUAL output: the OpenCV feature path emits
-        # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
-        # 16-bit input depth would render it ~256x dark on read-back.
-        significant_bits=stitched_img.dtype.itemsize * 8,
-    )
-
-
 def overlap_stitcher(
     path: pathlib.Path,
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
-    estimator=estimate_overlap_offset,
-    algorithm: str = 'quality_local_ncc',
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
+    algorithm: StitchAlgorithm = StitchAlgorithm.QUALITY_LOCAL_NCC,
     blend_mode: str = 'source_preserving',
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Use the newest stage-position + overlap-registration stitch math."""
     center = _center_metadata(df)
@@ -356,10 +266,12 @@ def overlap_stitcher(
         read_t0 = time.perf_counter()
         images = {}
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             images[row['Filepath']] = image
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] overlap read %.1fms tiles=%d bytes=%d',
@@ -417,6 +329,7 @@ def overlap_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={
             'center': center,
             'algorithm': algorithm,
@@ -425,6 +338,7 @@ def overlap_stitcher(
             'registered_tiles': registered_tiles,
         },
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -433,6 +347,8 @@ def fft_phase_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Fast, stage-constrained preview registration for real overlaps only."""
     return overlap_stitcher(
@@ -441,8 +357,9 @@ def fft_phase_stitcher(
         pixel_size_um=pixel_size_um,
         output_file_loc=output_file_loc,
         estimator=estimate_phase_offset,
-        algorithm='fast_fft_phase',
+        algorithm=StitchAlgorithm.FAST_FFT_PHASE,
         blend_mode='source_preserving',
+        channel_colors=channel_colors,
     )
 
 
@@ -451,6 +368,8 @@ def stage_position_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Place tiles by recorded stage position without registration correction."""
     center = _center_metadata(df)
@@ -464,10 +383,12 @@ def stage_position_stitcher(
         read_t0 = time.perf_counter()
         images = {}
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             images[row['Filepath']] = image
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] stage-position read %.1fms tiles=%d bytes=%d',
@@ -535,13 +456,15 @@ def stage_position_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={
             'center': center,
-            'algorithm': 'stage_position_stitcher',
+            'algorithm': StitchAlgorithm.STAGE_POSITION,
             'pixel_size_um': pixel_size_um,
             'placements': placements,
         },
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -549,6 +472,8 @@ def simple_position_stitcher(
     path: pathlib.Path,
     df: pd.DataFrame,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Place tiles by X/Y rank, preserving the legacy no-overlap behavior."""
     try:
@@ -559,7 +484,7 @@ def simple_position_stitcher(
 
         sample_row = frame.iloc[0]
         sample_filename = sample_row['Filepath']
-        sample, sample_depth = _read_tile_with_depth(path, sample_filename)
+        sample, sample_depth, sample_white = _read_tile_with_depth(path, sample_filename)
         source_image_h = sample.shape[0]
         source_image_w = sample.shape[1]
 
@@ -588,12 +513,14 @@ def simple_position_stitcher(
         tile_count = 0
         tile_bytes = 0
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
             if row['Filepath'] == sample_filename:
-                image, significant_bits = sample, sample_depth
+                image, significant_bits, white_bits = sample, sample_depth, sample_white
             else:
-                image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+                image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
             tile_count += 1
             tile_bytes += int(image.nbytes)
             im_x = image.shape[1]
@@ -643,8 +570,10 @@ def simple_position_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
-        metadata={'center': center, 'algorithm': 'simple_position_stitcher'},
+        channel_colors=channel_colors,
+        metadata={'center': center, 'algorithm': StitchAlgorithm.SIMPLE_POSITION},
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -653,18 +582,17 @@ def channel_aware_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None = None,
     output_file_loc: pathlib.Path | None = None,
-    stitching_mode: str = 'quality',
+    stitching_mode: StitchMode = StitchMode.QUALITY,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Route channels through the preferred algorithm and fallbacks.
 
     Fast Preview uses bounded FFT phase correlation. Quality uses bounded local
-    NCC. Both use recorded stage geometry and retain source pixels; OpenCV's
-    unconstrained panorama stitcher is deliberately not an automatic fallback.
+    NCC. Both use recorded stage geometry and retain source pixels.
     """
-    mode = str(stitching_mode or 'quality').lower()
-    if mode not in {'quality', 'fast_preview'}:
-        return _failure('channel_aware_stitcher', f'unknown stitching mode: {mode}')
-    sample, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
+    mode = StitchMode(stitching_mode)
+    sample, _, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
     overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=sample.shape[:2])
     logger.info(
         '[Stitch] mode=%s inferred_overlap x=%s%% y=%s%% has_overlap=%s source=%s',
@@ -678,19 +606,20 @@ def channel_aware_stitcher(
         'path': path,
         'df': df,
         'output_file_loc': output_file_loc,
+        'channel_colors': channel_colors,
     }
-    chain: list[tuple[str, Callable[[], dict]]] = []
-    if overlap['has_overlap'] and mode == 'fast_preview':
+    chain: list[tuple[StitchAlgorithm, Callable[[], dict]]] = []
+    if overlap['has_overlap'] and mode == StitchMode.FAST_PREVIEW:
         chain.append(
             (
-                'fast_fft_phase',
+                StitchAlgorithm.FAST_FFT_PHASE,
                 lambda: fft_phase_stitcher(**shared, pixel_size_um=pixel_size_um),
             )
         )
     elif overlap['has_overlap']:
         chain.append(
             (
-                'quality_local_ncc',
+                StitchAlgorithm.QUALITY_LOCAL_NCC,
                 lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
             )
         )
@@ -698,10 +627,10 @@ def channel_aware_stitcher(
     chain.extend(
         [
             (
-                'stage_position_stitcher',
+                StitchAlgorithm.STAGE_POSITION,
                 lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
             ),
-            ('simple_position_stitcher', lambda: simple_position_stitcher(**shared)),
+            (StitchAlgorithm.SIMPLE_POSITION, lambda: simple_position_stitcher(**shared)),
         ]
     )
     row0 = df.iloc[0]

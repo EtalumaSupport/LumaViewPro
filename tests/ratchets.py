@@ -3,68 +3,80 @@
 
 A ratchet is a test that pins a count the codebase is migrating DOWN: a
 number that may fall and may not rise (a ceiling), or that must equal
-the tree so a fall lowers the pin in the same commit (an equality). Each
-ratchet test module registers its measurement here at import, and
-`conftest.pytest_terminal_summary` prints every registered ratchet's
-current value beside its pin when the run ends, so the progress of each
-migration is visible in every pytest log without opening a test file.
+the tree so a fall lowers the pin in the same commit (an equality); an
+announced count has no pin and is printed for its history. The ratchet
+test observes the count it measured beside its pin, before its assert
+(`observe`), and `conftest.pytest_terminal_summary` prints every
+observation when the run ends, so the progress of each migration is
+visible in every pytest log without opening a test file.
 
-Only the ratchets whose module was collected appear: a full run lists
-them all, a targeted run lists the ones it imported.
+The ratchets whose test ran appear, failed or not: a full run lists them
+all, a targeted run the ones it ran. Under xdist a worker's observations
+travel to the controller in its `workeroutput` (`ship` at the worker's
+session end, `take` as each node leaves, both from `tests/conftest.py`);
+the controller imports no test module, which is why nothing measured at
+import could reach it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+
+RULES = ('ceiling', 'equal', 'announce')
 
 
 @dataclass(frozen=True)
-class Ratchet:
+class Observation:
     name: str
-    measure: Callable[[], int]
-    pin: int
+    count: int
+    pin: int | None  # None for an announced count
     # 'ceiling': the count may fall freely and may not rise.
     # 'equal': the count must equal the pin; a fall lowers the pin.
     # 'announce': no pin; the count is printed so its history is visible.
     rule: str
 
 
-_REGISTRY: list[Ratchet] = []
+_OBSERVED: list[Observation] = []
 
 
-def register(name: str, measure: Callable[[], int], pin: int, rule: str = 'ceiling') -> None:
-    if rule not in ('ceiling', 'equal', 'announce'):
+def observe(name: str, count: int, pin: int | None = None, rule: str = 'ceiling') -> None:
+    """Record the count a ratchet test measured, beside its pin.
+
+    Called before the test's assert, so a ratchet that fails still prints.
+    An announced count has no pin and a pinned count has one; either the
+    other way round is refused here rather than printed wrong.
+    """
+    if rule not in RULES:
         raise ValueError(f'unknown ratchet rule {rule!r}')
-    _REGISTRY.append(Ratchet(name, measure, pin, rule))
+    if (pin is None) != (rule == 'announce'):
+        raise ValueError(f'{name}: rule {rule!r} with pin {pin!r}')
+    _OBSERVED.append(Observation(name, count, pin, rule))
 
 
-def registered() -> list[Ratchet]:
-    return list(_REGISTRY)
+def ship() -> list[tuple]:
+    """This process's observations as plain tuples, for a worker's workeroutput."""
+    return [(o.name, o.count, o.pin, o.rule) for o in _OBSERVED]
+
+
+def take(rows) -> None:
+    """Observations a worker shipped, taken by the controller."""
+    _OBSERVED.extend(Observation(*row) for row in rows)
 
 
 def summary_lines() -> list[str]:
-    """One line per registered ratchet: name, current count, pin, rule."""
+    """One line per observation, by name: name, count, pin, rule."""
     lines = []
-    width = max((len(r.name) for r in _REGISTRY), default=0)
-    for ratchet in _REGISTRY:
-        try:
-            now = ratchet.measure()
-        except Exception as exc:  # a broken measure must not hide the others
-            lines.append(f'{ratchet.name:<{width}}  unmeasurable: {exc!r}')
+    observed = sorted(_OBSERVED, key=lambda o: o.name)
+    width = max((len(o.name) for o in observed), default=0)
+    for o in observed:
+        if o.rule == 'announce':
+            lines.append(f'{o.name:<{width}}  {o.count:>5}  (announced, no pin)')
             continue
-        if ratchet.rule == 'announce':
-            lines.append(f'{ratchet.name:<{width}}  {now:>5}  (announced, no pin)')
-            continue
-        if now == ratchet.pin:
+        if o.count == o.pin:
             state = 'at pin'
-        elif now < ratchet.pin:
-            state = f'{ratchet.pin - now} below pin' + (
-                ' -- lower it' if ratchet.rule == 'equal' else ''
-            )
+        elif o.count < o.pin:
+            state = f'{o.pin - o.count} below pin' + (' -- lower it' if o.rule == 'equal' else '')
         else:
-            state = f'{now - ratchet.pin} OVER pin'
-        lines.append(
-            f'{ratchet.name:<{width}}  {now:>5}  (pin {ratchet.pin}, {ratchet.rule}; {state})'
-        )
+            state = f'{o.count - o.pin} OVER pin'
+        lines.append(f'{o.name:<{width}}  {o.count:>5}  (pin {o.pin}, {o.rule}; {state})')
     return lines

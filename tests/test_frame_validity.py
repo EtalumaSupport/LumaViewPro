@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for FrameValidity module."""
 
-import json
 import threading
 import sys
 import os
@@ -9,9 +8,11 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+import numpy as np
 import pytest
-from modules.frame_validity import FrameValidity
-from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from drivers import host_clock
+from modules.exceptions import CaptureFailedError
+from modules.frame_validity import Counter, FrameValidity
 
 
 class _Frames:
@@ -54,38 +55,33 @@ def _f() -> int:
     return _frames.arrive()
 
 
+def _owed_for(fv: FrameValidity, source: str) -> int:
+    """The frames ``source``'s change is still owed: ``owed`` with every
+    other source excluded."""
+    others = tuple(s for s in FrameValidity.SKIP_FRAMES if s != source)
+    return fv.owed(exclude_sources=others).frames
+
+
 class TestBasicInvalidation:
-    """Core invalidation and frame counting behavior."""
+    """Core invalidation and frame counting behavior, under the credit rule."""
 
-    def test_initially_valid(self):
+    def test_initially_nothing_is_owed(self):
         fv = FrameValidity(_frames)
-        assert fv.is_valid
-        assert fv.frames_until_valid() == 0
+        assert fv.owed().frames == 0
+        assert fv.owed().until_ns is None
 
-    def test_invalidate_makes_invalid(self):
+    def test_invalidate_owes_the_sources_count(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        assert not fv.is_valid
-        assert fv.frames_until_valid() == 2
+        fv.invalidate('led', began_ns=None)
+        assert fv.owed().frames == 2
 
-    def test_counting_frames_restores_validity(self):
+    def test_counting_frames_meets_the_count(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        assert not fv.is_valid
-        assert fv.frames_until_valid() == 1
-        fv.count_frame(_f())
-        assert fv.is_valid
-        assert fv.frames_until_valid() == 0
-
-    def test_reset_clears_state(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        fv.reset()
-        assert fv.is_valid
-        assert fv.frame_counter == 0
-        assert fv.pending_sources == {}
+        fv.invalidate('led', began_ns=None)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 1
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
 
 class TestMultipleSources:
@@ -93,67 +89,64 @@ class TestMultipleSources:
 
     def test_sources_at_different_times(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')  # needs 2 more frames from frame 0
-        fv.count_frame(_f())  # frame 1
-        fv.invalidate('gain')  # needs 2 more frames from frame 1
+        fv.invalidate('led', began_ns=None)  # needs 2 more frames from frame 0
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 1
+        fv.invalidate('gain', began_ns=None)  # needs 2 more frames from frame 1
         # led needs 1 more (target=2), gain needs 2 more (target=3)
-        assert fv.frames_until_valid() == 2
-        fv.count_frame(_f())  # frame 2 -- led settles
-        assert fv.frames_until_valid() == 1
-        fv.count_frame(_f())  # frame 3 -- gain settles
-        assert fv.is_valid
+        assert fv.owed().frames == 2
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 2 -- led settles
+        assert fv.owed().frames == 1
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 3 -- gain settles
+        assert fv.owed().frames == 0
 
     def test_reinvalidate_same_source(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        fv.invalidate('led')  # re-invalidate resets the skip count
-        assert fv.frames_until_valid() == 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.is_valid
+        fv.invalidate('led', began_ns=None)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.invalidate('led', began_ns=None)  # re-invalidate resets the skip count
+        assert fv.owed().frames == 2
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
     def test_all_known_sources(self):
         fv = FrameValidity(_frames)
         for source in FrameValidity.SKIP_FRAMES:
-            fv.invalidate(source)
+            fv.invalidate(source, began_ns=None)
         max_skip = max(FrameValidity.SKIP_FRAMES.values())
-        assert fv.frames_until_valid() == max_skip
+        assert fv.owed().frames == max_skip
         for _ in range(max_skip):
-            fv.count_frame(_f())
-        assert fv.is_valid
-        assert fv.pending_sources == {}
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
 
 class TestExcludeSources:
-    """An excluded source does not hold readiness; the others still do.
+    """An excluded source is not owed; the others still are.
 
-    Asks whether the frame is valid ignoring a change, so the frame can
-    predate it: the display's slow-frame check leaves the motion sources out
+    Asks whether a frame counts ignoring a change, so the frame can predate
+    it: the display's slow-frame check leaves the motion sources out
     (ui/scope_display.py `_camera_settled`). A frame that is measured or
     recorded excludes nothing; autofocus waits out each Z move.
     """
 
     def test_exclude_z_move(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('z_move')
-        assert not fv.is_valid
-        assert fv.is_valid_for(exclude_sources=('z_move',))
-        assert fv.frames_until_valid(exclude_sources=('z_move',)) == 0
+        fv.invalidate('z_move', began_ns=None)
+        assert fv.owed().frames == 2
+        assert fv.owed(exclude_sources=('z_move',)).frames == 0
 
     def test_exclude_z_move_with_other_pending(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        fv.invalidate('z_move')  # z_move invalidated 1 frame later than led
-        assert not fv.is_valid_for(exclude_sources=('z_move',))
-        assert fv.frames_until_valid(exclude_sources=('z_move',)) == 1
-        fv.count_frame(_f())
+        fv.invalidate('led', began_ns=None)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.invalidate('z_move', began_ns=None)  # z_move invalidated 1 frame later than led
+        assert fv.owed(exclude_sources=('z_move',)).frames == 1
+        fv.count_frame(_f(), by=Counter.GRAB)
         # LED settled (target=2, counter=2), z_move still pending (target=3)
-        assert fv.is_valid_for(exclude_sources=('z_move',))
-        assert not fv.is_valid  # z_move still pending overall
-        fv.count_frame(_f())
-        assert fv.is_valid  # now everything settled
+        assert fv.owed(exclude_sources=('z_move',)).frames == 0
+        assert fv.owed().frames == 1  # z_move still owed overall
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0  # now everything settled
 
 
 class TestUnknownSource:
@@ -163,73 +156,51 @@ class TestUnknownSource:
     def test_unknown_source_is_refused(self):
         fv = FrameValidity(_frames)
         with pytest.raises(ValueError, match='custom_thing'):
-            fv.invalidate('custom_thing')
-        assert fv.is_valid
+            fv.invalidate('custom_thing', began_ns=None)
+        assert fv.owed().frames == 0
 
 
-class TestPendingSourcesDebug:
-    """Debug properties for introspection."""
+class TestEachSourceIsOwedItsOwn:
+    """What each source is owed, and the frame counter."""
 
-    def test_pending_sources_tracking(self):
+    def test_each_source_is_owed_its_count(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        pending = fv.pending_sources
-        assert 'led' in pending
-        assert 'gain' in pending
+        fv.invalidate('led', began_ns=None)
+        fv.invalidate('exposure', began_ns=None)
+        assert _owed_for(fv, 'led') == 2
+        assert _owed_for(fv, 'exposure') == 3
 
     def test_frame_counter_tracks_grabs(self):
         fv = FrameValidity(_frames)
         assert fv.frame_counter == 0
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frame_counter == 3
 
-    def test_a_long_move_never_reports_a_negative_count(self):
-        """A motion source stays pending while the axis moves, so frames keep
-        arriving after its skip count is already met. The count it reports is
-        frames STILL NEEDED, which has no values below zero -- it stops at
-        zero instead of running down one per frame for the length of the move.
-        """
+    def test_a_move_is_counted_from_its_stop(self):
+        """A frame that arrives while the axis moves was exposed during the
+        move, so none counts toward it: the move's count starts where its
+        stop is stamped, as a write's starts where the write returns, and
+        a later stamp of the axis settled starts it again."""
         fv = FrameValidity(_frames)
         moving = True
         fv.set_settle_check(lambda source: not moving)
-        fv.invalidate('z_move')
+        fv.invalidate('z_move', began_ns=None)
         for _ in range(500):
-            fv.count_frame(_f())
-        assert fv.pending_sources == {'z_move': 0}
-        # Zero frames needed is not settled: the axis is still moving, so the
-        # drain continues and the source stays pending.
-        assert fv.frames_until_valid() == 1
-        assert not fv.is_valid
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 2
+
         moving = False
-        assert fv.is_valid
-        assert fv.frames_until_valid() == 0
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
+        assert fv.owed().frames == 2
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 1
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
-    def test_no_source_ever_reports_a_negative_count(self):
-        """The invariant the case above is one instance of.
-
-        pending_sources is a published surface an L2 caller renders, and
-        every value in it is a frame count; frames_until_valid() is the
-        same quantity for the whole set. Mixed traffic -- invalidations
-        landing mid-drain, the axis starting and stopping, a reset in the
-        middle -- must not produce a negative in either.
-        """
-        fv = FrameValidity(_frames)
-        moving = True
-        fv.set_settle_check(lambda source: not moving)
-        sources = ('led', 'gain', 'exposure', 'z_move', 'xy_move', 'turret')
-        for step in range(600):
-            if step % 7 == 0:
-                fv.invalidate(sources[step % len(sources)])
-            if step % 23 == 0:
-                moving = not moving
-            if step % 101 == 0:
-                fv.reset()
-            fv.count_frame(_f())
-            assert all(v >= 0 for v in fv.pending_sources.values())
-            assert fv.frames_until_valid() >= 0
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
+        assert fv.owed().frames == 2
 
 
 class TestThreadSafety:
@@ -242,14 +213,14 @@ class TestThreadSafety:
         def invalidator():
             try:
                 for _ in range(1000):
-                    fv.invalidate('led')
+                    fv.invalidate('led', began_ns=None)
             except Exception as e:
                 errors.append(e)
 
         def counter():
             try:
                 for _ in range(1000):
-                    fv.count_frame(_f())
+                    fv.count_frame(_f(), by=Counter.GRAB)
             except Exception as e:
                 errors.append(e)
 
@@ -271,9 +242,8 @@ class TestThreadSafety:
         """Readers never raise while a writer adds and settles sources.
 
         The writer is what makes the readers' lock load-bearing: invalidate
-        adds a pending source and count_frame deletes the settled ones, so a
-        reader iterating the pending map without the lock sees it change
-        size under it.
+        records a source's first change, so a reader iterating the changes
+        without the lock sees them change size under it.
         """
         fv = FrameValidity(_frames)
         sources = ('led', 'gain', 'exposure', 'pixel_format', 'frame_size', 'binning')
@@ -284,8 +254,8 @@ class TestThreadSafety:
             try:
                 i = 0
                 while not readers_done.is_set():
-                    fv.invalidate(sources[i % len(sources)])
-                    fv.count_frame(_f())
+                    fv.invalidate(sources[i % len(sources)], began_ns=None)
+                    fv.count_frame(_f(), by=Counter.GRAB)
                     i += 1
             except Exception as e:
                 errors.append(e)
@@ -293,9 +263,8 @@ class TestThreadSafety:
         def reader():
             try:
                 for _ in range(5000):
-                    _ = fv.is_valid
-                    _ = fv.frames_until_valid()
-                    _ = fv.pending_sources
+                    _ = fv.owed()
+                    _ = fv.invalidation_counts
                     _ = fv.frame_counter
             except Exception as e:
                 errors.append(e)
@@ -323,147 +292,9 @@ class TestThreadSafety:
         assert fv.frame_counter > 0  # the writer ran
 
 
-class TestLoadCameraTiming:
-    """Tests for load_camera_timing() config loading."""
-
-    @pytest.fixture(autouse=True)
-    def _restore_skip_frames(self):
-        """Save and restore SKIP_FRAMES so tests don't leak state."""
-        original = dict(FrameValidity.SKIP_FRAMES)
-        yield
-        FrameValidity.SKIP_FRAMES.clear()
-        FrameValidity.SKIP_FRAMES.update(original)
-
-    def test_one_cameras_counts_do_not_outlive_it(self):
-        """A second scope in the process starts from the shipped defaults.
-
-        The loader wrote the class-level dict, so the first camera's measured
-        counts became every later instance's defaults: two cameras' loads
-        printed 3 2 2 in the FX2 plan's skeptic pass.
-        """
-        shipped = dict(FrameValidity.SKIP_FRAMES)
-        first = FrameValidity(_frames)
-        first.load_camera_timing({'skip_frames': {'led': 9, 'exposure': 7}})
-        second = FrameValidity(_frames)
-
-        assert first.SKIP_FRAMES['led'] == 9
-        assert shipped == second.SKIP_FRAMES
-        assert shipped == FrameValidity.SKIP_FRAMES
-        second.invalidate('led')
-        assert second.frames_until_valid() == shipped['led']
-
-    def test_overridden_values_used_by_invalidate(self):
-        """After loading config, invalidate() uses the new skip counts."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'led': 4}})
-        fv.invalidate('led')
-        assert fv.frames_until_valid() == 4
-        for _ in range(3):
-            fv.count_frame(_f())
-        assert not fv.is_valid
-        fv.count_frame(_f())
-        assert fv.is_valid
-
-    def test_partial_config_only_overrides_specified(self):
-        """Sources not in config keep their default values."""
-        fv = FrameValidity(_frames)
-        original_exposure = fv.SKIP_FRAMES['exposure']
-        original_xy = fv.SKIP_FRAMES['xy_move']
-        fv.load_camera_timing({'skip_frames': {'led': 7}})
-        assert fv.SKIP_FRAMES['led'] == 7
-        assert fv.SKIP_FRAMES['exposure'] == original_exposure
-        assert fv.SKIP_FRAMES['xy_move'] == original_xy
-
-    def test_zero_count_accepted(self):
-        """Zero is a valid skip count (no frames to skip)."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'led': 0}})
-        assert fv.SKIP_FRAMES['led'] == 0
-        fv.invalidate('led')
-        assert fv.is_valid  # zero skip means immediately valid
-
-    def test_does_not_affect_pending_state(self):
-        """Loading config should not clear or modify pending invalidations."""
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        pending_before = fv.pending_sources.copy()
-        fv.load_camera_timing({'skip_frames': {'led': 10}})
-        # Pending state unchanged -- the already-queued invalidation keeps
-        # its original threshold
-        assert fv.pending_sources == pending_before
-
-    def test_unknown_source_in_config(self):
-        """Config can add skip counts for custom/unknown sources."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'custom_thing': 8}})
-        assert fv.SKIP_FRAMES['custom_thing'] == 8
-        fv.invalidate('custom_thing')
-        assert fv.frames_until_valid() == 8
-
-    def test_mixed_valid_and_invalid_values(self):
-        """Valid values are applied; a count that is not a whole number of
-        frames (negative, float, string, None) is dropped and the source keeps
-        its shipped count."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing(
-            {
-                'skip_frames': {
-                    'led': 5,  # valid
-                    'gain': -1,  # invalid (negative)
-                    'exposure': 3.0,  # invalid (float)
-                    'xy_move': 'three',  # invalid (string)
-                    'turret': None,  # invalid (None)
-                    'z_move': 0,  # valid (zero)
-                }
-            }
-        )
-        assert fv.SKIP_FRAMES['led'] == 5
-        assert fv.SKIP_FRAMES['gain'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['exposure'] == 3  # unchanged default (measured: 3 on a2A3536)
-        assert fv.SKIP_FRAMES['xy_move'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['turret'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['z_move'] == 0
-
-
-class TestLoadCameraTimingLumascope:
-    """A scope takes its camera's measured counts from
-    data/camera_timing/<model>.json when it is constructed."""
-
-    def test_a_scope_waits_the_counts_its_cameras_timing_file_measured(self, tmp_path, monkeypatch):
-        """The simulated camera's timing file sets the counts its scope's
-        invalidations wait; sources the file leaves out keep the shipped ones."""
-        from drivers.simulated_camera import SimulatedCamera
-        from modules.lumascope_api import imaging as imaging_module
-
-        timing_dir = tmp_path / 'data' / 'camera_timing'
-        timing_dir.mkdir(parents=True)
-        (timing_dir / f'{SimulatedCamera.MODEL_NAME}.json').write_text(
-            json.dumps({'skip_frames': {'led': 7, 'gain': 4}})
-        )
-        # The loader reads the data folder two levels above its own module
-        # (ImagingAPI._load_camera_timing); pointing that module's __file__
-        # into tmp_path is the one seam that hands it a test's file without
-        # writing into the installation's data folder.
-        monkeypatch.setattr(
-            imaging_module, '__file__', str(tmp_path / 'modules' / 'lumascope_api' / 'imaging.py')
-        )
-
-        scope = build_scope(simulate=True)
-        fv = scope.imaging.frame_validity
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
-
-        pending = fv.pending_sources
-        assert pending['led'] == 7
-        assert pending['gain'] == 4
-        assert pending['exposure'] == FrameValidity.SKIP_FRAMES['exposure']
-
-
 class TestSetTarget:
     """set_target(source, value) records the requested value for chunk-match;
-    None, or a reset, leaves the source with no target, as target() reads it."""
+    None leaves the source with no target, as target() reads it."""
 
     def test_set_target_none_clears(self):
         fv = FrameValidity(_frames)
@@ -471,14 +302,6 @@ class TestSetTarget:
         assert fv.target('gain') == 5.0
         fv.set_target('gain', None)
         assert fv.target('gain') is None
-
-    def test_reset_clears_targets(self):
-        fv = FrameValidity(_frames)
-        fv.set_target('gain', 5.0)
-        fv.set_target('exposure', 14530.0)
-        fv.reset()
-        assert fv.target('gain') is None
-        assert fv.target('exposure') is None
 
 
 class TestChunkMatch:
@@ -546,11 +369,11 @@ class TestAutoGainSettle:
     def test_decrements_to_valid_by_frame_count(self):
         fv = FrameValidity(_frames)
         skip = FrameValidity.SKIP_FRAMES['auto_gain']
-        fv.invalidate('auto_gain')
+        fv.invalidate('auto_gain', began_ns=None)
         for _ in range(skip):
-            assert fv.frames_until_valid() > 0
-            fv.count_frame(_f())
-        assert fv.frames_until_valid() == 0
+            assert fv.owed().frames > 0
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
     def test_not_a_motion_source(self):
         """auto_gain settles on count alone; no settle-callback gating."""
@@ -558,7 +381,7 @@ class TestAutoGainSettle:
 
 
 class TestCaptureTimeChunkVerification:
-    """get_image(verify_chunk_targets=True) rejects and re-grabs a frame whose
+    """The grab with ``verify_chunk_targets=True`` passes over a frame whose
     chunk metadata disagrees with the recorded gain / exposure target.
 
     Readiness is settled by frame count for every camera; the chunk check
@@ -566,144 +389,80 @@ class TestCaptureTimeChunkVerification:
     in force when the frame was tagged, not the light integrated into it, so
     a chunk that disagrees proves the frame predates the write, while one
     that agrees proves nothing (FrameValidity.CHUNK_VALIDATABLE_SOURCES).
+
+    The simulated camera tags each frame with the exposure and gain it was
+    made under; a frame made before a write and stored after it
+    (``simulation.delay_delivery``) carries the old values.
     """
 
-    class _ChunkStubDriver:
-        """Stub camera delivering a scripted sequence of (image, chunks).
+    def test_stale_chunk_frame_rejected_until_match(self, sim_scope):
+        """Frames made before an exposure write are passed over; the grab
+        returns the first whose chunk names the new exposure."""
+        sim_scope.simulation.delay_delivery(3)
+        # The first frame stored after the delay says the backlog stands: from
+        # here, three frames made before the write are on their way.
+        sim_scope.imaging.get_image(force_new_capture=True)
+        new_ms = sim_scope.camera.exposure_ms / 2
+        sim_scope.camera.set_exposure_ms(new_ms)
 
-        Doubles as its own image handler: _get_latest_chunks resolves
-        cam_image_handler then get_last_chunks on it.
-        """
-
-        def __init__(self, frames):
-            import numpy as np
-
-            self.active = True
-            self.cam_image_handler = self
-            self._np = np
-            self._frames = frames
-            self._i = -1
-            self.grabs = 0
-
-        def get_last_chunks(self):
-            if self._i < 0:
-                return None
-            return self._frames[min(self._i, len(self._frames) - 1)]
-
-        @property
-        def frames_delivered(self):
-            return self.grabs
-
-        def grab_new_capture(self, timeout_s):
-            import datetime
-
-            self.grabs += 1
-            if self._i < len(self._frames) - 1:
-                self._i += 1
-            return True, datetime.datetime.now(), self.grabs
-
-        def get_array(self):
-            return self._np.full((4, 4), 128, dtype=self._np.uint8)
-
-        def last_stamped_significant_bits(self):
-            # The depth each delivered frame is stamped with: 8, as the
-            # uint8 frames above are.
-            return 8
-
-        def is_device_removed(self):
-            return False
-
-    @staticmethod
-    def _make_imaging(driver):
-        from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
-        from modules.lumascope_api.runtime_state import RuntimeState
-
-        # a stand-in by design: the subject is the capture path's handling of a
-        # scripted chunk sequence (stale, stale, fresh), and the SimulatedCamera
-        # produces no scripted chunk sequence; that simulator gap is what keeps
-        # this shell and its _ChunkStubDriver.
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = driver
-        imaging = ImagingAPI(scope, None)
-        scope.imaging = imaging
-        return imaging
-
-    def test_stale_chunk_frame_rejected_until_match(self):
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        fresh = {'Gain': 0.0, 'ExposureTime': 3730.0}
-        driver = self._ChunkStubDriver([stale, stale, fresh])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('gain', 0.0)
-        imaging.frame_validity.set_target('exposure', 3730.0)
-
-        image = imaging.get_image(
+        # The private grab, for the frame it returns: the public get_image
+        # hands back the pixels alone.
+        grabbed = sim_scope.imaging._get_image_impl(
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=5.0,
         )
-        assert image is not None
-        # Two stale frames rejected, third (matching) frame accepted.
-        assert driver.grabs == 3
+        assert grabbed.frame.chunks['ExposureTime'] == pytest.approx(new_ms * 1000.0)
 
-    def test_persistent_stale_chunks_time_out_to_none(self):
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
+    def test_persistent_stale_chunks_end_chunk_rejected_naming_the_setting(self, sim_scope):
+        # Every frame names the exposure the camera runs at; a target it
+        # never reaches makes each one stale.
+        assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
+        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=0.01,
-        )
-        assert image is None
+        with pytest.raises(CaptureFailedError) as refused:
+            sim_scope.imaging.get_image(
+                force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
+            )
+        assert (refused.value.reason, refused.value.source) == ('chunk_rejected', 'exposure')
 
-    def test_no_targets_means_no_verification(self):
+    def test_no_targets_means_no_verification(self, sim_scope):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
+        fv = sim_scope.imaging.frame_validity
+        fv.set_target('gain', None)
+        fv.set_target('exposure', None)
 
-        image = imaging.get_image(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=1.0,
+        image = sim_scope.imaging.get_image(
+            force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
         )
-        assert image is not None
-        assert driver.grabs == 1
+        assert isinstance(image, np.ndarray)
 
     def test_chunkless_camera_skips_verification(self):
         """Cameras without chunk support rely on skip-count settling alone."""
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        class _NoChunksDriver(self._ChunkStubDriver):
-            def get_last_chunks(self):
-                return None
-
-        driver = _NoChunksDriver([{}])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
-
-        image = imaging.get_image(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=1.0,
+        # The Classic's FX2 frames carry no chunks.
+        session = ScopeSession.create(
+            complete_settings(microscope='LS620'), simulate=True, warn_pre_release=False
         )
-        assert image is not None
-        assert driver.grabs == 1
+        try:
+            session.scope.imaging.frame_validity.set_target('exposure', 3730.0)
 
-    def test_default_get_image_unverified(self):
+            image = session.scope.imaging.get_image(
+                force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
+            )
+        finally:
+            session.shutdown()
+        assert isinstance(image, np.ndarray)
+
+    def test_default_get_image_unverified(self, sim_scope):
         """Without the flag the primitive stays ungated (live preview path)."""
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
+        assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
+        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(force_new_capture=True, timeout_s=1.0)
-        assert image is not None
-        assert driver.grabs == 1
+        image = sim_scope.imaging.get_image(force_new_capture=True, timeout_s=0.5)
+        assert isinstance(image, np.ndarray)
 
 
 class TestInvalidationCounts:
@@ -713,9 +472,8 @@ class TestInvalidationCounts:
     Pending-state snapshots provably cannot detect a mid-window
     invalidation that frames have already settled (a poller frame plus the
     capture's own grab consume a 2-skip entry exactly); the counts exist
-    so the capture has erasure-proof evidence. These pins guard the three
-    properties that proof rests on: monotone growth, frame-immunity, and
-    reset-survival.
+    so the capture has erasure-proof evidence. These pins guard the two
+    properties that proof rests on: monotone growth and frame-immunity.
     """
 
     def test_counts_start_empty(self):
@@ -724,100 +482,107 @@ class TestInvalidationCounts:
 
     def test_each_invalidate_increments_its_source(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.invalidate('led')
-        fv.invalidate('gain')
+        fv.invalidate('led', began_ns=None)
+        fv.invalidate('led', began_ns=None)
+        fv.invalidate('gain', began_ns=None)
         assert fv.invalidation_counts == {'led': 2, 'gain': 1}
 
     def test_counting_frames_never_touches_counts(self):
         """Frames settle pending state; they must not erase the history."""
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         before = fv.invalidation_counts
         for _ in range(5):
-            fv.count_frame(_f())
-        assert fv.frames_until_valid() == 0  # pending fully settled
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0  # pending fully settled
         assert fv.invalidation_counts == before  # history intact
 
     def test_settled_invalidation_still_visible_in_compare(self):
         """The seam the counts exist to close: invalidate, let exactly the
-        skip count of frames settle it, and the pending snapshot is
-        bit-identical while the counts compare still differs."""
+        skip count of frames settle it, and nothing is owed while the
+        counts compare still differs."""
         fv = FrameValidity(_frames)
-        pending_snap = fv.pending_sources
         counts_snap = fv.invalidation_counts
 
-        fv.invalidate('led')  # skip = 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.invalidate('led', began_ns=None)  # skip = 2
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
 
-        assert fv.pending_sources == pending_snap  # old API: blind
-        assert fv.frames_until_valid() == 0
+        assert fv.owed().frames == 0
         assert fv.invalidation_counts != counts_snap  # counts: caught
 
     def test_first_invalidation_adds_a_key_the_snapshot_lacks(self):
         """The compare spans both key sets, not shared keys only."""
         fv = FrameValidity(_frames)
         snap = fv.invalidation_counts
-        fv.invalidate('turret')
+        fv.invalidate('turret', began_ns=None)
         assert 'turret' not in snap
         assert fv.invalidation_counts != snap
 
-    def test_counts_survive_reset(self):
-        """reset() clears pending state, never the history: clearing would
-        let invalidate-then-reset hide a real change from an in-flight
-        capture whose snapshot was empty."""
-        fv = FrameValidity(_frames)
-        snap = fv.invalidation_counts
-        fv.invalidate('led')
-        fv.reset()
-        assert fv.invalidation_counts == {'led': 1}
-        assert fv.invalidation_counts != snap  # reset cannot hide it
-
     def test_property_returns_a_copy(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         held = fv.invalidation_counts
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         assert held == {'led': 1}
         assert fv.invalidation_counts == {'led': 2}
 
 
-class TestUnsettledMotionSources:
-    """The capture deadline's suspension predicate: pending motion sources
-    whose settle-check still reports movement."""
+class TestOwedMoving:
+    """``owed().moving``, the capture deadline's pause: the motion sources
+    owed a frame because their axis reads moving."""
 
     def test_empty_without_callback(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('z_move')
-        assert fv.unsettled_motion_sources() == ()
+        fv.invalidate('z_move', began_ns=None)
+        assert fv.owed().moving == frozenset()
 
     def test_reports_pending_unsettled_motion(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
-        fv.invalidate('z_move')
-        assert fv.unsettled_motion_sources() == ('z_move',)
+        fv.invalidate('z_move', began_ns=None)
+        assert fv.owed().moving == {'z_move'}
 
     def test_settled_motion_not_reported(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: True)
-        fv.invalidate('z_move')
-        assert fv.unsettled_motion_sources() == ()
+        fv.invalidate('z_move', began_ns=None)
+        assert fv.owed().moving == frozenset()
 
     def test_non_motion_sources_never_reported(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
-        fv.invalidate('led')
-        assert fv.unsettled_motion_sources() == ()
+        fv.invalidate('led', began_ns=None)
+        assert fv.owed().moving == frozenset()
 
     def test_exclude_sources_honored(self):
         """A source the caller excludes from readiness is not reported as
-        unsettled motion either: the capture deadline never suspends on a
-        move the caller left out of its wait."""
+        moving either: the capture deadline never pauses on a move the
+        caller left out of its wait."""
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
-        fv.invalidate('z_move')
-        assert fv.unsettled_motion_sources(exclude_sources=('z_move',)) == ()
+        fv.invalidate('z_move', began_ns=None)
+        assert fv.owed(exclude_sources=('z_move',)).moving == frozenset()
+
+    def test_a_clock_move_in_force_is_moving_again_while_its_axis_reads_moving(self):
+        """Under the clock rule a move is owed a frame whenever its axis
+        reads moving, its count met or not, so the pause is read from the
+        same changes: a move in force with its count met, then a
+        several-move command opened, which reads every axis as moving."""
+        fv = FrameValidity(_frames)
+        fv.use_rules(FrameValidity.rules_from_record(None, has_clock_latch=True))
+        settled = {'now': True}
+        fv.set_settle_check(lambda source: settled['now'])
+        fv.invalidate('z_move', began_ns=None)
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
+        for _ in range(FrameValidity.SKIP_FRAMES['z_move'] + 1):
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().moving == frozenset()
+
+        settled['now'] = False
+
+        assert fv.owed().moving == {'z_move'}
+        assert fv.owed().frames == 1
 
 
 class TestFramesOlderThanTheWriteDoNotCount:
@@ -838,37 +603,58 @@ class TestFramesOlderThanTheWriteDoNotCount:
     def test_a_frame_delivered_before_the_write_does_not_credit(self):
         fv = FrameValidity(_frames)
         already_delivered = _f()
-        fv.invalidate('led')
-        fv.count_frame(already_delivered)
-        assert fv.frames_until_valid() == 2
-        assert not fv.is_valid
+        fv.invalidate('led', began_ns=None)
+        fv.count_frame(already_delivered, by=Counter.GRAB)
+        assert fv.owed().frames == 2
 
     def test_frames_after_the_write_still_settle_it(self):
         fv = FrameValidity(_frames)
         already_delivered = _f()
-        fv.invalidate('led')
-        fv.count_frame(already_delivered)
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.is_valid
+        fv.invalidate('led', began_ns=None)
+        fv.count_frame(already_delivered, by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().frames == 0
 
     def test_each_source_is_judged_against_its_own_write(self):
         """led is written first, then a frame arrives, then gain is written.
         That frame is post-led and pre-gain: it credits led alone."""
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         between = _f()
-        fv.invalidate('gain')
-        fv.count_frame(between)
-        assert fv.pending_sources == {'led': 1, 'gain': 2}
+        fv.invalidate('gain', began_ns=None)
+        fv.count_frame(between, by=Counter.GRAB)
+        assert _owed_for(fv, 'led') == 1
+        assert _owed_for(fv, 'gain') == 2
+
+    def test_a_frame_counted_again_after_a_newer_one_does_not_credit_twice(self):
+        """The drain counts two frames, and the preview's count of the first,
+        grabbed before the second arrived, lands last. Two frames have
+        arrived, so exposure's three-frame wait is not met: crediting the
+        late count would let a capture take a frame one short of its wait."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('exposure', began_ns=None)
+        first, second = _f(), _f()
+        fv.count_frame(first, by=Counter.DRAIN)
+        fv.count_frame(second, by=Counter.DRAIN)
+        fv.count_frame(first, by=Counter.PREVIEW)
+        assert fv.owed().frames == 1
 
     def test_an_ordinal_is_required(self):
         """A caller with no ordinal cannot be told apart from one holding a
         stale frame, so there is no safe way to credit it."""
         fv = FrameValidity(_frames)
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         with pytest.raises(TypeError):
-            fv.count_frame()
+            fv.count_frame(by=Counter.GRAB)
+
+    def test_who_counted_is_required(self):
+        """A frame counted with no counter named could be the preview's, and a
+        capture's record of its wait would then misname who met it."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('led', began_ns=None)
+        with pytest.raises(TypeError):
+            fv.count_frame(1)
 
     def test_a_frame_source_is_required(self):
         """Without one, a write cannot be placed in the frame stream and
@@ -876,3 +662,24 @@ class TestFramesOlderThanTheWriteDoNotCount:
         class exists to prevent, reintroduced by an omission."""
         with pytest.raises(TypeError):
             FrameValidity()
+
+
+class TestFrameValidityIsL2Stable:
+    """``scope.imaging.frame_validity`` is L2 API: plugin authors,
+    diagnostic tooling and custom capture loops may rely on the surface
+    below. ``owed`` is its one answer to what a capture still waits on,
+    and ``invalidation_counts`` its record of which sources were changed."""
+
+    L2_STABLE_FRAME_VALIDITY_SURFACE = (
+        'owed',
+        'invalidation_counts',
+        'invalidate',
+        'count_frame',
+    )
+
+    def test_frame_validity_exposes_l2_surface(self, sim_scope):
+        """Every L2 member is present on the scope's FrameValidity: this
+        catches an accidental retirement."""
+        fv = sim_scope.imaging.frame_validity
+        missing = [n for n in self.L2_STABLE_FRAME_VALIDITY_SURFACE if not hasattr(fv, n)]
+        assert not missing, f'L2 callers depend on FrameValidity.{missing}'

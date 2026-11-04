@@ -18,6 +18,7 @@ import pytest
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import axis_move
 
 PROTOCOL_PLATE = '96 well microplate'
 SCOPE_PLATE = 'Four-Slide Holder'
@@ -34,7 +35,7 @@ def session(tmp_path):
         simulate=True,
     )
     home_sim_scope(built.scope)
-    built.set_layer_acquire('BF', 'image')
+    built.set_channel_acquire('BF', 'image')
     yield built
     try:
         built.shutdown()
@@ -45,14 +46,14 @@ def session(tmp_path):
 def _protocol_on_one_plate_scope_on_another(session):
     protocol = session.create_empty_protocol()
     session.select_labware(SCOPE_PLATE)
-    assert protocol.labware() == PROTOCOL_PLATE
+    assert protocol.labware_id() == PROTOCOL_PLATE
     assert session.settings['protocol']['labware'] == SCOPE_PLATE
     return protocol
 
 
 def _move_stage(session, position):
     for axis, um in position.items():
-        session.scope.motion.move_absolute(axis, um)
+        axis_move(session.scope.motion, axis, um)
 
 
 def _xy(step):
@@ -65,7 +66,7 @@ def test_add_stores_the_stage_on_the_protocols_plate(session):
 
     session.add_step(protocol)
 
-    assert _xy(protocol.step(0)) == ON_PROTOCOL_PLATE
+    assert _xy(protocol.step_row(0)) == ON_PROTOCOL_PLATE
 
 
 def test_update_stores_the_stage_on_the_protocols_plate(session):
@@ -73,9 +74,9 @@ def test_update_stores_the_stage_on_the_protocols_plate(session):
     session.add_step(protocol)
     _move_stage(session, STAGE_UM)
 
-    session.update_step(protocol, 0, layer='BF')
+    session.update_step(protocol, 0, channel='BF')
 
-    assert _xy(protocol.step(0)) == ON_PROTOCOL_PLATE
+    assert _xy(protocol.step_row(0)) == ON_PROTOCOL_PLATE
 
 
 def test_the_scopes_position_is_still_read_on_the_scopes_plate(session):
@@ -84,4 +85,4 @@ def test_the_scopes_position_is_still_read_on_the_scopes_plate(session):
 
     here = session.get_current_plate_position()
 
-    assert (here['x'], here['y']) == ON_SCOPE_PLATE
+    assert (here.x_mm, here.y_mm) == ON_SCOPE_PLATE

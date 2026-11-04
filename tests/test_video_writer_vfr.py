@@ -19,6 +19,8 @@ import numpy as np
 import pytest
 
 from modules.video_writer import VideoWriter
+from modules.layer_record import release_color
+from tests.stock_channels import LED2
 
 # A 5-frame recording with a 1.5 s delivery stall between the third and
 # fourth frames. VFR means the stall must survive the encode round trip.
@@ -41,7 +43,7 @@ def _write_stalled_recording(path, *, vfr, timestamps=FRAME_TIMES_S):
         fps=NOMINAL_FPS,
         width=64,
         height=48,
-        color='Red',
+        color=release_color(LED2),
         vfr=vfr,
     )
     for i, ts in enumerate(timestamps):
@@ -104,7 +106,7 @@ class TestVfrContract:
             fps=NOMINAL_FPS,
             width=64,
             height=48,
-            color='Red',
+            color=release_color(LED2),
             vfr=True,
         )
         frame = np.zeros((48, 64), dtype=np.uint8)
@@ -125,7 +127,9 @@ class TestVfrContract:
         # A recording with no rate limit has no nominal rate to give; the
         # per-frame pts alone must carry the timeline.
         out = tmp_path / 'vfr_no_rate.mp4'
-        writer = VideoWriter(output_path=out, fps=None, width=64, height=48, color='Red', vfr=True)
+        writer = VideoWriter(
+            output_path=out, fps=None, width=64, height=48, color=release_color(LED2), vfr=True
+        )
         for i, ts in enumerate(FRAME_TIMES_S):
             writer.add_frame(image=np.full((48, 64), 40 * i, dtype=np.uint8), timestamp=ts)
         writer.close()

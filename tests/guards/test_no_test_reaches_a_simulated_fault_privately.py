@@ -11,9 +11,10 @@ API into one simulator's internals, and is pinned to that simulator.
 
 Counted: a read, write, call or ``setattr`` of a name only the simulators'
 fault doors carry, from any test file, unless the receiver is reached
-through ``.simulation``. A test whose subject IS a simulator or the driver
-over one, with no scope, uses the doors as its fixture: such a file is named
-in ``_OWN_DOORS`` with why, and is not counted.
+through ``.simulation`` or is a local named ``simulation``. A test whose
+subject IS a simulator or the driver over one, with no scope, uses the
+doors as its fixture: such a file is named in ``_OWN_DOORS`` with why, and
+is not counted.
 
 The pin is an EQUALITY per file, at the guard's first run: a fall lowers the
 file's entry in the same commit that moves its tests; an entry is never
@@ -24,18 +25,26 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
 # Names only the simulators' fault doors carry (the fast boards and camera,
 # the wire sims' port and board, the TMCM-6110 and FX2 simulators).
-_DOOR_NAMES = frozenset(
+_DOOR_NAMES = MemberNames(
+    (
+        'drivers/simulated_ledboard.py',
+        'drivers/simulated_motorboard.py',
+        'drivers/simulated_camera.py',
+        'drivers/sim_wire/port.py',
+        'drivers/simulated_tmcm6110.py',
+        'drivers/simulated_fx2.py',
+    ),
     {
         '_fail_on',
-        'fail_after',
         'drop_replies',
         'stop_dropping',
         'hold_travel',
         'hold_frames',
+        'delay_delivery',
         'release_frames',
         'leave_bus',
         'refuse_write',
@@ -44,6 +53,9 @@ _DOOR_NAMES = frozenset(
         'replug',
         'reboot',
         'drop_next_reply',
+        'garble_next_reply',
+        'delay_next_reply',
+        'disarm_reply',
         'inject',
         'silent',
         'plugged',
@@ -52,12 +64,51 @@ _DOOR_NAMES = frozenset(
         'ignore_stop',
         'break_right_switch',
         'go_silent',
-    }
+        'refuse_start',
+        'allow_start',
+        'refuse_led_write',
+        'allow_led_write',
+    },
 )
 
 # Test files whose subject is a simulator, or a driver over its simulated
 # board with no scope: the doors are what they test or their fixture.
-_OWN_DOORS: dict[str, str] = {}
+_OWN_DOORS: dict[str, str] = {
+    'tests/test_simulators.py': 'the fast boards and camera, door by door',
+    'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': (
+        'the FX2 stream over a bare simulated FX2, no scope'
+    ),
+    'tests/test_simulated_camera_stall.py': "the simulated camera's stall, on a bare camera",
+    'tests/test_tmcm6110.py': 'the TMCM-6110 driver over its simulated board, no scope',
+    'tests/test_no_reply_is_no_reply.py': "the EL-0940 drivers' reading of a dropped reply, at the wire",
+    'tests/test_sim_wire_port.py': 'the emulated port itself',
+    'tests/test_sim_wire_link.py': "the motor board's USB link over the emulated port, no scope",
+    'tests/test_sim_wire_led.py': 'the LED firmware behind its own emulated port, no scope',
+    'tests/test_sim_wire_faults.py': "the firmware simulator's hardware faults and write oracle",
+    'tests/test_sim_wire_homing.py': "the motor driver's home on the shipped firmware, no scope",
+    'tests/test_sim_wire_motion.py': "the motor driver's moves on the shipped firmware, no scope",
+    'tests/test_a_home_is_believed_only_when_it_happened.py': (
+        "the motor driver's reading of a home, on the firmware simulator"
+    ),
+    'tests/test_motor_capability_probes.py': (
+        "the motor driver's capability probes on the firmware simulator, no scope"
+    ),
+    'tests/test_motorboard_fullinfo_legacy_firmware.py': (
+        "the motor driver's FULLINFO parse on the firmware simulator, no scope"
+    ),
+    'tests/test_motorconfig_provenance.py': (
+        "the motor driver's CONFIG read on the firmware simulator, no scope"
+    ),
+    'tests/test_led_supports_firmware_stim.py': (
+        "the LED driver's STIM probe on the firmware simulator, no scope"
+    ),
+    'tests/test_led_ack_and_tsr_filename.py': (
+        "the LED driver's block ack on the firmware simulator, no scope"
+    ),
+    'tests/test_serial_safety.py': (
+        "the EL-0940 drivers' exchange, lock and acks on the firmware simulator, no scope"
+    ),
+}
 
 
 def _through_simulation(node: ast.Attribute) -> bool:
@@ -66,7 +117,8 @@ def _through_simulation(node: ast.Attribute) -> bool:
         if isinstance(receiver, ast.Attribute) and receiver.attr == 'simulation':
             return True
         receiver = receiver.func if isinstance(receiver, ast.Call) else receiver.value
-    return False
+    # A test that took the member set into a local: ``simulation = scope.simulation``.
+    return isinstance(receiver, ast.Name) and receiver.id == 'simulation'
 
 
 def _setattr_name(node: ast.Call) -> str | None:
@@ -99,32 +151,10 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # Pinned at the guard's first run. Lower a value in the commit that moves the
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
-    'tests/capability/serial_p01_cable_pull.py': 2,
-    'tests/test_a_camera_stream_stall_is_reported.py': 6,
-    'tests/test_a_home_is_believed_only_when_it_happened.py': 1,
-    'tests/test_a_move_is_judged_when_it_ends.py': 1,
-    'tests/test_a_stop_ends_the_move.py': 4,
-    'tests/test_a_wire_client_is_refused_as_a_python_caller_is.py': 1,
-    'tests/test_an_arrival_belongs_to_the_move_that_was_seen_arriving.py': 3,
-    'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': 1,
-    'tests/test_an_unplugged_fx2_is_removed.py': 8,
-    'tests/test_audit_fixes.py': 3,
-    'tests/test_capture_requires_streaming.py': 1,
-    'tests/test_lumascope_api.py': 3,
-    'tests/test_motion_state_gate.py': 2,
-    'tests/test_no_reply_is_no_reply.py': 9,
-    'tests/test_sim_wire_faults.py': 7,
-    'tests/test_sim_wire_homing.py': 1,
-    'tests/test_sim_wire_led.py': 3,
-    'tests/test_sim_wire_led_link.py': 5,
-    'tests/test_sim_wire_link.py': 9,
-    'tests/test_sim_wire_port.py': 4,
-    'tests/test_sim_wire_reconnect.py': 5,
-    'tests/test_simulated_camera_stall.py': 1,
-    'tests/test_simulators.py': 18,
-    'tests/test_the_ls720_in_the_simulator.py': 10,
-    'tests/test_the_target_is_what_was_commanded.py': 1,
-    'tests/test_tmcm6110.py': 20,
+    'tests/test_an_unplugged_fx2_is_removed.py': 1,
+    # Pinned when the port's garble, delay and disarm joined the doors
+    # (2026-10-16): scope.simulation cannot garble a reply yet.
+    'tests/test_sim_wire_led_link.py': 1,
 }
 
 

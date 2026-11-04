@@ -12,23 +12,27 @@ attribute of the scope (its layer identity) takes no lock; a call may.
 
 import ast
 
-from tests.ast_seams import parse_module
+from tests.ast_seams import RetiredNames, parse_module
 
-_HELD_NOWHERE = {
-    '_labware',
-    '_stage_offset',
-    '_turret_config',
-    '_objective',
-    '_objective_id',
-    '_scale_bar',
-}
-_NO_SETTER = {
-    'set_labware',
-    'set_stage_offset',
-    'set_turret_config',
-    'set_objective',
-    'set_scale_bar',
-}
+_HELD_NOWHERE = RetiredNames(
+    {
+        '_labware',
+        '_stage_offset',
+        '_turret_config',
+        '_objective',
+        '_objective_id',
+        '_scale_bar',
+    }
+)
+_NO_SETTER = RetiredNames(
+    {
+        'set_labware',
+        'set_stage_offset',
+        'set_turret_config',
+        'set_objective',
+        'set_scale_bar',
+    }
+)
 
 
 def _class(path: str, name: str) -> ast.ClassDef:

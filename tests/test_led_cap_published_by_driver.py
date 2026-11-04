@@ -14,8 +14,6 @@ from __future__ import annotations
 import ast
 import inspect
 from dataclasses import replace
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,26 +22,30 @@ from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, LEDBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
-from modules import config_helpers
 from modules.exceptions import ArgumentRefusedError
-from modules.layer_record import UNRESOLVED
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
+from tests.case_walk import failing_cases
+from tests.scope_fakes import capabilities_of
+from tests.stock_channels import LED0
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('name', sorted(led_registry.registered_names()))
-def test_every_registered_led_driver_answers_max_ma(name):
-    cls = led_registry.get(name)
-    fn = getattr(cls, 'max_ma', None)
-    assert callable(fn), f'{cls.__name__} does not publish max_ma()'
-    value = fn(object.__new__(cls))
-    assert isinstance(value, int) and value >= 0, f'{cls.__name__}.max_ma() -> {value!r}'
+def test_every_registered_led_driver_answers_max_ma():
+    def check(name):
+        cls = led_registry.get(name)
+        fn = getattr(cls, 'max_ma', None)
+        assert callable(fn), f'{cls.__name__} does not publish max_ma()'
+        value = fn(object.__new__(cls))
+        assert isinstance(value, int) and value >= 0, f'{cls.__name__}.max_ma() -> {value!r}'
+
+    failed = failing_cases(sorted(led_registry.registered_names()), check)
+    assert not failed, failed
 
 
 def test_the_four_drivers_publish_their_own_boards_ceiling():
@@ -59,12 +61,7 @@ def test_the_four_drivers_publish_their_own_boards_ceiling():
 
 
 def _caps_with(led) -> ScopeCapabilities:
-    motion = MagicMock()
-    motion.detect_present_axes.return_value = ()
-    motion.get_microscope_model.return_value = ''
-    return ScopeCapabilities.from_drivers(
-        motion=motion, led=led, camera=None, layer_identity=UNRESOLVED, scope_models={}
-    )
+    return capabilities_of(led=led)
 
 
 def test_capabilities_reports_the_connected_drivers_cap():
@@ -97,10 +94,10 @@ def test_the_module_constant_is_gone():
 def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
     sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=840)
     with pytest.raises(ArgumentRefusedError) as refused:
-        sim_scope.illumination.led_on('Blue', 841)
+        sim_scope.illumination.led_on(LED0, 841)
     assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
-    sim_scope.illumination.led_on('Blue', 840)
-    sim_scope.illumination.led_off('Blue')
+    sim_scope.illumination.led_on(LED0, 840)
+    sim_scope.illumination.led_off(LED0)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +118,7 @@ def _protocol_with(illumination) -> Protocol:
                     'Y': 10.0,
                     'Z': 100.0,
                     'Auto_Focus': False,
-                    'Color': 'Blue',
+                    'Color': LED0,
                     'False_Color': False,
                     'Illumination': float(illumination),
                     'Gain': 0.0,
@@ -145,7 +142,7 @@ def _protocol_with(illumination) -> Protocol:
     return p
 
 
-_CATALOGUE = ObjectiveLoader()
+_CATALOGUE = ObjectiveLoader().objectives
 
 
 def test_a_step_above_the_cap_given_is_refused():
@@ -160,7 +157,7 @@ def test_a_step_at_the_cap_given_is_accepted():
 
 def test_a_negative_current_is_refused_under_any_cap():
     errors = _protocol_with(-1).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert any('Illumination must be 0 or more' in e for e in errors), errors
+    assert any('Illumination: it must be at least 0' in e for e in errors), errors
 
 
 def test_the_protocol_carries_no_cap_of_its_own():
@@ -176,19 +173,8 @@ def test_the_protocol_carries_no_cap_of_its_own():
 
 
 # ---------------------------------------------------------------------------
-# The UI bounds resolve below the GUI
+# The slider bound is the session's answer, shown by the GUI
 # ---------------------------------------------------------------------------
-
-
-def _fake_caps(cap):
-    return SimpleNamespace(led_max_ma=cap)
-
-
-def test_slider_bound_is_the_cap_narrowed_by_transmitted_policy():
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'BF') == 50
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'PC') == 50
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'Blue') == 840
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), 'Red') == 1000
 
 
 def _calls_in(fn_node) -> set[str]:
@@ -223,7 +209,7 @@ def test_the_capability_grouping_owns_the_slider_bound():
     setter = find_def('ui/image_settings.py', 'set_layer_illumination_ranges', 'ImageSettings')
     assert setter is not None
     assert _ill_slider_max_writes_in(setter) == 1
-    assert 'get_layer_illumination_slider_max' in _calls_in(setter)
+    assert 'session.channel_slider_maxima' in _calls_in(setter)
 
 
 def test_nothing_else_in_the_panel_writes_the_slider_bound():

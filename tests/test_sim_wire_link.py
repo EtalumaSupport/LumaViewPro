@@ -12,7 +12,6 @@ production driver.
 
 import os
 import re
-import sys
 import threading
 import time
 
@@ -20,15 +19,13 @@ import psutil
 import pytest
 import serial
 
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.port import EmulatedPort
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 def _open(backend: SimWireBackend, timeout: float = 0.5) -> EmulatedPort:
@@ -126,20 +123,21 @@ class TestTheLinkAtThePort:
         finally:
             port.close()
 
-    def test_a_reboot_racing_a_reconnect_leaves_one_firmware_process(self, backend):
-        # A driver reconnects the moment a reboot drops its port; the reboot
-        # must not start a second firmware beside the one the reconnect found.
+    def test_a_reboot_racing_an_open_leaves_one_firmware_process(self, backend):
+        # A port opened the moment a reboot drops the last one, as a firmware
+        # update's new board opens it; the reboot must not start a second
+        # firmware beside the one the open found.
         _open(backend).close()
         stop = threading.Event()
 
-        def reconnect_forever():
+        def open_forever():
             while not stop.is_set():
                 try:
                     backend.open(port=MOTOR_DEVICE, timeout=0.1).close()
                 except serial.SerialException:
                     pass
 
-        racer = threading.Thread(target=reconnect_forever)
+        racer = threading.Thread(target=open_forever)
         racer.start()
         try:
             for _ in range(20):
@@ -183,17 +181,19 @@ class TestTheLinkAtThePort:
 
 
 class TestTheLinkThroughTheDriver:
-    def test_the_driver_reconnects_after_a_cable_pull_to_the_same_homed_firmware(self, backend):
+    def test_the_driver_does_not_reopen_its_port_after_a_cable_pull(self, backend):
+        """Nothing reconnects a board in a session: once the driver closes a
+        pulled port, a replugged board is not reopened by the next command."""
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
-            assert board.home() is None
             backend.motor_board.unplug()
             # The driver meets the pulled cable on its next exchange and closes.
-            assert not board.exchange_command('INFO')
+            with pytest.raises(BoardPortFailedError, match=r'^INFO: the port failed'):
+                board.exchange_command('INFO')
             backend.motor_board.replug()
-            # The next exchange reconnects: the same firmware, still homed.
-            fullinfo = board.exchange_command('FULLINFO')
-            assert re.search(r'Z homed: True', fullinfo)
+            with pytest.raises(BoardPortFailedError, match=r'^FULLINFO: the port is closed'):
+                board.exchange_command('FULLINFO')
+            assert not board.is_connected()
         finally:
             board.disconnect()
 
@@ -201,7 +201,34 @@ class TestTheLinkThroughTheDriver:
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
             backend.motor_board.drop_next_reply()
-            assert not board.exchange_command('ZHOME', timeout=0.5)
+            with pytest.raises(BoardNoReplyError, match=r'^ZHOME: no reply from the board'):
+                board.exchange_command('ZHOME', timeout=0.5)
             assert board.exchange_command('ZHOME') == 'Z home successful'
+        finally:
+            board.disconnect()
+
+
+class TestABoardOffTheBus:
+    """A motor board whose cable is out: the driver never connects and
+    answers no model."""
+
+    def test_a_board_that_never_connected_has_no_model(self, backend):
+        """The caller reads None as "use saved settings"; a raise here once
+        killed the first launch's settings load (#632)."""
+        backend.motor_board.unplug()
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
+        try:
+            assert not board.is_connected()
+            assert board.get_microscope_model() is None
+        finally:
+            board.disconnect()
+
+    def test_a_connected_board_has_its_firmwares_model(self):
+        board = MotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+            backend=SimWireBackend(MotorBoardSpec('LS850', frozenset('XYZ'))),
+        )
+        try:
+            assert board.get_microscope_model() == 'LS850'
         finally:
             board.disconnect()

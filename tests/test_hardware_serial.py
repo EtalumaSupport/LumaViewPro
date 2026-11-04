@@ -45,6 +45,8 @@ class TestLEDSerialBenchmark:
             board.leds_off()
         except Exception as e:
             print(f'WARNING: Failed to turn off LEDs in fixture teardown: {e}')
+        # The port is opened exclusively: the next test's board opens it.
+        board.disconnect()
 
     def test_exchange_command_latency(self, led):
         """Measure round-trip time for exchange_command."""
@@ -131,6 +133,8 @@ class TestMotorSerialBenchmark:
         if not board.found:
             pytest.skip('Motor board not found')
         yield board
+        # The port is opened exclusively: the next test's board opens it.
+        board.disconnect()
 
     def test_exchange_command_latency(self, motor):
         """Measure round-trip time for exchange_command."""
@@ -205,6 +209,8 @@ class TestConcurrentSerialAccess:
             board.leds_off()
         except Exception as e:
             print(f'WARNING: Failed to turn off LEDs in fixture teardown: {e}')
+        # The port is opened exclusively: the next test's board opens it.
+        board.disconnect()
 
     def test_concurrent_led_commands(self, led):
         """Multiple threads sending LED commands should not corrupt state."""

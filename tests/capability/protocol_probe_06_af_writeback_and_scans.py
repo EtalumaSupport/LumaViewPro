@@ -21,9 +21,9 @@ try:
     runner = ProtocolRunner(session)
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
-        current_z=session.get_current_plate_position()['z'],
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
+        current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -39,8 +39,8 @@ try:
         seen['z_on_mine'] = protocol.steps()['Z'].tolist()
 
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).wait(
-        timeout_s=300
+    af = runner.start_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).result(
+        timeout=300
     )
     print('status / focus_written :', af.status, af.focus_written)
     print('Z handed in            :', z_in)
@@ -57,18 +57,19 @@ try:
     protocol.modify_time_params(
         period=datetime.timedelta(seconds=5), duration=datetime.timedelta(seconds=20)
     )
-    out = runner.run_protocol(
+    out = runner.start_protocol(
         protocol,
         sequence_name='multi',
     )
-    print('remaining_scans at start:', out.remaining_scans)
-    print('protocol_interval       :', out.interval)
-    s = out.wait(timeout_s=300)
+    at_start = out.progress()
+    print('scans_remaining at start:', at_start.scans_remaining)
+    print('protocol_period_s       :', at_start.period_s)
+    s = out.result(timeout=300)
     print('status:', s.status, s.reason)
-    rd = out.run_dir
+    rd = out.progress().run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     imgs = sorted(p.name for p in pathlib.Path(rd).rglob('*') if p.suffix.lower() == '.tiff')
     print('images:', len(imgs), imgs[:8])

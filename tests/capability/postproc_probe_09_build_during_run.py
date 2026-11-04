@@ -1,21 +1,37 @@
-"""Does a cell-count build alongside a protocol run harm the run? (#812)
+"""Does the next run wait for a run's own post-run build? (#812, W4 parts E0 and E3)
 
-Three runs of one protocol, in order: A alone; B with cell-count builds on A's
-folder running back to back on the post-processing lane, the first started
-before B; C alone. A and C bracket B, so B's difference is the build and not
-warm-up or drift. Each run reports its outcome, its files against its record,
-and the interval between captures from the record's own timestamps, taken at
-the grab. The figures are printed for a person to judge; the checks are only
-that every run completed with every file written and that completed builds
-covered all of B.
+Three runs, in order. A is a time-series run saved as a hyperstack, whose
+per-well stacks build on the post-processing lane once its images land (or,
+with ``--first composite``, a composite run, whose merge builds the same
+way). B, the same time series, asks to start from the moment A ends, the
+way a next run in a queue does. C runs alone once every build has ended. A
+and C bracket B, so B's difference is what came before it and not warm-up
+or drift. Each run reports its outcome, its files against its record, and
+the interval between captures from the record's own timestamps, taken at
+the grab.
+
+A capture and a build never overlap (W4 E3, Eric 2026-10-21): the runner
+refuses B while A holds the scope, while A's images drain, and while A's
+builds are on the post-processing lane (``'post_processing_running'``). The
+checks are that every run completed with every file written and that B met
+only those refusals; the figures -- the refusals, when B was admitted, the
+intervals -- are printed for a person to judge. When B is admitted is the
+runner's to decide and its test's to pin
+(``tests/test_a_capture_does_not_start_while_a_build_runs.py``): the lane
+lets a build go before the callbacks that report it run, so no stamp taken
+here marks that moment. Measured before the rule (E0), B overlapped A's
+build by 22.6 s on an 8-core Windows host at no cost to its captures
+(LVP 300768f4).
 
 What it measures is a headless host: no live-view display, no Kivy. A run
 unharmed here says the build does not starve the capture path; it says
-nothing about the GUI's live view.
+nothing about the GUI's live view. The simulator's frames are near-flat and
+compress to almost nothing, so its builds take milliseconds: on the
+simulator this checks the instrument, and the load is the bench's.
 
     python tests/capability/postproc_probe_09_build_during_run.py            # simulator
     python tests/capability/postproc_probe_09_build_during_run.py --hardware \\
-        --labware "96 well microplate"                                      # this scope
+        --labware "96 well microplate" --still BF --scans 4                  # this scope
 """
 
 import argparse
@@ -23,12 +39,15 @@ import datetime
 import itertools
 import statistics
 import sys
-import threading
 import time
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
-from postproc_probe_06_cell_count import METHOD
+from tests.stock_channels import LED0
+
+# B asks to start until the runner admits it; these are the refusals of a
+# run that is still letting go, and any other is the probe's failure.
+_LETTING_GO = frozenset({'already_running', 'files_writing', 'post_processing_running'})
 
 
 def _arguments():
@@ -40,6 +59,19 @@ def _arguments():
         help="the plate to plan over (default: the scope's own selection on hardware)",
     )
     parser.add_argument('--tiling', default='1x1')
+    parser.add_argument(
+        '--first',
+        choices=('hyperstack', 'composite'),
+        default='hyperstack',
+        help="A's own build: a time series' hyperstacks, or a composite run's merge",
+    )
+    parser.add_argument('--scans', type=int, default=3, help='scans in each time series')
+    parser.add_argument(
+        '--period',
+        type=float,
+        default=1.0,
+        help='seconds between scans; shorter than a scan runs them back to back',
+    )
     parser.add_argument(
         '--still',
         default='',
@@ -58,7 +90,7 @@ def _capture_still(session, layers):
     if not layers:
         return
     for layer in layers:
-        session.set_layer_acquire(layer, 'image')
+        session.set_channel_acquire(layer, 'image')
     print(f'STILL: {", ".join(layers)} captured as still images for these runs', flush=True)
 
 
@@ -80,22 +112,48 @@ def _refuse_video_layers(session):
         sys.exit(2)
 
 
-def _run(session, runner, protocol, parent, name):
+def _start(runner, protocol, parent, name):
     parent.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    pending = runner.run_single_scan(
-        protocol=protocol,
-        sequence_name=name,
-        parent_dir=str(parent),
-        enable_image_saving=True,
+    return runner.start_protocol(
+        protocol, sequence_name=name, parent_dir=str(parent), enable_image_saving=True
     )
-    outcome = pending.wait(timeout_s=3600)
+
+
+def _finish(pending, started, parent):
+    outcome = pending.result(timeout=3600)
     ended = time.monotonic()
-    # The outcome answers before the run's files drain; the folder is read
-    # once the run has finished writing it.
-    assert pending.wait_for_files(timeout_s=120) is not None, "the run's files never finished"
+    # The outcome answers before the run's files drain, and its files before
+    # its own build ends; the folder is read once both have.
+    assert pending.files.result(timeout=3600) is not None, "the run's files never finished"
     records = sorted(parent.rglob('protocol_record.tsv'))
     return outcome, started, ended, (records[0] if records else None)
+
+
+def _start_when_admitted(runner, protocol, parent, name):
+    """Start the run the first moment the runner admits it.
+
+    Returns the operation, when it started, and the refusals met first.
+    """
+    from modules.exceptions import ProtocolRunRefusedError
+
+    refused = []
+    while True:
+        try:
+            pending = _start(runner, protocol, parent, name)
+        except ProtocolRunRefusedError as refusal:
+            if refusal.reason not in _LETTING_GO:
+                raise
+            refused.append(refusal.reason)
+            time.sleep(0.05)
+            continue
+        return pending, time.monotonic(), refused
+
+
+def _post_run_steps(session):
+    from modules import live_work
+
+    lane = (live_work.WorkKind.POST_PROCESSING, live_work.WorkKind.POST_PROCESSING_QUEUED)
+    return [item.name for item in session.live_work.work if item.kind in lane]
 
 
 def _record_rows(record):
@@ -128,78 +186,58 @@ def _report_run(name, outcome, started, ended, record):
         figure(f'{name}.interval_max_s', round(gaps[-1], 3))
 
 
-class _Builds:
-    """Cell counts on one folder, back to back, until told to stop."""
-
-    def __init__(self, session, folder):
-        self._session = session
-        self._folder = folder
-        self._stop = threading.Event()
-        self.first_started = threading.Event()
-        self.completed: list[tuple[float, float]] = []
-        self.failed: list[str] = []
-        self._thread = threading.Thread(target=self._loop, name='probe-builds', daemon=True)
-
-    def start(self):
-        self._thread.start()
-        self.first_started.wait(timeout=30)
-
-    def stop(self):
-        self._stop.set()
-        self._thread.join()
-
-    def _loop(self):
-        while not self._stop.is_set():
-            began = time.monotonic()
-            self.first_started.set()
-            try:
-                self._session.post_processing.count_cells(self._folder, method=METHOD)
-            except Exception as outcome:
-                # A refused or failed build is not cover for the run; it is
-                # recorded and the loop ends, since every next one would be
-                # the same refusal.
-                self.failed.append(f'{type(outcome).__name__}: {outcome}')
-                return
-            self.completed.append((began, time.monotonic()))
-
-
 def main():
     args = _arguments()
     live = probe_dir('build_during_run')
-    session_cm = (
-        hardware_session() if HARDWARE else headless_session(live, acquiring=('BF', 'Blue'))
-    )
+    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=('BF', LED0))
     with session_cm as (session, runner):
         if args.labware is not None:
             session.select_labware(args.labware)
         _capture_still(session, [layer for layer in args.still.split(',') if layer])
         _refuse_video_layers(session)
+        if args.first == 'hyperstack':
+            from modules import image_mode
+
+            session.update_settings(
+                'image_output_format.sequenced', image_mode.OutputFormat.HYPERSTACK
+            )
         protocol = session.new_protocol(tiling=args.tiling)
+        session.set_protocol_schedule(
+            protocol, period_s=args.period, duration_s=args.period * args.scans
+        )
+        figure('first', args.first)
         figure('protocol.steps', protocol.num_steps())
+        figure('protocol.scans', args.scans)
         figure('labware', args.labware or "the scope's own selection")
 
-        outcome_a, start_a, end_a, record_a = _run(session, runner, protocol, live / 'A', 'probe_A')
-        _report_run('A', outcome_a, start_a, end_a, record_a)
-        if record_a is None:
-            sys.exit(report())
+        start_a = time.monotonic()
+        if args.first == 'hyperstack':
+            pending_a = _start(runner, protocol, live / 'A', 'probe_A')
+        else:
+            (live / 'A').mkdir(parents=True, exist_ok=True)
+            pending_a = runner.start_composite(sequence_name='probe_A', parent_dir=str(live / 'A'))
 
-        builds = _Builds(session, record_a.parent)
-        builds.start()
-        outcome_b, start_b, end_b, record_b = _run(session, runner, protocol, live / 'B', 'probe_B')
-        builds.stop()
+        pending_b, start_b, refused = _start_when_admitted(runner, protocol, live / 'B', 'probe_B')
+        steps_at_b = _post_run_steps(session)
+        figure('B.refusals_before_admitted', len(refused))
+        figure('B.admitted_after_A_started_s', round(start_b - start_a, 2))
+        figure('B.post_run_steps_at_start', ', '.join(steps_at_b) or 'none')
+
+        outcome_a, _, end_a, record_a = _finish(pending_a, start_a, live / 'A')
+        if args.first == 'hyperstack':
+            _report_run('A', outcome_a, start_a, end_a, record_a)
+        else:
+            check(
+                'A: the composite run completed', outcome_a.status == 'completed', outcome_a.status
+            )
+            check('A: the composite merged', outcome_a.merged, outcome_a.merge_reason)
+        outcome_b, _, end_b, record_b = _finish(pending_b, start_b, live / 'B')
         _report_run('B', outcome_b, start_b, end_b, record_b)
-        figure('B.builds_completed', len(builds.completed))
-        if builds.failed:
-            figure('B.build_failed', builds.failed[0])
-        covered = (
-            not builds.failed
-            and bool(builds.completed)
-            and builds.completed[0][0] <= start_b
-            and builds.completed[-1][1] >= end_b
-        )
-        check('B: completed builds covered the whole run', covered)
+        figure('B.refused_for_post_processing', refused.count('post_processing_running'))
 
-        outcome_c, start_c, end_c, record_c = _run(session, runner, protocol, live / 'C', 'probe_C')
+        start_c = time.monotonic()
+        pending_c = _start(runner, protocol, live / 'C', 'probe_C')
+        outcome_c, _, end_c, record_c = _finish(pending_c, start_c, live / 'C')
         _report_run('C', outcome_c, start_c, end_c, record_c)
     harness.assert_no_ui()
     sys.exit(report())

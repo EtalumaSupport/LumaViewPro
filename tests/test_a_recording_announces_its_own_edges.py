@@ -14,6 +14,7 @@ import threading
 
 import pytest
 
+from drivers import host_clock
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
@@ -29,6 +30,7 @@ from tests.test_manual_recording_controller import (
 from tests.test_video_recording_contract import make_config
 from tests.video_engine_harness import FakeClock, FrameFeed, ManualFireScheduler, WriterStub
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 
 def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
@@ -45,7 +47,9 @@ def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
     claim = claim_for(_listener)
     writer = WriterStub(tmp_path, blocked=blocked)
     clock = FakeClock()
-    engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock)
+    engine = VideoRecordingEngine(
+        write_frame=writer, claim=claim, clock=clock, steady_clock=host_clock.steady_ns
+    )
     return engine, writer, clock, heard
 
 
@@ -54,7 +58,7 @@ def _own_claim(listener):
 
 
 def _lent_run_claim(listener):
-    run = ActivityClaim(on_transition=listener).try_claim('protocol', run=run_identity('scan'))
+    run = ActivityClaim(on_transition=listener).try_claim('protocol', run=run_identity())
     return run.lend()
 
 
@@ -63,7 +67,7 @@ class TestTheEngine:
     def test_a_listener_hears_it_go_live(self, tmp_path, claim_for):
         engine, _writer, _clock, heard = _engine_heard_by(tmp_path, claim_for)
 
-        engine.start(lambda: make_config(tmp_path))
+        engine.start(lambda: (make_config(tmp_path), None))
         try:
             assert (True, True) in heard, (
                 f'no listener was told the recording is live; heard {heard}'
@@ -74,7 +78,7 @@ class TestTheEngine:
 
     def test_a_listener_hears_it_go_to_draining(self, tmp_path, claim_for):
         engine, writer, clock, heard = _engine_heard_by(tmp_path, claim_for, blocked=True)
-        engine.start(lambda: make_config(tmp_path, fps=None))
+        engine.start(lambda: (make_config(tmp_path, fps=None), None))
         clock.advance(0.1)
         image, ts, chunks = FrameFeed().frame(clock())
         engine.ingest_frame(image, ts, chunks, fact=None)
@@ -91,7 +95,7 @@ class TestTheEngine:
 
 
 class TestTheController:
-    def test_the_last_thing_a_listener_hears_is_the_finish_ended(self, tmp_path):
+    def test_the_last_thing_a_listener_hears_is_the_finish_ended(self, tmp_path, post_processing):
         # The claim is released when the drain ends, while the finish (the
         # encoder's close, the hyperstack) still runs; the finish's own end
         # is the edge after which nothing about the recording is busy.
@@ -105,10 +109,14 @@ class TestTheController:
         clock = FakeClock()
         controller = ManualRecordingController(
             scope=scope,
-            settings=make_settings(tmp_path),
+            settings_snapshot=lambda: make_settings(tmp_path),
+            shown_layer=lambda: 'BF',
             activity_claim=ActivityClaim(on_transition=_listener),
             scheduler=ManualFireScheduler(),
             clock=clock,
+            steady_clock=scope.imaging.steady_clock(clock),
+            channel_colors=release_colors,
+            post_processing=post_processing,
         )
         controller.start()
         feed_frames(scope, clock, 3)
@@ -120,7 +128,9 @@ class TestTheController:
             f'the last edge a listener heard still read the recording busy; heard {heard}'
         )
 
-    def test_a_finish_that_could_not_start_leaves_nothing_busy(self, tmp_path, monkeypatch):
+    def test_a_finish_that_could_not_start_leaves_nothing_busy(
+        self, tmp_path, monkeypatch, post_processing
+    ):
         # Thread exhaustion raises at the finish thread's start(), after the
         # controller has marked its finish pending. Nothing will ever run to
         # end that finish, so the failed start must: a finish left pending
@@ -128,20 +138,46 @@ class TestTheController:
         made = _capture_engine_and_writer(monkeypatch)
         real_thread = threading.Thread
 
-        class _Unstartable(real_thread):
+        # a stand-in by design: thread exhaustion is the host's, not the
+        # simulator's. A subclass, not a function: the patch is the process's
+        # one threading module, and a module first imported under it
+        # evaluates `threading.Thread | None`.
+        class _FinishThreadCannotStart(real_thread):
             def start(self):
-                raise RuntimeError("can't start new thread")
+                if self.name == 'ManualRecordingFinish':
+                    raise RuntimeError("can't start new thread")
+                super().start()
 
-        def _thread(*args, **kwargs):
-            if kwargs.get('name') == 'ManualRecordingFinish':
-                return _Unstartable(*args, **kwargs)
-            return real_thread(*args, **kwargs)
-
-        monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
-        controller, _scope, _clock = make_controller(tmp_path)
+        monkeypatch.setattr(manual_recording_module.threading, 'Thread', _FinishThreadCannotStart)
+        controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
 
         with pytest.raises(RuntimeError):
             controller.start()
 
         assert made['engine'].wait_for_drain(timeout=5)
         assert not controller.is_busy, 'a finish that never started is still pending'
+
+
+def test_at_the_live_edge_the_session_reads_the_recording_live(tmp_path):
+    """The live edge is announced from inside the engine's start; the Session reads it live there."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+    from tests.test_a_run_needs_every_axis_position import _settings
+
+    session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+    heard = []
+
+    def on_edge():
+        heard.append((session.activity_claim.owner, session.controls_lock.recording))
+
+    try:
+        session.add_run_state_listener(on_edge)
+        operation = session.manual_recording.start()
+        at_start = list(heard)
+        operation.stop()
+        operation.result(timeout=30)
+    finally:
+        session.remove_run_state_listener(on_edge)
+        session.shutdown()
+
+    assert ('recording', True) in at_start, at_start

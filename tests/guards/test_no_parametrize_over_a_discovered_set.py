@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Ratchet on parametrizes whose cases are computed rather than written.
+"""No parametrize fans out cases that are computed rather than written.
 
 A parametrize is for different behaviours, or for cases that each need
 their own fixture or isolation. One assertion over a discovered set or a
@@ -17,8 +17,8 @@ counted. Where a computed set is fair, each case its own scope, model or
 dialect, say so with ``# parametrize-justified: <why>`` on the decorator's
 line or within the three lines above it.
 
-The pin is an EQUALITY per file: a rise names the remedy, a fall lowers
-the file's entry in the same commit, and an entry is never raised.
+Every site the guard found at its first run was collapsed or justified
+on 2026-10-12, so it is a ban, not a pin.
 """
 
 from __future__ import annotations
@@ -101,74 +101,12 @@ def computed_parametrize_sites():
     return found
 
 
-# Pinned at its first run. Lower a value in the same commit that collapses a
-# site into one test or justifies it; never raise one.
-_COMPUTED_PIN = {
-    'tests/capability/test_capability_probes.py': 1,
-    'tests/guards/test_architecture_fixes.py': 2,
-    'tests/guards/test_every_api_member_has_a_door.py': 1,
-    'tests/guards/test_every_ranged_setting_is_refused_and_replaced.py': 2,
-    'tests/guards/test_every_refusal_declares_its_cause.py': 1,
-    'tests/guards/test_l2_surface_vocabulary.py': 1,
-    'tests/test_a_camera_command_with_no_camera_is_refused.py': 3,
-    'tests/test_a_cell_count_method_file_is_read_by_its_owner.py': 1,
-    'tests/test_a_command_for_absent_motion_hardware_is_refused.py': 2,
-    'tests/test_a_failed_move_is_shown_once.py': 1,
-    'tests/test_a_folder_post_processing_refuses_is_logged_once.py': 1,
-    'tests/test_a_layer_or_led_channel_the_scope_cannot_act_on_is_refused.py': 1,
-    'tests/test_a_manual_scope_is_complete.py': 2,
-    'tests/test_a_motion_argument_the_scope_cannot_act_on_is_refused.py': 1,
-    'tests/test_a_protocols_schedule_is_refused_never_changed.py': 1,
-    'tests/test_a_recording_refuses_what_falsifies_its_file.py': 2,
-    'tests/test_a_run_reads_its_settings_once.py': 1,
-    'tests/test_a_simulated_fx2_scope_runs_the_fx2_drivers.py': 1,
-    'tests/test_a_stage_interlock_refuses_motion.py': 1,
-    'tests/test_a_step_cell_is_its_columns_type.py': 1,
-    'tests/test_an_fx2_exposure_is_the_setting_at_every_window.py': 3,
-    'tests/test_an_fx2_gain_and_bring_up_follow_the_data_sheet.py': 2,
-    'tests/test_an_interlock_at_a_home_is_reported_not_raised.py': 2,
-    'tests/test_an_led_command_for_absent_hardware_is_refused.py': 2,
-    'tests/test_api_examples.py': 3,
-    'tests/test_attended_run_flag.py': 2,
-    'tests/test_autofocus_setup_failure_does_not_latch.py': 2,
-    'tests/test_camera_getter_sentinel_containment.py': 4,
-    'tests/test_disk_space_helper.py': 2,
-    'tests/test_going_to_a_step_is_the_sessions_move.py': 1,
-    'tests/test_hyperstack_run_trigger.py': 2,
-    'tests/test_labware_name_resolution.py': 3,
-    'tests/test_led_cap_published_by_driver.py': 1,
-    'tests/test_saving_an_unknown_position_is_refused_once.py': 1,
-    'tests/test_sim_wire_conformance.py': 3,
-    'tests/test_sim_wire_fast_tier_parity.py': 1,
-    'tests/test_sim_wire_faults.py': 3,
-    'tests/test_sim_wire_port.py': 4,
-    'tests/test_sim_wire_reconnect.py': 2,
-    'tests/test_simulator_tier.py': 2,
-    'tests/test_step_name_builder.py': 1,
-    'tests/test_the_catalogue_names_each_models_boards.py': 2,
-    'tests/test_tmcm6110.py': 1,
-    'tests/test_zprojection_numpy.py': 1,
-}
-
-
-def test_no_new_parametrize_fans_out_a_computed_set():
+def test_no_parametrize_fans_out_a_computed_set():
     found = computed_parametrize_sites()
-    counts = {rel_path: len(sites) for rel_path, sites in found.items()}
-    risen = {
-        rel_path: found[rel_path]
-        for rel_path, count in counts.items()
-        if count > _COMPUTED_PIN.get(rel_path, 0)
-    }
-    fallen = {
-        rel_path: (pinned, counts.get(rel_path, 0))
-        for rel_path, pinned in _COMPUTED_PIN.items()
-        if counts.get(rel_path, 0) < pinned
-    }
-    assert not risen, (
+    assert not found, (
         'A parametrize fans a computed set out into one test per item. If it '
         'is one assertion over the set, make it one test that walks the set '
-        'and names every offender; if each case is its own behaviour or needs '
-        'its own fixture, write the cases out or mark the site '
-        f'"# {_JUSTIFICATION}: <why>". Sites: {risen}'
+        'and names every offender (tests/case_walk.py); if each case is its own '
+        'behaviour or needs its own fixture, write the cases out or mark the site '
+        f'"# {_JUSTIFICATION}: <why>". Sites: {found}'
     )
-    assert not fallen, f'Lower these entries in _COMPUTED_PIN to the count found: {fallen}'

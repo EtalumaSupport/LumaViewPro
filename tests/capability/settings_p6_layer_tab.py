@@ -1,55 +1,46 @@
 """Probe 6 -- the layer tab (accordion drawer) switch, headless.
 
-GUI entry point: ui/lumaviewpro.kv:323,331,339,347 (on_collapse) and
-ui/lumaviewpro.kv:365 (panel toggle) -> ui/image_settings.py:159
-set_expanded_layer / :688 _do_accordion_collapse.
+GUI entry point: a person opening a layer drawer (ui/ui_helpers.py
+LoggedAccordionItem.person_opened -> ui/image_settings.py
+_show_channel_for_person), which asks session.show_channel.
 
-The user-visible capability is "make channel X the active one": the other
-channels' LEDs go off, and X's stored gain/exposure/illumination are
-applied to the camera.  That reconcile loop lives in the GUI
-(image_settings.py:737-752); this probe does the same thing through the API.
+The user-visible capability is "make channel X the shown one": the other
+channels' LEDs go off, X lit if the shown channel was, and X's stored
+gain/exposure applied to the camera. This probe does it through the API.
 """
 
 import sys
 
 import harness as _common
 
+from modules.lumascope_api.illumination import LedState
+from tests.stock_channels import LED1
+
 s, live = _common.make_session()
 try:
-    ill, im = s.scope.illumination, s.scope.imaging
+    ill, im = s.scope.illumination, s.scope.camera
     cfgs = s.get_layer_configs()
     print('layers known to the session:', sorted(cfgs))
-    target = 'Green' if 'Green' in cfgs else sorted(cfgs)[0]
+    target = LED1 if LED1 in cfgs else sorted(cfgs)[0]
     cfg = cfgs[target]
     print(f'{target} config:', {k: cfg[k] for k in list(cfg)[:6]})
 
-    # The GUI's reconcile, expressed through the API
-    for layer in cfgs:
-        if layer == target:
-            continue
-        st = ill.get_led_state(channel=layer)
-        if st.get('enabled'):
-            ill.led_off(layer)
-    im.apply_layer_camera_settings(
-        gain_db=float(cfg['gain_db']),
-        exposure_ms=float(cfg['exposure_ms']),
-        layer=target,
-    )
-    ill.led_on(target, float(cfg['illumination_ma']))
-    states = ill.get_led_states()
-    lit = [k for k, v in states.items() if v.get('enabled')]
+    # The drawer's ask, through the API: the shown channel lit, then moved
+    s.light_shown_channel(True)
+    s.show_channel(target)
+    lit = [r.name for r in ill.get_led_states() if r.state is LedState.LIT]
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
     _common.ok(
         'camera took the layer gain',
-        abs(im.get_gain_db() - float(cfg['gain_db'])) < 0.51,
-        f'gain={im.get_gain_db()} wanted={cfg["gain_db"]}',
+        abs(im.read_gain_db() - float(cfg['gain_db'])) < 0.51,
+        f'gain={im.read_gain_db()} wanted={cfg["gain_db"]}',
     )
     _common.ok(
         'camera took the layer exposure',
-        abs(im.get_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
-        f'exp={im.get_exposure_ms()} wanted={cfg["exposure_ms"]}',
+        abs(im.read_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
+        f'exp={im.read_exposure_ms()} wanted={cfg["exposure_ms"]}',
     )
-    ill.led_off(target)
+    s.light_shown_channel(False)
 
     # Is there a single API call for "make this layer active"?
     names = [
@@ -58,7 +49,8 @@ try:
     print('session/API members mentioning "layer":', sorted(set(names)))
 
     # Range refusal on the per-layer values the drawer renders
-    print('max gain / max exposure cached:', im.max_gain_db_cached, im.max_exposure_ms_cached)
+    limits = s.scope.capabilities.camera_limits
+    print('max gain / max exposure:', limits.gain_max_db, limits.exposure_max_ms)
     # The camera's range refuses each of them (CameraSettingOutOfRangeError).
     for fn, bad, label in (
         (im.set_gain_db, 999.0, 'gain 999 dB'),
@@ -70,7 +62,7 @@ try:
             _common.ok(f'{label} refused', False, f'returned {r}')
         except Exception as e:
             _common.ok(f'{label} refused', True, f'{type(e).__name__}: {e}')
-    print('gain/exposure after the bad writes:', im.get_gain_db(), im.get_exposure_ms())
+    print('gain/exposure after the bad writes:', im.read_gain_db(), im.read_exposure_ms())
 except Exception:
     import traceback
 

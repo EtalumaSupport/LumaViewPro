@@ -12,23 +12,24 @@ removal callback (OnCameraDeviceRemoved), the DEVICE_NOT_FOUND grab path, and
 the consecutive-failure cascade. OnGrabError logs and returns; it never latches.
 """
 
-from unittest.mock import patch
+import logging
 
 from drivers import pyloncamera
 from drivers.pyloncamera import _CameraRemovalHandler
 from tests.camera_fakes import bare_pylon_camera
+from tests.log_capture import records_of
 
 
-def test_on_grab_error_logs_but_does_not_latch():
+def test_on_grab_error_logs_but_does_not_latch(caplog):
     cam = bare_pylon_camera()
     handler = _CameraRemovalHandler(cam)
 
-    with patch.object(pyloncamera, '_cam_log') as mock_log:
-        handler.OnGrabError(camera=None, errorMessage='transient grab-thread exception')
+    handler.OnGrabError(camera=None, errorMessage='transient grab-thread exception')
 
     # A grab-thread exception is diagnostic, not proof of removal: the camera
     # must NOT be marked disconnected off a single OnGrabError.
     cam._mark_disconnected.assert_not_called()
     # ...but the error must still surface in the log for post-mortem.
-    assert mock_log.error.called
-    assert any('OnGrabError' in str(call) for call in mock_log.error.call_args_list)
+    errors = [r for r in records_of(caplog, pyloncamera) if r.levelno == logging.ERROR]
+    assert errors
+    assert any('OnGrabError' in r.getMessage() for r in errors)

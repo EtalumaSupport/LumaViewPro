@@ -25,13 +25,22 @@ import logging
 import pandas as pd
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, AxisStateUnknownError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    AxisStateUnknownError,
+    PositionOutOfRangeError,
+    ProtocolRunRefusedError,
+)
+from modules.lumascope_api.illumination import LedState
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, parse_module, production_modules, walk_defs
-from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+from tests.ast_seams import parse_module, production_modules, walk_defs
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES, channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED0, LED1
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -60,17 +69,19 @@ def _step(x: float, y: float, z: float, objective: str) -> dict:
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1.0, 'fps': 5},
+        'Video Config': {'duration': 1.0},
         'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
 def _protocol(labware: str, *steps: dict) -> Protocol:
-    return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(list(steps)),
@@ -96,17 +107,22 @@ def _spy_moves(monkeypatch, built: ScopeSession) -> list:
     """Every move the Session commands, recorded before the motion API sees it."""
     moves = []
     motion = built.scope.motion
-    real_absolute, real_turret = motion.move_absolute, motion.move_turret
+    real_xy, real_z, real_turret = motion.start_move_xy, motion.start_move_z, motion.move_turret
 
-    def absolute(axis, position, *args, **kwargs):
-        moves.append((axis, position))
-        return real_absolute(axis, position, *args, **kwargs)
+    def xy(x_um=None, y_um=None, *args, **kwargs):
+        moves.extend((axis, um) for axis, um in (('X', x_um), ('Y', y_um)) if um is not None)
+        return real_xy(x_um, y_um, *args, **kwargs)
+
+    def z(z_um, *args, **kwargs):
+        moves.append(('Z', z_um))
+        return real_z(z_um, *args, **kwargs)
 
     def turret(position, *args, **kwargs):
         moves.append(('T', position))
         return real_turret(position, *args, **kwargs)
 
-    monkeypatch.setattr(motion, 'move_absolute', absolute)
+    monkeypatch.setattr(motion, 'start_move_xy', xy)
+    monkeypatch.setattr(motion, 'start_move_z', z)
     monkeypatch.setattr(motion, 'move_turret', turret)
     return moves
 
@@ -159,15 +175,42 @@ class TestTheMove:
         session.go_to_step(protocol, 0)
 
         arrived = _settled_position(session)
-        on_protocol_plate = session.scope.protocols.plate_to_stage(protocol, 60.0, 40.0)
+        stage = session.scope.runtime_state.plate_to_stage(60.0, 40.0, labware_id=_PLATE)
+        on_protocol_plate = (stage.x_um, stage.y_um)
         assert (arrived['X'], arrived['Y']) == pytest.approx(on_protocol_plate, abs=1.0)
         assert arrived['Z'] == pytest.approx(5000.0, abs=1.0)
         # The two plates differ, so a move on the selected one would have
         # landed elsewhere: the assertion above is not vacuous.
-        on_selected_plate = session.scope.protocols.plate_to_stage(
-            _protocol(_OTHER_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session))), 60.0, 40.0
+        on_selected_plate = session.scope.runtime_state.plate_to_stage(60.0, 40.0)
+        assert abs(on_selected_plate.x_um - on_protocol_plate[0]) > 100.0
+
+    def test_the_spy_sees_x_and_y_as_one_request_then_z(self, session, monkeypatch):
+        """The refusal tests below assert the spy saw nothing; this is what it sees of a step."""
+        moves = _spy_moves(monkeypatch, session)
+        protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
+
+        session.go_to_step(protocol, 0)
+
+        assert [axis for axis, _ in moves] == ['X', 'Y', 'Z']
+
+    def test_a_step_whose_y_is_past_travel_moves_neither_x_nor_y(self, session):
+        """X and Y are one request: Y refused leaves X where it was, not at the step's X.
+
+        A step written on a larger stage loads with a Y this stage cannot reach.
+        """
+        motion = session.scope.motion
+        motion.move_xy(60_000.0, 40_000.0)
+        protocol = _protocol(_PLATE, _step(30.0, -20.0, 5000.0, _objective_of(session)))
+
+        with pytest.raises(PositionOutOfRangeError) as refused:
+            session.go_to_step(protocol, 0)
+
+        assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
+        motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
+        assert (motion.get_target_positions()['X'], motion.get_target_positions()['Y']) == (
+            60_000.0,
+            40_000.0,
         )
-        assert abs(on_selected_plate[0] - on_protocol_plate[0]) > 100.0
 
     def test_the_turret_turns_to_the_slot_carrying_the_steps_objective(self, turret_session):
         slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}
@@ -177,7 +220,7 @@ class TestTheMove:
         turret_session.go_to_step(protocol, 0)
 
         _settled_position(turret_session)
-        assert turret_session.scope.motion.get_turret_slot() == slots[objective]
+        assert turret_session.scope.motion.turret_status().slot == slots[objective]
         targets = turret_session.scope.protocols.step_targets(protocol, 0)
         assert targets.turret_slot == slots[objective]
 
@@ -229,6 +272,32 @@ class TestTheRefusals:
 
         assert moves == []
 
+    def test_a_slot_cleared_after_the_protocol_loaded_refuses_going_to_its_step(
+        self, turret_session
+    ):
+        """A step whose objective lost its slot after its protocol loaded is
+        refused at the door, in-process and over the wire alike."""
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        objective = '20x Oly'
+        slot = next(s for s, o in TEST_TURRET_OBJECTIVES.items() if o == objective)
+        protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, objective))
+        live = turret_session.get_setting('live_folder')
+        turret_session.save_protocol(protocol, f'{live}/one_step.tsv')
+        with TestClient(build_app(turret_session)) as client:
+            loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
+            asked = {'protocol': loaded['handle'], 'step_index': 0}
+
+            turret_session.clear_turret_objective(int(slot))
+
+            with pytest.raises(ProtocolRunRefusedError) as refused:
+                turret_session.go_to_step(protocol, 0)
+            answer = client.post('/api/v1/go_to_step', json=asked)
+        assert refused.value.reason == 'turret_objectives_unassigned'
+        assert (answer.status_code, answer.json()['reason']) == (409, refused.value.reason)
+
 
 class TestOneTargetComputation:
     """The run engine and the Session both take a step's targets from ``step_targets``.
@@ -238,7 +307,7 @@ class TestOneTargetComputation:
     """
 
     _CALLERS = ('modules/protocol_step_runner.py', 'modules/scope_session.py')
-    _OWN = frozenset({'plate_to_stage', 'get_turret_position_for_objective_id'})
+    _OWN = frozenset({'plate_to_stage'})
 
     @staticmethod
     def _called_attrs(tree) -> set[str]:
@@ -248,13 +317,13 @@ class TestOneTargetComputation:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
 
-    @pytest.mark.parametrize('caller', _CALLERS)
-    def test_a_step_mover_takes_its_targets_from_the_protocols_api(self, caller):
-        called = self._called_attrs(parse_module(caller))
-        assert 'step_targets' in called, f'{caller} does not call step_targets'
-        assert 'get_turret_position_for_objective_id' not in called, (
-            f'{caller} looks a turret slot up itself'
-        )
+    def test_a_step_mover_takes_its_targets_from_the_protocols_api(self):
+        def check(caller):
+            called = self._called_attrs(parse_module(caller))
+            assert 'step_targets' in called, f'{caller} does not call step_targets'
+
+        failed = failing_cases(self._CALLERS, check)
+        assert not failed, failed
 
     def test_the_session_converts_no_plate_coordinate_itself(self):
         called = self._called_attrs(parse_module('modules/scope_session.py'))
@@ -263,7 +332,8 @@ class TestOneTargetComputation:
     def test_only_the_one_conversion_converts_a_step_position(self):
         # stage_targets decides which axes a step move drives; a step mover
         # converting through plate_to_stage itself would drive X and Y on a
-        # scope without them, as default_move did.
+        # scope without them, as default_move did. The plate-frame move
+        # converts the one axis it was asked to drive.
         callers = [
             f'{rel}::{qualname}'
             for rel, tree in production_modules()
@@ -273,17 +343,21 @@ class TestOneTargetComputation:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == 'plate_to_stage'
             and (
-                (isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'protocols')
+                (
+                    isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr in ('protocols', 'runtime_state')
+                )
                 or (isinstance(node.func.value, ast.Name) and node.func.value.id == 'self')
             )
         ]
-        assert set(callers) == {'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets'}, (
-            callers
-        )
+        assert set(callers) == {
+            'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets',
+            'modules/lumascope_api/motion.py::MotionAPI._plate_target_to_stage',
+        }, callers
 
     def test_the_gui_navigation_moves_no_axis_itself(self):
         called = self._called_attrs(parse_module('ui/step_navigation.py'))
-        assert not called & {'move_absolute', 'move_turret', *self._OWN}, (
+        assert not called & {'start_move_xy', 'start_move_z', 'move_turret', *self._OWN}, (
             'ui/step_navigation.py composes a step move itself: ' + ', '.join(sorted(called))
         )
 
@@ -295,6 +369,7 @@ class TestTheStepIntoItsLayer:
         protocol = _protocol(_PLATE, step)
         session.settings['BF']['acquire'] = None
         session.settings['BF']['stim_config'] = {'enabled': True}
+        session.settings['BF']['focus'] = 7000.0
 
         session.go_to_step(protocol, 0)
 
@@ -302,11 +377,12 @@ class TestTheStepIntoItsLayer:
         assert layer['gain_db'] == 7.0
         assert layer['exposure_ms'] == 33.0
         assert layer['illumination_ma'] == 120.0
-        assert layer['focus'] == 5000.0
+        # The saved focus is where New starts; visiting a step leaves it.
+        assert layer['focus'] == 7000.0
         assert layer['acquire'] == 'video'
         assert layer['video_config'] == step['Video Config']
         assert layer['video_config'] is not step['Video Config'], 'the protocol owns its dicts'
-        # A layer set to acquire stops stimulating: set_layer_acquire's rule.
+        # A layer set to acquire stops stimulating: set_channel_acquire's rule.
         assert layer['stim_config']['enabled'] is False
 
     def test_a_scope_with_no_motor_still_loads_the_step_into_its_layer(self, no_motor_session):
@@ -341,20 +417,62 @@ class TestTheStepIntoItsLayer:
         with pytest.raises(ArgumentRefusedError) as refused:
             session.go_to_step(protocol, 0)
 
-        assert (refused.value.reason, refused.value.value) == ('layer_unknown', 'Purple')
+        assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Purple')
         assert moves == []
         assert session.settings['BF'] == before
         assert 'Purple' not in session.settings
 
+    def test_a_step_saved_before_stimulation_leaves_the_stimulation_settings_alone(
+        self, no_motor_session, tmp_path
+    ):
+        # A v4 file predates the Stim_Config column, so its steps record no
+        # stimulation; going to one must not stand a made-up one in for it.
+        saved = tmp_path / 'protocol_v4.tsv'
+        _protocol('Center Plate', _step(10.0, 10.0, 0.0, _objective_of(no_motor_session))).to_file(
+            saved
+        )
+        dropped = set(Protocol.COLUMNS[Protocol.CURRENT_VERSION]) - set(Protocol.COLUMNS[4])
+        lines, keep = [], None
+        for line in saved.read_text().splitlines():
+            cells = line.split('\t')
+            if cells[0] == 'Version':
+                cells = ['Version', '4']
+            elif 'Name' in cells and 'Color' in cells:
+                keep = [i for i, name in enumerate(cells) if name not in dropped]
+            if keep is not None and len(cells) > max(keep):
+                cells = [cells[i] for i in keep]
+            lines.append('\t'.join(cells))
+        saved.write_text('\n'.join(lines) + '\n')
+        protocol = protocol_from_file(saved)
+        stimulating = [
+            layer
+            for layer, values in no_motor_session.settings.items()
+            if isinstance(values, dict) and values.get('stim_config') is not None
+        ]
+        for layer in stimulating:
+            no_motor_session.update_settings(f'{layer}.stim_config.pulse_count', 7)
+        before = {
+            layer: copy.deepcopy(no_motor_session.settings[layer]['stim_config'])
+            for layer in stimulating
+        }
+        assert before, 'no layer carries a stimulation to protect'
+
+        no_motor_session.go_to_step(protocol, 0)
+
+        assert {
+            layer: no_motor_session.settings[layer]['stim_config'] for layer in before
+        } == before
+        assert protocol.step_row(step_index=0)['Stim_Config'] == {}
+
 
 class TestTheLedPreview:
     @staticmethod
-    def _lit(built: ScopeSession) -> set[str]:
-        illumination = built.scope.illumination
+    def _lit(built: ScopeSession) -> set[str | None]:
+        """The name of every lit LED address (None for one the identity does not name)."""
         return {
-            layer
-            for layer in ('BF', 'Blue', 'Green', 'Red')
-            if illumination.get_led_state(channel=layer)['enabled']
+            reading.name
+            for reading in built.scope.illumination.get_led_states()
+            if reading.state is LedState.LIT
         }
 
     def test_going_to_a_step_lights_its_channel_when_the_preview_is_on(self, session):
@@ -367,7 +485,7 @@ class TestTheLedPreview:
 
     def test_going_to_a_step_darkens_everything_when_the_preview_is_off(self, session):
         session.settings['protocol_led_on'] = False
-        session.scope.illumination.led_on('Blue', 50.0)
+        session.scope.illumination.led_on(LED0, 50.0)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
 
         session.go_to_step(protocol, 0)
@@ -378,12 +496,25 @@ class TestTheLedPreview:
         session.settings['protocol_led_on'] = True
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
         session.go_to_step(protocol, 0)
-        session.scope.illumination.led_on('Blue', 50.0)
+        session.scope.illumination.led_on(LED0, 50.0)
         session.scope.illumination.led_off('BF')
 
         session.go_to_step(protocol, 0)
 
-        assert self._lit(session) == {'Blue'}, 'a re-click re-drove the preview'
+        assert self._lit(session) == {LED0}, 'a re-click re-drove the preview'
+
+    def test_a_re_selected_step_after_a_raw_leds_off_is_shown_dark(self, session):
+        """A re-click moves the shown channel back to the step's layer lit as the
+        LEDs read: dark after a raw ``leds_off``, though the session lit it."""
+        session.settings['protocol_led_on'] = True
+        protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
+        session.go_to_step(protocol, 0)
+        session.show_channel(LED0)
+        session.scope.illumination.leds_off()
+
+        session.go_to_step(protocol, 0)
+
+        assert self._lit(session) == set()
 
     def test_a_different_step_previews_again(self, session):
         session.settings['protocol_led_on'] = True
@@ -420,7 +551,6 @@ STEP_TO_SETTINGS = {
     'Exposure': 'exposure_ms',
     'Sum': 'sum',
     'Acquire': 'acquire',
-    'Z': 'focus',
     'Video Config': 'video_config',
 }
 
@@ -440,7 +570,7 @@ class TestEveryStepValueReachesTheLayer:
                 'Acquire': 'video',
                 'Z': 1234.0,
                 'Video Config': {'duration': 30},
-                'Stim_Config': {'Green': {'enabled': True, 'illumination_ma': 200}},
+                'Stim_Config': {LED1: {'enabled': True, 'illumination_ma': 200}},
             }
         )
         protocol = _protocol('Center Plate', step)
@@ -450,13 +580,13 @@ class TestEveryStepValueReachesTheLayer:
         layer = no_motor_session.settings['BF']
         for column, key in STEP_TO_SETTINGS.items():
             assert layer[key] == step[column], f"{key} did not take the step's {column}"
-        assert no_motor_session.settings['Green']['stim_config'] == step['Stim_Config']['Green']
+        assert no_motor_session.settings[LED1]['stim_config'] == step['Stim_Config'][LED1]
         # The step's dicts are the protocol's: a later edit to them must not
         # reach into the live settings.
         step['Video Config']['duration'] = 999
-        step['Stim_Config']['Green']['illumination_ma'] = 999
+        step['Stim_Config'][LED1]['illumination_ma'] = 999
         assert layer['video_config']['duration'] == 30
-        assert no_motor_session.settings['Green']['stim_config']['illumination_ma'] == 200
+        assert no_motor_session.settings[LED1]['stim_config']['illumination_ma'] == 200
 
     def test_a_scope_with_no_motor_previews_the_step(self, no_motor_session):
         no_motor_session.settings['protocol_led_on'] = True
@@ -466,30 +596,36 @@ class TestEveryStepValueReachesTheLayer:
 
         no_motor_session.go_to_step(protocol, 0)
 
-        assert no_motor_session.scope.illumination.get_led_state(channel='BF')['enabled']
+        assert channel_reading(no_motor_session.scope.illumination, 'BF').state is (LedState.LIT)
 
 
 class TestTheSlotLookupCannotDisagreeWithTheRule:
-    def test_a_missing_slot_after_the_rule_passed_is_a_defect_not_a_move(
+    def test_a_slot_cleared_between_the_rule_and_the_lookup_is_refused_not_moved_to(
         self, turret_session, monkeypatch
     ):
-        """The rule and the lookup read the same store, so this cannot happen.
+        """The rule and the lookup read the same store, one after the other,
+        so they disagree only when a slot is cleared in between.
 
-        When it does, the two have disagreed and the honest answer is to
-        stop. What this replaced logged, raised a dialog, and then moved X,
-        Y and Z without the objective -- a capture through whatever glass
-        happened to be in the path, named for the glass the step asked for.
+        The answer is the rule's refusal. What this replaced logged, raised a
+        dialog, and then moved X, Y and Z without the objective -- a capture
+        through whatever glass happened to be in the path, named for the glass
+        the step asked for.
         """
         moves = _spy_moves(monkeypatch, turret_session)
-        monkeypatch.setattr(
-            turret_session.scope.motion,
-            'get_turret_position_for_objective_id',
-            lambda objective_id, persisted_position=None: None,
-        )
+        # a stand-in by design: the clear lands between two reads one call makes
+        runtime_state = turret_session.scope.runtime_state
+        before_the_clear = runtime_state.get_turret_config()
+        reads = []
+
+        def turret_config():
+            reads.append(None)
+            return before_the_clear if len(reads) == 1 else dict.fromkeys(before_the_clear)
+
+        monkeypatch.setattr(runtime_state, 'get_turret_config', turret_config)
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, '20x Oly'))
 
-        with pytest.raises(RuntimeError) as defect:
+        with pytest.raises(ProtocolRunRefusedError) as refused:
             turret_session.go_to_step(protocol, 0)
 
-        assert 'slot' in str(defect.value).lower()
+        assert refused.value.reason == 'turret_objectives_unassigned'
         assert moves == []

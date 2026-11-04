@@ -21,12 +21,15 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 
+from modules import live_work
+from modules.caller import Caller, calling
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from modules.run_events import RunEvents
+from tests.protocol_fixtures import protocol_of
 
-COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 
 
 def _make_session_settings(tmp_path):
@@ -34,19 +37,11 @@ def _make_session_settings(tmp_path):
         # The objective this file's protocols name: a scope with no turret
         # refuses a protocol for any glass other than the selected one.
         'objective_id': '10x Oly',
-        'BF': {'autofocus': False},
-        'PC': {'autofocus': False},
-        'DF': {'autofocus': False},
-        'Red': {'autofocus': False},
-        'Green': {'autofocus': False},
-        'Blue': {'autofocus': False},
-        'Lumi': {'autofocus': False},
         'stage_offset': {'x': 0.0, 'y': 0.0},
         'live_folder': str(tmp_path),
         'protocol': {
             'autogain': {
                 'target_brightness': 0.3,
-                'max_duration_seconds': 1.0,
                 'min_gain_db': 0.0,
                 'max_gain_db': 20.0,
             },
@@ -58,7 +53,6 @@ def _make_single_step_protocol():
     # Mirrors tests/test_run_refusal_contract.py -- a one-step protocol
     # that passes every prepare() gate on the simulated scope.
     import datetime
-    import pathlib
 
     import pandas as pd
 
@@ -85,10 +79,13 @@ def _make_single_step_protocol():
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
     config = {
@@ -100,8 +97,7 @@ def _make_single_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    tiling_configs = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-    return Protocol(tiling_configs_file_loc=tiling_configs, config=config)
+    return protocol_of(config=config)
 
 
 class TestClaimRefusalLeavesNoState:
@@ -114,21 +110,21 @@ class TestClaimRefusalLeavesNoState:
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         claim_held = False
         try:
             # A completed first run arms the completion event, so the
             # refusal below has prior state to preserve (mirrors the
             # prepare-side contract test).
             first_done = threading.Event()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='pre_refusal_scan',
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda *_: first_done.set()),
             )
             assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
+            settled = first.result(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
@@ -142,7 +138,7 @@ class TestClaimRefusalLeavesNoState:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            while session.protocol_files_draining:
+            while session.live_work.has(live_work.WorkKind.RUN_FILES):
                 assert time.monotonic() < deadline, 'first run never finished writing its files'
                 time.sleep(0.02)
 
@@ -154,21 +150,21 @@ class TestClaimRefusalLeavesNoState:
             claim_held = True
 
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_make_single_step_protocol(),
                     sequence_name='claim_refused_scan',
                     parent_dir=str(tmp_path),
                 )
-            assert excinfo.value.reason == 'exclusive_activity_running'
+            assert excinfo.value.reason == 'recording_active'
             # The refusal says busy-with-what: the holder's KIND rides
-            # the payload (a recording has no trigger; its kind is the
+            # the payload (a recording has no starter; its kind is the
             # whole answer).
             assert excinfo.value.holder == 'recording'
             assert excinfo.value.holder_trigger is None
 
-            assert not session.is_protocol_running, (
-                'a claim-refused run must not leave session.protocol_running '
-                'set: no run exists to ever clear it, so every reader of the '
+            assert not session.live_work.has(live_work.WorkKind.PROTOCOL), (
+                'a claim-refused run must not leave the session naming a run: '
+                'no run exists to ever clear it, so every reader of the '
                 'protocol-running state is wedged until app restart'
             )
 
@@ -177,7 +173,7 @@ class TestClaimRefusalLeavesNoState:
             recording.release()
             claim_held = False
             done = threading.Event()
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='post_refusal_scan',
                 parent_dir=str(tmp_path),
@@ -208,7 +204,7 @@ class TestTheHolderIsTheLiveRun:
         # A headless session does not home, and a run is refused while any
         # axis position is unknown.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         try:
             # Read from inside the run: scan_started fires from the run
             # loop, with the claim held, so this observes the holder while
@@ -219,21 +215,22 @@ class TestTheHolderIsTheLiveRun:
             def _observe(*_scan):
                 holder = session.activity_claim.holder
                 observed['kind'] = holder.kind if holder is not None else None
-                observed['trigger'] = holder.run_trigger_source if holder is not None else None
+                observed['started_by'] = holder.run_started_by if holder is not None else None
 
-            run = runner.run_single_scan(
-                protocol=_make_single_step_protocol(),
-                sequence_name='holder_scan',
-                parent_dir=str(tmp_path),
-                events=RunEvents(scan_started=_observe),
-            )
-            assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+            with calling(Caller.REST):
+                run = runner.start_single_scan(
+                    protocol=_make_single_step_protocol(),
+                    sequence_name='holder_scan',
+                    parent_dir=str(tmp_path),
+                    events=RunEvents(scan_started=_observe),
+                )
+            assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
             assert observed['kind'] == 'protocol', (
                 'the run did not hold the claim while it was running'
             )
-            assert observed['trigger'] == 'api_scan', (
-                "the claim must carry the run's own trigger, not a constant"
+            assert observed['started_by'] == Caller.REST, (
+                'the claim must carry who started the run: the host stamped on its thread'
             )
 
             assert wait_until_not_running(session)

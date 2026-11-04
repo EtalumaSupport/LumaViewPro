@@ -38,20 +38,46 @@ from collections import defaultdict
 
 from tests.ast_seams import REPO_ROOT
 
-# Kivy events a USER raises. Excludes lifecycle hooks (on_open, on_dismiss) and
-# layout callbacks (on_size), which fire without anyone touching a control.
-USER_EVENTS = (
+# Kivy events only a person raises. Excludes lifecycle hooks (on_open,
+# on_dismiss) and layout callbacks (on_size), which fire without anyone
+# touching a control.
+PERSON_EVENTS = (
     'on_release',
     'on_press',
-    'on_text',
-    'on_active',
-    'on_value',
     'on_text_validate',
     'on_focus',
-    'on_state',
     # PickSpinner's: raised only by a person choosing from the dropdown,
     # never by a write to the spinner's text.
     'on_pick',
+    # CommitInput's: raised only by a person's edit or Enter, never by a
+    # write to the box (ui/ui_helpers.py).
+    'on_commit',
+    # A touch on the widget: the live view's click-to-centre binds one.
+    'on_touch_down',
+    'on_touch_move',
+    'on_touch_up',
+)
+
+# Kivy events a value change raises, whoever made it: a person operating the
+# control, or the app writing to it. A person record reached from one of these
+# says a person did what the app may have done.
+VALUE_EVENTS = (
+    'on_text',
+    'on_active',
+    'on_value',
+    'on_state',
+)
+
+USER_EVENTS = PERSON_EVENTS + VALUE_EVENTS
+
+# Events the census knowingly does not read as a control's binding. Any other
+# ``on_<event>`` in a kv source is refused, naming its file and line, so a new
+# shape is read or named here rather than dropped.
+NOT_A_CONTROLS_BINDING = (
+    # An accordion item's: censused by accordion_items, from its touch handler.
+    'on_collapse',
+    # A popup's lifecycle hook: it fires without anyone touching a control.
+    'on_open',
 )
 
 EMITTERS = (
@@ -67,6 +93,9 @@ EMITTERS = (
     'window_event',
 )
 
+# The records that say a person did something to a control.
+PERSON_RECORDS = ('button', 'toggle', 'slider', 'select', 'text_input')
+
 # Production modules holding a Builder.load_string block. A new one must be
 # added here or test_no_new_kv_source_escapes_the_census fails -- that test is
 # what keeps the blind spot this census was built to close from reopening.
@@ -75,10 +104,6 @@ LOAD_STRING_MODULES = (
     'ui/progress_popup.py',
     'ui/popup_close.py',
     'ui/range_slider.py',
-    # No controls: its block is a demo inside _Example(App).build(), reachable
-    # only under __main__. Registered anyway so the census provably covers
-    # every load_string in the tree and no one has to re-judge that.
-    'ui/circular_progress_bar.py',
 )
 
 KV_FILE = 'ui/lumaviewpro.kv'
@@ -105,24 +130,58 @@ def _is_code(line: str) -> bool:
     return bool(stripped) and not stripped.startswith('#')
 
 
+def _python_paths():
+    """Every module where GUI code lives: the one list the census reads."""
+    paths = [REPO_ROOT / m for m in SEARCH_MODULES]
+    for package in SEARCH_PACKAGES:
+        paths += sorted((REPO_ROOT / package).glob('*.py'))
+    return paths
+
+
+def load_string_blocks(rel):
+    """The kv text of every ``Builder.load_string`` call in module ``rel``.
+
+    Read by AST, so each text is the string Kivy receives. A call whose
+    argument is not a string literal is refused, naming the module and line:
+    its kv cannot be read without running the module, and dropping it would
+    hide its controls from the census.
+    """
+    blocks = []
+    for node in ast.walk(ast.parse((REPO_ROOT / rel).read_text())):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'load_string'
+        ):
+            continue
+        arg = node.args[0] if node.args else None
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            raise ValueError(
+                f'{rel}:{node.lineno} passes Builder.load_string something other '
+                'than a string literal, so the census cannot read its kv.'
+            )
+        blocks.append(arg.value)
+    return blocks
+
+
+def modules_holding_load_string():
+    """Every GUI module that makes a ``Builder.load_string`` call."""
+    rels = (path.relative_to(REPO_ROOT).as_posix() for path in _python_paths())
+    return sorted(rel for rel in rels if load_string_blocks(rel))
+
+
 def kv_sources():
     """``(label, text)`` for the kv file and every production load_string block."""
     sources = [(KV_FILE, (REPO_ROOT / KV_FILE).read_text())]
     for rel in LOAD_STRING_MODULES:
-        src = (REPO_ROOT / rel).read_text()
-        for match in re.finditer(r'Builder\.load_string\(\s*(?:"""|\'\'\')', src):
-            quote = '"""' if src[match.end() - 3 : match.end()] == '"""' else "'''"
-            sources.append((rel, src[match.end() : src.index(quote, match.end())]))
+        sources += [(rel, text) for text in load_string_blocks(rel)]
     return sources
 
 
 def _class_index():
     """``name -> (relpath, ClassDef)`` for every class a kv rule can name."""
     index = {}
-    paths = [REPO_ROOT / m for m in SEARCH_MODULES]
-    for package in SEARCH_PACKAGES:
-        paths += sorted((REPO_ROOT / package).glob('*.py'))
-    for path in paths:
+    for path in _python_paths():
         rel = path.relative_to(REPO_ROOT).as_posix()
         try:
             tree = ast.parse(path.read_text())
@@ -248,14 +307,39 @@ def _rule_root(lines, index):
     return None
 
 
+def _handler(lines, i):
+    """The handler bound on line ``i``: the text after the colon, or, where
+    nothing but a comment follows it, every line indented under it."""
+    after = re.match(r'^[ \t]*on_\w+:\s*(.*?)\s*$', lines[i]).group(1)
+    if after and not after.startswith('#'):
+        return after
+    body = []
+    for line in lines[i + 1 :]:
+        if not _is_code(line):
+            continue
+        if _indent(line) <= _indent(lines[i]):
+            break
+        body.append(line.strip())
+    return '; '.join(body)
+
+
 def _blocks(label, text):
-    """Every widget block in ``text`` that binds a user event."""
+    """Every widget block in ``text`` that binds a user event.
+
+    An event in neither ``USER_EVENTS`` nor ``NOT_A_CONTROLS_BINDING`` is
+    refused, naming its file and line.
+    """
     lines = text.splitlines()
     out = []
     for i, line in enumerate(lines):
-        match = re.match(r'^[ \t]*(on_\w+):\s*(.+)$', line)
-        if not match or match.group(1) not in USER_EVENTS:
+        match = re.match(r'^[ \t]*(on_\w+):', line)
+        if not match or match.group(1) in NOT_A_CONTROLS_BINDING:
             continue
+        if match.group(1) not in USER_EVENTS:
+            raise ValueError(
+                f'{label}:{i + 1} binds {match.group(1)}, which the census neither '
+                'reads nor names: add it to USER_EVENTS or NOT_A_CONTROLS_BINDING.'
+            )
         prop_depth = _indent(line)
         header = i - 1
         while header >= 0 and (not _is_code(lines[header]) or _indent(lines[header]) >= prop_depth):
@@ -276,7 +360,7 @@ def _blocks(label, text):
             if id_match:
                 control_id = id_match.group(1)
                 break
-        handler = match.group(2).strip()
+        handler = _handler(lines, i)
         out.append(
             {
                 'file': label,
@@ -336,6 +420,7 @@ def census():
             'file': blocks[0]['file'],
         }
     out.update(accordion_items())
+    out.update(pick_spinners())
     return out
 
 
@@ -407,3 +492,254 @@ def accordion_items():
                 'file': label,
             }
     return out
+
+
+# A PickSpinner writes its own record from the dropdown's pick, the one path a
+# person's choice takes, under the name its kv block sets; its handlers then
+# act on the pick without recording it.
+PICK_SPINNER = 'PickSpinner'
+
+
+def pick_spinners():
+    """Every PickSpinner in the kv, as a control whose record is its ``log_name``.
+
+    One that sets no ``log_name`` writes no record from its pick and is
+    reported unlogged, so the ratchet fails on it.
+    """
+    out = {}
+    for label, text in kv_sources():
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if not _is_code(line):
+                continue
+            widget = re.match(r'^[ \t]+([A-Za-z_]\w*):\s*$', line)
+            if not widget or widget.group(1) != PICK_SPINNER:
+                continue
+            props = _properties(lines, i)
+            identity = f'{_rule_root(lines, i)}.{props.get("id", PICK_SPINNER)}'
+            out[identity] = {
+                'static': [props['log_name']] if props.get('log_name') else [],
+                'derived': [],
+                'unresolved': [],
+                'file': label,
+            }
+    return out
+
+
+def _person_record_calls(fn):
+    """The ``gui_logger`` calls in ``fn`` that say a person did something."""
+    return [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == 'gui_logger'
+        and node.func.attr in PERSON_RECORDS
+    ]
+
+
+def _is_self_initializing(test):
+    return (
+        isinstance(test, ast.Attribute)
+        and isinstance(test.value, ast.Name)
+        and test.value.id == 'self'
+        and test.attr == '_initializing'
+    )
+
+
+def _returns_while_initializing(fn):
+    """Whether ``fn`` returns under ``if self._initializing:`` before any person record.
+
+    The layer panel writes its own sliders with ``_initializing`` set, so a
+    handler that returns on it records only what a person moved.
+    """
+    for stmt in fn.body:
+        if (
+            isinstance(stmt, ast.If)
+            and _is_self_initializing(stmt.test)
+            and any(isinstance(s, ast.Return) for s in stmt.body)
+        ):
+            return True
+        if _person_record_calls(stmt):
+            return False
+    return False
+
+
+def _reaches_person_record(cls_name, method, depth=_MAX_DEPTH, seen=None):
+    """Whether ``method`` writes a person record, itself or through its own calls."""
+    seen = seen or set()
+    key = (cls_name, method)
+    if depth < 0 or key in seen:
+        return False
+    seen.add(key)
+    rel, fn = _resolve(cls_name, method)
+    if fn is None:
+        return False
+    if _person_record_calls(fn):
+        return True
+    module_funcs = _module_functions(rel)
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            if func.value.id == 'self' and _reaches_person_record(
+                cls_name, func.attr, depth - 1, seen
+            ):
+                return True
+        elif (
+            isinstance(func, ast.Name)
+            and func.id in module_funcs
+            and _person_record_calls(module_funcs[func.id])
+        ):
+            return True
+    return False
+
+
+def person_records_on_value_changes():
+    """Every kv binding on a value change whose handler writes a person record.
+
+    A value change fires for the app's write as much as for a person's, so a
+    record written from one says a person did what the app may have done.
+    ``file:line event: Class.method`` for each. Reads kv bindings only: a
+    Python ``bind(text=...)`` and a helper in another module behind the
+    handler are not followed.
+    """
+    out = []
+    for label, text in kv_sources():
+        for block in _blocks(label, text):
+            if block['event'] not in VALUE_EVENTS:
+                continue
+            pairs = [(block['root'], m) for m in block['root_methods']]
+            pairs += [(block['widget'], m) for m in block['self_methods']]
+            for owner, method in pairs:
+                fn = _resolve(owner, method)[1] if owner else None
+                if fn is None or _returns_while_initializing(fn):
+                    continue
+                if _reaches_person_record(owner, method):
+                    out.append(f'{label}:{block["line"]} {block["event"]}: {owner}.{method}')
+    return sorted(out)
+
+
+# A widget's own touch handlers run only when a person touches it.
+_TOUCH_HANDLERS = ('on_touch_down', 'on_touch_up', 'on_touch_move')
+
+
+def _person_bound_methods():
+    """Names of the methods a kv binding on a person-only event calls."""
+    names = set()
+    for label, text in kv_sources():
+        for block in _blocks(label, text):
+            if block['event'] in PERSON_EVENTS:
+                names.update(block['root_methods'] + block['self_methods'])
+    return names
+
+
+# Receivers that are never a person's handler: the Session's members answer
+# to the same names as the panels' handlers (``select_labware``,
+# ``apply_tiling``), and ``gui_logger``'s own records (``frame_size``).
+_NOT_A_HANDLER_RECEIVER = ('session', 'gui_logger')
+
+
+def _receiver_names(func):
+    names = []
+    node = func.value if isinstance(func, ast.Attribute) else None
+    while node is not None:
+        if isinstance(node, ast.Attribute):
+            names.append(node.attr)
+            node = node.value
+        elif isinstance(node, ast.Name):
+            names.append(node.id)
+            node = None
+        else:
+            node = getattr(node, 'value', None) or getattr(node, 'func', None)
+    return names
+
+
+def _top_level_functions(tree):
+    """Module functions and class methods; a closure is part of the function it is in."""
+    for node in tree.body:
+        if isinstance(node, _DEF_TYPES):
+            yield node
+        elif isinstance(node, ast.ClassDef):
+            yield from (n for n in node.body if isinstance(n, _DEF_TYPES))
+
+
+def person_handlers_called_from_python():
+    """Every call of a person's handler from code no person's touch reached.
+
+    A function that writes a person record is a person's handler; called from
+    anywhere but a person's own path -- a kv binding on a person-only event,
+    another person's handler, a widget's touch handler -- its record says a
+    person did what the app did. Matched by name, so a new caller fails
+    closed. ``file:line caller -> name`` for each. A handler passed by
+    reference or reached through ``getattr`` is not seen.
+    """
+    writers = set()
+    for path in _python_paths():
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, _DEF_TYPES) and _person_record_calls(node):
+                writers.add(node.name)
+    person_paths = _person_bound_methods() | set(_TOUCH_HANDLERS)
+    out = []
+    for path in _python_paths():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        for caller in _top_level_functions(ast.parse(path.read_text())):
+            if caller.name in person_paths:
+                continue
+            for node in ast.walk(caller):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', None)
+                if name not in writers:
+                    continue
+                if set(_receiver_names(func)) & set(_NOT_A_HANDLER_RECEIVER):
+                    continue
+                out.append(f'{rel}:{node.lineno} {caller.name} -> {name}')
+    return sorted(set(out))
+
+
+def _text_written_ids(fn):
+    """The ids whose ``.text`` ``fn`` assigns: ``<anything>.ids['x'].text = ...``."""
+    ids = set()
+    for node in ast.walk(fn):
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        for target in targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == 'text'
+                and isinstance(target.value, ast.Subscript)
+                and isinstance(target.value.value, ast.Attribute)
+                and target.value.value.attr == 'ids'
+                and isinstance(target.value.slice, ast.Constant)
+            ):
+                ids.add(target.value.slice.value)
+    return ids
+
+
+def handlers_run_twice_by_a_write():
+    """Every function that writes a widget's text and also calls that widget's ``on_text`` handler.
+
+    The write dispatches the handler when the text changes, so the call runs
+    it a second time. ``file:line function: id -> handler`` for each.
+    """
+    on_text = defaultdict(set)
+    for label, text in kv_sources():
+        for block in _blocks(label, text):
+            if block['event'] == 'on_text' and block['id']:
+                on_text[block['id']].update(block['root_methods'])
+    out = []
+    for path in _python_paths():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        for fn in _top_level_functions(ast.parse(path.read_text())):
+            called = {
+                node.func.attr
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            }
+            for widget_id in _text_written_ids(fn):
+                for handler in sorted(on_text.get(widget_id, set()) & called):
+                    out.append(f'{rel}:{fn.lineno} {fn.name}: {widget_id} -> {handler}')
+    return sorted(out)

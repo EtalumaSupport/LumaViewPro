@@ -14,8 +14,8 @@ Fix
 The protection is structural, not a UI guard. Autofocus holds the LED
 ownership lease for the duration of a scan, and led_on/led_off refuse any
 write not made by the lease holder. A bare UI led_off (holding no lease)
-arriving mid-scan is therefore rejected at the API and the AF channel stays
-lit. The former update_led_state is_focusing early-return duplicated this
+arriving mid-scan is therefore refused at the API (exclusive_activity_running)
+and the AF channel stays lit. The former update_led_state is_focusing early-return duplicated this
 refusal and has been retired -- the lease is the single structural guard.
 
 Test approach
@@ -29,8 +29,11 @@ from __future__ import annotations
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
+from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
 
 @pytest.fixture
@@ -41,18 +44,19 @@ def scope():
 
 
 def _lit(scope, ch):
-    color = scope.illumination.ch2color(ch)
-    return scope.illumination.get_led_state(color)['enabled']
+    return led_reading(scope, ch).state is LedState.LIT
 
 
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
     """An unleased UI led_off must not turn off the channel autofocus owns."""
     lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)
+    scope.illumination._led_on_impl(3, 200, member='led_on', _lease=lease)
     assert _lit(scope, 3)
 
     # The #695 shape: the AF button click defocuses the exposure field, whose
     # apply chain issues a bare UI led_off. While AF holds the lease this is
     # refused, so the AF channel stays lit and the scan does not go dark.
-    scope.illumination.led_off(channel=3)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.illumination.led_off_by_address(3)
+    assert refused.value.reason == 'exclusive_activity_running'
     assert _lit(scope, 3), 'live UI off darkened an AF-owned channel (#695 regression)'

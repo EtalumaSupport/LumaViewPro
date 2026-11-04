@@ -37,10 +37,33 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.ast_seams import find_def, parse_module
-from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401
-    GREEN_LAYER_SETTINGS,
+from modules.scope_session import ScopeSession
+from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
+    _run_manual_nav,
     stepnav_env,
 )
+from tests.stock_channels import LED1
+
+
+GREEN_LAYER_SETTINGS = {
+    'autofocus': False,
+    'false_color': True,
+    'illumination_ma': 0.0,
+    'gain_db': 0.0,
+    'auto_gain': False,
+    'exposure_ms': 10.0,
+    'sum': 1,
+    'acquire': True,
+    'focus': 0.0,
+    'video_config': {'duration': 5},
+    'stim_config': {
+        'enabled': False,
+        'illumination_ma': 50,
+        'frequency': 1,
+        'pulse_width': 10,
+        'pulse_count': 1,
+    },
+}
 
 
 # A step whose every field differs from GREEN_LAYER_SETTINGS, so a write of
@@ -50,7 +73,7 @@ def _make_step():
         'X': 10.0,
         'Y': 20.0,
         'Z': 7.5,
-        'Color': 'Green',
+        'Color': LED1,
         'Auto_Focus': True,
         'False_Color': False,
         'Illumination': 350.0,
@@ -62,7 +85,7 @@ def _make_step():
         'Objective': 'obj1',
         'Video Config': {'duration': 30},
         'Stim_Config': {
-            'Green': {
+            LED1: {
                 'enabled': True,
                 'illumination_ma': 200,
                 'frequency': 2,
@@ -78,7 +101,7 @@ def _go_to_step(step, *, include_move=True):
 
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
-        step=MagicMock(return_value=step),
+        step_row=MagicMock(return_value=step),
         step_list_revision=0,
     )
     # The panel shows this protocol: a completed move lands only on the
@@ -88,7 +111,7 @@ def _go_to_step(step, *, include_move=True):
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
-        step_idx=0,
+        step_index=0,
         include_move=include_move,
     )
 
@@ -99,34 +122,41 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         included. Recorded so a future caller cannot lose the display
         silently by flipping that flag."""
         env = stepnav_env
-        env.ctx.session.run_lockout = True
-        before = copy.deepcopy(env.ctx.settings['Green'])
+        before = copy.deepcopy(env.ctx.settings[LED1])
 
         _go_to_step(_make_step(), include_move=False)
 
-        assert env.ctx.settings['Green'] == before
+        assert env.ctx.settings[LED1] == before
         assert env.layer_obj.set_step_state.call_count == 0
 
 
 class TestManualNavigationWritesNothingInTheGui:
-    def test_the_write_is_the_sessions_and_the_apply_follows_it(self, stepnav_env):
-        """A person's navigation writes the step into its layer inside
-        ``ScopeSession.go_to_step`` (every key, the config dicts as copies:
+    def test_the_write_and_the_apply_are_the_sessions_alone(self, stepnav_env, monkeypatch):
+        """A person's navigation writes the step into its layer and puts the
+        layer on the camera inside ``ScopeSession.start_go_to_step`` (every
+        key, the config dicts as copies:
         tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
-        no setting itself and applies the layer only once the Session has
-        gone, so the apply reads the step's values."""
+        no setting after it and makes no second call to apply the layer."""
         env = stepnav_env
-        before = copy.deepcopy(env.ctx.settings['Green'])
         order = []
-        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_idx: order.append(
-            'session'
-        )
+        after_session = {}
+        real_go = ScopeSession.start_go_to_step
+
+        def _start_go_to_step(self, protocol, step_index):
+            op = real_go(self, protocol, step_index)
+            order.append('session')
+            after_session.update(self.get_settings_snapshot())
+            return op
+
+        monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
         env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
-        _go_to_step(_make_step())
+        _run_manual_nav(env)
 
-        assert env.ctx.settings['Green'] == before, 'the GUI wrote a setting itself'
-        assert order == ['session', 'apply']
+        assert env.session.get_settings_snapshot() == after_session, (
+            'the GUI wrote a setting itself'
+        )
+        assert order == ['session']
 
 
 # Every widget id set_step_state writes, with the attribute it writes.
@@ -162,6 +192,8 @@ _STEP_WIDGETS = {
 
 class _Widget:
     def __init__(self):
+        # A box nobody is typing in.
+        self.focus = False
         self.text = None
         self.value = None
         self.active = None
@@ -183,9 +215,9 @@ def _scope_with_auto_gain(has_auto_gain):
     """
     from tests.scope_fakes import answer_auto_gain_like_the_api
 
-    imaging = SimpleNamespace()
-    answer_auto_gain_like_the_api(imaging, has_auto_gain=has_auto_gain)
-    return SimpleNamespace(imaging=imaging)
+    camera = SimpleNamespace()
+    answer_auto_gain_like_the_api(camera, has_auto_gain=has_auto_gain)
+    return SimpleNamespace(camera=camera)
 
 
 class _NoSettingsCtx:
@@ -228,13 +260,13 @@ class TestSetStepStateIsAPureWidgetSetter:
         from ui.layer_control import LayerControl
 
         monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx())
-        stand = _LayerStand('Green', _STEP_WIDGETS)
+        stand = _LayerStand(LED1, _STEP_WIDGETS)
         step = _make_step()
 
         LayerControl.set_step_state(stand, step)
 
         ids = stand.ids
-        stim = step['Stim_Config']['Green']
+        stim = step['Stim_Config'][LED1]
         expected = {
             'autofocus': True,
             'false_color': False,
@@ -275,7 +307,7 @@ class TestSetStepStateIsAPureWidgetSetter:
         from ui.layer_control import LayerControl
 
         monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False))
-        stand = _LayerStand('Green', _STEP_WIDGETS)
+        stand = _LayerStand(LED1, _STEP_WIDGETS)
 
         LayerControl.set_step_state(stand, {'Auto_Gain': True})
 
@@ -331,9 +363,9 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         for retired in ('init_autofocus', 'init_acquire', 'sync_camera_widgets_from_settings'):
             assert not hasattr(layer_control.LayerControl, retired), retired
 
-    @pytest.mark.parametrize('layer', ['BF', 'Green'])
+    @pytest.mark.parametrize('layer', ['BF', LED1])
     def test_sync_widgets_from_settings_sets_every_widget(self, monkeypatch, layer):
-        """BF ships with a None stim_config; Green carries one. Both sync
+        """BF ships with a None stim_config; LED 1 carries one. Both sync
         without raising, every widget carries the settings value, the
         auto_gain box carries the effective auto-gain, and the settings
         were read once under the settings lock."""
@@ -349,7 +381,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         settings = {
             # A None stim_config is representable and ships that way.
             'BF': _layer_settings(auto_gain=True, acquire='image', sum=2, stim_config=None),
-            'Green': _layer_settings(
+            LED1: _layer_settings(
                 auto_gain=False, acquire=None, stim_config=stim, video_config={'duration': 12}
             ),
         }

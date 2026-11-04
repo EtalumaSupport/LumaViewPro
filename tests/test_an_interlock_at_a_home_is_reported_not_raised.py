@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from drivers.exceptions import MotionInterlockError
+from lib.stage_interlock import REFUSED_BEFORE_MOTION
 from modules.exceptions import HardwareCommandRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -41,21 +42,23 @@ def session(tmp_path):
         s.shutdown()
 
 
+# parametrize-justified: each reason runs its own session's bring-up
 @pytest.mark.parametrize('reason', sorted(REASONS))
 def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_posts, reason):
     turret = []
 
     def refused(axis):
-        raise HardwareCommandRefusedError(reason, 'home')
+        raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[reason], 'home')
 
-    session.start_application_session(home_fn=refused, turret_fn=turret.append)
+    session.run_application_session(home_fn=refused, turret_fn=turret.append)
 
     title, words = REASONS[reason]
-    shown = [n for n in centre_posts if n.severity >= Severity.INFO]
+    shown = [n for n in centre_posts if n.severity.level >= Severity.INFO.level]
     assert [(n.severity, n.title, n.message) for n in shown] == [(Severity.WARNING, title, words)]
     assert turret == []
 
 
+# parametrize-justified: each reason runs its own homing test on its own session
 @pytest.mark.parametrize('reason', sorted(REASONS))
 def test_the_report_records_it_against_the_axis(session, monkeypatch, reason):
     home_sim_scope(session.scope)
@@ -65,7 +68,7 @@ def test_the_report_records_it_against_the_axis(session, monkeypatch, reason):
 
     monkeypatch.setattr(session.scope._motion_driver, 'zhome', refused)
 
-    result = TechSupportReport(scope=session.scope).diag.run_homing_test()
+    result = TechSupportReport(session).diag.run_homing_test()
 
     assert result['passed'] is False
     assert result['axes']['Z']['status'] == 'FAIL'

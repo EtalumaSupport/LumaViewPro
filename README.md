@@ -1,6 +1,6 @@
 # LumaViewPro
 
-> **PRE-RELEASE API**: the Lumascope SDK + REST API exposed by LumaViewPro 4.0.0 is subject to breaking changes in 4.1 / 4.1.5 / 4.2. Do not build production integrations against the API yet. If you intend to use it, contact Etaluma support so we know to consult you before structural changes.
+> **PRE-RELEASE API**: the Lumascope SDK + REST API exposed by LumaViewPro is subject to breaking changes until 4.0.0 ships; see the preface of `docs/lumascope-skills.md`. Do not build production integrations against the API yet. If you intend to use it, contact Etaluma support so we know to consult you before structural changes.
 
 LumaViewPro is an open-source fluorescence microscope control application written in Python. Sponsored by [Etaluma, Inc.](https://www.etaluma.com/), it provides a full-featured GUI and a Python API for controlling Etaluma Lumascope microscopes.
 
@@ -24,7 +24,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 
 ### Capabilities
 
-- **LED Illumination** -- Up to 6 channels: Blue, Green, Red fluorescence; Brightfield, Phase Contrast, Darkfield; Luminescence mode
+- **LED Illumination** -- Up to 6 channels: three fluorescence channels, each named for its excitation (405 / 488 / 589 nm on the stock filterset); Brightfield, Phase Contrast, Darkfield; Luminescence mode
 - **Motion Control** -- Motorized X/Y stage, Z focus, and 4-position objective turret (model-dependent)
 - **Camera** -- Basler (Pylon) camera with 12-bit depth, configurable ROI, binning, gain, and exposure
 
@@ -34,9 +34,9 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 - **Protocol Engine** for automated multi-well, multi-channel, time-lapse, Z-stack, and video capture
 - **Autofocus** with frame-based settling
 - **Simulate Mode** -- run without hardware using `python lumaviewpro.py --simulate`
-- **Python API** -- `lumascope_api.py` provides headless microscope control for scripting and automation
+- **API** -- the scope driven from Python through a `ScopeSession`, or over REST, with or without the GUI
 
-API documentation and example scripts are in the `docs/` folder.
+The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md).
 
 ## Getting Started
 

@@ -27,7 +27,6 @@ def _significant_bits_param(func):
 
 
 SEAM_FUNCS = [
-    image_utils.add_scale_bar,
     image_utils._compute_scale_bar_overlay,
     PostProcessing.preview_cell_count,
     CellCount.process_image,
@@ -52,6 +51,16 @@ def test_default_significant_bits_helper_is_gone():
     )
 
 
+def test_the_scale_bar_requires_the_frames_depth_and_sum_count():
+    # The bar's white and the white its colour is judged against both come
+    # from the pair, so neither can be defaulted or handed down apart.
+    params = inspect.signature(image_utils.add_scale_bar).parameters
+    for name in ('frames_summed', 'frame_bits'):
+        assert params[name].default is inspect.Parameter.empty, (
+            f'add_scale_bar must require {name}, not default it'
+        )
+
+
 def test_add_scale_bar_rejects_missing_depth():
     with pytest.raises(TypeError):
         image_utils.add_scale_bar(np.zeros((200, 200), dtype=np.uint16), {}, 1)
@@ -66,4 +75,6 @@ def test_save_image_rejects_missing_depth():
             channel='BF',
             false_color_on=False,
             objective_id='4x Oly',
+            white_bits=None,
+            fallback_focus=None,
         )

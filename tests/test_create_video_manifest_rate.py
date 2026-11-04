@@ -3,7 +3,7 @@
 
 Encoding an existing frames folder used to run at whatever number sat
 in the FPS box (guess 5 on failure) while the manifest's measured
-capture rate sat unread beside the frames. 'auto' (frames_per_sec=None)
+capture rate sat unread beside the frames. 'auto' (frame_rate_fps=None)
 now resolves at the build_from_folder dispatch: a manual recording
 plays at its manifest's measured rate -- engine manifests first, the
 legacy session manifest for pre-engine folders -- and folders with no
@@ -12,12 +12,16 @@ overrides everything (deliberate timelapse speedups stay possible).
 """
 
 import json
-import pathlib
+import logging
 from unittest.mock import patch
 
 import pytest
 
 from modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
+from modules.layer_record import release_colors
+from tests.log_capture import records_of
+from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 def _make_manual_folder(tmp_path, n=3):
@@ -26,20 +30,21 @@ def _make_manual_folder(tmp_path, n=3):
     return tmp_path
 
 
-def _built_rate(tmp_path, frames_per_sec):
+def _built_rate(tmp_path, frame_rate_fps):
     captured = {}
 
-    def _capture(self, path, df, frames_per_sec, **kwargs):
-        captured['fps'] = frames_per_sec
+    def _capture(self, path, df, frame_rate_fps, **kwargs):
+        captured['fps'] = frame_rate_fps
         return {'status': True, 'actual_output_file_loc': path / f'{path.name}.mp4'}
 
     with patch.object(VideoBuilder, '_create_video', _capture):
         builder = VideoBuilder(has_turret=False)
         result = builder.build_from_folder(
             tmp_path,
-            pathlib.Path('unused_tiling.json'),
-            frames_per_sec=frames_per_sec,
+            shipped_grids(),
+            frame_rate_fps=frame_rate_fps,
             enable_timestamp_overlay=False,
+            channel_colors=release_colors(),
         )
     assert result['status'] is True
     return captured['fps']
@@ -48,12 +53,13 @@ def _built_rate(tmp_path, frames_per_sec):
 def test_auto_uses_engine_manifest_measured_rate(tmp_path):
     _make_manual_folder(tmp_path)
     (tmp_path / 'recording_manifest.json').write_text(
-        json.dumps({'measured_fps': 9.5, 'channel_color': 'Blue'})
+        json.dumps({'measured_fps': 9.5, 'channel_color': LED0})
     )
     assert _built_rate(tmp_path, None) == pytest.approx(9.5)
 
 
 def test_auto_uses_legacy_manifest_measured_rate(tmp_path):
+    # A pre-engine folder's manifest, as an earlier release wrote it: old channel names.
     _make_manual_folder(tmp_path)
     (tmp_path / 'session_manifest.json').write_text(
         json.dumps({'recording': {'channel_color': 'Red', 'actual_fps': {'mean': 3.25}}})
@@ -81,13 +87,28 @@ def test_engine_manifest_wins_over_legacy(tmp_path):
     assert _built_rate(tmp_path, None) == pytest.approx(9.5)
 
 
+def test_a_manifest_names_its_channel_and_whether_it_was_false_coloured(tmp_path):
+    """A recording records its channel and the false-colour flag; the video
+    is coloured by the channel only when the flag was on."""
+    builder = VideoBuilder(has_turret=False)
+    read = []
+    for false_color in (True, False):
+        folder = tmp_path / str(false_color)
+        folder.mkdir()
+        (folder / 'recording_manifest.json').write_text(
+            json.dumps({'channel': LED2, 'false_color': false_color, 'measured_fps': 2.0})
+        )
+        read.append(builder._read_recording_manifest(folder)['channel_color'])
+    assert read == [LED2, None]
+
+
 def test_channel_color_read_from_either_manifest_generation(tmp_path):
     builder = VideoBuilder(has_turret=False)
     (tmp_path / 'recording_manifest.json').write_text(
-        json.dumps({'channel_color': 'Green', 'measured_fps': 2.0})
+        json.dumps({'channel_color': LED1, 'measured_fps': 2.0})
     )
     info = builder._read_recording_manifest(tmp_path)
-    assert info == {'channel_color': 'Green', 'measured_fps': 2.0}
+    assert info == {'channel_color': LED1, 'measured_fps': 2.0}
 
     legacy_dir = tmp_path / 'legacy'
     legacy_dir.mkdir()
@@ -99,28 +120,25 @@ def test_channel_color_read_from_either_manifest_generation(tmp_path):
     assert info == {'channel_color': 'Lumi', 'measured_fps': None}
 
 
-def test_frames_without_any_manifest_warn_loudly(tmp_path, monkeypatch):
+def test_frames_without_any_manifest_warn_loudly(tmp_path, caplog):
     # The manifest is the sole carrier of the recording's channel color
     # and measured rate. Silently returning None fields made a LOST
     # manifest indistinguishable from deliberate grayscale: the build
     # quietly produced a colorless video at the default rate. The reader
     # now says so in the log (log-only: a pre-manifest legacy folder
     # takes the same path legitimately, so a popup would misfire).
-    # Recorded logger, not caplog: the shared lvp_logger is
-    # conftest-mocked, so caplog cannot observe it.
-    from unittest.mock import MagicMock
-
     import modules.video_builder as video_builder_module
 
-    logger_mock = MagicMock()
-    monkeypatch.setattr(video_builder_module, 'logger', logger_mock)
-
     builder = VideoBuilder(has_turret=False)
-    info = builder._read_recording_manifest(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        info = builder._read_recording_manifest(tmp_path)
 
     assert info == {'channel_color': None, 'measured_fps': None}
-    assert logger_mock.warning.called, (
-        'a folder with no readable manifest must warn about the degraded build'
-    )
-    message = logger_mock.warning.call_args[0][0]
+    warned = [
+        r.getMessage()
+        for r in records_of(caplog, video_builder_module)
+        if r.levelno == logging.WARNING
+    ]
+    assert warned, 'a folder with no readable manifest must warn about the degraded build'
+    message = warned[-1]
     assert 'manifest' in message.lower() and 'grayscale' in message.lower()

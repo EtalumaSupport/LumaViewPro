@@ -19,7 +19,6 @@ the one a test has to hold.
 import ast
 import sys
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -65,13 +64,13 @@ def popup_surface(monkeypatch):
     return opened
 
 
-def _notification(title, *, operation_key='', timestamp=1.0, severity=Severity.NOTICE):
+def _notification(title, *, operation_key='', monotonic_s=1.0, severity=Severity.NOTICE):
     return Notification(
         severity=severity,
         category='Post-processing',
         title=title,
         message='body',
-        timestamp=timestamp,
+        monotonic_s=monotonic_s,
         operation_key=operation_key,
     )
 
@@ -87,13 +86,13 @@ class TestOutcomeReplacesTheStartNotice:
         successful one does -- and a normal sim run never gets here.
         """
         notification_popup.notification_popup_bridge(
-            _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+            _notification('Saving Hyperstacks', operation_key=KEY, monotonic_s=1.0)
         )
         notification_popup.notification_popup_bridge(
             _notification(
                 'Hyperstack Save Failed',
                 operation_key=KEY,
-                timestamp=2.0,
+                monotonic_s=2.0,
                 severity=Severity.ERROR,
             )
         )
@@ -107,10 +106,10 @@ class TestOutcomeReplacesTheStartNotice:
         leftover dialog rather than stacking on it."""
         for i, title in enumerate(('Saving Hyperstacks', 'Hyperstacks Saved')):
             notification_popup.notification_popup_bridge(
-                _notification(title, operation_key=KEY, timestamp=float(i))
+                _notification(title, operation_key=KEY, monotonic_s=float(i))
             )
         notification_popup.notification_popup_bridge(
-            _notification('Saving Hyperstacks', operation_key=KEY, timestamp=9.0)
+            _notification('Saving Hyperstacks', operation_key=KEY, monotonic_s=9.0)
         )
 
         assert [p.dismissed for p in popup_surface] == [True, True, False]
@@ -132,10 +131,10 @@ class TestOrderingCannotCorruptTheState:
         guarantee this code can read. The notifications' own timestamps make
         the order irrelevant."""
         notification_popup.notification_popup_bridge(
-            _notification('Hyperstacks Saved', operation_key=KEY, timestamp=5.0)
+            _notification('Hyperstacks Saved', operation_key=KEY, monotonic_s=5.0)
         )
         notification_popup.notification_popup_bridge(
-            _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+            _notification('Saving Hyperstacks', operation_key=KEY, monotonic_s=1.0)
         )
 
         assert len(popup_surface) == 1, 'a stale start notice was put back on screen'
@@ -143,12 +142,12 @@ class TestOrderingCannotCorruptTheState:
 
     def test_dismissing_a_popup_the_user_already_closed_does_not_raise(self, popup_surface):
         notification_popup.notification_popup_bridge(
-            _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+            _notification('Saving Hyperstacks', operation_key=KEY, monotonic_s=1.0)
         )
         popup_surface[0].dismiss()  # user clicked OK
 
         notification_popup.notification_popup_bridge(
-            _notification('Hyperstacks Saved', operation_key=KEY, timestamp=2.0)
+            _notification('Hyperstacks Saved', operation_key=KEY, monotonic_s=2.0)
         )
 
         assert len(popup_surface) == 2
@@ -167,12 +166,15 @@ class TestBothEndsNameTheSameOperation:
             for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name == 'build_hyperstacks_for_run'
         ]
+        # The key is read once, from the one derivation the builder's own
+        # property also returns (``protocol_post_processor.operation_key``).
         key_names = {
             target.id
             for node in ast.walk(boundary)
             if isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == 'operation_key'
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == 'operation_key'
             for target in node.targets
             if isinstance(target, ast.Name)
         }
@@ -192,7 +194,7 @@ class TestBothEndsNameTheSameOperation:
 
         assert not hand_spelled, (
             f'operation_key spelled by hand at line(s) {hand_spelled}. Both ends '
-            'must take it from the one property, or the outcome notice stops '
+            'must take it from the one derivation, or the outcome notice stops '
             'matching the start notice and opens a second popup instead.'
         )
         assert from_the_property == 3, (
@@ -224,7 +226,7 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         return opened
 
     @staticmethod
-    def _refusal(title, *, timestamp, remedy=None):
+    def _refusal(title, *, monotonic_s, remedy=None):
         from modules.notification_center import REFUSAL_OPERATION_KEY
 
         return Notification(
@@ -232,24 +234,25 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
             category='Protocol',
             title=title,
             message='body',
-            timestamp=timestamp,
+            monotonic_s=monotonic_s,
             operation_key=REFUSAL_OPERATION_KEY,
             solicited=True,
             remedy=remedy,
         )
 
-    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(self, offers, monkeypatch):
-        import modules.app_context as app_context
+    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(
+        self, offers, gui_ctx, monkeypatch
+    ):
+        """The confirm hands the remedy to the session, which decides: with no
+        write stuck, its recover refuses (``FileWriterNotStuckError``)."""
         import ui.ui_helpers as ui_helpers
-        from modules.exceptions import Remedy
+        from modules.exceptions import FileWriterNotStuckError, Remedy
 
         remedy = Remedy(
             member='recover_file_writer',
             confirm_text='Discard 3 unsaved and unlock',
             cancel_text='Keep waiting',
         )
-        session = MagicMock()
-        monkeypatch.setattr(app_context, 'ctx', SimpleNamespace(session=session), raising=False)
         submitted = []
         monkeypatch.setattr(
             ui_helpers,
@@ -258,7 +261,7 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         )
 
         notification_popup.notification_popup_bridge(
-            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+            self._refusal('File Writer Stalled', monotonic_s=1.0, remedy=remedy)
         )
 
         (offer,) = offers
@@ -268,18 +271,18 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         )
         offer.confirm()
         ((call, _label),) = submitted
-        call()
-        session.apply_remedy.assert_called_once_with(remedy)
+        with pytest.raises(FileWriterNotStuckError):
+            call()
 
     def test_the_next_refusal_replaces_the_offer(self, offers, popup_surface):
         from modules.exceptions import Remedy
 
         remedy = Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait')
         notification_popup.notification_popup_bridge(
-            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+            self._refusal('File Writer Stalled', monotonic_s=1.0, remedy=remedy)
         )
         notification_popup.notification_popup_bridge(
-            self._refusal('Files Still Writing', timestamp=2.0)
+            self._refusal('Files Still Writing', monotonic_s=2.0)
         )
 
         (offer,) = offers
@@ -329,11 +332,11 @@ def test_a_notification_the_api_did_not_show_opens_nothing(popup_surface):
     import dataclasses
 
     notification_popup.notification_popup_bridge(
-        _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+        _notification('Saving Hyperstacks', operation_key=KEY, monotonic_s=1.0)
     )
     muted = dataclasses.replace(
         _notification(
-            'Hyperstack Save Failed', operation_key=KEY, timestamp=2.0, severity=Severity.ERROR
+            'Hyperstack Save Failed', operation_key=KEY, monotonic_s=2.0, severity=Severity.ERROR
         ),
         shown=False,
     )

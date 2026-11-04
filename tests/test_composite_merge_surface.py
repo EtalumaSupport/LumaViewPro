@@ -20,10 +20,11 @@ import time
 
 import pytest
 
-from modules.exceptions import CaptureError
+from modules.exceptions import CaptureError, PostProcessingRefusedError
 from modules.notification_center import Severity, notifications
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_composite_run_failures import _fail_these_channels
+from tests.stock_channels import LED0
 
 
 @contextlib.contextmanager
@@ -66,39 +67,66 @@ class TestAFailedMergeTellsTheUserOnce:
             f'{[(n.title, n.message) for n in failures]}'
         )
         assert failures[0].title == 'Composite Failed'
-        assert failures[0].severity >= Severity.ERROR
+        assert failures[0].severity.level >= Severity.ERROR.level
         return failures[0]
 
-    def test_nothing_usable_to_merge(self, tmp_path):
-        # One of two channels comes back black, so the post-processor has
-        # no group it can merge and returns its own reason.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+    def test_a_channel_that_captured_nothing_fails_the_merge(self, tmp_path):
+        # One of two channels comes back black: the merge's one group lacks a
+        # frame its run recorded, so it is not built. The merge's failure
+        # names the channel, and the run's missing channel is its own
+        # notice, after it.
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with (
             open_composite_session(settings) as (session, runner),
             _bus_at_popup_threshold() as seen,
             pytest.raises(CaptureError) as excinfo,
         ):
             runner.run_composite(
-                sequence_name='no_data',
+                sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
-                events=_fail_these_channels(session.scope._camera_driver, ('BF', 'Blue'), {'Blue'}),
+                events=_fail_these_channels(session.scope._camera_driver, ('BF', LED0), {LED0}),
             )
 
-        # The post-processor's refusal is told as itself: a warning under
-        # its own title, never re-typed as a merge failure. The run's missing
-        # channel is its own notice, after it.
-        assert excinfo.value.reason == 'no_data'
-        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'post_processing_failed'
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [
-            ('Composite Not Possible', Severity.WARNING),
+            ('Composite Failed', Severity.ERROR),
             ('Run Incomplete', Severity.ERROR),
         ], told
-        assert 'Blue' in seen[-1].message, 'the shortfall must name the channel that failed'
+        assert all(LED0 in n.message for n in seen if n.severity.level >= Severity.NOTICE.level), (
+            'each notice must name the channel that failed'
+        )
+
+    def test_a_refusal_from_the_merge_is_told_as_itself(self, tmp_path, monkeypatch):
+        from modules.composite_generation import CompositeGeneration
+
+        # a stand-in by design: the subject is how the merge's surface tells
+        # a refusal; a composite run leaves its merge nothing to refuse (every
+        # channel present builds, one missing fails), so the merge refuses here.
+        def _refuse(self, path, **kwargs):
+            raise PostProcessingRefusedError(
+                operation='Composite', reason='no_data', message='Nothing to merge.'
+            )
+
+        monkeypatch.setattr(CompositeGeneration, 'load_folder', _refuse)
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            runner.run_composite(sequence_name='refused', parent_dir=str(tmp_path))
+
+        # A warning under its own title, never re-typed as a merge failure.
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'no_data'
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
+        assert told == [('Composite Not Possible', Severity.WARNING)], told
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration
 
-        def _explode(self, **kwargs):
+        def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
 
         monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)
@@ -112,21 +140,63 @@ class TestAFailedMergeTellsTheUserOnce:
         assert excinfo.value.reason == 'merge_error'
         self._assert_one_failure_notice(seen)
 
+    @staticmethod
+    def _merge_answers(monkeypatch, artifact_paths):
+        from modules.composite_generation import CompositeGeneration
+
+        # a stand-in by design: a composite run's fresh folder holds no group
+        # already built, so its merge always writes a file or fails; the
+        # answer of a folder whose every group was built already is planted.
+        def _answer(self, path, **kwargs):
+            return {
+                'status': True,
+                'message': 'Success.',
+                'new_count': 0,
+                'output_root': str(path),
+                'artifact_paths': artifact_paths,
+            }
+
+        monkeypatch.setattr(CompositeGeneration, 'load_folder', _answer)
+
+    def test_a_merge_that_writes_no_file_fails_as_merge_failed(self, tmp_path, monkeypatch):
+        self._merge_answers(monkeypatch, [])
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            # Bounded: a merge whose answer never settles the run waits forever.
+            runner.run_composite(sequence_name='empty', parent_dir=str(tmp_path), timeout_s=30)
+
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == ('merge_failed', None)
+        self._assert_one_failure_notice(seen)
+
+    def test_a_defect_in_the_merges_answer_still_settles_the_run(self, tmp_path, monkeypatch):
+        # A path the answer cannot read raises inside the answer itself.
+        self._merge_answers(monkeypatch, [None])
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            runner.run_composite(sequence_name='defect', parent_dir=str(tmp_path), timeout_s=30)
+
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == ('merge_error', None)
+        self._assert_one_failure_notice(seen)
+
     def test_the_merge_raise_is_logged_once_with_its_traceback(self, tmp_path, monkeypatch, caplog):
         import logging
-        from unittest.mock import MagicMock
 
         import modules.sequenced_capture_runner as scr
         from modules.composite_generation import CompositeGeneration
+        from tests.log_capture import records_of
 
-        def _explode(self, **kwargs):
+        def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
 
         monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)
-        run_log = MagicMock()
-        monkeypatch.setattr(scr, 'logger', run_log)
         with (
-            caplog.at_level(logging.ERROR, logger='LVP.outcomes'),
+            caplog.at_level(logging.ERROR),
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             pytest.raises(CaptureError),
         ):
@@ -139,7 +209,8 @@ class TestAFailedMergeTellsTheUserOnce:
         assert 'RuntimeError: synthetic merge crash' in formatted
         assert 'Traceback' in formatted
         # ... so the run does not log the same failure a second time.
-        assert run_log.error.call_args_list == []
+        run_errors = [r for r in records_of(caplog, scr) if r.levelno >= logging.ERROR]
+        assert run_errors == [], [r.getMessage() for r in run_errors]
 
     def test_the_writes_never_drain(self, tmp_path, monkeypatch):
         import modules.protocol_image_writer as piw
@@ -162,6 +233,7 @@ class TestAFailedMergeTellsTheUserOnce:
 
         # The wait's own outcome, told under its own title as the
         # hyperstack build tells it.
-        assert excinfo.value.reason == 'write_batch_timeout'
-        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'write_batch_timeout'
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [('Run Images Not Written', Severity.ERROR)], told

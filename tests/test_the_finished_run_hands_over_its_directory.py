@@ -61,9 +61,12 @@ def _end_the_run(kwargs, events, run_dir):
     from modules.protocol_cleanup import send_run_ended
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
+    from modules.run_outcome import EndingLatch
+
     runner = SimpleNamespace(
         _disable_saving_artifacts=True,
         _protocol_execution_record=None,
+        _ending=EndingLatch(),
         _events=events,
         _protocol=None,
         _run_dir=run_dir,
@@ -139,7 +142,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         the claim still held -- not later, when run_ended is sent."""
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import RunHandle
+        from modules.sequenced_capture_runner import EngineRun
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         run_dir = pathlib.Path('/tmp/this_runs_dir')
@@ -153,7 +156,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         # The run start() would have committed, with its writes.
         runner._run_outcome = PendingRunOutcome()
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
+        run = runner._run_handle = EngineRun(runner, runner._run_outcome, runner._write_batch)
 
         runner._events = _events(fired, files=False)
 
@@ -161,13 +164,13 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         # to a different contract; this drive stops at the handover. The
         # directory rides the run's run_ended, captured by value in cleanup
         # and sent once the run has let go and its outcome has settled.
-        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
+        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
         monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', lambda **kw: True)
         from modules.run_outcome import RunEnding
 
         after_end = []
         runner._cleanup_inner(
-            RunEnding('completed', 'completed', 'Done', 'The run finished.'), run, after_end
+            RunEnding('completed', 'completed', 'The run finished.'), run, after_end
         )
         # A successor's setup replaces the runner's field before run_ended
         # goes out; run_ended still carries this run's.

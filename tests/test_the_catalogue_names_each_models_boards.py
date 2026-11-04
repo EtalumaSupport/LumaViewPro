@@ -5,10 +5,12 @@ The catalogue named no boards, so the simulator read a model's motor axes as
 its LED board: axes meant an EL-0940 scope, none an FX2 scope. That holds
 for every row today and is wrong for an FX2 scope with a motorized stage.
 Now every row names its ``LEDBoard`` and, exactly when it has motor axes,
-its ``MotorBoard``. The simulator is the one reader, so it is where the rule
-is checked: a row that breaks it, or names a board the simulator cannot
-stand in for, refuses the scope naming the file. Production only warns on a
-missing ``LEDBoard``, as on the row's other fields, and never gates on it.
+its ``MotorBoard``, each a member of its family (``LedBoardFamily``,
+``MotorBoardFamily``), which the catalogue's reader refuses outside it for
+every host. The simulator stands in for every member and is the one reader
+of the boards, so it is where the pairing is checked: a row that names a
+motor board without motor axes, or motor axes without one, refuses the
+simulated scope naming the file.
 """
 
 import json
@@ -26,6 +28,7 @@ from drivers.tmcm6110 import Tmcm6110Board
 from modules import layer_record
 from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope
+from tests.case_walk import failing_cases
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
 MODELS = layer_record.load_scope_models()
@@ -44,25 +47,25 @@ def _scope(model, **kwargs):
     return build_scope(simulate=True, sim_model=model, warn_pre_release=False, **kwargs)
 
 
-@pytest.mark.parametrize('model', sorted(MODELS))
-def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes(model):
-    entry = MODELS[model]
-    assert entry['LEDBoard'] in ('EL-0940', 'FX2')
-    if layer_record.model_axes(MODELS, model):
-        assert entry['MotorBoard'] in ('EL-0940', 'TMCM-6110')
-    else:
-        assert 'MotorBoard' not in entry
+def test_every_row_names_a_motor_board_exactly_when_it_has_axes():
+    def check(model):
+        has_axes = bool(layer_record.model_axes(MODELS, model))
+        assert (MODELS[model].motor_board is not None) == has_axes
+
+    failed = failing_cases(sorted(MODELS), check)
+    assert not failed, failed
 
 
+# parametrize-justified: each model brings up its own scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_simulated_scope_is_built_with_the_boards_its_row_names(model):
     scope = _scope(model, register_atexit=False)
     try:
-        if MODELS[model]['LEDBoard'] == 'FX2':
+        if MODELS[model].led_board == 'FX2':
             assert isinstance(scope._led_driver, FX2LEDController)
         else:
             assert isinstance(scope._led_driver, SimulatedLEDBoard)
-        motor_board = MODELS[model].get('MotorBoard')
+        motor_board = MODELS[model].motor_board
         if motor_board == 'TMCM-6110':
             assert isinstance(scope._motion_driver, Tmcm6110Board)
         elif motor_board == 'EL-0940':
@@ -105,19 +108,10 @@ def test_a_row_naming_an_fx2_with_motor_axes_refuses_a_simulated_camera_stall(tm
 @pytest.mark.parametrize(
     'model, mutate, words',
     [
-        ('LS850T', _drop('LEDBoard'), 'names LEDBoard None'),
-        ('LS620', _set('LEDBoard', 'LS-9000'), "names LEDBoard 'LS-9000'"),
-        ('LS850T', _drop('MotorBoard'), 'gives motor axes and names MotorBoard None'),
-        ('LS850', _set('MotorBoard', 'MB-9000'), "gives motor axes and names MotorBoard 'MB-9000'"),
+        ('LS850T', _drop('MotorBoard'), 'gives motor axes but names no MotorBoard'),
         ('LS620', _set('MotorBoard', 'EL-0940'), 'gives no motor axes but names MotorBoard'),
     ],
-    ids=[
-        'no-led-board',
-        'an-led-board-the-simulator-lacks',
-        'axes-without-a-motor-board',
-        'a-motor-board-the-simulator-lacks',
-        'a-motor-board-without-axes',
-    ],
+    ids=['axes-without-a-motor-board', 'a-motor-board-without-axes'],
 )
 def test_a_row_that_breaks_the_rule_refuses_the_simulated_scope_naming_the_file(
     tmp_path, model, mutate, words
@@ -128,16 +122,3 @@ def test_a_row_that_breaks_the_rule_refuses_the_simulated_scope_naming_the_file(
         _scope(model, source_path=str(root))
 
     assert refused.value.file_path == root / 'data' / 'scopes.json'
-
-
-def test_production_warns_on_a_row_missing_its_led_board_by_name(tmp_path):
-    from lvp_logger import logger as mock_logger
-
-    root = _folder(tmp_path, 'LS620', _drop('LEDBoard'))
-    mock_logger.reset_mock()
-
-    models = layer_record.load_scope_models(root / 'data' / 'scopes.json')
-
-    warned = ' | '.join(str(c) for c in mock_logger.warning.call_args_list)
-    assert "'LS620' missing 'LEDBoard'" in warned
-    assert 'LS620' in models

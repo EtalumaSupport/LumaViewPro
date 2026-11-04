@@ -14,6 +14,7 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.widget import Widget
 
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -81,7 +82,16 @@ def _install_dialog_open_logging() -> None:
         return opened
 
     Popup.open = _open_logged_and_ordered
+    # Kivy clears _is_open once the dialog has left the window, by whatever
+    # path it closed -- the app's dismiss, an answer, the X, a click outside,
+    # Escape -- and a second dismiss during the fade does not clear it twice.
+    Popup.on__is_open = _log_dialog_closed
     Popup._lvp_open_logged = True
+
+
+def _log_dialog_closed(popup, _instance, is_open: bool) -> None:
+    if not is_open:
+        gui_logger.dialog_closed(getattr(popup, 'title', '') or type(popup).__name__)
 
 
 # Set on a popup that says what just happened and asks nothing of the person.
@@ -246,18 +256,18 @@ def _show_superseding(n) -> None:
 
     recorded = _operation_popups.get(key)
     if recorded is not None:
-        popup, recorded_timestamp = recorded
+        popup, recorded_monotonic_s = recorded
         # Kivy's clock core ships compiled, so the order in which two
         # zero-delay callbacks are applied is not something this code can
         # read and rely on. Comparing the notifications' own timestamps makes
         # the order irrelevant: an older notice arriving late neither
         # dismisses the newer popup nor puts its own stale message back up.
-        if recorded_timestamp > n.timestamp:
+        if recorded_monotonic_s > n.monotonic_s:
             return
         popup.dismiss()  # a no-op if the user already closed it by hand
         del _operation_popups[key]
 
-    _operation_popups[key] = (_open(n), n.timestamp)
+    _operation_popups[key] = (_open(n), n.monotonic_s)
 
 
 def notification_popup_bridge(n) -> None:
@@ -270,9 +280,7 @@ def notification_popup_bridge(n) -> None:
     """
     if not n.shown:
         return
-    from kivy.clock import Clock
-
-    Clock.schedule_once(lambda dt: _show_superseding(n), 0)
+    schedule_ui(lambda dt: _show_superseding(n))
 
 
 def show_confirmation_w_ack_popup(
@@ -315,6 +323,7 @@ def show_blocking_progress_popup(
     message: str,
     action_text: str,
     on_action: typing.Callable,
+    action_shown: bool,
 ):
     """Modal progress popup: a live-updatable message + one action button.
 
@@ -328,10 +337,13 @@ def show_blocking_progress_popup(
         message: Initial progress text; update via the returned setter.
         action_text: The escape action's button label.
         on_action: Called with no args when the user clicks the action.
+        action_shown: Whether the action is on screen as the popup opens.
 
     Returns:
-        (popup, set_message) -- dismiss the popup from the caller's own
-        completion path; set_message(text) updates the progress line.
+        (popup, set_message, set_action_shown) -- dismiss the popup from
+        the caller's own completion path; set_message(text) updates the
+        progress line; set_action_shown(shown) shows or hides the action,
+        for an escape that applies only while there is something to escape.
     """
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     label = _make_message_label(message)
@@ -339,7 +351,6 @@ def show_blocking_progress_popup(
 
     button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
     action_button = Button(text=action_text)
-    button_layout.add_widget(action_button)
     content.add_widget(button_layout)
 
     popup = Popup(
@@ -356,9 +367,19 @@ def show_blocking_progress_popup(
     def _set_message(text: str):
         label.text = text
 
+    def _set_action_shown(shown: bool):
+        # Out of the tree, not just invisible, so the dialog's log line names
+        # only what is on screen; the row keeps its height, so the message
+        # does not move.
+        if shown and action_button.parent is None:
+            button_layout.add_widget(action_button)
+        elif not shown and action_button.parent is not None:
+            button_layout.remove_widget(action_button)
+
     action_button.bind(on_press=_on_action)
+    _set_action_shown(action_shown)
     popup.open()
-    return popup, _set_message
+    return popup, _set_message, _set_action_shown
 
 
 def show_confirmation_popup(
@@ -449,6 +470,69 @@ def show_confirmation_popup(
     return popup
 
 
+def show_choice_popup(
+    title: str,
+    message: str,
+    choices: list[str],
+    on_choice: typing.Callable[[int], None],
+    on_later: typing.Callable[[], None],
+    later_text: str = 'Not Now',
+):
+    """Show a modal popup with one button per choice and one to decide later.
+
+    For a question the API asks with a short list of answers (a turret
+    slot among two to four). Display only: the API supplies the choices,
+    and the caller sends the chosen one back to it.
+
+    Args:
+        title: Short noun phrase.
+        message: What is being asked, and what answering does.
+        choices: Each answer's button label, in display order.
+        on_choice: Called with the index of the choice pressed.
+        on_later: Called when the person decides later, or the popup goes
+            away unanswered.
+        later_text: The decide-later button's label.
+    """
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(_make_message_label(message))
+
+    button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    later_button = Button(text=later_text)
+    button_layout.add_widget(later_button)
+    choice_buttons = [Button(text=choice) for choice in choices]
+    for button in choice_buttons:
+        button_layout.add_widget(button)
+    content.add_widget(button_layout)
+
+    popup = Popup(title=title, content=content, size_hint=(0.6, 0.3), auto_dismiss=False)
+    decided = {'value': False}
+
+    def _choose(index):
+        decided['value'] = True
+        _log_response(title, f'CHOICE:{choices[index]}')
+        popup.dismiss()
+        on_choice(index)
+
+    def _later(*_a):
+        decided['value'] = True
+        _log_response(title, f'LATER:{later_text}')
+        popup.dismiss()
+        on_later()
+
+    def _on_dismiss(*_a):
+        if decided['value']:
+            return
+        _log_response(title, 'LATER:dismissed_without_button')
+        on_later()
+
+    for index, button in enumerate(choice_buttons):
+        button.bind(on_release=lambda *_a, index=index: _choose(index))
+    later_button.bind(on_release=_later)
+    popup.bind(on_dismiss=_on_dismiss)
+    popup.open()
+    return popup
+
+
 class _CompactSpinnerOption(SpinnerOption):
     def __init__(self, **kwargs):
         kwargs.setdefault('font_size', '12sp')
@@ -479,6 +563,7 @@ def show_objective_selection_popup(
     objectives: list[str],
     current_objective_id: str,
     on_confirm: typing.Callable[[str], None],
+    on_cancel: typing.Callable[[], None],
     on_folded: typing.Callable[[], None],
 ):
     """Modal prompt asking the user which objective is in the light path.
@@ -487,10 +572,14 @@ def show_objective_selection_popup(
     bar and every saved image's metadata, and a wrong one cannot be told
     from a measured one afterwards -- so when the app cannot know the
     objective (first run, or a turret position with no assignment), it
-    asks instead of assuming silently. There is deliberately no cancel
-    path: dismissing without answering would put the app right back in
-    the cannot-know state the prompt exists to resolve, so the popup
-    stays until the user confirms a choice.
+    asks instead of assuming silently. Cancel leaves the objective as
+    unknown as it was: every capture then refuses, saying to assign it,
+    and pressing the slot (or Assign Objective, without a turret) asks
+    again. Without it a person who does
+    not know what is installed could only answer by writing an objective
+    nobody named -- the catalogue default, preselected. The popup has no
+    X: Cancel is the one way to leave it unanswered, and it runs every
+    folded caller's continuation as Confirm does.
 
     Args:
         title: Short noun phrase.
@@ -498,6 +587,9 @@ def show_objective_selection_popup(
         objectives: Selectable objective ids, in display order.
         current_objective_id: Pre-selected value (the proposed default).
         on_confirm: Called with the chosen objective id: applies the answer.
+        on_cancel: This request's continuation when the person cancels:
+            nothing is written, and whatever waits on the question going
+            away -- the startup protocol load -- still runs.
         on_folded: This request's continuation, run instead of ``on_confirm``
             when the request is folded into a prompt already on screen.
             The answer is applied once, by the prompt on screen, to the
@@ -560,8 +652,12 @@ def show_objective_selection_popup(
     content.add_widget(spinner)
     content.add_widget(Widget())
 
-    confirm_button = Button(text='Confirm', size_hint_y=None, height='34dp')
-    content.add_widget(confirm_button)
+    buttons = BoxLayout(orientation='horizontal', size_hint_y=None, height='34dp', spacing=10)
+    cancel_button = Button(text='Cancel')
+    confirm_button = Button(text='Confirm')
+    buttons.add_widget(cancel_button)
+    buttons.add_widget(confirm_button)
+    content.add_widget(buttons)
 
     popup = Popup(
         title=title,
@@ -584,6 +680,17 @@ def show_objective_selection_popup(
         for continuation in folded:
             continuation()
 
+    def _on_cancel(*_a):
+        global _objective_popup_folded
+        _log_response(title, 'CANCEL')
+        # As in _on_confirm: the folded callers asked and are owed their
+        # continuations; only the answer is withheld.
+        folded, _objective_popup_folded = _objective_popup_folded, []
+        popup.dismiss()
+        on_cancel()
+        for continuation in folded:
+            continuation()
+
     def _on_dismiss(*_a):
         global _objective_popup_open, _objective_popup_folded
         _objective_popup_open = False
@@ -594,6 +701,7 @@ def show_objective_selection_popup(
         _objective_popup_folded = []
 
     confirm_button.bind(on_release=_on_confirm)
+    cancel_button.bind(on_release=_on_cancel)
     # Dismiss (which confirm fires before applying the answer) clears the
     # outstanding-question flag, so a failure while applying cannot leave
     # the app unable to ever ask again. The flag is set only after a

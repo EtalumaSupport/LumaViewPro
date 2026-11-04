@@ -16,17 +16,22 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from modules import recording_frames
+from modules.image_mode import OutputFormat
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.video_builder import VideoBuilder
+from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
 class TestFrameNameShapes:
     def test_protocol_template_renders_the_shipped_shape(self):
-        template = recording_frames.protocol_frame_filename_template('A1_BF_0003_video')
+        template = recording_frames.protocol_frame_filename_template(
+            'A1_BF_0003_video', OutputFormat.TIFF
+        )
         assert template.format(n=7) == 'A1_BF_0003_video_Frame_0007.tiff'
 
     def test_manual_template_renders_the_shipped_shape(self):
-        template = recording_frames.manual_frame_filename_template()
+        template = recording_frames.manual_frame_filename_template(OutputFormat.TIFF)
         name = template.format(n=7, ts='2026-08-09_12-00-00-000')
         assert name == 'ManualVideo_Frame_0007_2026-08-09_12-00-00-000.tiff'
 
@@ -71,7 +76,7 @@ class TestFramePredicates:
 
     def test_still_capture_names_are_not_frames(self):
         assert not recording_frames.is_video_frame('A1_BF_0003.tiff')
-        assert not recording_frames.is_video_frame('B2_Green_0001_stitched.tiff')
+        assert not recording_frames.is_video_frame(f'B2_{LED1}_0001_stitched.tiff')
 
     def test_recording_dir_name_tests_the_final_component_only(self):
         assert recording_frames.is_video_recording_dir_name('A1_BF_0003_video')
@@ -80,6 +85,28 @@ class TestFramePredicates:
 
 
 class TestVideoDirPathClassification:
+    def test_a_folder_holding_a_video_steps_frames_is_a_recording(self, tmp_path):
+        step = 'A1_BF_0003_video'
+        folder = tmp_path / step
+        folder.mkdir()
+        (
+            folder
+            / recording_frames.protocol_frame_filename_template(step, OutputFormat.TIFF).format(n=0)
+        ).touch()
+        assert recording_frames.is_video_recording_dir(folder)
+
+    def test_a_run_folder_renamed_to_end_in_video_is_scanned_as_a_run(self, tmp_path):
+        # A person's own name for a run folder: it holds stills, not a video
+        # step's frames. Read as a recording, the scan stepped out of it and
+        # every build found no images.
+        root = tmp_path / 'plate1_video'
+        (root / 'BF').mkdir(parents=True)
+        (root / 'BF' / 'A1_BF_0000.tiff').touch()
+
+        assert not recording_frames.is_video_recording_dir(root)
+        names = ProtocolPostProcessingHelper._get_image_filenames_from_folder(path=root)
+        assert names['raw'] == [pathlib.Path('BF/A1_BF_0000.tiff')]
+
     def test_root_with_video_token_in_ancestor_is_not_stepped_up(self, tmp_path):
         # A protocol root living under a folder that carries '_video'
         # anywhere in its path must scan normally; the old
@@ -128,9 +155,10 @@ class TestManualFramesTakeTheNumericSortBranch:
             builder._create_video(
                 path=tmp_path,
                 df=df,
-                frames_per_sec=10,
+                frame_rate_fps=10,
                 enable_timestamp_overlay=False,
                 output_file_loc=pathlib.Path('out.mp4'),
+                channel_colors=release_colors(),
             )
 
         assert consumed == sorted(frames)

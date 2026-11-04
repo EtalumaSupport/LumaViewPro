@@ -4,23 +4,19 @@
 The hook delegates to ``tools/check_rules.py --staged`` so every commit
 runs the mechanical CLAUDE.md rule checks before the commit lands.
 
-LVP-specific: the managed hook ALSO runs the guard gate, the no-quick-fix
-judge on the staged production change, judged whole, when a Claude Code session names one
+LVP-specific: the managed hook ALSO runs the no-quick-fix judge on the
+staged production change, judged whole, when a Claude Code session names one
 (COMMIT_JUDGE; a terminal commit and a merge commit are not judged),
 and bumps version.txt (timestamp + commit GUID) after everything else
 passes, replacing the standalone version-bump hook that lived in LVP
 previously. Order is intentional: rule check first so a violation fails
-fast, the guards next, the paid judge after the free gates, and
-version.txt isn't touched on a doomed commit.
+fast, the paid judge after the free gates, and version.txt isn't touched
+on a doomed commit.
 
-The guard gate: the tests under tests/guards/ measure the whole tree
-(count ratchets, surface parity, architecture sweeps), so no run near
-a changed file ever selects them, and only a per-commit run does. The
-hook exports the INDEX to a temporary directory and runs that
-directory there, so a pathspec or partial commit is judged as it will
-land. A red guard, a collection error, an empty directory or a missing
-pytest each refuse the commit; the one skip is a branch whose index
-carries no tests/guards/ at all, which predates the gate.
+The tests under tests/guards/ are not run here. Every push to the trunk
+runs them in its suite, and the push gate (~/.claude
+hooks/shipping_push_gate.sh) refuses a trunk push without that suite
+green at the commit it pushes; a per-commit copy cost about 100 s a commit.
 
 Modes:
 
@@ -75,15 +71,44 @@ git add "$VERSION_FILE"
 # as nothing to judge. The flags make the diff the stage's own whatever the
 # session's git configuration says: --text --no-textconv against a -diff
 # attribute or a textconv, -M against diff.renames, the prefixes against
-# diff.noprefix, GIT_DIFF_OPTS unset against a context override.
+# diff.noprefix, GIT_DIFF_OPTS unset against a context override. -W shows
+# the whole enclosing function of every hunk (the def, from .gitattributes'
+# `*.py diff=python`): three lines of context hid a refusal a few lines up
+# or the call below whose callee refuses, and the judge read a deleted
+# sentinel answer as a deleted guard (triage, 2026-10-15; Eric: "it isn't
+# looking at a big enough scope"). Measured on the twelve trunk commits
+# before it: 1.3x to 4.3x the payload, the largest 101 KB to 289 KB, which
+# the judge read and answered in seconds. --color=always with
+# --color-moved=blocks and the two moved colours pinned is read by the
+# stage for one thing: a block git finds removed in one place and added
+# byte for byte in another is one marker line to the judge, not two copies
+# (a 191-file move of camera members was 840 KB with every moved body shown
+# twice, and the model answered "Prompt is too long"; collapsed, 512 KB,
+# judged in 43 s, a band-aid planted at either end denied 4 of 4 cold runs;
+# primary, 2026-10-18). An amend
+# replaces HEAD, so the commit it produces is the index against HEAD's
+# parent, and that is what the judge reads; git tells a hook nothing about
+# an amend, but the hook's parent process is the `git commit` itself and
+# its command line carries the flag. The index against HEAD alone is the
+# amend's delta, and a delta that only removes lines reads as a guard
+# deleted even when the same commit keeps the refusal a few lines away
+# (triage, 2026-10-14). A `--amend` inside a message widens the read to the
+# whole commit, which is harmless; a root commit has no parent and keeps
+# HEAD.
 _JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
     if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
         echo "pre-commit: merge commit, not judged by the no-quick-fix judge (Eric, 2026-10-03)" >&2
     else
+        JUDGE_BASE=HEAD
+        case " $(ps -o command= -p "$PPID" 2>/dev/null) " in
+            *" --amend "*)
+                if git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1; then JUDGE_BASE='HEAD^'; fi ;;
+        esac
         (
             set -o pipefail
             unset GIT_DIFF_OPTS
-            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -- '*.py' \\
+            git -c color.diff.oldMoved='bold magenta' -c color.diff.newMoved='bold cyan' \\
+                diff --cached --color=always --color-moved=blocks --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -W "$JUDGE_BASE" -- '*.py' \\
                 | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
         ) || exit 1
     fi
@@ -92,7 +117,7 @@ fi
 
 _HOOK_SCRIPT = f"""#!/usr/bin/env bash
 {_HOOK_MARKER}
-# Mechanical Rule 24 / 27 / 28 pre-commit gate + ruff + guard gate + the
+# Mechanical Rule 24 / 27 / 28 pre-commit gate + ruff + the
 # no-quick-fix judge (sessions only) + version.txt bump. Edit
 # tools/check_rules.py to change the checks; do NOT edit this hook directly
 # (re-running tools/install_hooks.py --install will overwrite).
@@ -129,49 +154,6 @@ if python3 -m ruff --version >/dev/null 2>&1; then
     done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
 else
     echo "pre-commit: ruff not importable by $(command -v python3) -- skipping the ruff gate; staged .py files were NOT linted" >&2
-fi
-
-# Guard gate. The tests under tests/guards/ measure the whole tree, so no
-# run near a changed file selects them; this is the one run that does. The
-# INDEX is exported and run, so a pathspec or partial commit is judged as
-# it will land. Whether this branch has the gate at all is decided from the
-# index BEFORE anything is exported, so a broken export can never read as
-# an old branch. Inside the subshell every step refuses for itself: a
-# subshell whose status is inspected runs with `set -e` suppressed. pytest
-# exits 0 on an all-skipped selection, which is why no guard may skip
-# itself (tests/guards/test_guards_directory.py); every other way the run
-# can fail to happen is a refusal, because a gate that did not run has not
-# gated. Exit 6 is this stage's own code, outside pytest's 0-5.
-if [ -z "$(git ls-files --cached -- tests/guards)" ]; then
-    echo "pre-commit: no tests/guards/ in the index -- this branch predates the guard gate; skipping it" >&2
-else
-    GUARD_RC=0
-    (
-        EXPORT="$(mktemp -d)" || {{ echo "pre-commit: guard gate could not create an export directory" >&2; exit 6; }}
-        trap 'rm -rf "$EXPORT"' EXIT
-        git checkout-index -a --prefix="$EXPORT/" || {{ echo "pre-commit: guard gate could not export the index" >&2; exit 6; }}
-        cd "$EXPORT" || {{ echo "pre-commit: guard gate could not enter its export" >&2; exit 6; }}
-        python3 -c 'import pytest' 2>/dev/null || {{ echo "pre-commit: guard gate needs pytest, and $(command -v python3) cannot import it -- refusing the commit" >&2; exit 6; }}
-        # git hands a hook GIT_DIR and GIT_INDEX_FILE so it judges the index
-        # being committed; a test that runs git in a temporary repository
-        # would inherit them and operate on THIS repository instead (one
-        # did: it re-inited the checkout as bare and rewrote its user).
-        # The export is already made, so the run needs none of them.
-        unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR
-        python3 -m pytest -o addopts= -q -p no:cacheprovider --tb=short -rf tests/guards
-    ) || GUARD_RC=$?
-    if [ "$GUARD_RC" -ne 0 ]; then
-        case "$GUARD_RC" in
-            1) GUARD_KIND="a guard is red" ;;
-            2) GUARD_KIND="collection was interrupted" ;;
-            5) GUARD_KIND="nothing was collected under tests/guards/" ;;
-            6) GUARD_KIND="the gate could not run (see above)" ;;
-            *) GUARD_KIND="pytest exited $GUARD_RC" ;;
-        esac
-        echo "pre-commit: guard gate refused the commit -- $GUARD_KIND." >&2
-        echo "  Fix the guard in this commit, then re-run: python3 -m pytest -o addopts= -q -p no:cacheprovider tests/guards" >&2
-        exit 1
-    fi
 fi
 
 {_JUDGE_STAGE}
@@ -275,8 +257,8 @@ def install() -> int:
         print(f'Installed {hook.name} hook at {hook}')
     _remove_retired_hooks()
     print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
-    print('  runs tests/guards on an export of the index, judges the staged production')
-    print('  change whole when the session sets COMMIT_JUDGE, then stamps version.txt.')
+    print('  judges the staged production change whole when the session sets')
+    print('  COMMIT_JUDGE, then stamps version.txt.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
     return 0

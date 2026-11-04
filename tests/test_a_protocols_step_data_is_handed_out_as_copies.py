@@ -16,13 +16,17 @@ a plain dict, for the caller that means to edit its own.
 """
 
 import copy
+import dataclasses
 import pickle
 
 import pandas as pd
 import pytest
 
 from modules.protocol import Protocol
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0
+from tests.protocol_fixtures import protocol_from_file
 
 DICT_COLUMNS = ['Stim_Config', 'Video Config']
 
@@ -32,7 +36,7 @@ def protocol() -> Protocol:
     return _build_protocol(
         [
             _make_step(name='A1_BF', color='BF', acquire='image'),
-            _make_step(name='A1_Blue', color='Blue', acquire='video'),
+            _make_step(name=f'A1_{LED0}', color=LED0, acquire='video'),
         ]
     )
 
@@ -70,7 +74,7 @@ class TestReadersHandOutCopies:
 
     def test_a_write_into_a_nested_stim_dict_is_refused(self, protocol):
         before = _snapshot(protocol)
-        stim = protocol.step(0)['Stim_Config']
+        stim = protocol.step_row(0)['Stim_Config']
         layer = next(iter(stim))
 
         with pytest.raises(TypeError):
@@ -83,11 +87,11 @@ class TestReadersHandOutCopies:
         before = _snapshot(protocol)
 
         with pytest.raises(TypeError):
-            protocol.step(0)[column]['written'] = True
+            protocol.step_row(0)[column]['written'] = True
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
 
-    def test_a_write_into_the_layer_settings_leaves_the_protocol(self, tmp_path, protocol):
+    def test_a_write_into_a_channels_settings_is_refused(self, tmp_path, protocol):
         path = tmp_path / 'with_block.tsv'
         protocol.to_file(
             path,
@@ -105,11 +109,14 @@ class TestReadersHandOutCopies:
                 }
             },
         )
-        loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS)
+        loaded = protocol_from_file(
+            path,
+        )
 
-        loaded.layer_settings()['BF']['Illumination'] = 999.0
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            loaded.channel_settings()['BF'].illumination_ma = 999.0
 
-        assert loaded.layer_settings()['BF']['Illumination'] == 5.0
+        assert loaded.channel_settings()['BF'].illumination_ma == 5.0
 
 
 class TestEveryStoredCellIsReadOnly:
@@ -117,16 +124,19 @@ class TestEveryStoredCellIsReadOnly:
     def test_a_loaded_protocols_cells_are_read_only(self, tmp_path, protocol, column):
         path = tmp_path / 'saved.tsv'
         protocol.to_file(path)
-        loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS)
+        loaded = protocol_from_file(
+            path,
+        )
 
         with pytest.raises(TypeError):
-            loaded.step(0)[column]['written'] = True
+            loaded.step_row(0)[column]['written'] = True
 
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_modified_steps_cells_are_read_only(self, protocol, column):
-        step = protocol.step(0)
+        step = protocol.step_row(0)
         protocol.modify_step(
-            step_idx=0,
+            turret_slot=-1,
+            step_index=0,
             layer='BF',
             layer_config={
                 'autofocus': False,
@@ -137,37 +147,37 @@ class TestEveryStoredCellIsReadOnly:
                 'exposure_ms': 2.0,
                 'sum': 1,
                 'acquire': 'image',
-                'video_config': {'fps': 5, 'duration': 5},
+                'video_config': {'duration': 5},
             },
-            plate_position={'x': step['X'], 'y': step['Y'], 'z': step['Z']},
+            plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
-            stim_configs={'Blue': {'enabled': False}},
+            stim_configs={LED0: {'enabled': False}},
         )
 
         with pytest.raises(TypeError):
-            protocol.step(0)[column]['written'] = True
+            protocol.step_row(0)[column]['written'] = True
 
 
 class TestACopyOfACellIsTheCallersOwn:
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_deep_copy_is_a_plain_dict_the_caller_can_edit(self, protocol, column):
-        cell = protocol.step(0)[column]
+        cell = protocol.step_row(0)[column]
 
         own = copy.deepcopy(cell)
         own['written'] = True
 
         assert type(own) is dict
-        assert 'written' not in protocol.step(0)[column]
+        assert 'written' not in protocol.step_row(0)[column]
         assert own == {**cell, 'written': True}
 
     def test_a_deep_copy_of_a_stim_config_is_plain_all_the_way_down(self, protocol):
-        own = copy.deepcopy(protocol.step(0)['Stim_Config'])
+        own = copy.deepcopy(protocol.step_row(0)['Stim_Config'])
 
         assert all(type(v) is dict for v in own.values() if isinstance(v, dict))
 
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_cell_survives_pickle_unchanged_and_read_only(self, protocol, column):
-        cell = protocol.step(0)[column]
+        cell = protocol.step_row(0)[column]
 
         back = pickle.loads(pickle.dumps(cell))
 

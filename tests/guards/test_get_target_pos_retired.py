@@ -3,7 +3,7 @@
 
 The driver-direct target-position read (`TARGET_R<axis>` register
 roundtrip, ~30ms) had no production or test callers -- the canonical
-reader is `get_target_position(axis)` which serves from the
+reader is `get_target_positions()` which serves from the
 push-based position cache (zero serial I/O). Two methods exposing the
 same conceptual state via different access paths violated the single-
 canonical-implementation rule and confused future readers about which
@@ -33,7 +33,7 @@ class TestGetTargetPosRetired:
         assert not hasattr(MotionAPI, 'get_target_pos'), (
             'MotionAPI.get_target_pos was retired (zero external '
             'callers, duplicated cache-based get_target_position). '
-            'Use scope.get_target_position(axis) instead.'
+            'Use scope.get_target_positions()[axis] instead.'
         )
 
     def test_lumascope_has_no_get_target_pos_forwarder(self):
@@ -44,12 +44,12 @@ class TestGetTargetPosRetired:
             'alongside MotionAPI.get_target_pos.'
         )
 
-    def test_motion_api_still_has_get_target_position(self):
+    def test_motion_api_still_has_get_target_positions(self):
         """The canonical reader stays."""
         from modules.lumascope_api.motion import MotionAPI
 
-        assert hasattr(MotionAPI, 'get_target_position'), (
-            'MotionAPI.get_target_position is the canonical '
+        assert hasattr(MotionAPI, 'get_target_positions'), (
+            'MotionAPI.get_target_positions is the canonical '
             'target-position reader (cache-based; zero serial I/O).'
         )
 
@@ -78,7 +78,7 @@ class TestGetTargetPosRetired:
                         raise AssertionError(
                             f'{path.relative_to(REPO_ROOT)}: line '
                             f'references retired `get_target_pos(...)`. '
-                            f'Use `get_target_position(...)` (cache-'
+                            f'Use `get_target_positions()` (cache-'
                             f'based, zero serial I/O) instead. Line: '
                             f'{line.strip()!r}'
                         )

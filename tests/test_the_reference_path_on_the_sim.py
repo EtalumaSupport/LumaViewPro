@@ -10,6 +10,7 @@ write no popup and no log line of their own.
 from __future__ import annotations
 
 import logging
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -19,7 +20,6 @@ import ui.vertical_control as vc
 from modules.notification_center import Severity
 from tests.scope_fakes import home_sim_scope
 from tests.test_the_gui_displays_the_turret import _Stand, session, stand  # noqa: F401 -- fixtures
-from ui import ui_helpers
 from tests.protocol_drives import run_identity
 
 OUTCOMES = 'LVP.outcomes'
@@ -43,27 +43,20 @@ def run_holds_the_scope(session):
 
 
 class TestWhileARunHoldsTheScope:
-    def test_picking_another_objective_is_one_microscope_busy_warning(
+    def test_pressing_another_slot_is_one_microscope_busy_warning(
         self, stand, session, run_holds_the_scope, caplog, centre_posts
     ):
         home_sim_scope(session.scope)
         with caplog.at_level(logging.DEBUG):
-            stand.pick_objective('4x Oly')
+            stand.turret_select(2)
 
         assert [(n.severity, n.title) for n in centre_posts] == [
             (Severity.WARNING, 'Microscope Busy')
         ]
         assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
         assert stand.popups == []
-        # The display shows the objective still mounted in slot 1.
-        assert stand.ids['objective_spinner2'].text == '10x Oly'
-
-    def test_picking_the_mounted_objective_is_no_outcome(
-        self, stand, session, run_holds_the_scope, centre_posts
-    ):
-        home_sim_scope(session.scope)
-        stand.pick_objective('10x Oly')
-        assert centre_posts == []
+        # The display shows the turret still on slot 1.
+        assert stand.ids['turret_pos_1_btn'].state == 'down'
 
 
 def test_resetting_an_unknown_slot_is_one_objective_unknown_warning(
@@ -75,7 +68,7 @@ def test_resetting_an_unknown_slot_is_one_objective_unknown_warning(
     assert [(n.severity, n.title) for n in centre_posts] == [
         (Severity.WARNING, 'Objective Unknown')
     ]
-    assert 'home the turret' in centre_posts[0].message
+    assert 'home the scope' in centre_posts[0].message
     assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
     assert stand.popups == []
 
@@ -93,31 +86,53 @@ def test_a_refused_answer_is_shown_and_the_startup_question_still_resolves(
     assert stand.popups == []
 
 
+def _jog_from_the_gui(session, monkeypatch, axis):
+    """Press a fine jog button for ``axis`` and wait until the lane has answered it."""
+    from modules.sequential_io_executor import IOTask
+    from ui import motion_settings
+
+    ctx = _app_ctx.AppContext.over_session(session, lumaview=SimpleNamespace(scope=session.scope))
+    # The panels the jog's redraw reads; the Kivy tree never runs here.
+    ctx.motion_settings = SimpleNamespace(
+        ids={'verticalcontrol_id': SimpleNamespace(update_gui=lambda **_: None)},
+        update_xy_stage_control_gui=lambda: None,
+    )
+    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+    # No running app: the controls are not locked, as on a scope nothing holds.
+    monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
+    if axis == 'Z':
+        vc.VerticalControl._z_jog(SimpleNamespace(), +1, coarse=False)
+    else:
+        motion_settings.XYStageControl._xy_jog(SimpleNamespace(), axis, +1, coarse=False)
+    assert ctx.io_executor.call(IOTask(action=lambda: None), 'settle', 30.0) is None
+
+
 @pytest.mark.parametrize('axis', ['Z', 'X'])
 def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
     session, monkeypatch, axis, centre_posts
 ):
-    moved = []
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(scope=session.scope, session=SimpleNamespace(controls_locked=False)),
-    )
-    monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
     # Slot 3 has no objective assigned, so the step cannot be sized.
     home_sim_scope(session.scope)
     session.scope.motion.move_turret(3)
+    before = session.scope.motion.get_target_positions()
 
-    if axis == 'Z':
-        monkeypatch.setattr(vc, 'move_relative', ui_helpers.move_relative)
-        vc.VerticalControl._z_jog(SimpleNamespace(), +1, coarse=False)
-    else:
-        from ui import motion_settings
+    _jog_from_the_gui(session, monkeypatch, axis)
 
-        monkeypatch.setattr(motion_settings, 'move_relative', ui_helpers.move_relative)
-        motion_settings.XYStageControl._xy_jog(SimpleNamespace(), 'X', +1, coarse=False)
-
-    assert moved == []
+    assert session.scope.motion.get_target_positions() == before
     assert [(n.severity, n.title) for n in centre_posts] == [
         (Severity.WARNING, 'Objective Unknown')
     ]
+    assert 'turret slot 3 has no objective assigned' in centre_posts[0].message
+
+
+@pytest.mark.parametrize('axis', ['Z', 'X'])
+def test_a_jog_on_an_unhomed_scope_is_one_scope_not_homed_warning(
+    session, monkeypatch, axis, centre_posts
+):
+    """The turret has no slot either, but the gate answers: a home is what helps."""
+    before = session.scope.motion.get_target_positions()
+
+    _jog_from_the_gui(session, monkeypatch, axis)
+
+    assert session.scope.motion.get_target_positions() == before
+    assert [(n.severity, n.title) for n in centre_posts] == [(Severity.WARNING, 'Scope Not Homed')]

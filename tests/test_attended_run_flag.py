@@ -27,8 +27,11 @@ import logging
 
 import pytest
 
+from modules.caller import Caller, calling
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.notification_center import NotificationCenter, Severity, notifications
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from tests.case_walk import failing_cases
 
 
 # --------------------------------------------------------------------------
@@ -50,28 +53,25 @@ def _record_scope_opens(monkeypatch):
     return opened
 
 
-# Each run kind with the trigger its GUI control passes and its API entry's
-# default: the same kind must answer the same whichever started it.
+# Each run kind and whether it is attended: the same kind must answer the
+# same whichever host started it.
 _RUN_KINDS = [
-    (SequencedCaptureRunMode.SINGLE_AUTOFOCUS, ('autofocus', 'api_autofocus'), True),
-    (SequencedCaptureRunMode.SINGLE_COMPOSITE, ('composite', 'api_composite'), True),
-    (SequencedCaptureRunMode.SINGLE_ZSTACK, ('zstack', 'api_zstack'), True),
-    (SequencedCaptureRunMode.SINGLE_SCAN, ('scan', 'api_scan'), False),
-    (SequencedCaptureRunMode.FULL_PROTOCOL, ('protocol', 'api_protocol'), False),
-    (
-        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-        ('autofocus_scan', 'api_autofocus_scan'),
-        False,
-    ),
+    (SequencedCaptureRunMode.SINGLE_AUTOFOCUS, True),
+    (SequencedCaptureRunMode.SINGLE_COMPOSITE, True),
+    (SequencedCaptureRunMode.SINGLE_ZSTACK, True),
+    (SequencedCaptureRunMode.SINGLE_SCAN, False),
+    (SequencedCaptureRunMode.FULL_PROTOCOL, False),
+    (SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, False),
 ]
 
 
+# parametrize-justified: each run kind starts its own runner
 @pytest.mark.parametrize(
-    ('run_mode', 'trigger', 'attended'),
-    [(mode, trigger, attended) for mode, triggers, attended in _RUN_KINDS for trigger in triggers],
-    ids=lambda v: v.value if isinstance(v, SequencedCaptureRunMode) else str(v),
+    ('run_mode', 'caller', 'attended'),
+    [(mode, caller, attended) for mode, attended in _RUN_KINDS for caller in Caller],
+    ids=lambda v: v.value if isinstance(v, (SequencedCaptureRunMode, Caller)) else str(v),
 )
-def test_start_declares_attendedness_from_the_run_kind(monkeypatch, run_mode, trigger, attended):
+def test_start_declares_attendedness_from_the_run_kind(monkeypatch, run_mode, caller, attended):
     """A real SequencedCaptureRunner, driven through prepare() -> start().
 
     Not a mock of the runner: mocking the runner is precisely what let the
@@ -83,15 +83,16 @@ def test_start_declares_attendedness_from_the_run_kind(monkeypatch, run_mode, tr
     opened = _record_scope_opens(monkeypatch)
 
     runner = bare_capture_runner()
-    kwargs = scr_run_kwargs(run_mode=run_mode, run_trigger_source=trigger)
+    kwargs = scr_run_kwargs(run_mode=run_mode)
     # A composite is refused unless two channels are set to capture.
     kwargs['protocol'].steps.return_value.__getitem__.return_value.nunique.return_value = 2
-    plan = runner.prepare(**kwargs)
-    runner.start(plan)
+    with calling(caller):
+        plan = runner.prepare(**kwargs)
+        runner.start(plan)
 
     assert opened, 'start() told the notification centre nothing about this run'
     assert opened[0] is attended, (
-        f'{run_mode.value} started by {trigger!r} declared attended={opened[0]}, '
+        f'{run_mode.value} started by {caller.words} declared attended={opened[0]}, '
         f'expected {attended}'
     )
 
@@ -110,7 +111,6 @@ def test_a_run_under_a_borrowed_claim_is_unattended(monkeypatch):
     plan = runner.prepare(
         **scr_run_kwargs(
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            run_trigger_source='api_autofocus',
             borrowed_claim=diagnostic.lend(),
         )
     )
@@ -119,15 +119,23 @@ def test_a_run_under_a_borrowed_claim_is_unattended(monkeypatch):
     assert opened == [False]
 
 
-@pytest.mark.parametrize(
-    ('run_mode', 'leds_state_at_end'),
-    [(mode, 'return_to_original' if attended else 'off') for mode, _, attended in _RUN_KINDS],
-    ids=lambda v: v.value if isinstance(v, SequencedCaptureRunMode) else v,
-)
-def test_the_same_declaration_decides_how_the_leds_are_left(run_mode, leds_state_at_end):
+def test_the_same_declaration_decides_how_the_leds_are_left():
     """A one-position run hands the LEDs back as it found them; a plate
-    traverse ends dark. One fact about the run, read in one place."""
-    assert run_mode.leds_state_at_end == leds_state_at_end
+    traverse ends dark. One fact about the run, read in one place, and a
+    policy the LED authority takes as it is, so no caller meets one it
+    cannot apply."""
+
+    def check(run_mode, policy):
+        assert run_mode.led_end_policy is policy
+
+    failed = failing_cases(
+        [
+            (mode, LedEndPolicy.RETURN_TO_ORIGINAL if attended else LedEndPolicy.OFF)
+            for mode, attended in _RUN_KINDS
+        ],
+        check,
+    )
+    assert not failed, failed
 
 
 # --------------------------------------------------------------------------

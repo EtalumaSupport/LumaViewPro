@@ -57,7 +57,20 @@ $ErrorActionPreference = "Stop"
 # one Windows PowerShell 5.1 window transcribed no native program's output,
 # so that build kept no record of what it packed or where each binary came
 # from.
-$script_version = 6
+#
+# v7: the FX2's driver package is the repo's INF, its DriverVer stamped with
+# the build's date and the installer version, carried by every build. v6
+# reads an INF staged by hand in dependencies\fx2\, unstamped, so its
+# package loses to any Zadig binding made after 2024-01-01.
+#
+# v8: a signing certificate, configured by its thumbprint in
+# dependencies\signing\thumbprint.txt, signs the app, the driver step, the
+# FX2 driver's catalog, the MSI and the bundle, and only a signed build
+# carries the Lumascope Classic driver: Windows accepts a driver package only
+# with a signed catalog. The MSI no longer installs the driver (the app's
+# Repair does, where Windows can ask the person); it only uninstalls it. A v7
+# build of this branch ships an unsigned package that never installs.
+$script_version = 8
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -302,29 +315,12 @@ if ($ids_files) {
     }
 }
 
-# FX2 WinUSB INF + native libusb-1.0.dll for LVC (LS560/LS620/LS720)
-# cameras. Two files needed for end-to-end FX2 support:
-#   1. LumaScope_WinUSB.inf — binds inbox WinUSB.sys to the FX2 VID/PID;
-#      installed by pnputil custom action in Package.wxs.
-#   2. libusb-1.0.dll — pyusb's libusb1 backend on Windows; loaded by
-#      ctypes inside the bundled LVP exe. Without it, pyusb fails to
-#      find a USB backend and the FX2 driver silently no-ops.
-# See BUILD_INSTRUCTIONS.md > Optional Dependencies.
-$fx2_inf = ""
-$fx2_libusb_dll = ""
+# The FX2's driver package (LS560/LS620/LS720) is not a dependency here:
+# its INF is in the repo (build_exe\fx2_driver\) and is stamped and carried
+# by every build, after the installer version is known. Its libusb library
+# comes from the libusb-package wheel, with the firmware hex, through the
+# release spec, which refuses a build without either.
 $fx2_dir = Join-Path $deps "fx2"
-if (Test-Path $fx2_dir) {
-    $fx2_files = Get-ChildItem -Path $fx2_dir -Filter "*WinUSB*.inf" -ErrorAction SilentlyContinue
-    if ($fx2_files) {
-        $fx2_inf = $fx2_files[0].FullName
-        Write-Host "Found FX2 WinUSB INF: $fx2_inf"
-    }
-    $fx2_dll_files = Get-ChildItem -Path $fx2_dir -Filter "libusb-1.0.dll" -ErrorAction SilentlyContinue
-    if ($fx2_dll_files) {
-        $fx2_libusb_dll = $fx2_dll_files[0].FullName
-        Write-Host "Found FX2 libusb-1.0.dll: $fx2_libusb_dll"
-    }
-}
 
 # VC++ Redistributable (x64). REQUIRED for the bundle: the app no longer
 # ships msvcp140/concrt140 app-local (a stale bundled copy shadowed the
@@ -369,11 +365,17 @@ if ($ids_files -and -not $ids_peak_iss) {
         $near_misses += "dependencies\$($f.Name) is a response file but the IDS silent install requires it to be named exactly 'setup.iss'"
     }
 }
-# FX2 pair lives in dependencies\fx2\, not the dependencies\ root. Dropping
-# them one level too high is the same silent-miss shape.
-foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
-                 Where-Object { $_.Name -match '(?i)(winusb.*\.inf|^libusb.*\.dll)$' })) {
-    $near_misses += "dependencies\$($f.Name) is an FX2 dependency but belongs in dependencies\fx2\, not the dependencies\ root"
+# An INF in either place was the old route and is now read by nothing:
+# the build carries the repo's INF, stamped.
+foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match '(?i)\.inf$' })) {
+    $near_misses += "$($f.FullName) is no longer bundled: the FX2's INF ships from the repo (scripts\appBuild\build_exe\fx2_driver\). Remove the file"
+}
+# A libusb DLL in either place was the old route and is now read by nothing:
+# the build takes the library from the libusb-package wheel.
+foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match '(?i)^libusb.*\.dll$' })) {
+    $near_misses += "$($f.FullName) is no longer bundled: the FX2's libusb comes from the libusb-package wheel (requirements.txt). Remove the file"
 }
 
 if ($near_misses.Count -gt 0) {
@@ -390,8 +392,6 @@ if ($near_misses.Count -gt 0) {
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
 if (-not $vc_redist_exe) { Write-Host "No vc_redist.x64.exe in dependencies\ - bundle will NOT be built (the app does not ship msvcp140; the installer must chain the redistributable)" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
-if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
-if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx2\ - bundled LVP will not be able to talk to FX2 cameras even if WinUSB driver is installed" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -435,6 +435,56 @@ if (-not $python) {
 }
 Write-Host "  Build Python: $($python.Version) [$($python.Executable)]"
 $wix_exe = (Get-Command wix).Source
+
+# ---------------------------------------------------------------------------
+# Code signing (optional)
+# ---------------------------------------------------------------------------
+# A certificate is configured by its SHA-1 thumbprint in
+# dependencies\signing\thumbprint.txt; the certificate and its key are in the
+# build account's certificate store, where the CA's cloud signing tool puts
+# them. With one, every file Windows checks the publisher of is signed and the
+# installer carries the Lumascope Classic driver, as it carries Basler's and
+# IDS's. Without one, the build is unsigned and leaves the Classic driver out,
+# since Windows accepts a driver package only with a signed catalog: no build
+# requires the certificate.
+$signing_thumbprint = ""
+$signtool = ""
+$inf2cat = ""
+$timestamp_url = "http://timestamp.digicert.com"
+$signing_file = Join-Path $deps "signing\thumbprint.txt"
+if (Test-Path $signing_file) {
+    $signing_thumbprint = ([System.IO.File]::ReadAllText($signing_file) -replace '\s', '').ToUpper()
+    $signing_cert = Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+        Where-Object { $_.Thumbprint -eq $signing_thumbprint -and $_.HasPrivateKey } | Select-Object -First 1
+    if (-not $signing_cert) {
+        Write-Host "ERROR: dependencies\signing\thumbprint.txt names $signing_thumbprint, and no certificate with that thumbprint and its key is in CurrentUser\My or LocalMachine\My. Sign in to the CA's signing tool, or remove the file for an unsigned build."
+        Exit 1
+    }
+    # Newest SDK and Driver Kit first: their version folders sort by name.
+    $kits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+    $signtool = (Get-ChildItem $kits -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like '*\x64\*' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+    $inf2cat = (Get-ChildItem $kits -Recurse -Filter Inf2Cat.exe -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending | Select-Object -First 1).FullName
+    if (-not $signtool) { Write-Host "ERROR: signing is configured and signtool.exe is not under $kits. Install the Windows SDK (its Signing Tools)."; Exit 1 }
+    if (-not $inf2cat) { Write-Host "ERROR: signing is configured and Inf2Cat.exe is not under $kits. Install the Windows Driver Kit."; Exit 1 }
+    Write-Host "  Signing: $($signing_cert.Subject) ($signing_thumbprint)"
+    Write-Host "  signtool: $signtool"
+    Write-Host "  Inf2Cat: $inf2cat"
+} else {
+    Write-Host "  Signing: none (no dependencies\signing\thumbprint.txt) - unsigned build, Lumascope Classic driver NOT included"
+}
+
+# A configured certificate that fails to sign a file stops the build: an
+# installer half signed is worse than one plainly unsigned.
+function Invoke-Sign([string]$path) {
+    & $signtool sign /sha1 $signing_thumbprint /fd sha256 /tr $timestamp_url /td sha256 $path
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: signing $path failed (signtool exit $LASTEXITCODE)"
+        Set-Location $build_dir
+        Exit 1
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Clean previous temp, clone fresh
@@ -726,16 +776,6 @@ if ($spec_contents -notmatch 'contents_directory\s*=\s*[''"]\.[''"]') {
 Copy-Item $spec ".\lumaviewpro.spec"
 
 Write-Host "Building executable..."
-# Hand the FX2 libusb DLL path to the PyInstaller spec via env var. The
-# spec checks $env:FX2_LIBUSB_DLL and conditionally adds the binary to
-# the Analysis. Empty/unset -> spec skips bundling, FX2 stays unsupported
-# in the resulting exe.
-if ($fx2_libusb_dll) {
-    $env:FX2_LIBUSB_DLL = $fx2_libusb_dll
-    Write-Host "Bundling FX2 libusb-1.0.dll: $fx2_libusb_dll"
-} else {
-    $env:FX2_LIBUSB_DLL = ""
-}
 # DEBUG level so the record names PyInstaller's binary-dependency search
 # directories -- WHERE each collected DLL came from. At WARN those lines are
 # suppressed and a bad collected binary (e.g. a stale C runtime scavenged
@@ -762,7 +802,6 @@ try {
     $pyi_writer.Close()
 }
 Write-Host "PyInstaller log: $pyi_log"
-$env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
 # Only the output folder survives the _tmp cleanup, so every freeze
@@ -923,6 +962,10 @@ $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null
 Copy-Item ".\dist\lumaviewpro\*" -Destination $install -Recurse
 $install = (Resolve-Path $install).Path
+if ($signing_thumbprint) {
+    Invoke-Sign (Join-Path $install "LumaViewPro.exe")
+    Invoke-Sign (Join-Path $install "lvp_fx2_driver_step.exe")
+}
 
 # PyInstaller 6 may keep bundled resources under _internal even when the
 # application executable stays at the install root. WiX only needs these
@@ -967,16 +1010,28 @@ $msi_args = @(
     '-d', "ProductName=$product_installed",
     '-d', "Version=$wix_ver"
 )
-# Pass optional FX2 INF path. Package.wxs gates the FX2 driver-install
-# component on this define being set, so absence -> no FX2 install action
-# in the MSI.
-if ($fx2_inf) {
-    $msi_args += @('-d', "Fx2InfPath=$fx2_inf")
+# The FX2 driver package, in a signed build only: its DriverVer stamped with
+# today's date and the installer version (Windows ranks equally signed
+# packages for one device by that date, so the stamp is what lets ours
+# outrank an older Zadig binding), then its catalog made and signed.
+if ($signing_thumbprint) {
+    $fx2_dir_out = Join-Path $output_dir "fx2_driver"
+    $fx2_inf = & $venv_python (Join-Path $src "scripts\appBuild\config\fx2_driver_package.py") `
+        (Join-Path $src "scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf") `
+        $fx2_dir_out $wix_ver
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the FX2 driver package could not be stamped"; Set-Location $build_dir; Exit 1 }
+    & $inf2cat "/driver:$fx2_dir_out" "/os:10_X64"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the FX2 driver's catalog (exit $LASTEXITCODE)"; Set-Location $build_dir; Exit 1 }
+    $fx2_cat = Join-Path $fx2_dir_out "Lumascope_Classic.cat"
+    Invoke-Sign $fx2_cat
+    Write-Host "FX2 driver package: $fx2_inf, $fx2_cat"
+    $msi_args += @('-d', "Fx2InfPath=$fx2_inf", '-d', "Fx2CatPath=$fx2_cat")
 }
 $msi_args += @('-out', $msi, 'Package.wxs', 'Folders.wxs')
 & $wix_exe @msi_args
 
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: MSI build failed"; Set-Location $build_dir; Exit 1 }
+if ($signing_thumbprint) { Invoke-Sign $msi }
 Write-Host "MSI: $msi"
 
 # ---------------------------------------------------------------------------
@@ -1046,6 +1101,18 @@ if ($pylon_msi -and $vc_redist_exe) {
         $bundle = ""
         $bundle_failed = $true
     } else {
+        if ($signing_thumbprint) {
+            # The bundle's engine is signed apart and put back before the
+            # bundle itself is signed, as WiX documents for Burn.
+            $engine = Join-Path $output_dir "engine.exe"
+            & $wix_exe burn detach $bundle -engine $engine
+            if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: wix burn detach failed (exit $LASTEXITCODE)"; Set-Location $build_dir; Exit 1 }
+            Invoke-Sign $engine
+            & $wix_exe burn reattach $bundle -engine $engine -o $bundle
+            if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: wix burn reattach failed (exit $LASTEXITCODE)"; Set-Location $build_dir; Exit 1 }
+            Remove-Item $engine
+            Invoke-Sign $bundle
+        }
         Write-Host "Bundle: $bundle"
     }
 }
@@ -1087,10 +1154,10 @@ $dep_receipt = @(
     "Pylon=$(if ($pylon_msi) {'bundled'} else {'NOT BUNDLED'})"
     "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
     "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
-    "FX2-INF=$(if ($fx2_inf) {'bundled'} else {'NOT BUNDLED'})"
-    "FX2-DLL=$(if ($fx2_libusb_dll) {'bundled'} else {'NOT BUNDLED'})"
+    "ClassicDriver=$(if ($signing_thumbprint) {'bundled'} else {'NOT BUNDLED (no signing certificate)'})"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
+Write-Host "  Signed:   $(if ($signing_thumbprint) {"yes ($signing_thumbprint)"} else {'NO'})"
 Write-Host "  Log:      $build_log"
 Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="

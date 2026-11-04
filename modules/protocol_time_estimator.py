@@ -8,11 +8,17 @@ stage movement, LED switching, camera exposure, autofocus, and overhead.
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules import common_utils
+from modules.acquire_mode import AcquireMode
+from modules.autofocus_runner import sweep_passes
 from modules.exceptions import ConfigError
-from modules.objectives_loader import ObjectiveLoader
+from modules.objectives_loader import Objective, ObjectiveLoader
+
+if TYPE_CHECKING:
+    from modules.protocol import Protocol
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +142,15 @@ class ProtocolTimeEstimator:
         # objectives of the installation the protocol will run on.
         self._objectives = objectives_loader
 
-    def estimate(self, protocol) -> ProtocolTimeEstimate:
+    def estimate(self, protocol: 'Protocol') -> ProtocolTimeEstimate:
         """Estimate total protocol execution time."""
         scan_estimate = self._estimate_scan(protocol)
 
-        period_s = protocol.period().total_seconds()
-        duration_s = protocol.duration().total_seconds()
-        num_scans = max(1, int(duration_s / period_s)) if period_s > 0 else 1
+        period_s = protocol.period_s()
+        duration_s = protocol.duration_s()
+        # The protocol's own count, divided exactly, so the estimate counts
+        # the scans the run will take.
+        num_scans = protocol.num_scans()
 
         scan_time = scan_estimate.total_s
         scan_fits = scan_time <= period_s
@@ -171,7 +179,10 @@ class ProtocolTimeEstimator:
 
         for idx, step in steps.iterrows():
             obj_info = self._get_objective_info(step.get('Objective', ''))
-            est = self._estimate_step(idx, step, prev_step, obj_info)
+            # A step is focused where a run sweeps: once per z-stack, not
+            # once per flagged slice.
+            sweeps = protocol.focus_sweep_step(step_index=idx) is not None
+            est = self._estimate_step(idx, step, prev_step, obj_info, sweeps)
             estimates.append(est)
             prev_step = step
 
@@ -182,7 +193,8 @@ class ProtocolTimeEstimator:
         idx: int,
         step,
         prev_step,
-        objective_info: dict | None,
+        objective_info: Objective | None,
+        sweeps: bool,
     ) -> StepTimeEstimate:
         """Estimate time for a single protocol step."""
         name = str(step.get('Name', f'Step {idx + 1}'))
@@ -196,7 +208,7 @@ class ProtocolTimeEstimator:
 
         # Autofocus
         af_time = 0.0
-        if step.get('Auto_Focus', False) and objective_info:
+        if sweeps and objective_info:
             af_time = self._estimate_autofocus(objective_info, exposure_s)
 
         # Auto-gain wait
@@ -205,8 +217,8 @@ class ProtocolTimeEstimator:
             ag_time = AUTOGAIN_MAX_DURATION_S
 
         # Capture
-        acquire = step.get('Acquire', 'image')
-        if acquire == 'video':
+        acquire = step.get('Acquire', AcquireMode.IMAGE)
+        if acquire == AcquireMode.VIDEO:
             vc = common_utils.read_video_config(step)
             duration = float(vc.get('duration', 5.0))
             capture_time = duration + max(exposure_s, MIN_FRAME_TIME_S)
@@ -252,31 +264,19 @@ class ProtocolTimeEstimator:
 
     def _estimate_autofocus(
         self,
-        objective_info: dict,
+        objective_info: Objective,
         exposure_s: float,
     ) -> float:
         """Estimate autofocus duration in seconds."""
-        af_range = float(objective_info.get('AF_range', 75))
-        af_max = float(objective_info.get('AF_max', 36))
-        af_min = float(objective_info.get('AF_min', 8))
+        af_range = float(objective_info.autofocus_half_range_um)
+        af_max = float(objective_info.autofocus_step_max_um)
+        af_min = float(objective_info.autofocus_step_min_um)
 
         if af_max <= 0 or af_min <= 0:
             return 0.0
 
-        # Count total steps across all passes
-        total_steps = 0
-        resolution = af_max
-        sweep_range = 2 * af_range  # first pass covers full range
-
-        while resolution > af_min:
-            n_steps = int(sweep_range / resolution) + 1
-            total_steps += n_steps
-            sweep_range = 2 * resolution
-            resolution = resolution / 3.0
-
-        # Final pass at af_min
-        n_steps = int(sweep_range / af_min) + 1
-        total_steps += n_steps
+        # The passes the runner sweeps, counted as it asks for them.
+        total_steps = sum(p.targets for p in sweep_passes(af_range, af_max, af_min))
 
         # Time per AF step: Z move + frame grab + overhead
         frame_time = max(exposure_s, 0.075)
@@ -287,7 +287,7 @@ class ProtocolTimeEstimator:
 
         return total_steps * time_per_step + 2 * initial_move_time
 
-    def _get_objective_info(self, objective_id: str) -> dict | None:
+    def _get_objective_info(self, objective_id: str) -> Objective | None:
         """Look up objective parameters."""
         if not objective_id:
             return None

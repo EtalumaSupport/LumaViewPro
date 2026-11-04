@@ -11,6 +11,7 @@ an image with no scale rather than applied as if a pixel were a micron.
 
 from __future__ import annotations
 
+import datetime
 import csv
 import json
 
@@ -20,12 +21,15 @@ from PIL import Image
 
 from modules import image_utils, post_processing
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.post_processing import (
-    PostProcessing,
-    check_cell_count_method,
-    default_cell_count_method,
-    load_cell_count_method,
+from modules.cell_count_method import (
+    CellCountFilters,
+    CellCountMethod,
+    FilterBounds,
+    saved_form,
 )
+from modules.post_processing import PostProcessing, load_cell_count_method
+from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)
 _BLOB[20:40, 20:40] = 255  # one bright square, 20 x 20 pixels
@@ -38,14 +42,15 @@ def _capture(path, pixel_size_um):
         metadata={
             'objective': {},
             'pixel_size_um': pixel_size_um,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 8,
-            'datetime': '2026-10-04T00:00:00',
+            'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
         },
         ome=False,
-        color='Green',
+        color=release_color(LED1),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return path
 
@@ -56,17 +61,16 @@ def _png(path):
 
 
 def _results(folder):
-    with open(folder / 'results.csv', newline='') as f:
+    with open(folder / 'results.csv', encoding='utf-8', newline='') as f:
         return {row['file']: row for row in csv.DictReader(f)}
 
 
 def test_the_default_method_states_no_scale_and_filters_no_size():
-    method = default_cell_count_method()
+    method = CellCountMethod()
 
-    assert method['context']['pixels_per_um'] is None
-    assert method['filters']['area'] == {'min': None, 'max': None}
-    assert method['filters']['perimeter'] == {'min': None, 'max': None}
-    check_cell_count_method(method)
+    assert method.pixels_per_um is None
+    assert method.filters.area_um2 == FilterBounds(None, None)
+    assert method.filters.perimeter_um == FilterBounds(None, None)
 
 
 @pytest.mark.parametrize(
@@ -83,8 +87,7 @@ def test_the_count_scale_is_the_override_else_the_images_own(
 ):
     from modules.post_processing import cell_count_scale
 
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = override
+    method = CellCountMethod(pixels_per_um=override)
 
     assert cell_count_scale(method, image_pixel_size_um) == expected
 
@@ -95,7 +98,7 @@ def test_a_folder_count_counts_an_image_whose_suffix_is_upper_case(tmp_path):
     _png(tmp_path / 'lower.png')
     _png(tmp_path / 'UPPER.PNG')
 
-    PostProcessing().apply_cell_count_to_folder(tmp_path, default_cell_count_method())
+    PostProcessing().apply_cell_count_to_folder(tmp_path, CellCountMethod())
 
     assert set(_results(tmp_path)) == {'lower.png', 'UPPER.PNG'}
 
@@ -104,33 +107,36 @@ def test_a_folder_count_measures_each_image_at_its_own_scale(tmp_path):
     _capture(tmp_path / 'scaled.tiff', pixel_size_um=0.5)
     _png(tmp_path / 'unscaled.png')
 
-    PostProcessing().apply_cell_count_to_folder(tmp_path, default_cell_count_method())
+    PostProcessing().apply_cell_count_to_folder(tmp_path, CellCountMethod())
 
     rows = _results(tmp_path)
     scaled, unscaled = rows['scaled.tiff'], rows['unscaled.png']
-    assert scaled['area_unit'] == 'um2'
-    assert unscaled['area_unit'] == 'px2'
-    # Same pixels: the micron area is the pixel area at 0.5 um per pixel.
-    assert float(scaled['total_object_area']) == pytest.approx(
-        float(unscaled['total_object_area']) * 0.25, abs=0.01
+    assert unscaled['total_object_area_um2'] == ''
+    # Same pixels: the same pixel area and intensity, and the micron area is
+    # the pixel area at 0.5 um per pixel.
+    assert float(scaled['total_object_area_px2']) == float(unscaled['total_object_area_px2']) > 0
+    assert float(scaled['total_object_area_um2']) == pytest.approx(
+        float(scaled['total_object_area_px2']) * 0.25, abs=0.01
     )
+    assert scaled['total_object_intensity'] == unscaled['total_object_intensity']
 
 
 def test_an_override_scale_applies_to_every_image(tmp_path):
     _png(tmp_path / 'unscaled.png')
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = 2.0
+    method = CellCountMethod(pixels_per_um=2.0)
 
     PostProcessing().apply_cell_count_to_folder(tmp_path, method)
 
-    assert _results(tmp_path)['unscaled.png']['area_unit'] == 'um2'
+    row = _results(tmp_path)['unscaled.png']
+    assert float(row['total_object_area_um2']) == pytest.approx(
+        float(row['total_object_area_px2']) / 4, abs=0.01
+    )
 
 
 def test_a_size_filter_is_refused_for_an_image_with_no_scale(tmp_path):
     _capture(tmp_path / 'scaled.tiff', pixel_size_um=0.5)
     _png(tmp_path / 'unscaled.png')
-    method = default_cell_count_method()
-    method['filters']['area'] = {'min': 10, 'max': None}
+    method = CellCountMethod(filters=CellCountFilters(area_um2=FilterBounds(10, None)))
 
     with pytest.raises(PostProcessingFailedError) as failed:
         PostProcessing().apply_cell_count_to_folder(tmp_path, method)
@@ -141,12 +147,11 @@ def test_a_size_filter_is_refused_for_an_image_with_no_scale(tmp_path):
 
 
 def test_a_preview_of_an_image_with_no_scale_refuses_a_size_filter():
-    method = default_cell_count_method()
-    method['filters']['perimeter'] = {'min': None, 'max': 50}
+    method = CellCountMethod(filters=CellCountFilters(perimeter_um=FilterBounds(None, 50)))
 
     with pytest.raises(PostProcessingRefusedError) as refused:
         PostProcessing().preview_cell_count(
-            image=_BLOB, settings=method, significant_bits=8, pixels_per_um=None
+            image=_BLOB, method=method, significant_bits=8, pixels_per_um=None
         )
 
     assert refused.value.reason == 'no_scale'
@@ -154,30 +159,20 @@ def test_a_preview_of_an_image_with_no_scale_refuses_a_size_filter():
 
 def test_a_preview_without_a_scale_measures_in_pixels():
     _, stats = PostProcessing().preview_cell_count(
-        image=_BLOB, settings=default_cell_count_method(), significant_bits=8, pixels_per_um=None
+        image=_BLOB, method=CellCountMethod(), significant_bits=8, pixels_per_um=None
     )
 
     (region,) = stats['regions'].values()
     assert region['area']['units'] == 'px^2'
     assert region['perimeter']['units'] == 'px'
-    assert stats['summary']['area_unit'] == 'px2'
-
-
-@pytest.mark.parametrize('bad', [0, -1.0, 'x', True])
-def test_a_scale_that_is_not_a_positive_number_is_refused(bad):
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = bad
-
-    with pytest.raises(PostProcessingRefusedError):
-        check_cell_count_method(method)
+    assert stats['summary']['total_object_area_um2'] is None
 
 
 def test_a_version_one_method_files_old_default_scale_is_dropped_and_said(tmp_path, monkeypatch):
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = 1.0
+    saved = saved_form(CellCountMethod(pixels_per_um=1.0))
     path = tmp_path / 'old.json'
     path.write_text(
-        json.dumps({**method, 'metadata': {'type': 'cell_count_method', 'version': '1'}})
+        json.dumps({**saved, 'metadata': {'type': 'cell_count_method', 'version': '1'}})
     )
     shown = []
     monkeypatch.setattr(
@@ -188,15 +183,13 @@ def test_a_version_one_method_files_old_default_scale_is_dropped_and_said(tmp_pa
 
     loaded = load_cell_count_method(path)
 
-    assert loaded['context']['pixels_per_um'] is None
+    assert loaded.pixels_per_um is None
     (notice,) = shown
     assert notice.reason == 'cell_count_scale_dropped'
 
 
 def test_a_saved_methods_scale_is_honoured(tmp_path):
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = 1.0
     path = tmp_path / 'new.json'
-    post_processing.save_cell_count_method(method, path)
+    post_processing.save_cell_count_method(CellCountMethod(pixels_per_um=1.0), path)
 
-    assert load_cell_count_method(path)['context']['pixels_per_um'] == 1.0
+    assert load_cell_count_method(path).pixels_per_um == 1.0

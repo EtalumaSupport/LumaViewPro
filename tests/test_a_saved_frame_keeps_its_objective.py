@@ -27,6 +27,7 @@ from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -58,11 +59,14 @@ def _step(name, objective, index):
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1.0, 'fps': 5},
+        'Video Config': {'duration': 1.0},
         'Stim_Config': {},
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
@@ -72,8 +76,7 @@ def _token(objective_id):
 
 
 def _two_objective_protocol():
-    return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step('first', FIRST, 0), _step('second', SECOND, 1)]),
@@ -96,11 +99,11 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
 
         real_turret_move = motion._move_turret_impl
 
-        def _turret_move(position, restore_z=True):
+        def _turret_move(slot, restore_z=True):
             # The run's own turret move, observed: the engine turns the
             # turret before each step's capture.
-            real_turret_move(position=position, restore_z=restore_z)
-            if position == SECOND_SLOT:
+            real_turret_move(slot=slot, restore_z=restore_z)
+            if slot == SECOND_SLOT:
                 second_turret_move_returned.set()
 
         monkeypatch.setattr(motion, '_move_turret_impl', _turret_move)
@@ -117,16 +120,16 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         # file that merely exists may still be mid-write: read the files once
         # the run says they are written.
         files_written = threading.Event()
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_: files_written.set()),
         )
-        result = outcome.wait(timeout_s=60.0)
+        result = outcome.result(timeout=60.0)
         assert result is not None and result.status == 'completed', result
         assert files_written.wait(MOVE_TIMEOUT_S), "the run's files were never written"
 
-        binning = session.scope.imaging.get_binning_size()
+        binning = session.scope.camera.read_binning()
         capabilities = session.scope.capabilities
 
     assert len(held) == 1 and _token(FIRST) in held[0], held
@@ -136,7 +139,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
     )
 
     def _expected(objective_id):
-        focal_length = session.objective_helper.get_objective_info(objective_id)['focal_length']
+        focal_length = session.scope.objectives[objective_id].focal_length_mm
         return round(
             common_utils.get_pixel_size(
                 focal_length=focal_length, binning_size=binning, capabilities=capabilities

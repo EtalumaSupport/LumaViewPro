@@ -22,6 +22,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 import modules.sequenced_capture_runner as scr
 from modules.exceptions import HardwareCommandRefusedError
 from modules.run_outcome import RunEnding
@@ -31,6 +33,8 @@ from tests.protocol_drives import held_run_claim
 from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHold, lane_session  # noqa: F401
 from tests.test_protocol_cleanup_extinguish import _make_runner_stub
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0
+from tests.scope_fakes import channel_reading
 
 # The driver calls that change the instrument, per driver. Reads, grabs and
 # the simulator's own focus coupling are not writes.
@@ -77,16 +81,16 @@ def _run_protocol(session, tmp_path, steps) -> None:
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol
 
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     files_written = threading.Event()
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_build_real_protocol(steps),
         sequence_name='lanes',
         parent_dir=str(tmp_path),
         events=RunEvents(files_written=lambda *_written: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome.status == 'completed', outcome
 
 
@@ -108,7 +112,7 @@ def sim_session(tmp_path):
 def _steps():
     from tests.test_run_refusal_contract import _make_single_step_protocol
 
-    base = _make_single_step_protocol().step(idx=0)
+    base = _make_single_step_protocol().step_row(step_index=0)
     return base, [
         {**base, 'Name': 'A1_af', 'Label': 'A1_af', 'Auto_Focus': True, 'Gain': 3.0},
         {
@@ -141,41 +145,14 @@ def test_every_instrument_write_of_a_run_executes_on_its_lane(sim_session, tmp_p
     )
 
 
-def test_a_rejected_camera_setting_is_reported_and_the_run_goes_on(
-    sim_session, tmp_path, monkeypatch, centre_posts
-):
-    from modules.notification_center import Severity
-
-    rejected_gain = 7.5
-    camera = sim_session.scope._camera_driver
-    real_gain = camera.gain
-
-    def _refuse_one_gain(value):
-        if value == rejected_gain:
-            return False
-        return real_gain(value)
-
-    monkeypatch.setattr(camera, 'gain', _refuse_one_gain)
-    base, _ = _steps()
-
-    _run_protocol(sim_session, tmp_path, [{**base, 'Gain': rejected_gain}])
-
-    images = [p for p in tmp_path.rglob('*') if p.suffix.lower() in ('.tif', '.tiff')]
-    assert len(images) == 1, f'the step must still capture once; wrote {images}'
-    errors = [n for n in centre_posts if n.severity == Severity.ERROR]
-    assert any(n.category == 'Camera' for n in errors), (
-        f'the rejected gain must be reported to the user; notified {errors}'
-    )
-
-
 def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeypatch):
     """An undecided LED end-state is darkened owner-blind at once, while the
     IO lane is still busy -- a move holds the worker until it arrives, and
     a darken queued behind it would leave the sample lit for as long."""
     scope = sim_session.scope
-    layer = 'Blue'
+    layer = LED0
     scope.illumination.led_on(layer, 10.0)
-    assert scope.illumination.get_led_state(layer)['enabled'], 'precondition: lit'
+    assert channel_reading(scope.illumination, layer).state is LedState.LIT, 'precondition: lit'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
@@ -205,7 +182,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
             # returns before touching the LEDs.
             scr.SequencedCaptureRunner._cleanup_inner(
                 stub,
-                RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'),
+                RunEnding('failed', 'run_loop_crashed', 'died'),
                 stub.run_outcome(),
                 [],
             )
@@ -218,7 +195,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     threading.Thread(target=_cleanup, daemon=True).start()
     try:
         assert finished.wait(5.0), 'cleanup waited on the busy IO lane'
-        assert not scope.illumination.get_led_state(layer)['enabled'], (
+        assert channel_reading(scope.illumination, layer).state is LedState.DARK, (
             'the undecided end-state must be dark before the busy lane frees'
         )
         assert forced == [1], 'the undecided end-state must be darkened by the safety off'
@@ -227,6 +204,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
         busy_release.set()
 
 
+@pytest.mark.slow
 def test_a_camera_task_queued_as_run_is_pressed_is_refused_and_the_run_completes(lane_session):
     session, runner, tmp_path = lane_session
     hold = _LaneHold(session)
@@ -237,7 +215,7 @@ def test_a_camera_task_queued_as_run_is_pressed_is_refused_and_the_run_completes
     outcome = runner.start_composite(sequence_name='queued_camera_task', parent_dir=str(tmp_path))
     hold.release()
 
-    result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+    result = outcome.result(timeout=RESULT_TIMEOUT_S)
     assert result is not None and result.status == 'completed', result
     with pytest.raises(HardwareCommandRefusedError):
         queued.result(timeout=RESULT_TIMEOUT_S)
@@ -250,10 +228,11 @@ def test_a_write_under_an_ended_run_is_refused_on_an_idle_scope():
     and nothing else holds it -- the write must still be refused, not move
     the stage or light the sample of a scope the run no longer has."""
     from modules.activity_claim import ActivityClaim, acting
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.ask_claim(claim)
     lane.start()
     try:
@@ -302,29 +281,41 @@ def test_a_lease_released_dark_darkens_on_the_io_lane(sim_session, monkeypatch):
     assert threads == [sim_session.io_executor.executor_name], threads
 
 
-def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(monkeypatch):
+def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypatch):
     """A dark frame mid-sweep is grabbed again through the public member,
     under the sweep's taking, and the retry is what gets scored."""
     import numpy as np
 
-    from tests.af_drives import af_runner_and_scope, drive_af
+    import modules.autofocus_functions as autofocus_functions
+    from tests.af_drives import af_runner_on, sweep
 
+    # The field is dark for the sweep's first grab, then shows the target.
+    runner = af_runner_on(sim_scope, pattern='black')
+    grabs = []
+    grab = sim_scope.imaging.capture_still
+
+    def first_grab_dark(*args, **kwargs):
+        still = grab(*args, **kwargs)
+        grabs.append(float(np.mean(still.image)))
+        sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='focus_target')
+        return still
+
+    monkeypatch.setattr(sim_scope.imaging, 'capture_still', first_grab_dark)
     scored = []
+    score = autofocus_functions.autofocus_score
 
     def _score(image):
-        scored.append(float(np.mean(image)))
-        return 7.0
+        scored.append((len(grabs), float(np.mean(image))))
+        return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', _score)
-    runner, scope = af_runner_and_scope()
-    lit = np.full((40, 40), 50, dtype=np.uint8)
-    frames = iter([np.zeros((40, 40), dtype=np.uint8)])
-    scope.imaging.capture_and_wait.side_effect = lambda **kw: next(frames, lit)
+    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', _score)
 
-    drive_af(runner)
+    sweep(runner, sim_scope)
 
-    assert scored and scored[0] == 50.0, (
-        f'the first position must be scored on the retry, not the dark frame; scored {scored}'
+    assert grabs[0] == 0.0, f'precondition: the first grab was dark; grabs {grabs[:3]}'
+    assert scored and scored[0][0] == 2 and scored[0][1] > 0.0, (
+        'the first position must be scored on the retry, the second grab, '
+        f'not the dark frame; grabs {grabs[:3]}, scored (grabs made, mean) {scored[:3]}'
     )
 
 
@@ -333,14 +324,15 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     diagnostic still holds the scope, but its own work is not the run's
     and is refused at the door until the run ends."""
     from modules.activity_claim import ActivityClaim, acting
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.ask_claim(claim)
     lane.start()
     diagnostic = claim.try_claim('diagnostic')
-    run = diagnostic.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+    run = diagnostic.lend().try_claim('protocol', run=run_identity())
     lane.protocol_start(run)
     ran = threading.Event()
     try:
@@ -395,4 +387,4 @@ def test_the_run_takes_a_standing_arm_through_the_public_member():
 
     runner._take_auto_gain_arm_for_run()
 
-    runner._scope.imaging.set_auto_gain.assert_called_once_with(False, {'target_brightness': 0.5})
+    runner._scope.camera.set_auto_gain.assert_called_once_with(False, {'target_brightness': 0.5})

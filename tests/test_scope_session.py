@@ -6,7 +6,7 @@ settings, executors and the protocol runner into one object per client,
 and L2 callers (REST / SDK / MATLAB / micromanager) reach the hardware
 only through it. It had no test file of its own, so what coverage existed
 was incidental -- including one test that asserted
-`start_application_session` exists and that its name appears in a
+`run_application_session` exists and that its name appears in a
 docstring, which passes for a method that does nothing.
 
 Everything here composes a REAL `Lumascope(simulate=True)` into a REAL
@@ -21,7 +21,7 @@ Deliberately NOT covered: the ~20 zero-caller convenience forwarders
 file for no gain, and a forwarder's behavior is its target's behavior,
 tested where that lives.
 
-`start_application_session` is covered where its motion lives:
+`run_application_session` is covered where its motion lives:
 `test_motion_state_gate.py` (the home-then-turret sequence and the
 failed-home gate) and `test_session_bringup.py` (homing disabled means
 no startup motion).
@@ -37,7 +37,6 @@ import pytest
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
-from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
@@ -148,35 +147,3 @@ class TestExecutorLifecycle:
             if worker is not None:
                 worker.join(timeout=5.0)
                 assert not worker.is_alive(), f'{executor.executor_name} still running'
-
-
-class TestIsProtocolRunning:
-    """The canonical read for callers holding a session handle.
-
-    It must DERIVE from the exclusive-activity claim, not hold a second
-    copy of the answer -- a duplicated flag is how "is a run in
-    progress" ends up with two disagreeing sources.
-    """
-
-    def test_false_on_a_fresh_session(self, headless_session):
-        assert headless_session.is_protocol_running is False
-
-    def test_tracks_the_claim_in_both_directions(self, headless_session):
-        held = headless_session.activity_claim.try_claim('protocol', run=run_identity())
-        assert held
-        assert headless_session.is_protocol_running is True
-        held.release()
-        assert headless_session.is_protocol_running is False
-
-    def test_a_recording_claim_is_not_a_run(self, headless_session):
-        held = headless_session.activity_claim.try_claim('recording')
-        assert held
-        try:
-            assert headless_session.is_protocol_running is False
-        finally:
-            held.release()
-
-    def test_is_read_only(self, headless_session):
-        """No setter, so no second writer for run state."""
-        with pytest.raises(AttributeError):
-            headless_session.is_protocol_running = True

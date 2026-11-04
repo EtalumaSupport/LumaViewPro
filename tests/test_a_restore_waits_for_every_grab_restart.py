@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 
-from modules.lumascope_api.imaging import ImagingAPI
+from modules.lumascope_api.camera import CameraAPI
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
@@ -28,10 +28,11 @@ def test_a_restore_of_two_geometry_writes_outlasting_a_value_write_returns(
     make_session, monkeypatch
 ):
     session = make_session('LS850')
-    imaging = session.scope.imaging
-    snapshot = imaging.save_camera_state('found')
-    imaging.set_pixel_format('Mono12' if snapshot['pixel_format'] != 'Mono12' else 'Mono8')
-    imaging.set_frame_size(
+    camera = session.scope.camera
+    snapshot = camera.save_camera_state('found')
+    # The pixel format is set through the image mode that chooses it.
+    camera.set_image_mode('12bit_scientific' if snapshot['pixel_format'] != 'Mono12' else '8bit')
+    camera.set_frame_size(
         snapshot['frame_size']['width'] - 200, snapshot['frame_size']['height'] - 200
     )
 
@@ -45,11 +46,11 @@ def test_a_restore_of_two_geometry_writes_outlasting_a_value_write_returns(
         real_stop()
 
     monkeypatch.setattr(driver, 'stop_grabbing', slow_stop)
-    monkeypatch.setattr(ImagingAPI, '_CAMERA_WRITE_TIMEOUT_S', _VALUE_LIMIT_S)
+    monkeypatch.setattr(CameraAPI, '_CAMERA_WRITE_TIMEOUT_S', _VALUE_LIMIT_S)
 
-    imaging.restore_camera_state(snapshot)
+    camera.restore_camera_state(snapshot)
 
     assert len(stops) == 2, f'the restore restarted the grab {len(stops)} times, not twice'
-    now = imaging.save_camera_state('restored')
+    now = camera.save_camera_state('restored')
     assert now['pixel_format'] == snapshot['pixel_format']
     assert now['frame_size'] == snapshot['frame_size']

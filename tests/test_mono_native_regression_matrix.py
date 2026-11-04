@@ -26,11 +26,15 @@ Pipeline coverage:
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 import tifffile as tf
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 XFAIL_REASON = (
@@ -40,14 +44,14 @@ XFAIL_REASON = (
 )
 
 
-def _metadata(path, channel='Blue'):
+def _metadata(path, channel=LED0):
     """Minimal metadata dict matching ``write_tiff``'s generate_tiff_data."""
     return {
         'file_loc': str(path),
-        'datetime': '2026-05-27T00:00:00',
+        'datetime': datetime.datetime(2026, 5, 27, 0, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
-        'objective': 'test',
+        'objective': {'id': 'test'},
         'exposure_time_ms': 1.0,
         'gain_db': 0.0,
         'illumination_ma': 0.0,
@@ -62,13 +66,13 @@ def _metadata(path, channel='Blue'):
 
 
 def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
-    """Synth uint16 Blue-layer mono; save with the false-color opt-in ON;
+    """Synth uint16 LED 0 layer mono; save with the false-color opt-in ON;
     read back.
 
     Default OFF saves 2D mono + metadata (covered by test_tiff_format's
     default-off cases). With ``use_false_color_16bit=True`` the layer color
     is baked into 3-channel RGB so Windows Preview renders 16-bit
-    fluorescence in color. The Blue layer must land in RGB index 2 with the
+    fluorescence in color. The LED 0 layer (blue) must land in RGB index 2 with the
     value preserved exactly and the other planes zero (the R/B-swap and
     wrong-channel-on-video defects guard against an ordering regression).
     """
@@ -80,11 +84,12 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Blue'),
+        metadata=_metadata(out_path, channel=LED0),
         ome=False,
-        color='Blue',
+        color=release_color(LED0),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -93,7 +98,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
         f'false_color_16bit=True must widen to 3-channel RGB, got {result.shape}.'
     )
     assert result.dtype == np.uint16
-    assert result[0, 0, 2] == 42000, 'Blue lands at RGB index 2'
+    assert result[0, 0, 2] == 42000, f'{LED0} lands at RGB index 2'
     assert result[0, 0, 0] == 0
     assert result[0, 0, 1] == 0
 
@@ -123,7 +128,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     input_dir = tmp_path / 'tiff_in'
     input_dir.mkdir()
     src = np.full((8, 8), 42000, dtype=np.uint16)
-    tf.imwrite(str(input_dir / 'frame_0000_Blue.tiff'), src)
+    tf.imwrite(str(input_dir / f'frame_0000_{LED0}.tiff'), src)
 
     out_path = tmp_path / 'out.mp4'
 
@@ -135,7 +140,8 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
         source_dir=input_dir,
         output_file=out_path,
         false_color=True,
-        color='Blue',
+        color=LED0,
+        channel_colors=release_colors(),
     )
 
     # Decode first frame via PyAV
@@ -161,60 +167,106 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
 # MUST-HAVE 3: composite RGB all-channels round-trip
 # ---------------------------------------------------------------------------
 
+_RUN_COLUMNS = [
+    'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
+    'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice',
+    'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config',
+    'Stim_Config', 'Auto_Named', 'Label',
+]  # fmt: skip
+_CHANNEL_VALUES = {LED2: 200, LED1: 140, LED0: 80}
 
-def test_composite_rgb_allchannels_roundtrip(tmp_path):
-    """Synth 3 mono TIFFs (R, G, B layers); run composite generation;
-    read output via tifffile axes='YXS'; assert per-channel preservation.
 
-    Today: ``composite_generation.py`` reads per-channel inputs via
-    ``cv2.imread`` (3-channel BGR) then extracts the relevant channel
-    via ``cvtColor(BGR2GRAY)`` to recover mono. The redundancy is the
-    bug surface (``#672`` extract-from-wrong-channel) plus a perf
-    cost (3x read bandwidth).
+def _rgb_step(index: int, color: str) -> list[str]:
+    return [
+        f'custom000{index}_{color}', '10.0000', '10.0000', '5000.0', 'False', color,
+        'True', '5.0', '1.0', 'False', '2.0', '1', '20x Oly', '', 'A1', '-1', 'True',
+        str(index), '-1', 'image', '"{""duration"": 5, ""fps"": 30}"', '"{}"', 'True', '',
+    ]  # fmt: skip
 
-    Post-1d: per-channel inputs are mono 2D; composite reads directly
-    via ``tf.imread`` and stacks into the canonical (H, W, 3) output.
+
+@pytest.fixture
+def session(tmp_path):
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
+def rgb_run_folder(tmp_path):
+    return _write_rgb_run_folder(tmp_path, ome=False)
+
+
+def _write_rgb_run_folder(tmp_path, *, ome: bool):
+    """One position imaged in LED 2, LED 1 and LED 0 (red, green, blue), each a flat 8-bit frame
+    of its own value, as a run of this release saves it: OME-TIFF when ``ome``, else plain."""
+    from modules import image_utils
+
+    folder = tmp_path / 'live' / 'ProtocolData' / '20261013_120000'
+    folder.mkdir(parents=True)
+    steps = [_rgb_step(index, color) for index, color in enumerate(_CHANNEL_VALUES)]
+    (folder / 'run.tsv').write_text(
+        'LumaViewPro Protocol\nVersion\t8\nPeriod\t20.0\nDuration\t48.0\n'
+        'Labware\t96 well microplate\nCapture Root\t\n\nSteps\n'
+        + '\t'.join(_RUN_COLUMNS)
+        + '\n'
+        + ''.join('\t'.join(step) + '\n' for step in steps)
+    )
+    record_rows = []
+    for index, step in enumerate(steps):
+        name, color = step[0], step[5]
+        filename = f'{name}_0000{".ome.tiff" if ome else ".tiff"}'
+        image_utils.write_tiff(
+            data=np.full((16, 16), _CHANNEL_VALUES[color], dtype=np.uint8),
+            file_loc=folder / filename,
+            metadata={
+                'pixel_size_um': 0.5,
+                'channel': color,
+                'objective': {'id': '20x Oly'},
+                'exposure_time_ms': 2.0,
+                'gain_db': 1.0,
+                'illumination_ma': 5.0,
+                'z_pos_um': 5000.0,
+                'plate_pos_mm': {'x': 10.0, 'y': 10.0},
+                'datetime': datetime.datetime(2026, 10, 13, 12, 0, 0),
+                'significant_bits': 8,
+            },
+            ome=ome,
+            color=release_color(color),
+            significant_bits=8,
+            save_encoding='right_aligned',
+            white_bits=None,
+        )
+        record_rows.append(
+            f'{filename}\t{name}\t{index}\t0\t2026-10-13 12:00:{index:02d}.000001\t1\t0.0\n'
+        )
+    (folder / 'protocol_record.tsv').write_text(
+        'LumaViewPro Protocol Execution Record\nVersion\t3\nProtocol File\trun.tsv\n'
+        'Filename\tStep Name\tStep Index\tScan Count\tTimestamp\tFrame Count\tDuration (s)\n'
+        + ''.join(record_rows)
+    )
+    return folder
+
+
+def test_a_composite_from_a_folder_keeps_each_channel_on_its_own_plane(session, rgb_run_folder):
+    """An LED 2, LED 1 and LED 0 position composited through the Session's
+    post-processing reads back as one 8-bit RGB image with each channel on
+    its own plane (R 0, G 1, B 2): the routing the #657 / #672 swaps broke.
 
     Historical bugs: ``cefdfcb`` (composite OME-TIFF axes mismatch),
     ``e2ef49e`` (#657 frames swap on save).
     """
-    input_dir = tmp_path / 'channels'
-    input_dir.mkdir()
+    built = session.post_processing.composite(rgb_run_folder)
 
-    # Post-1d input: 3 mono channel files
-    red_val, green_val, blue_val = 50000, 35000, 20000
-    tf.imwrite(str(input_dir / 'r.tiff'), np.full((8, 8), red_val, dtype=np.uint16))
-    tf.imwrite(str(input_dir / 'g.tiff'), np.full((8, 8), green_val, dtype=np.uint16))
-    tf.imwrite(str(input_dir / 'b.tiff'), np.full((8, 8), blue_val, dtype=np.uint16))
-
-    out_path = tmp_path / 'composite.tiff'
-
-    from modules.composite_generation import CompositeGeneration
-
-    cg = CompositeGeneration(has_turret=False)
-    cg.generate_composite_from_paths(
-        red_path=input_dir / 'r.tiff',
-        green_path=input_dir / 'g.tiff',
-        blue_path=input_dir / 'b.tiff',
-        output_path=out_path,
-    )
-
-    import modules.image_utils as image_utils
-
-    result = tf.imread(str(out_path))
-    assert result.ndim == 3 and result.shape[2] == 3
-    # A composite is a viewing product: always 8-bit RGB, so the 16-bit inputs
-    # are downconverted, not preserved verbatim. What this test guards is the
-    # CHANNEL ROUTING (R->0, G->1, B->2) surviving the merge -- assert each
-    # plane holds the canonical 8-bit downconvert of its own input.
+    assert built.new_count == 1
+    result = tf.imread(str(built.artifact_paths[0]))
     assert result.dtype == np.uint8
-
-    def _to8(val):
-        return image_utils.convert_to_8bit(np.full((1, 1), val, dtype=np.uint16), 16)[0, 0]
-
-    assert result[0, 0, 0] == _to8(red_val)
-    assert result[0, 0, 1] == _to8(green_val)
-    assert result[0, 0, 2] == _to8(blue_val)
+    assert result.shape == (16, 16, 3)
+    assert result[0, 0].tolist() == list(_CHANNEL_VALUES.values())
 
 
 # ---------------------------------------------------------------------------
@@ -222,10 +274,10 @@ def test_composite_rgb_allchannels_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('color', ['Red', 'Green'])
+@pytest.mark.parametrize('color', [LED2, LED1])
 def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
-    """Per-color hardening for the false-color opt-in: confirm the Red and
-    Green layer paths widen to 3-channel RGB with the value in the correct
+    """Per-color hardening for the false-color opt-in: confirm the LED 2 (red) and
+    LED 1 (green) layer paths widen to 3-channel RGB with the value in the correct
     plane. Catches asymmetries in the layer-color lookup (a historical
     Red-specific R/B swap motivates the parametrize).
     """
@@ -239,14 +291,15 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
         file_loc=out_path,
         metadata=_metadata(out_path, channel=color),
         ome=False,
-        color=color,
+        color=release_color(color),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
     assert result.shape == (8, 8, 3), f'{color}: expected 3-channel RGB, got {result.shape}'
-    expected_index = {'Red': 0, 'Green': 1}[color]
+    expected_index = {LED2: 0, LED1: 1}[color]
     assert result[0, 0, expected_index] == 30000
     for other in (0, 1, 2):
         if other != expected_index:
@@ -258,64 +311,44 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
 # ---------------------------------------------------------------------------
 
 
-def test_composite_ome_tiff_axes_structural(tmp_path):
-    """Composite OME-TIFF must carry axes='YXS' (Y, X, Sample) for the
-    3-channel output. ``cefdfcb`` was a crash on axes mismatch; today's
-    composite passes via tifffile; post-1d the same axes structure
-    holds even though the per-channel reads are mono.
+def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, tmp_path):
+    """A composite of an OME-TIFF run's channels carries OME metadata and
+    axes 'YXS' (Y, X, Sample) for its 3-channel image. ``cefdfcb`` was a
+    crash on that axes mismatch.
     """
-    input_dir = tmp_path / 'channels'
-    input_dir.mkdir()
-    for ch in ('r', 'g', 'b'):
-        tf.imwrite(str(input_dir / f'{ch}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
+    built = session.post_processing.composite(_write_rgb_run_folder(tmp_path, ome=True))
 
-    out_path = tmp_path / 'composite.ome.tiff'
-
-    from modules.composite_generation import CompositeGeneration
-
-    cg = CompositeGeneration(has_turret=False)
-    cg.generate_composite_from_paths(
-        red_path=input_dir / 'r.tiff',
-        green_path=input_dir / 'g.tiff',
-        blue_path=input_dir / 'b.tiff',
-        output_path=out_path,
-        format='ome-tiff',
-    )
-
-    # Read with tifffile; OME-TIFF metadata must indicate YXS axes
-    with tf.TiffFile(str(out_path)) as t:
-        ome_meta = t.ome_metadata
-        assert ome_meta is not None, 'composite OME-TIFF missing OME metadata block'
-        assert 'YXS' in (t.series[0].axes if t.series else ''), (
-            f'Composite OME-TIFF axes should be YXS, got {t.series[0].axes!r}'
-        )
+    assert built.new_count == 1
+    with tf.TiffFile(str(built.artifact_paths[0])) as t:
+        assert t.ome_metadata is not None, 'composite OME-TIFF missing OME metadata block'
+        assert t.series[0].axes == 'YXS'
 
 
-def test_composite_sequenced_path_honors_output_format(tmp_path):
-    """The sequenced composite path (_create_composite_image) must honor the
-    run output_format -- 'OME-TIFF' writes OME, 'TIFF' writes plain. It
-    previously hardcoded ome=False and ignored the setting.
+def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
+    """The sequenced composite path (_create_composite_image) writes the
+    format its output's name states -- ``.ome.tiff`` writes OME, ``.tiff``
+    plain. It once hardcoded ome=False.
     """
     import pandas as pd
     from modules.composite_generation import CompositeGeneration
 
-    for ch in ('Red', 'Green', 'Blue'):
+    for ch in (LED2, LED1, LED0):
         tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
     df = pd.DataFrame(
         [
-            {'Color': 'Red', 'Filepath': 'Red.tiff'},
-            {'Color': 'Green', 'Filepath': 'Green.tiff'},
-            {'Color': 'Blue', 'Filepath': 'Blue.tiff'},
+            {'Color': LED2, 'Filepath': f'{LED2}.tiff'},
+            {'Color': LED1, 'Filepath': f'{LED1}.tiff'},
+            {'Color': LED0, 'Filepath': f'{LED0}.tiff'},
         ]
     )
 
-    ome_out = tmp_path / 'comp_ome.tiff'
+    ome_out = tmp_path / 'comp.ome.tiff'
     CompositeGeneration._create_composite_image(
         path=tmp_path,
         df=df,
         brightness_thresholds_percent={},
         output_file_loc=ome_out,
-        output_format='OME-TIFF',
+        channel_colors=release_colors(),
     )
     with tf.TiffFile(str(ome_out)) as t:
         assert t.ome_metadata is not None, 'OME-TIFF format must produce OME metadata'
@@ -326,7 +359,7 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
         df=df,
         brightness_thresholds_percent={},
         output_file_loc=plain_out,
-        output_format='TIFF',
+        channel_colors=release_colors(),
     )
     with tf.TiffFile(str(plain_out)) as t:
         assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'
@@ -389,12 +422,13 @@ def test_piw6_buffer_allocation_o1(tmp_path):
             write_tiff(
                 data=data,
                 file_loc=tmp_path / f'frame_{i:04d}.tiff',
-                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel='Blue'),
+                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel=LED0),
                 ome=False,
-                color='Blue',
+                color=release_color(LED0),
                 false_color_buf=scratch,
                 significant_bits=16,
                 save_encoding='rgb',
+                white_bits=None,
             )
 
     # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen

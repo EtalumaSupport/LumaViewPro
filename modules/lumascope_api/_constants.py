@@ -6,14 +6,13 @@ sub-API modules (motion.py, etc.) need to read. Lifting them here
 breaks the import cycle that would otherwise force lazy imports in
 the sub-API files.
 
-Other modules in the package alias these onto their classes for
-back-compat (e.g. `Lumascope._VALID_AXIS_NAMES = _VALID_AXIS_NAMES`)
-so existing callers (`scope._VALID_AXIS_NAMES`, tests reading the
-class attribute) keep working.
+`_lumascope` re-exports `AxisState` under its own module, where
+callers import it from.
 """
 
+import dataclasses
+import enum
 import numbers
-from typing import NamedTuple
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
@@ -21,34 +20,6 @@ from modules.exceptions import (
     PositionOutOfRangeError,
 )
 from modules.api_surface import api_fields
-
-# Structural axis-name vocabulary used only for input sanity checks
-# ("did the caller pass a real axis letter?"). NOT a capability query --
-# use `scope.capabilities.axes` for "what does this scope have?".
-_VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
-
-
-def refuse_unknown_axis(axis: object, names: tuple[str, ...] = _VALID_AXIS_NAMES) -> None:
-    """Refuse a name that is not one of the axis names a member takes.
-
-    The one check of an axis name, asked by every member that takes one
-    before it asks whether the scope has the axis: a name that is no axis
-    is the request's fault on every scope, while an axis this model lacks
-    is the hardware's answer (``MotionAPI._refuse_absent``) or, for a
-    read, the answer a missing axis gives. Names are exact: ``'x'`` is not
-    ``'X'``, so each axis has one spelling in every log and on every wire.
-
-    Args:
-        axis: The name given.
-        names: The names the member takes, when not every axis: a home
-            takes ``'ALL'`` and no X or Y, a jog no T.
-
-    Raises:
-        ArgumentRefusedError: ``'axis_unknown'``, offering ``names``.
-    """
-    if not isinstance(axis, str) or axis not in names:
-        raise ArgumentRefusedError('axis_unknown', argument='axis', value=axis, offered=names)
-
 
 # The simulated boards a simulated scope can be built on: a Python
 # stand-in with no timing; the production driver against the real firmware
@@ -61,7 +32,7 @@ def refuse_unknown_axis(axis: object, names: tuple[str, ...] = _VALID_AXIS_NAMES
 SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
 
 # Absolute position bounds in um -- generous outer limits. Per-axis
-# travel limits are enforced by the motor board itself.
+# travel is the API's to refuse (MotionAPI.get_axis_limits).
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
 # The turret's four positions. Unlike X/Y/Z this is not travel and not um:
@@ -89,46 +60,66 @@ def refuse_acceleration_pct(val_pct: object) -> None:
     session.
 
     Raises:
-        AccelerationLimitRefusedError: ``val_pct`` is not a number, or is
-            outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. A
-            ValueError, so a caller catching a bad argument keeps working.
+        AccelerationLimitRefusedError: ``val_pct`` is not a whole number,
+            or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+            A ValueError, so a caller catching a bad argument keeps working.
     """
-    # bool is excluded by name: True is an int, and a number to Real.
+    # bool is excluded by name: True is an int. A fraction is refused: every
+    # board takes a whole percent.
     if (
         isinstance(val_pct, bool)
-        or not isinstance(val_pct, numbers.Real)
+        or not isinstance(val_pct, numbers.Integral)
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
         raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
 
 
-def is_turret_slot(position: object) -> bool:
-    """Whether ``position`` names a turret slot.
+def refuse_inverted_gain_range(settings: dict, argument: str) -> None:
+    """Refuse an auto-gain range whose minimum gain is above its maximum.
+
+    The one check of the pair, for every place it is judged: an arm of
+    auto-gain and a stored pair at load. Not at the settings write: each
+    bound is written alone, so a write judging the pair would make a client
+    order its two writes.
+
+    Raises:
+        ArgumentRefusedError: ``'gain_range_inverted'``, naming both bounds.
+    """
+    if settings['min_gain_db'] > settings['max_gain_db']:
+        raise ArgumentRefusedError(
+            'gain_range_inverted',
+            argument=argument,
+            value={key: settings[key] for key in ('min_gain_db', 'max_gain_db')},
+        )
+
+
+def is_turret_slot(slot: object) -> bool:
+    """Whether ``slot`` is a turret slot.
 
     A bool is excluded explicitly: it is an int in Python, so ``True``
     would otherwise pass as slot 1.
     """
     return (
-        isinstance(position, int)
-        and not isinstance(position, bool)
-        and TURRET_SLOT_MIN <= position <= TURRET_SLOT_MAX
+        isinstance(slot, int)
+        and not isinstance(slot, bool)
+        and TURRET_SLOT_MIN <= slot <= TURRET_SLOT_MAX
     )
 
 
-def refuse_unless_turret_slot(position: object) -> None:
-    """Refuse ``position`` unless it names a turret slot.
+def refuse_unless_turret_slot(slot: object) -> None:
+    """Refuse ``slot`` unless it is a turret slot.
 
     The one refusal of a slot, for every member that takes one, so a bad
     slot reads the same whether it was sent to move the turret, to assign
     an objective, or as the preferred slot at bring-up.
 
     Raises:
-        PositionOutOfRangeError: ``position`` is not a whole number 1-4.
+        PositionOutOfRangeError: ``slot`` is not a whole number 1-4.
     """
-    if not is_turret_slot(position):
+    if not is_turret_slot(slot):
         raise PositionOutOfRangeError(
             'T',
-            position,
+            slot,
             TURRET_SLOT_MIN,
             TURRET_SLOT_MAX,
             bound='turret slots',
@@ -136,7 +127,7 @@ def refuse_unless_turret_slot(position: object) -> None:
         )
 
 
-class AxisState:
+class AxisState(enum.StrEnum):
     """Possible states for a motion axis."""
 
     UNKNOWN = 'unknown'  # Not homed / state not known
@@ -145,15 +136,32 @@ class AxisState:
     HOMING = 'homing'  # Homing sequence in progress
 
 
-@api_fields('position', 'state')
-class AxisPosition(NamedTuple):
-    """One axis's state and its position, read together.
+@api_fields('position_um', 'state')
+@dataclasses.dataclass(frozen=True)
+class AxisPosition:
+    """One stage axis's state and its position, read together: X, Y or Z.
 
-    ``position`` is None unless the axis is IDLE or MOVING: an axis whose
+    ``position_um`` is None unless the axis is IDLE or MOVING: an axis whose
     reference is lost or still being established keeps answering the last
     number it reported, and a caller writing a position into a file must
-    not be handed it.
+    not be handed it. The turret has a slot, not a position: ``TurretStatus``.
     """
 
-    state: str
-    position: float | int | None
+    state: AxisState
+    position_um: float | None
+
+
+@api_fields('state', 'slot')
+@dataclasses.dataclass(frozen=True)
+class TurretStatus:
+    """The turret's state and the slot in the light path, read together.
+
+    ``slot`` is the slot the last turret command left the turret in, None
+    before the first, while one is in flight, after one failed, and
+    whenever the turret's position is lost (``MotionAPI.turret_status``). ``state`` is the
+    turret's ``AxisState``, which the slot alone cannot say: homing, moving
+    or unknown.
+    """
+
+    state: AxisState
+    slot: int | None

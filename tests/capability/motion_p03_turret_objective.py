@@ -1,8 +1,8 @@
 """P03 -- turret / objective selection, headless.
 
-GUI capabilities covered: pick an objective from the spinner
-(vertical_control.py:284 select_objective -- on a turret scope it assigns
-the slot in the light path), rotate the turret to a slot
+Capabilities covered: select an objective by name (the Session's
+select_objective, which REST and the SDK call -- on a turret scope it turns
+the turret to the one slot holding the objective), rotate the turret to a slot
 (vertical_control.py:746 turret_select, via the four turret buttons),
 assign/clear an objective to a turret slot (vertical_control.py:627/647),
 home the turret (vertical_control.py:598).
@@ -36,24 +36,30 @@ def main():
             check('turret homes', True)
         except HomingFailedError as e:
             check('turret homes', False, str(e))
-        check('turret position known after home', m.position_is_known('T'))
+        check('turret position known after home', 'T' not in m.axes_without_position())
         m.move_turret(1, restore_z=True)
 
-        # --- objective selection (the spinner): assigns the slot in the light path ---
-        objectives = s.objective_helper.get_objectives_list()
+        # --- objective selection (the spinner): turns to the slot holding it ---
+        objectives = s.scope.objective_helper.get_objectives_list()
         first, other = objectives[0], objectives[1]
-        s.select_objective(first)
+        s.assign_turret_objective(1, first)
+        s.assign_turret_objective(4, other)
+        slots_before = dict(s.settings['turret_objectives'])
         changed = s.select_objective(other)
         now_id, info = s.scope.runtime_state.resolve_current_objective()
         check(
-            'select_objective changes the live objective by assigning the slot',
-            changed and now_id == other and s.settings['turret_objectives'][1] == other,
-            f'{first} -> {now_id}',
+            'select_objective turns the turret to the slot holding it and writes no slot',
+            changed
+            and now_id == other
+            and m.turret_status().slot == 4
+            and s.settings['turret_objectives'] == slots_before,
+            f'{first} -> {now_id} at slot {m.turret_status().slot}',
         )
+        jogs = ('jog_z_coarse_um', 'jog_z_fine_um', 'jog_xy_coarse_um', 'jog_xy_fine_um')
         check(
-            'objective info carries the jog steps the GUI jog reads',
-            all(k in info for k in ('z_coarse', 'z_fine', 'xy_coarse', 'xy_fine')),
-            str(sorted(k for k in info if 'coarse' in k or 'fine' in k)),
+            'the answer is the selected objective, with the jog steps the GUI jog reads',
+            info is s.scope.objectives[other] and all(getattr(info, f) > 0 for f in jogs),
+            str({f: getattr(info, f) for f in jogs}),
         )
 
         # --- assign an objective to a turret slot, then select that slot ---
@@ -64,24 +70,16 @@ def main():
 
         # --- rotate the turret (what the 4 turret buttons do) ---
         m.move_turret(2, restore_z=True)
-        t2 = m.get_current_position('T')
+        t2 = m.turret_status().slot
         at2 = s.scope.runtime_state.resolve_current_objective()[0]
         m.move_turret(3, restore_z=True)
-        t3 = m.get_current_position('T')
+        t3 = m.turret_status().slot
         at3 = s.scope.runtime_state.resolve_current_objective()[0]
         check('turret position changes on move_turret', t2 != t3, f'slot2={t2} slot3={t3}')
         check(
             'the active objective follows the slot',
             (at2, at3) == (first, other),
             f'slot2={at2} slot3={at3}',
-        )
-
-        # --- the slot a person last turned to is the preferred slot, which
-        # the one slot lookup reads first; nothing else records it.
-        check(
-            'the last turret move is the preferred slot',
-            m.get_preferred_turret_slot() == 3,
-            str(m.get_preferred_turret_slot()),
         )
 
         # --- out-of-range slot: the MOVE must refuse.

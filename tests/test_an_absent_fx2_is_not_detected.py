@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from drivers import fx2driver
+from drivers.exceptions import CameraUsbNotFoundError, CameraUsbOpenFailedError
 from drivers.registry import DriverFallback, DriverRegistry
 
 
@@ -54,16 +55,28 @@ def test_with_no_fx2_on_the_bus_the_fallback_is_not_detected(bus, fx2_driver):
 
 
 @pytest.mark.parametrize('fx2_driver', [fx2driver.FX2LEDController, fx2driver.FX2Camera])
-def test_an_fx2_that_is_present_and_fails_still_raises(bus, monkeypatch, fx2_driver):
-    # The bootloader answers and its firmware upload fails: a present FX2
-    # that cannot be used is a failure, never an absence.
+def test_an_fx2_that_is_present_and_fails_still_raises(bus, fx2_driver):
+    # The bootloader answers and the USB library fails its firmware upload:
+    # a present FX2 that cannot be used is the camera's open failure, never
+    # an absence.
     bus.find.side_effect = lambda pid: None if pid == fx2driver.PID_APP else object()
+    bus.write_to.side_effect = OSError('LIBUSB_ERROR_PIPE')
 
-    def upload_fails(self, dev, path):
-        raise RuntimeError('firmware upload failed')
-
-    monkeypatch.setattr(fx2driver._FX2Connection, '_upload_firmware', upload_fails)
-    monkeypatch.setattr(fx2driver._FX2Connection, 'find_firmware_path', staticmethod(lambda: ''))
-
-    with pytest.raises(RuntimeError, match='firmware upload failed'):
+    with pytest.raises(
+        CameraUsbOpenFailedError, match=r'uploading the firmware.*LIBUSB_ERROR_PIPE'
+    ) as raised:
         fx2_driver()
+
+    assert raised.value.reason == 'camera_usb_open_failed'
+
+
+def test_an_fx2_that_does_not_come_back_after_its_upload_is_not_found_on_usb(bus, monkeypatch):
+    # The upload is taken and the running firmware never enumerates: the
+    # camera is not on USB, a hardware failure, never LumaViewPro's own.
+    bus.find.side_effect = lambda pid: None if pid == fx2driver.PID_APP else object()
+    monkeypatch.setattr(fx2driver._FX2Connection, 'FIRMWARE_RE_ENUM_TIMEOUT', 0.0)
+
+    with pytest.raises(CameraUsbNotFoundError, match='did not re-enumerate') as raised:
+        fx2driver.FX2Camera()
+
+    assert raised.value.reason == 'camera_usb_not_found'

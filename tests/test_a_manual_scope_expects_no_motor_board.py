@@ -20,7 +20,7 @@ import modules.lumascope_api._lumascope as lumascope_module
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverRegistry
-from tests.log_capture import capture_module_log
+from tests.log_capture import records_of
 from tests.scope_fakes import build_scope
 
 
@@ -54,23 +54,21 @@ def _fallback_levels(records) -> list[int]:
     ('absence_expected', 'level'),
     [(True, logging.INFO), (False, logging.WARNING)],
 )
-def test_nothing_detected_is_info_only_where_nothing_is_expected(
-    monkeypatch, absence_expected, level
-):
-    records = capture_module_log(monkeypatch, registry_module)
+def test_nothing_detected_is_info_only_where_nothing_is_expected(caplog, absence_expected, level):
+    caplog.set_level(logging.DEBUG)
 
     board = _registry(_NothingFound).create('auto', absence_expected=absence_expected)
 
     assert isinstance(board, _Null)
-    assert _fallback_levels(records) == [level]
+    assert _fallback_levels(records_of(caplog, registry_module)) == [level]
 
 
-def test_a_board_found_but_unusable_warns_even_where_none_is_expected(monkeypatch):
-    records = capture_module_log(monkeypatch, registry_module)
+def test_a_board_found_but_unusable_warns_even_where_none_is_expected(caplog):
+    caplog.set_level(logging.DEBUG)
 
     _registry(_HeldPort).create('auto', absence_expected=True)
 
-    assert _fallback_levels(records) == [logging.WARNING]
+    assert _fallback_levels(records_of(caplog, registry_module)) == [logging.WARNING]
 
 
 @pytest.mark.parametrize(

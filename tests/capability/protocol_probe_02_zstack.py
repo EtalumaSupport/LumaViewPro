@@ -1,12 +1,12 @@
-"""Probe 02 -- the z-stack Acquire button vs ProtocolRunner.run_zstack.
+"""Probe 02 -- the z-stack Acquire button vs ProtocolRunner.start_zstack.
 
 Part A: itemise the difference by capturing the kwargs each lane hands to
         SequencedCaptureRunner.prepare(). The GUI lane is replayed here in
         its settings-side equivalent (ui/zstack.py:150-314 with every
         `*_from_ui` getter swapped for the `*_from_settings` function it
-        delegates to -- see modules/config_ui_getters.py, each of which is
-        a one-line adapter).
-Part B: RUN run_zstack for real and assert the slices landed on disk.
+        delegated to -- each was a one-line adapter, and the GUI now reads
+        the settings-side functions itself).
+Part B: RUN start_zstack for real and assert the slices landed on disk.
 """
 
 import pathlib
@@ -14,7 +14,7 @@ import time
 
 from harness import make_session, banner
 
-ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'Current Position at Center'}
+ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'center'}
 
 session, live = make_session('zstack', home=True, zstack=dict(ZS))
 try:
@@ -23,7 +23,6 @@ try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
-    from modules.tiling_config import TilingConfig
     from modules.zstack_config import ZStackConfig
 
     runner = ProtocolRunner(session)
@@ -48,7 +47,7 @@ try:
     # ---------------- Lane 1: what ui/zstack.py assembles ----------------
     banner('A1. GUI lane (ui/zstack.py) prepare kwargs')
     labware_id, _lw = config_helpers.get_selected_labware_from_settings(
-        settings, session.wellplate_loader
+        settings, session.scope.wellplate_loader
     )
     objective_id, _ = session.scope.runtime_state.resolve_current_objective()
     zstack_params = config_helpers.get_zstack_params_from_settings(settings)
@@ -69,14 +68,17 @@ try:
     active_layer_config['autofocus'] = False
 
     curr_position = session.get_current_plate_position()
-    curr_position.update({'name': 'ZStack'})
-    tiling_config = TilingConfig(
-        tiling_configs_file_loc=_pl.Path(session.source_path) / 'data' / 'tiling.json'
-    )
+    zstack_position = {
+        'x': curr_position.x_mm,
+        'y': curr_position.y_mm,
+        'z': curr_position.z_um,
+        'name': 'ZStack',
+    }
+    tiling_config = session.scope.protocols.tiling_grids()
     gui_cfg = config_helpers.build_sequenced_capture_config(
         {
             'labware_id': labware_id,
-            'positions': [curr_position],
+            'positions': [zstack_position],
             'objective_id': objective_id,
             'zstack_params': zstack_params,
             'use_zstacking': True,
@@ -88,7 +90,7 @@ try:
             'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
             'binning_size': config_helpers.get_binning_from_settings(settings),
             'stim_config': config_helpers.get_stim_configs(settings),
-            'current_z': curr_position['z'],
+            'current_z': curr_position.z_um,
         }
     )
     gui_seq = session.scope.protocols.create_protocol(input_config=gui_cfg)
@@ -97,11 +99,10 @@ try:
     gui_kwargs = dict(
         protocol=gui_seq,
         run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-        run_trigger_source='zstack',
         max_scans=1,
         sequence_name='zstack',
         parent_dir=_pl.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks',
-        enable_image_saving=True,  # is_image_saving_enabled() -- GUI checkbox
+        enable_image_saving=True,  # not ProtocolSettings.saving_disabled -- GUI checkbox
         autogain_settings=config_helpers.get_auto_gain_settings(settings),
         events="RunEvents(the GUI button's four handlers)",
         return_to_position=session.get_current_plate_position(),
@@ -114,8 +115,8 @@ try:
     for k in sorted(gui_kwargs):
         print(f'  {k:28s} = {gui_kwargs[k]!r}'[:160])
 
-    # ---------------- Lane 2: ProtocolRunner.run_zstack ----------------
-    banner('A2. run_zstack prepare kwargs (spied, no run committed)')
+    # ---------------- Lane 2: ProtocolRunner.start_zstack ----------------
+    banner('A2. start_zstack prepare kwargs (spied, no run committed)')
     real_prepare = engine.prepare
 
     def spy(**kw):
@@ -124,7 +125,7 @@ try:
 
     engine.prepare = spy
     try:
-        runner.run_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
     except _StopError:
         pass
     finally:
@@ -157,15 +158,15 @@ try:
             print(f'            API: {a!r}'[:200])
 
     # ---------------- Part B: actually run it ----------------
-    banner('B. run_zstack for real, assert slices on disk')
-    outcome = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
-    settled = outcome.wait(timeout_s=300)
+    banner('B. start_zstack for real, assert slices on disk')
+    outcome = runner.start_zstack(channel='BF', sequence_name='probe_zstack')
+    settled = outcome.result(timeout=300)
     print('status :', settled.status, settled.reason)
-    run_dir = outcome.run_dir
+    run_dir = outcome.progress().run_dir
     print('run_dir:', run_dir)
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     files = sorted(p for p in pathlib.Path(run_dir).rglob('*') if p.is_file())
     imgs = [p for p in files if p.suffix.lower() in ('.tiff', '.tif')]

@@ -22,13 +22,14 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 from modules.common_utils import PostFunction
 from modules.exceptions import PostProcessingRefusedError
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
 
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
 
 
 class _FakePostProcessor(ProtocolPostProcessor):
@@ -49,6 +50,13 @@ class _FakePostProcessor(ProtocolPostProcessor):
             df = df[df[self._drop_flag] == False]  # noqa: E712 -- pandas mask
         return df
 
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
+
+    def _places(self, group):
+        return None
+
     def _group_algorithm(self, path, df, **kwargs):
         return PostProcResult.ok(significant_bits=8)
 
@@ -58,7 +66,7 @@ class _FakePostProcessor(ProtocolPostProcessor):
 
 def _row(filepath, group_key, out_name, **flags):
     row = {'Filepath': filepath, 'GroupKey': group_key, 'OutName': out_name}
-    row.update(dict.fromkeys(PostFunction.list_values(), False))
+    row.update(post_derivation.raw_columns())
     for flag, value in flags.items():
         row[flag] = value
     return row
@@ -78,7 +86,7 @@ def _drive(processor, tmp_path, monkeypatch, images_df, popup=None):
             'protocol': None,
         },
     )
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, popup=popup)
+    return processor.load_folder(path=tmp_path, tiling_grids=shipped_grids(), popup=popup)
 
 
 def _mixed_group_df():
@@ -134,7 +142,7 @@ def test_stitcher_empty_result_names_the_composite_exclusion(tmp_path, monkeypat
     for tile in range(4):
         row = dict(columns)
         row['Filepath'] = f'composite_t{tile}.tiff'
-        row.update(dict.fromkeys(PostFunction.list_values(), False))
+        row.update(post_derivation.raw_columns())
         row[PostFunction.COMPOSITE.value] = True
         rows.append(row)
     df = pd.DataFrame(rows)

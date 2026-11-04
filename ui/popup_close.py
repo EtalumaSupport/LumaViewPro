@@ -15,6 +15,13 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 
 from lvp_logger import logger
+from modules import gui_logger
+
+
+def _close_pressed(popup) -> None:
+    """A person pressed the X: their answer is to close it."""
+    gui_logger.popup_response(popup.title, 'CLOSE')
+    popup.dismiss()
 
 
 def add_popup_close(popup) -> None:
@@ -73,7 +80,7 @@ def add_popup_close(popup) -> None:
         background_normal='',
         background_color=(0, 0, 0, 0),
     )
-    close_btn.bind(on_release=lambda *_: popup.dismiss())
+    close_btn.bind(on_release=lambda *_: _close_pressed(popup))
     row.add_widget(close_btn)
 
     grid.add_widget(row, index=title_index)

@@ -16,8 +16,10 @@ import time
 import pytest
 
 import modules.sequential_io_executor as sie
-from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing_api import CellCountResult
+from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from modules.post_processing_api import CellCountResult, DegradedOutput, Stitch, ZProject
+from modules.stitch_mode import StitchAlgorithm, StitchMode
+from modules.zproject_method import ZProjectMethod
 
 
 @pytest.fixture
@@ -44,6 +46,7 @@ def _spy_build(monkeypatch, cls, method_name):
             'new_count': 0,
             'output_root': str(path),
             'artifact_paths': [],
+            'excluded_inputs': (),
         }
 
     monkeypatch.setattr(cls, method_name, record)
@@ -64,11 +67,8 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
 ):
     import importlib
 
-    from modules.zprojector import ZProjector
-
     if member == 'zproject':
-        # A real method name, read from the build rather than spelled here.
-        kwargs = {'method': ZProjector.methods()[0]}
+        kwargs = {'method': ZProjectMethod.Min}
     seen = _spy_build(monkeypatch, getattr(importlib.import_module(module), cls), method)
 
     # A turret scope, so a build told False is caught; and the caller's own
@@ -89,28 +89,23 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     assert result.output_root == tmp_path
     assert seen['lane'] is session.post_processing.lane
     assert seen['lane'] is not session.file_io_executor
-    assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
+    assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()
     assert seen['has_turret'] is True
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')
     assert told == [(42, 'Image 42')]
 
 
-def test_the_composite_takes_the_users_format_and_thresholds(session, monkeypatch, tmp_path):
+def test_the_composite_takes_the_users_thresholds(session, monkeypatch, tmp_path):
+    # Its format is its channels', never the settings'
+    # (tests/test_a_derived_file_follows_its_inputs_format.py).
     import modules.config_helpers as config_helpers
     from modules.composite_generation import CompositeGeneration
 
-    from modules import image_mode
-
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
-    # Not the default, so a build that ignores the user's choice is caught.
-    with session.settings_lock:
-        session.settings['image_output_format']['sequenced'] = image_mode.OUTPUT_FORMAT_OME_TIFF
     session.post_processing.composite(tmp_path)
 
     settings = session.get_settings_snapshot()
-    assert seen['output_format'] == settings['image_output_format']['sequenced']
-    assert seen['output_format'] == image_mode.OUTPUT_FORMAT_OME_TIFF
     assert seen['brightness_thresholds_percent'] == (
         config_helpers.get_composite_blend_thresholds(settings)
     )
@@ -124,12 +119,10 @@ def test_a_folder_with_nothing_to_stitch_is_refused(session, tmp_path):
 @pytest.mark.parametrize(
     ('member', 'kwargs'),
     [
-        ('stitch', {'mode': 'sideways'}),
-        ('zproject', {'method': 'no such method'}),
-        ('video', {'frames_per_sec': 0}),
-        ('video', {'frames_per_sec': 0.5}),
-        ('video', {'frames_per_sec': '-3'}),
-        ('video', {'frames_per_sec': 'fast'}),
+        ('video', {'frame_rate_fps': 0}),
+        ('video', {'frame_rate_fps': 0.5}),
+        ('video', {'frame_rate_fps': '-3'}),
+        ('video', {'frame_rate_fps': 'fast'}),
     ],
 )
 def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_path, member, kwargs):
@@ -138,15 +131,62 @@ def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_pat
     assert raised.value.reason == 'invalid_setting'
 
 
+def test_each_offered_mode_and_method_is_taken(session, tmp_path):
+    """The stitch modes and projection methods are the session's reads, and
+    each one offered is a setting the build takes: refused for the empty
+    folder, never for the setting. Any other word is refused by the build's
+    settings record (below)."""
+    post = session.post_processing
+    assert post.stitch_modes() == (StitchMode.QUALITY, StitchMode.FAST_PREVIEW)
+    assert post.projection_methods() == tuple(ZProjectMethod)
+    chosen = [{'stitch': Stitch(mode=mode)} for mode in post.stitch_modes()]
+    chosen += [{'zproject': ZProject(method=method)} for method in post.projection_methods()]
+    for build in chosen:
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            post.build(tmp_path, **build)
+        assert refused.value.reason != 'invalid_setting', build
+
+
+def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():
+    with pytest.raises(ArgumentRefusedError) as refused:
+        Stitch(mode='sideways')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Stitch.mode')
+    assert Stitch(mode='fast_preview').mode is StitchMode.FAST_PREVIEW
+
+
+def test_a_zproject_record_built_with_a_word_that_is_no_method_is_refused():
+    with pytest.raises(ArgumentRefusedError) as refused:
+        ZProject(method='max')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'ZProject.method')
+    assert ZProject(method='Sum').method is ZProjectMethod.Sum
+
+
+def test_a_degraded_output_names_its_algorithms_by_the_set(tmp_path):
+    built = DegradedOutput(
+        tmp_path / 'stitched.tiff', 'simple_position_stitcher', 'quality_local_ncc', 'reason'
+    )
+    assert (built.algorithm, built.fallback_from) == (
+        StitchAlgorithm.SIMPLE_POSITION,
+        StitchAlgorithm.QUALITY_LOCAL_NCC,
+    )
+    assert type(built.algorithm) is StitchAlgorithm
+    with pytest.raises(ArgumentRefusedError) as refused:
+        DegradedOutput(tmp_path / 'stitched.tiff', 'simple_position_stitcher', 'magic', 'reason')
+    assert (refused.value.reason, refused.value.argument) == (
+        'not_offered',
+        'DegradedOutput.fallback_from',
+    )
+
+
 def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatch, tmp_path):
     from modules.video_builder import VideoBuilder
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
-    session.post_processing.video(tmp_path, frames_per_sec='12', timestamp_overlay=True)
-    assert seen['frames_per_sec'] == 12.0
+    session.post_processing.video(tmp_path, frame_rate_fps='12', timestamp_overlay=True)
+    assert seen['frame_rate_fps'] == 12.0
     assert seen['enable_timestamp_overlay'] is True
-    session.post_processing.video(tmp_path, frames_per_sec=1)
-    assert seen['frames_per_sec'] == 1.0
+    session.post_processing.video(tmp_path, frame_rate_fps=1)
+    assert seen['frame_rate_fps'] == 1.0
 
 
 def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
@@ -156,22 +196,23 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
     session.post_processing.video(tmp_path)
-    assert seen['frames_per_sec'] is None
+    assert seen['frame_rate_fps'] is None
     assert seen['enable_timestamp_overlay'] is False
 
 
 def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch, tmp_path):
-    from modules.post_processing import PostProcessing, default_cell_count_method
+    from modules.cell_count_method import CellCountMethod
+    from modules.post_processing import PostProcessing
 
     seen = {}
 
-    def record(self, path, settings, on_progress=None):
-        seen.update(path=path, settings=settings, on_progress=on_progress)
+    def record(self, path, method, on_progress=None):
+        seen.update(path=path, method=method, on_progress=on_progress)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
-    method = default_cell_count_method()
+    method = CellCountMethod(threshold_pct=35)
 
     told = []
 
@@ -181,11 +222,45 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     assert session.post_processing.count_cells(
         tmp_path, method=method, on_progress=progress
     ) == CellCountResult(message='counted', results_path=tmp_path / 'results.csv', counted=3)
-    assert seen['settings'] is method
+    assert seen['method'] is method
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')
     assert told == [(42, 'Image 42')]
     assert seen['lane'] is session.post_processing.lane
+
+
+def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(session, tmp_path):
+    """A script or REST client starts from the method the panel starts from, and counts with it."""
+    from fastapi.testclient import TestClient
+
+    from modules.cell_count_method import CellCountMethod
+    from rest.app import build_app
+
+    method = session.post_processing.default_cell_count_method()
+    assert method == CellCountMethod()
+
+    (tmp_path / 'empty').mkdir()
+    with TestClient(build_app(session)) as client:
+        answer = client.get('/api/v1/post_processing/default_cell_count_method')
+        assert (answer.status_code, answer.json()) == (200, method.to_dict())
+        # The wire's method, sent back as it came, is built as the record:
+        # refused for the empty folder, never for the method.
+        counted = client.post(
+            '/api/v1/post_processing/count_cells',
+            json={'folder': 'empty', 'method': answer.json()},
+        ).json()
+        while counted.get('ended', True) is None:
+            # Still running when the route stopped waiting: its job's end is the answer.
+            counted = client.get(
+                f'/api/v1/jobs/{counted["id"]}', headers={'Prefer': 'wait=60'}
+            ).json()
+    problem = counted.get('error', counted)
+    assert problem.get('reason') == 'no_data', counted
+
+    # Taken as it is in Python: the same refusal.
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.count_cells(tmp_path / 'empty', method=method)
+    assert refused.value.reason == 'no_data'
 
 
 def test_the_session_lists_and_stops_the_post_processing_lane(tmp_path):
@@ -218,4 +293,4 @@ def test_the_stitcher_plugin_stitches_through_the_session(session, monkeypatch, 
 
     assert result.success
     assert seen['lane'] is session.post_processing.lane
-    assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
+    assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()

@@ -3,36 +3,51 @@
 
 The composition root Lumascope and its public state enum AxisState live
 in _lumascope.py. The sub-API classes (MotionAPI, IlluminationAPI,
-ImagingAPI, DiagnosticsAPI, Capabilities, RuntimeState,
+CameraAPI, ImagingAPI, DiagnosticsAPI, Capabilities, RuntimeState,
 ProtocolsAPI) live in sibling modules in this package.
 
 Existing imports `from modules.lumascope_api import Lumascope` and
 `from modules.lumascope_api import AxisState` keep working via the
-re-exports below.
+re-exports below. ``Frame`` is the record a frame listener receives.
 """
 
-from modules.lumascope_api._constants import AxisPosition
+from drivers.camera import Frame
+from modules.axes import Axis, StageAxis
+from modules.lumascope_api._constants import AxisPosition, TurretStatus
 from modules.lumascope_api._lumascope import (
     AxisState,
     Lumascope,
 )
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.capabilities import Capabilities
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.illumination import IlluminationAPI
 from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.motion import MotionAPI
+from modules.lumascope_api.motion import HomeTarget, Interlock, MotionAPI
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.lumascope_api.runtime_state import RuntimeState
+from modules.api_surface import api_fields
+
+# The camera driver defines the record and cannot import the marker, so the
+# API publishes its fields here.
+api_fields('image', 'seq', 'arrived_ns', 'wall_ns', 'significant_bits', 'chunks')(Frame)
 
 __all__ = [
+    'Axis',
     'AxisPosition',
     'AxisState',
+    'CameraAPI',
     'Capabilities',
     'DiagnosticsAPI',
+    'Frame',
+    'HomeTarget',
     'IlluminationAPI',
     'ImagingAPI',
+    'Interlock',
     'Lumascope',
     'MotionAPI',
     'ProtocolsAPI',
     'RuntimeState',
+    'StageAxis',
+    'TurretStatus',
 ]

@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""New Protocol hands the Session the two choices only the panel knows.
+"""New Protocol and Add hand the Session the choices only the panel knows.
 
 The protocol panel builds its protocol through `ScopeSession.new_protocol`,
 the same call a script makes. Tiling and z-stacking are that member's
@@ -12,16 +12,17 @@ and silently lacks the user's choice. That is the trap this pins: the panel
 states both, from its own spinner and toggle, every time.
 """
 
-import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.exceptions import ProtocolRunRefusedError
 
-PERIOD = datetime.timedelta(minutes=7)
-DURATION = datetime.timedelta(hours=3)
+PERIOD_S = 7 * 60.0
+DURATION_S = 3 * 3600.0
 
 
 class _Panel(ps.ProtocolSettings):
@@ -33,7 +34,7 @@ class _Panel(ps.ProtocolSettings):
             'acquire_zstack_id': SimpleNamespace(active=use_zstacking),
         }
         # The protocol on screen, whose schedule New starts from.
-        self._protocol = SimpleNamespace(period=lambda: PERIOD, duration=lambda: DURATION)
+        self._protocol = SimpleNamespace(period_s=lambda: PERIOD_S, duration_s=lambda: DURATION_S)
 
     def update_step_ui(self):
         # The redraw runs whatever the outcome; the stand has no stage to draw.
@@ -51,7 +52,7 @@ def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dic
 
     def new_protocol(**choices):
         asked.update(choices)
-        raise ProtocolRunRefusedError(reason='zstack_not_configured', title='t', message='m')
+        raise ProtocolRunRefusedError(reason='zstack_not_configured', message='m')
 
     session = SimpleNamespace(new_protocol=new_protocol)
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
@@ -67,8 +68,8 @@ def test_the_panels_tiling_and_zstack_choices_reach_the_session(monkeypatch):
     assert asked == {
         'tiling': '2x2',
         'use_zstacking': True,
-        'period': PERIOD,
-        'duration': DURATION,
+        'period_s': PERIOD_S,
+        'duration_s': DURATION_S,
     }
 
 
@@ -79,9 +80,36 @@ def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
     assert asked == {
         'tiling': '1x1',
         'use_zstacking': False,
-        'period': PERIOD,
-        'duration': DURATION,
+        'period_s': PERIOD_S,
+        'duration_s': DURATION_S,
     }
+
+
+def _drive_add(monkeypatch, *, use_zstacking: bool) -> dict:
+    """Click Add and return what the panel asked the Session for."""
+    asked: dict = {}
+
+    def add_step(protocol, **choices):
+        asked.update(choices)
+        raise ProtocolRunRefusedError(reason='zstack_not_configured', message='m')
+
+    monkeypatch.setattr(
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(add_step=add_step))
+    )
+    panel = _Panel('1x1', use_zstacking)
+    panel.curr_step = 0
+
+    with pytest.raises(ProtocolRunRefusedError):
+        panel.insert_step_ex(after_current_step=True)
+    return asked
+
+
+def test_add_states_the_panels_zstack_choice(monkeypatch):
+    """Add takes the Enable Z-Stack box as New does: with it left to the
+    member's default, a ticked box added flat steps and the run took one
+    image per channel."""
+    assert _drive_add(monkeypatch, use_zstacking=True)['use_zstacking'] is True
+    assert _drive_add(monkeypatch, use_zstacking=False)['use_zstacking'] is False
 
 
 def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog, centre_posts):
@@ -129,7 +157,7 @@ def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch)
     not refuse it: the drain is no reason for the GUI to say no."""
     session = SimpleNamespace(
         new_protocol=MagicMock(
-            side_effect=ProtocolRunRefusedError(reason='files_writing', title='t', message='m')
+            side_effect=ProtocolRunRefusedError(reason='files_writing', message='m')
         ),
         protocol_files_draining=True,
         protocol_files_stalled=False,

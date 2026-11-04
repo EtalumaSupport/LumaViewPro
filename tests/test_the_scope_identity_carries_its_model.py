@@ -18,6 +18,7 @@ import pytest
 
 from modules import layer_record
 from modules.exceptions import Refusal
+from tests.scope_fakes import refuse_a_report
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
@@ -30,7 +31,8 @@ def _resolve(**kwargs):
         'motor_model': None,
         'configured_model': None,
         'models': layer_record.load_scope_models(),
-        'catalogue': layer_record.release_catalogue(),
+        'catalogue': layer_record.release_layers(),
+        'report': refuse_a_report,
     }
     args.update(kwargs)
     return layer_record.resolve_layer_identity(**args)
@@ -41,7 +43,7 @@ class TestEveryRungCarriesTheModel:
         assert _resolve(motor_model='LS850T', override_model='LS560').model == 'LS560'
 
     def test_the_board_block_rung_carries_the_boards_model(self):
-        block = {'Layers': [], 'Filterset': ''}
+        block = {'Channels': {}, 'Filterset': ''}
         assert _resolve(board_block=block, motor_model='LS850T').model == 'LS850T'
 
     def test_the_catalogue_rung_carries_the_selection_when_the_board_reports_none(self):
@@ -52,7 +54,7 @@ class TestEveryRungCarriesTheModel:
     def test_a_board_model_the_catalogue_lacks_is_carried_with_no_layers(self):
         identity = _resolve(motor_model='LS9999', configured_model='LS560')
         assert identity.model == 'LS9999'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.source == 'unresolved'
 
     def test_no_model_at_all_is_the_shared_unresolved_snapshot(self):
@@ -72,10 +74,10 @@ def ls620_session(tmp_path):
 
 
 class TestTheRunningScopeHasOneModel:
-    def test_the_capabilities_carry_the_selected_model_of_an_fx2_scope(self, ls620_session):
+    def test_the_identity_carries_the_selected_model_of_an_fx2_scope(self, ls620_session):
         # The null motor board reports no model; the selection is the identity.
-        assert ls620_session.scope.diagnostics.get_motor_info()['model'] is None
-        assert ls620_session.scope.capabilities.model == 'LS620'
+        assert ls620_session.scope.diagnostics.get_motor_info().model is None
+        assert ls620_session.scope.channel_identity.model == 'LS620'
 
     def test_a_saved_image_records_the_identitys_model(self, ls620_session):
         from modules import image_save
@@ -91,24 +93,23 @@ class TestTheRunningScopeHasOneModel:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
-        assert metadata['microscope'] == 'LS620'
-        assert metadata['microscope_model'] == 'LS620'
         assert metadata['instrument']['model'] == 'LS620'
 
 
 class TestAModelSelectionAppliesAtTheNextStart:
     def test_the_selection_is_saved_and_the_running_scope_is_unchanged(self, ls620_session):
         scope = ls620_session.scope
-        identity = scope.layer_identity
+        identity = scope.channel_identity
         capabilities = scope.capabilities
 
         ls620_session.select_model('LS560')
 
         assert ls620_session.settings['microscope'] == 'LS560'
-        assert scope.layer_identity is identity
+        assert scope.channel_identity is identity
         assert scope.capabilities is capabilities
-        assert scope.capabilities.model == 'LS620'
+        assert scope.channel_identity.model == 'LS620'
 
     def test_a_model_the_catalogue_lacks_is_refused_and_nothing_is_saved(self, ls620_session):
         from modules.exceptions import ScopeModelUnknownError
@@ -125,7 +126,7 @@ class TestAModelSelectionAppliesAtTheNextStart:
         # for the next start.
         ls620_session.select_model('LS850T')
         assert ls620_session.scope.motor_connected is False
-        assert ls620_session.scope_has_turret() is False
+        assert ls620_session.scope.capabilities.has_turret is False
 
 
 class TestNothingReselectsARunningScope:

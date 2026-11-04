@@ -2,18 +2,17 @@
 """ProtocolsAPI -- protocol-author surface: construct Protocol objects.
 
 The protocol constructors need one thing the Protocol data class cannot
-resolve for itself: where `data/tiling.json` lives. That path is a
-property of the running INSTALLATION, not of any protocol, so the
-constructors resolve it here and callers never pass
-`tiling_configs_file_loc` by hand.
+hold for itself: the installation's tiling grids. They are a property of
+the running INSTALLATION, not of any protocol, so the constructors hand
+every protocol the scope's one copy and callers never pass it by hand.
 
 The data folder is the scope's own, given at its construction; the
-tiling config and the labware catalogue a loaded protocol is judged
+tiling grids and the labware catalogue a loaded protocol is judged
 against both come from it, so a protocol is never built against another
 installation's files.
 
 This surface BUILDS protocols; it does not run them. The runner is
-`ScopeSession.create_protocol_runner()`.
+`ScopeSession.protocol_runner()`.
 
 It also owns the one rule that decides whether a protocol is admissible
 on this scope at all -- whether the scope can put the glass it names in
@@ -29,13 +28,16 @@ import dataclasses
 import logging
 import math
 import pathlib
+import time
 import typing
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
+from lvp_logger import logger
+import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.coord_transformations import CoordinateTransformer
+from modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
 from modules.exceptions import (
     ArgumentRefusedError,
     PositionOutOfRangeError,
@@ -43,81 +45,109 @@ from modules.exceptions import (
     ProtocolStepsInvalidNotice,
     unknown_positions_sentence,
 )
-from modules.lumascope_api.imaging import camera_range_words
-from modules.api_surface import api, api_fields
+from modules.lumascope_api.camera import camera_range_words
+from modules.axes import StageAxis
+from modules.zstack_config import ZStackReference
+from modules.lumascope_api.runtime_state import slots_holding
+from modules.api_surface import api_fields
 
 if TYPE_CHECKING:
     import pandas as pd
 
     from modules.lumascope_api._lumascope import Lumascope
     from modules.protocol import Protocol
-    from modules.tiling_config import TilingConfig
+    from modules.tiling_config import TilingConfig, TilingGrids
 
 _api_log = logging.getLogger('LVP.api')
-_coordinate_transformer = CoordinateTransformer()
 
 
-@api_fields('turret_slot', 'x', 'y', 'z')
 @dataclasses.dataclass(frozen=True)
 class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
 
-    ``turret_slot`` is None on a scope with no turret. ``x`` and ``y`` are
-    stage micrometres on the protocol's own plate; ``z`` is the step's. An
+    ``turret_slot`` is None on a scope with no turret. ``x_um`` and ``y_um``
+    are stage micrometres on the protocol's own plate; ``z_um`` is the step's. An
     axis the scope has no motor for is None (``stage_targets``).
     """
 
     turret_slot: int | None
-    x: float | None
-    y: float | None
-    z: float | None
+    x_um: float | None
+    y_um: float | None
+    z_um: float | None
+
+
+@api_fields('objective_id', 'step_indexes', 'reassigned_step_indexes', 'choices')
+@dataclasses.dataclass(frozen=True)
+class TurretSlotQuestion:
+    """Which turret slot some steps of a protocol mean: what to ask the person.
+
+    Returned by ``ScopeSession.turret_slot_questions``, one per objective
+    whose steps cannot say which slot they mean: the objective is in two
+    or more slots and the steps recorded none (a protocol from before steps
+    recorded their slot), or the slot a step recorded now holds another
+    objective. The answer goes back through
+    ``ScopeSession.point_steps_at_turret_slot``; until then a run and going
+    to one of these steps are refused.
+
+    Attributes:
+        objective_id: The objective the steps name.
+        step_indexes: The indexes of the steps the answer points, ascending.
+        reassigned_step_indexes: Those of ``step_indexes`` whose recorded slot now holds
+            another objective; the others recorded no slot.
+        choices: The slots that hold ``objective_id`` now, ascending.
+    """
+
+    objective_id: str
+    step_indexes: tuple[int, ...]
+    reassigned_step_indexes: tuple[int, ...]
+    choices: tuple[int, ...]
 
 
 class ProtocolsAPI:
     """Protocol-construction sub-API on a Lumascope.
 
-    Hosts the two public constructors (`load_protocol`, `create_protocol`)
-    and the installation data root both resolve against.
+    Hosts the in-process protocol builders (`load_protocol`,
+    `create_protocol`) the session's ``new_protocol`` and ``load_protocol``
+    call, and the installation data root both resolve against.
     """
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
 
-    def tiling_configs_path(self) -> pathlib.Path:
-        """Resolve data/tiling.json from the scope's data folder.
+    def tiling_grids(self) -> TilingGrids:
+        """The installation's tiling grids: the scope's one copy, read at bring-up.
 
-        The one owner of that path: the protocol constructors resolve it
-        here, and the run engine takes it from here at run start for the
-        post-run composite merge and hyperstack build, so a headless run
-        reads the same tiling config the session was built with instead
-        of whatever the process's script root holds. An engine seam, not
-        part of the L2 API surface: a caller never needs the path itself.
+        Every protocol is built against it, here and in the post-run builds,
+        so the grids a protocol accepts and lays out are the grids
+        ``tiling_config`` offers. An engine seam, not part of the L2 API
+        surface: a caller chooses a grid by its label.
         """
-        return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
+        return self._scope._tiling_grids
 
-    @api
     def tiling_config(self) -> TilingConfig:
-        """The tiling grids this installation offers, from the scope's data folder.
+        """The tiling grids this installation offers: the scope's copy, read at bring-up.
 
         What a caller needs to choose a grid: ``available`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
         and ``default`` is the one to preselect; ``Protocol.tiling()``
-        names the grid a protocol's steps already carry. Read from the file on
-        each call, so there is no copy to fall out of step with it.
+        names the grid a protocol's steps already carry. Read once with the
+        installation's other catalogues, so a tiling.json edited while the
+        program runs is seen at the next start; a file no reader can use
+        refuses the bring-up (``InstallationFileError``, naming it). The
+        record is frozen: a caller cannot change the grids a session offers.
 
         Raises:
-            RuntimeError: tiling.json is missing or is not valid JSON.
-            ValueError: tiling.json does not have the expected structure.
+            Nothing.
         """
-        from modules.tiling_config import TilingConfig
-
-        return TilingConfig(tiling_configs_file_loc=self.tiling_configs_path())
+        return self._scope._tiling_grids.config
 
     def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.
 
-        Wraps ``Protocol.from_file(...)`` and resolves
-        ``data/tiling.json`` from the scope's data folder.
+        Wraps ``Protocol.from_file(...)`` against the scope's tiling grids.
+        The file's channel names are read as this scope's keys for them, so
+        a file saved in an earlier release's names lights the LEDs it was
+        made with.
 
         Args:
             file_path: Path to the protocol file.
@@ -126,7 +156,9 @@ class ProtocolsAPI:
             Protocol: The loaded Protocol instance.
 
         Raises:
-            ProtocolNotLoadedError: The file cannot be read.
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
+                ``file_path``; ``'not_a_file'``, a folder is.
+            ProtocolNotLoadedError: The file is there and cannot be read.
             ProtocolFormatError: On format issues (same surface as
                 Protocol.from_file), or when the file names a plate this
                 installation's labware catalogue does not have. Refused
@@ -137,23 +169,45 @@ class ProtocolsAPI:
                 scope does not have, with the reason a run would give for
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
-                and save but never perform.
+                and save but never perform. ``'channel_unknown'``, a step
+                names a channel no release has (``refuse_absent_layers``).
+                ``'values_out_of_range'``, its Layer Settings block holds a
+                value no layer setting takes, each named: applying them
+                would be refused. A file with no block (v5) has its rows
+                inferred from its steps, whose values are told, not refused.
         """
         from modules.protocol import Protocol
 
+        started = time.monotonic()
         protocol = Protocol.from_file(
-            file_path=file_path,
-            tiling_configs_file_loc=self.tiling_configs_path(),
+            file_path=path_utils.existing_file(file_path),
+            tiling_grids=self.tiling_grids(),
+            unit=self._scope.channel_identity,
             wellplate_loader=self._scope.wellplate_loader,
         )
+        read = time.monotonic()
         # After the parse, so a file that is not a protocol at all is
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self.refuse_absent_layers(protocol)
+        # The file's own block alone: rows inferred from its steps are the
+        # steps' values, lenient here and told below.
+        if protocol.has_saved_layer_settings():
+            self.refuse_layer_settings_out_of_range(protocol)
+        self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
         self._report_invalid_steps(protocol, solicited=False)
+        # The load runs on the caller's thread (the GUI's, at a Load and at
+        # startup), so a large protocol holds that thread for its whole
+        # length; the split says whether the read or the checks cost it.
+        checked = time.monotonic()
+        logger.info(
+            f'[Protocol] Loaded "{pathlib.Path(file_path).name}": '
+            f'{protocol.num_steps()} steps, read in {read - started:.2f} s, '
+            f'checked in {checked - read:.2f} s'
+        )
         return protocol
 
     def _report_invalid_steps(self, protocol: Protocol, *, solicited: bool) -> None:
@@ -168,32 +222,34 @@ class ProtocolsAPI:
         from modules.notification_center import notifications
 
         errors = protocol.validate_steps(
-            self._scope.objective_helper, led_max_ma=self._scope.capabilities.led_max_ma
+            self._scope.objectives, led_max_ma=self._scope.capabilities.led_max_ma
         )
         if errors:
             notifications.report_outcome(
                 ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
             )
 
-    @api
     def create_protocol(
         self,
         *,
         input_config: dict | None = None,
         empty_config: dict | None = None,
     ) -> Protocol:
-        """Construct a Protocol in-memory.
+        """Construct a Protocol in-memory: the in-process builder the
+        session's ``new_protocol`` and ``create_empty_protocol`` and the
+        runner's internal starters call. A caller of the API builds through
+        those.
 
         Two sources (pass exactly one):
           - input_config={...}: positions, layer_configs, the z-stack, the
-            tiling, the schedule and the frame; routed through
-            Protocol.from_config.
-          - empty_config={...}: labware, period, duration, frame_dimensions
-            and binning_size for an empty-steps protocol, which needs no
+            tiling, the schedule and the frame; built flat by
+            Protocol.from_config, then tiled and stacked.
+          - empty_config={...}: labware_id, period, duration,
+            frame_dimensions and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
-        tiling_configs_file_loc is resolved internally from the scope's data
-        folder. The configuration is judged whole before anything is built:
-        every key the build reads, present and of its kind.
+        The protocol is built against the scope's tiling grids. The
+        configuration is judged whole before anything is built: every key
+        the build reads, present and of its kind.
 
         Args:
             input_config: A protocol's configuration, or None.
@@ -206,15 +262,27 @@ class ProtocolsAPI:
             ArgumentRefusedError: ``'protocol_source_ambiguous'``, not
                 exactly one source was given; ``'missing_key'``,
                 ``'wrong_kind'``, ``'not_a_number'``,
-                ``'zstack_reference_unknown'``, ``'acquire_mode_unknown'``
-                or ``'layer_unknown'``, a key of the configuration, named by
-                its path in ``argument``.
+                ``'not_offered'`` (the z-stack's reference or a layer's acquire
+                mode) or ``'channel_unknown'``, a key of the configuration,
+                named by its path in ``argument``.
             CatalogueNameRefusedError: the configuration names a plate or an
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
-                ``objective_not_given``, ``focus_not_given``,
-                ``overlap_out_of_range``, ``tiling_unknown``,
-                ``zstack_not_configured`` -- reported once.
+                ``objective_not_given``, ``focus_not_given`` -- or the grid
+                it asks for cannot be, as ``apply_tiling`` refuses it
+                (``tiling_unknown``, ``overlap_out_of_range``,
+                ``positions_unreachable``, ``tiles_outside_travel``), or the
+                stack, as ``apply_zstacking`` refuses it
+                (``zstack_not_configured``, ``positions_unreachable``,
+                ``zslices_outside_travel``); reported once.
+            ConfigError: no session has bound the scope, so it has no stage
+                offset to lay the grid out at.
+
+        A configuration is built flat, one step per acquiring layer per
+        position, then tiled by ``Protocol.apply_tiling`` and stacked by
+        ``Protocol.apply_zstacking``, the one grid build and the one z-stack
+        build, so a New protocol's tiles and stacks are ordered, grouped,
+        focused and refused as Apply's and Add's are.
         """
         from modules.protocol import Protocol, refuse_unless_buildable_config
 
@@ -232,18 +300,33 @@ class ProtocolsAPI:
             given[0],
             empty=empty_config is not None,
         )
-        tcfg = self.tiling_configs_path()
+        grids = self.tiling_grids()
         if input_config is not None:
-            return Protocol.from_config(
+            protocol = Protocol.from_config(
                 input_config=input_config,
-                tiling_configs_file_loc=tcfg,
+                tiling_grids=grids,
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
             )
+            protocol.apply_tiling(
+                tiling=input_config['tiling'],
+                frame_dimensions=input_config['frame_dimensions'],
+                binning_size=input_config['binning_size'],
+                axis_limits=self._travel_limits(),
+                labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
+                stage_offset=self._scope.runtime_state.get_stage_offset(),
+                overlap_percent=input_config.get('tiling_overlap_percent', 0.0),
+                capabilities=self._scope.capabilities,
+                objective_helper=self._scope.objective_helper,
+            )
+            if input_config['use_zstacking']:
+                protocol.apply_zstacking(input_config['zstack_params'], self._travel_limits())
+            self._stamp_turret_slots(protocol)
+            return protocol
         return Protocol.create_empty(
             config=empty_config,
-            tiling_configs_file_loc=tcfg,
+            tiling_grids=grids,
             capabilities=self._scope.capabilities,
             objective_helper=self._scope.objective_helper,
             wellplate_loader=self._scope.wellplate_loader,
@@ -255,11 +338,11 @@ class ProtocolsAPI:
         *,
         layer_configs: dict,
         stim_configs: dict,
-        plate_position: dict,
-        objective_id: str | None,
+        plate_position: PlateLocation,
         channel_order: list[str] | None = None,
-        before_step: int | None = None,
-        after_step: int | None = None,
+        before_step_index: int | None = None,
+        after_step_index: int | None = None,
+        zstack_params: dict | None = None,
     ) -> list[str]:
         """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
 
@@ -267,48 +350,67 @@ class ProtocolsAPI:
         whose ``acquire`` is None contributes no step, and when no layer
         acquires the add is refused rather than silently doing nothing:
         the click used to return bare, so the user saw nothing happen and
-        nothing said why. On a turret scope the current slot must name an
-        objective, or the step would record glass the scope cannot say it
-        has.
+        nothing said why. The step records the active objective, read
+        where the add is judged; when no one can say which objective is in
+        the light path the add is refused, or the step would record glass
+        the scope cannot say it has.
 
         ``channel_order`` names the layers whose steps come first, in that
         order; layers it does not name follow in the order given. Each
         layer's step is placed after the previous layer's, so the protocol
-        reads in that order -- the composite path associates channels by
-        their step order.
+        reads in that order. The steps of one add share one channel group
+        id, and that, not their order, is what makes them one composite:
+        two adds at one position are two composites.
 
-        ``objective_id`` is the active objective, or None when no one can say
-        which objective is in the light path.
-
-        ``before_step`` or ``after_step`` places the steps; with neither
+        ``before_step_index`` or ``after_step_index`` places the steps; with neither
         they follow the last step, which is what a script building a
         protocol one add at a time means by "add".
 
-        Returns the inserted step names, in protocol order.
+        ``zstack_params`` (``range``, ``step_size``, ``z_reference``) makes
+        each added step a z-stack around the live Z, built as
+        ``apply_zstacking`` builds one; the protocol's other steps are left as
+        they are, where they are. The stack is judged before anything is
+        added, so a stack that cannot be built adds nothing.
+
+        Returns the inserted step names, in protocol order: each stack's
+        slices when stacked.
 
         Raises:
-            ProtocolRunRefusedError: an axis does not know its position, no
-                layer acquires, the turret's current slot has no objective,
-                or the active objective is unknown. Logged and notified once.
-            ProtocolError: an impossible ``before_step`` / ``after_step``,
+            ProtocolRunRefusedError: an axis does not know its position, or
+                no layer acquires. With ``zstack_params``, also what ``apply_zstacking`` refuses.
+            ObjectiveUnknownError: the active objective is unknown, for the
+                reason ``runtime_state.resolve_current_objective`` gives (on a
+                turret scope, ``'slot_unassigned'`` for a slot with no
+                objective). Asked after the position.
+            ArgumentRefusedError: with ``zstack_params``, as
+                ``apply_zstacking``.
+            ProtocolError: an impossible ``before_step_index`` / ``after_step_index``,
                 or both given (raised by the protocol).
         """
         from modules.protocol import Protocol
 
-        self._refuse_unrecordable_step(verb='add', objective_id=objective_id)
+        objective_id = self._recordable_objective(verb='add')
         self.refuse_no_acquiring_layer(layer_configs)
 
         ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
         ordered += [layer for layer in layer_configs if layer not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
-        if before_step is None and after_step is None:
-            after_step = protocol.num_steps() - 1
+        if before_step_index is None and after_step_index is None:
+            after_step_index = protocol.num_steps() - 1
+        acquiring = [layer for layer in ordered if Protocol.layer_acquires(layer_configs[layer])]
+        if zstack_params is not None:
+            Protocol.refuse_unbuildable_zstack(
+                zstack_params,
+                self._travel_limits(),
+                [(f'the new {layer} step', plate_position.z_um) for layer in acquiring],
+            )
+        first_added = before_step_index if before_step_index is not None else after_step_index + 1
 
         names: list[str] = []
-        for layer in ordered:
+        channel_group_id = protocol.new_channel_group_id()
+        turret_slot = self._live_turret_slot()
+        for layer in acquiring:
             layer_config = layer_configs[layer]
-            if not Protocol.layer_acquires(layer_config):
-                continue
             name = protocol.insert_step(
                 step_name=None,
                 layer=layer,
@@ -316,32 +418,77 @@ class ProtocolsAPI:
                 stim_configs=stim_configs,
                 plate_position=plate_position,
                 objective_id=objective_id,
-                before_step=before_step,
-                after_step=after_step,
+                channel_group_id=channel_group_id,
+                turret_slot=turret_slot,
+                before_step_index=before_step_index,
+                after_step_index=after_step_index,
             )
             names.append(name)
             # The next layer goes after this one. Handing every layer the
             # same index puts each new step AT that index, which reads the
             # channels back in reverse. The index is arithmetic, not a
             # name lookup: a loaded file may carry duplicate names.
-            inserted_at = before_step if before_step is not None else after_step + 1
-            before_step, after_step = None, inserted_at
+            inserted_at = (
+                before_step_index if before_step_index is not None else after_step_index + 1
+            )
+            before_step_index, after_step_index = None, inserted_at
+        if zstack_params is not None:
+            steps_before = protocol.num_steps()
+            protocol.apply_zstacking(
+                zstack_params,
+                self._travel_limits(),
+                only=range(first_added, first_added + len(names)),
+            )
+            added = len(names) + protocol.num_steps() - steps_before
+            names = [
+                protocol.step_row(step_index=idx)['Name']
+                for idx in range(first_added, first_added + added)
+            ]
         self._report_invalid_steps(protocol, solicited=True)
         return names
+
+    def _refuse_channel_already_in_add(
+        self, protocol: Protocol, step_index: int, layer: str
+    ) -> None:
+        """Refuse giving step ``step_index`` a channel another step of its add takes.
+
+        An add's steps are one composite with one image per channel, so a
+        second step of one channel would leave the composite two images for
+        one plane, refused only after the run has captured both. A step
+        recorded before adds were (group -1) has no add to check. An edit
+        that keeps the step's channel writes no second step of it: the
+        slices of a stacked channel share their add and their channel, and
+        are not one another's duplicates.
+        """
+        step = protocol.step_row(step_index=step_index)
+        if step['Channel Group ID'] == -1 or layer == step['Color']:
+            return
+        group = step['Channel Group ID']
+        steps = protocol.steps().reset_index(drop=True)
+        same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_index)]
+        if layer in set(same_add['Color']):
+            self._refuse(
+                reason='channel_already_in_add',
+                message=(
+                    f'Another step added with this one already takes {layer}, and steps '
+                    f'added together are one composite with one image per channel. '
+                    f'Open the drawer of the channel this step takes, or add {layer} '
+                    'as a new step.'
+                ),
+            )
 
     def update_step(
         self,
         protocol: Protocol,
-        step_idx: int,
+        step_index: int,
         *,
         layer: str,
         layer_configs: dict,
         stim_configs: dict,
-        plate_position: dict,
-        objective_id: str | None,
+        plate_position: PlateLocation,
         label: str | None = None,
     ) -> str:
-        """Rewrite step ``step_idx`` of ``protocol`` from ``layer`` at ``plate_position``.
+        """Rewrite step ``step_index`` of ``protocol`` from ``layer`` at ``plate_position``.
 
         The GUI's Update Step and a script's update are this one call, and
         it is refused for the same reasons an add is: a step is a saved
@@ -353,66 +500,93 @@ class ProtocolsAPI:
         change, so the step keeps the channel it already acquires.
         ``label`` renames the step; None keeps its label.
 
+        On an axis this scope has no motor for, the step keeps the position
+        it has: the scope measured nothing there, so a loaded step's X/Y
+        survive an update on a scope without a stage.
+
         Returns the step's name after the update.
 
         Raises:
-            ProtocolRunRefusedError: an axis does not know its position, the
-                turret's current slot has no objective, the active objective
-                is unknown, or the layer the step takes is not set to
-                acquire (reason ``no_acquiring_layer``, as an add). Logged
-                and notified once; the step is unchanged.
-            ProtocolError: ``step_idx`` is not a step of ``protocol``
-                (raised by the protocol).
+            ProtocolRunRefusedError: an axis does not know its position
+                (``'step_position_unknown'``), or the layer the step takes is
+                not set to acquire (``'no_acquiring_layer'``, as an add), or
+                another step of the same add already takes that channel
+                (``'channel_already_in_add'``). The step is unchanged.
+            StepEditRefusedError: ``'step_value_refused'``, the step is a
+                slice of a z-stack and ``layer`` is not its channel (raised
+                by the protocol). The step is unchanged.
+            ObjectiveUnknownError: the active objective is unknown, as an
+                add refuses it; the step is unchanged.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol), judged before
+                anything else: an empty protocol has no step to update,
+                whatever the layer.
         """
         from modules.protocol import Protocol
 
-        self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
+        step = protocol.step_row(step_index=step_index)
+        objective_id = self._recordable_objective(verb='update')
 
         stim_config = layer_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
-            layer = protocol.step(idx=step_idx)['Color']
+            layer = step['Color']
 
         if not Protocol.layer_acquires(layer_configs[layer]):
             self._refuse(
                 reason='no_acquiring_layer',
-                title='No Channel Set to Acquire',
                 message=(
                     f'{layer} is not set to acquire, so there is no step to make. '
                     f'Set {layer} to Image or Video first.'
                 ),
             )
 
+        self._refuse_channel_already_in_add(protocol, step_index, layer)
+
+        axes = self._scope.capabilities.axes
+        has_xy = 'X' in axes and 'Y' in axes
+        plate_position = PlateLocation(
+            x_mm=plate_position.x_mm if has_xy else step['X'],
+            y_mm=plate_position.y_mm if has_xy else step['Y'],
+            z_um=plate_position.z_um if 'Z' in axes else step['Z'],
+        )
+
         protocol.modify_step(
-            step_idx=step_idx,
+            step_index=step_index,
             label=label,
             layer=layer,
             layer_config=layer_configs[layer],
             stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
             objective_id=objective_id,
+            turret_slot=self._live_turret_slot(),
         )
         self._report_invalid_steps(protocol, solicited=True)
-        return protocol.step(idx=step_idx)['Name']
+        return protocol.step_row(step_index=step_index)['Name']
 
-    @api
-    def focus_z(self, *, then: str) -> float:
+    def focus_z_um(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
         Args:
             then: What the user does once Z knows its position, ending the
                 refusal (e.g. ``'save the focus'``).
 
+        Each refusal is raised, not reported: the caller's boundary
+        reports it.
+
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
-                has no Z axis, so there is no focus to save; the position
-                cache would answer 0. Logged and notified once.
-            AxisStateUnknownError: Z lost its reference, so the number it
-                answers is the last one it reported. Reported once by the
-                motion API.
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this
+                scope has no Z axis, so there is no focus to save.
+            HardwareCommandRefusedError: ``'scope_disconnected'`` or
+                ``'not_connected'``, Z's motor controller is out of reach
+                (as ``MotionAPI.positions_to_keep``).
+            AxisStateUnknownError: ``'position_unknown'``, Z is homing or
+                lost its reference, so the number it answers is the last
+                one it reported.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so its number
+                is a place it is passing through.
         """
         self._refuse_no_focus_axis(then)
-        self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
-        return self._scope.motion.get_current_position('Z')
+        return self._scope.motion.positions_to_keep(('Z',), then=then)['Z']
 
     def check_focus_z(self, z_um: float, *, then: str) -> float:
         """A given Z, as a focus to save into a layer: one this scope's Z can reach.
@@ -432,7 +606,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
-                has no Z axis. Logged and notified once.
+                has no Z axis.
             ArgumentRefusedError: ``'not_a_number'``, ``z_um`` is not a
                 finite number.
             PositionOutOfRangeError: ``z_um`` lies outside Z's travel.
@@ -441,7 +615,7 @@ class ProtocolsAPI:
         refuse_unless_finite_number(z_um, 'z_um')
         z = float(z_um)
         limits = self._scope.motion.get_axis_limits('Z')
-        low, high = (-math.inf, math.inf) if limits is None else (limits['min'], limits['max'])
+        low, high = (-math.inf, math.inf) if limits is None else (limits.min_um, limits.max_um)
         if not low <= z <= high:
             raise PositionOutOfRangeError('Z', z, low, high)
         return z
@@ -451,61 +625,68 @@ class ProtocolsAPI:
         if not self._scope.capabilities.has_focus:
             self._refuse(
                 reason='positions_unreachable',
-                title='Position Not Reachable',
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
-    @api
-    def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
-        """Write ``z`` as step ``step_idx``'s Z.
+    def set_step_z(self, protocol: Protocol, step_index: int, z: float) -> None:
+        """Write ``z`` as step ``step_index``'s Z.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+            ProtocolRunRefusedError: ``'positions_unreachable'``, this scope
+                has no Z axis, so no Z is a place it can go. Nothing is written.
+            ProtocolError: ``step_index`` is not a step of ``protocol``, or
                 ``z`` is not a number (raised by the protocol).
         """
-        protocol.modify_step_z_height(step_idx=step_idx, z=z)
+        self._refuse_no_focus_axis(then="set a step's Z")
+        protocol.modify_step_z_height(step_index=step_index, z=z)
 
-    def apply_focus_to_layer_steps(self, protocol: Protocol, layer: str, z: float) -> int:
+    def apply_focus_to_channel_steps(self, protocol: Protocol, layer: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``layer``; returns how many.
+
+        A slice of a z-stack takes ``z`` plus its offset from its channel's
+        reference slice, so each stack is placed with its reference at ``z``
+        and keeps its spacing.
 
         Raises:
             ProtocolError: ``z`` is not a number (raised by the protocol).
         """
         return protocol.apply_focus_all_layer_steps(layer=layer, z=z)
 
-    def delete_step(self, protocol: Protocol, step_idx: int) -> None:
-        """Remove step ``step_idx`` from ``protocol``; the steps after it move up one.
+    def delete_step(self, protocol: Protocol, step_index: int) -> None:
+        """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``
-                (raised by the protocol). Nothing is removed.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol). Nothing is
+                removed.
         """
-        protocol.delete_step(step_idx=step_idx)
+        protocol.delete_step(step_index=step_index)
         self._report_invalid_steps(protocol, solicited=True)
 
-    def rename_step(self, protocol: Protocol, step_idx: int, name: str) -> str:
-        """Give step ``step_idx`` the label ``name``, kept through later channel changes.
+    def rename_step(self, protocol: Protocol, step_index: int, name: str) -> str:
+        """Give step ``step_index`` the label ``name``, kept through later channel changes.
 
         Characters a filename cannot carry are removed from ``name``.
         Returns the step's name after the rename. A rename to the label the
         step already holds as its own changes nothing, so it gives no
-        invalid-step notice: a name field sends the name it shows each time
-        it loses focus.
+        invalid-step notice: a name field sends the name it shows when Enter
+        is pressed on it.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
-                ``name`` has no letter, digit, dash or underscore (raised
-                by the protocol). The step keeps its name.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol).
+            StepEditRefusedError: ``'step_value_refused'``, ``name`` has no
+                letter, digit, dash or underscore. The step keeps its name.
         """
-        before = protocol.step(idx=step_idx)[['Label', 'Auto_Named']].tolist()
-        protocol.modify_name(step_idx=step_idx, step_name=name)
-        after = protocol.step(idx=step_idx)
+        before = protocol.step_row(step_index=step_index)[['Label', 'Auto_Named']].tolist()
+        protocol.modify_name(step_index=step_index, step_name=name)
+        after = protocol.step_row(step_index=step_index)
         if after[['Label', 'Auto_Named']].tolist() != before:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
 
-    def set_labware(self, protocol: Protocol, plate_key: str) -> str:
-        """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
+    def set_labware(self, protocol: Protocol, labware_id: str) -> str:
+        """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
 
         Every position a step holds is stated against the protocol's plate.
         On a scope with no XY stage there is no plate to move over, so the
@@ -513,13 +694,13 @@ class ProtocolsAPI:
         asked for is logged as replaced.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has. The protocol keeps its
                 plate.
         """
         from modules.labware_loader import CENTER_PLATE
 
-        key = self._scope.wellplate_loader.resolve_plate_key(plate_key)
+        key = self._scope.wellplate_loader.resolve_plate_key(labware_id)
         if not self._scope.capabilities.has_xy_stage and key != CENTER_PLATE:
             _api_log.info(
                 f'[API] protocol plate {key!r} replaced by {CENTER_PLATE!r}: '
@@ -547,19 +728,21 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: ``tiling`` is not a grid this
                 installation offers, the protocol is already tiled, a step's
                 objective is not in the catalogue, the scope has no X/Y
-                motor, or a tile falls outside the stage's travel. Nothing
-                changes.
+                motor, a step has no position on an axis this scope moves
+                (``'step_position_missing'``), or a tile falls outside the
+                stage's travel. Nothing changes.
             CatalogueNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``). Nothing changes.
             ConfigError: no session has bound the scope, so it has no stage
                 offset. Nothing changes.
         """
+        self.refuse_missing_positions(protocol.steps(), then='tile them')
         protocol.apply_tiling(
             tiling=tiling,
             frame_dimensions=frame_dimensions,
             binning_size=binning_size,
             axis_limits=self._travel_limits(),
-            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+            labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
             stage_offset=self._scope.runtime_state.get_stage_offset(),
             overlap_percent=overlap_percent,
             capabilities=self._scope.capabilities,
@@ -573,23 +756,25 @@ class ProtocolsAPI:
         *,
         range_um: float,
         step_size_um: float,
-        z_reference: str,
+        z_reference: ZStackReference,
     ) -> None:
         """Expand every step of ``protocol`` not already in a stack into a z-stack.
 
-        ``z_reference`` says where each step's Z sits in its stack:
-        ``'top'``, ``'center'`` or ``'bottom'``. The slices are ordered as a
-        run visits them.
+        ``z_reference`` says where each step's Z sits in its stack. The
+        slices are ordered as a run visits them.
 
         Raises:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
-                greater than zero, the scope has no Z motor, or a slice falls
-                outside the Z travel. Nothing changes.
+                greater than zero, the scope has no Z motor, a step has no
+                position on an axis this scope moves
+                (``'step_position_missing'``), or a slice falls outside the Z
+                travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
-            ArgumentRefusedError: ``'zstack_reference_unknown'``,
-                ``z_reference`` is not one of the three. Nothing changes.
+            ArgumentRefusedError: ``'not_offered'``, ``z_reference`` is not a
+                ``ZStackReference``. Nothing changes.
         """
+        self.refuse_missing_positions(protocol.steps(), then='stack them')
         protocol.apply_zstacking(
             zstack_params={
                 'range': range_um,
@@ -600,75 +785,6 @@ class ProtocolsAPI:
         )
         self._report_invalid_steps(protocol, solicited=True)
 
-    @api
-    def plate_to_stage(
-        self, protocol: Protocol, px: float, py: float, *, stage_offset: dict | None = None
-    ) -> tuple[float, float]:
-        """A plate position of ``protocol``, as stage micrometres.
-
-        Converted against the plate the PROTOCOL stores, not the one the
-        session has selected: a step is driven in the frame it was written
-        in, whatever plate the operator has since picked. ``stage_offset``
-        is the live one unless a caller supplies the snapshot it took (a
-        run keeps the offset it started with).
-
-        Raises:
-            CatalogueNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``).
-            ConfigError: no session has bound the scope, so it has no stage
-                offset.
-        """
-        if stage_offset is None:
-            stage_offset = self._scope.runtime_state.get_stage_offset()
-        return _coordinate_transformer.plate_to_stage(
-            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
-            stage_offset=stage_offset,
-            px=px,
-            py=py,
-        )
-
-    @api(in_process=True)
-    def plate_transform(
-        self, protocol: Protocol, *, stage_offset: dict | None
-    ) -> Callable[[float, float], tuple[float, float]] | None:
-        """The stage-to-plate transform of ``protocol``'s frame: ``plate_to_stage`` inverted.
-
-        What a run states a frame's position in: the plate the protocol
-        stores and the offset the run started with, the frame its steps
-        were driven in. The selected plate and the live offset are the
-        frame of a capture made outside a run
-        (``runtime_state.plate_transform``); a run converted through them
-        would state its positions in a frame it never moved in once the
-        operator picked another plate. Both are bound when this is called,
-        so a later change moves no position it converts, and it cannot
-        raise.
-
-        Args:
-            protocol: The protocol whose plate the positions are stated on.
-            stage_offset: The offset the run started with; None on a scope
-                with no X/Y stage, which has no plate position to state.
-
-        Returns:
-            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``,
-            or None when ``stage_offset`` is.
-
-        Raises:
-            CatalogueNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``).
-        """
-        if stage_offset is None:
-            return None
-        labware = self._scope.wellplate_loader.get_plate(plate_key=protocol.labware())
-        stage_offset = dict(stage_offset)
-
-        def to_plate(sx: float, sy: float) -> tuple[float, float]:
-            return _coordinate_transformer.stage_to_plate(
-                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
-            )
-
-        return to_plate
-
-    @api
     def stage_targets(
         self,
         protocol: Protocol,
@@ -676,7 +792,7 @@ class ProtocolsAPI:
         py: float | None,
         z: float | None,
         *,
-        stage_offset: dict | None = None,
+        stage_offset: StageOffset | None = None,
     ) -> tuple[float | None, float | None, float | None]:
         """A plate position and Z of ``protocol`` as the stage targets this scope drives.
 
@@ -684,67 +800,85 @@ class ProtocolsAPI:
         steps, its return between scans and after a z-stack, a person's Go
         To Step -- so none drives an axis the scope lacks: an axis with no
         motor is None, and so are X and Y when ``px`` or ``py`` is. X and Y
-        are converted as ``plate_to_stage`` converts them.
+        are converted on the plate the PROTOCOL stores, not the one the
+        session has selected: a step is driven in the frame it was written
+        in, whatever plate the operator has since picked. ``stage_offset``
+        is the live one unless a caller supplies the one it took (a run
+        keeps the offset it started with).
 
         Returns:
             ``(x, y, z)`` in stage micrometres, each None where nothing is
             driven.
 
         Raises:
-            CatalogueNameRefusedError: as ``plate_to_stage``.
+            CatalogueNameRefusedError: the protocol's plate is not in the
+                catalogue (``'labware_unknown'``).
         """
         axes = self._scope.capabilities.axes
         x = y = None
         if 'X' in axes and 'Y' in axes and px is not None and py is not None:
-            x, y = self.plate_to_stage(protocol, px, py, stage_offset=stage_offset)
+            stage = self._scope.runtime_state.plate_to_stage(
+                px, py, labware_id=protocol.labware_id(), stage_offset=stage_offset
+            )
+            x, y = stage.x_um, stage.y_um
         return x, y, (z if 'Z' in axes else None)
 
-    @api
     def step_targets(
-        self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
+        self, protocol: Protocol, step_index: int, *, stage_offset: StageOffset | None = None
     ) -> StepTargets:
-        """The motor targets of step ``step_idx``: the one conversion a run and a person's navigation share.
+        """The motor targets of step ``step_index``: the one conversion a run and a person's navigation share.
 
-        The turret slot is the one carrying the step's objective, chosen as
-        ``motion.get_turret_position_for_objective_id`` chooses it, so
-        navigating to a step and running it look through the same glass. X,
-        Y and Z are ``stage_targets``'s: None for an axis the scope lacks.
+        The turret slot is the one the step recorded, so navigating to a
+        step and running it look through the same glass, and two steps
+        naming one objective in two slots each go to their own. A step that
+        recorded no slot means the only slot holding its objective. X, Y and
+        Z are ``stage_targets``'s: None for an axis the scope lacks.
 
         Raises:
-            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            StepNotFoundError: ``step_index`` is not a step of ``protocol``.
+            ProtocolRunRefusedError: ``'step_position_missing'``, the step has
+                no position on an axis this scope moves
+                (``refuse_missing_positions``). Or this scope cannot put the step's
+                objective in the light path (``refuse_unaddressable_objectives``):
+                ``'turret_objectives_unassigned'``, no turret slot carries it;
+                ``'objective_not_mounted'``, without a turret, it is not the
+                mounted objective. Asked here, so a step whose slot was cleared
+                after its protocol loaded is refused, never moved to through
+                the wrong glass. ``'turret_slot_ambiguous'`` or
+                ``'turret_slot_reassigned'``, the step cannot say which slot
+                it means (``turret_slot_questions``).
             CatalogueNameRefusedError: as ``stage_targets``.
-            RuntimeError: this scope has a turret and no slot carries the
-                step's objective. The admissibility rule
-                (``refuse_unaddressable_objectives``) reads the same turret
-                configuration, so a step it admitted has a slot; the two
-                disagreeing is a defect, and what this replaced moved X, Y
-                and Z anyway, capturing through the wrong glass under the
-                right file name.
         """
-        step = protocol.step(idx=step_idx)
+        step = protocol.step_row(step_index=step_index)
+        # This step's own fields, not the protocol's frame: a run asks it at every step.
+        lacking = [axis for axis in self._driven_axes() if step[axis] is None]
+        if lacking:
+            self._refuse_missing_positions([step['Name']], lacking, then='go to it')
+        self.refuse_unaddressable_objectives([step['Objective']])
         turret_slot = None
         if self._scope.capabilities.has_turret:
-            turret_slot = self._scope.motion.get_turret_position_for_objective_id(
-                objective_id=step['Objective']
+            turret_slot = self._slot_meant(
+                step['Objective'],
+                step['Turret Slot'],
+                self._scope.runtime_state.get_turret_config(),
             )
             if turret_slot is None:
-                raise RuntimeError(
-                    f'no turret slot carries {step["Objective"]!r} for step {step_idx}, '
-                    'though the admissibility rule accepted it from the same turret '
-                    'configuration'
-                )
+                self.refuse_unchosen_turret_slots(protocol, step_indexes=[step_index])
+                # The rule above found the objective in a slot; none now
+                # means one was cleared in between, and a step without its
+                # slot would be imaged through other glass.
+                self._refuse_unassigned({step['Objective']})
         x, y, z = self.stage_targets(
             protocol, step['X'], step['Y'], step['Z'], stage_offset=stage_offset
         )
-        return StepTargets(turret_slot=turret_slot, x=x, y=y, z=z)
+        return StepTargets(turret_slot=turret_slot, x_um=x, y_um=y, z_um=z)
 
-    def _travel_limits(self) -> dict:
+    def _travel_limits(self) -> dict[str, AxisLimits]:
         """The travel limits of each axis this scope has a motor for, by axis.
 
         The one read the run gate and the tile and z-stack builds judge
-        positions against. Only the axes in ``capabilities.axes``: the
-        motion board answers limits for X and Y on a Z-only scope too, and a
-        build judged against them would lay out tiles no motor can reach. An
+        positions against. Only the axes in ``capabilities.axes``: an axis the
+        scope lacks has no travel, and ``get_axis_limits`` refuses it. An
         axis without software-enforced bounds (the turret's T) answers None
         and is left out.
         """
@@ -754,51 +888,37 @@ class ProtocolsAPI:
             if (limits := self._scope.motion.get_axis_limits(axis)) is not None
         }
 
-    def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
-        """Refuse to save a step the scope cannot vouch for.
+    def _recordable_objective(self, *, verb: str) -> str:
+        """The active objective a step records, once the scope can vouch for the step.
 
         The one rule behind adding and updating a step, so the two cannot
         drift apart: a step records where the scope is and which objective
         it is looking through, and either can be unknown.
+
+        Raises:
+            ProtocolRunRefusedError: ``'step_position_unknown'``.
+            ObjectiveUnknownError: the active objective is unknown, as
+                ``runtime_state.resolve_current_objective`` says why.
         """
-        title = f'Protocol {verb.capitalize()} Step Error'
         # First, because a step is a saved position and ``plate_position``
         # is only as good as the axes it was read from: an axis that lost
         # its reference keeps answering the last number it reported, so the
         # step would save a real-looking place the scope no longer vouches
         # for. Every axis, Z and T included, even when the step's Z comes
         # from the layer's saved focus -- a step is where the scope will be
-        # sent. And ahead of the turret check, whose advice (set the slot's
+        # sent. And ahead of the objective, whose advice (set the slot's
         # objective) is wrong when the slot itself is what is unknown.
         unknown_axes = self._scope.motion.axes_without_position()
         if unknown_axes:
             self._refuse(
                 reason='step_position_unknown',
-                title=title,
                 message=(
                     f'Cannot {verb} the step. '
                     + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')
                 ),
             )
-        if self._scope.capabilities.has_turret and (
-            not self._scope.motion.is_current_turret_position_objective_set()
-        ):
-            self._refuse(
-                reason='turret_objective_unset',
-                title=title,
-                message=(
-                    f'Cannot {verb} the step. Please set objective for current turret position.'
-                ),
-            )
-        if objective_id is None:
-            self._refuse(
-                reason='objective_unknown',
-                title=title,
-                message=(
-                    f'Cannot {verb} the step: the objective in the light path is unknown, so '
-                    'the step could not say which objective it was taken with.'
-                ),
-            )
+        objective_id, _ = self._scope.runtime_state.resolve_current_objective()
+        return objective_id
 
     @staticmethod
     def _stim_configs_with_invalid_channels_disabled(stim_configs: dict) -> dict:
@@ -847,20 +967,44 @@ class ProtocolsAPI:
         this refusal through ``ScopeSession.new_protocol`` and ``add_step``.
 
         Raises:
-            ProtocolRunRefusedError: reason ``no_acquiring_layer``. Logged
-                and notified once.
+            ProtocolRunRefusedError: reason ``no_acquiring_layer``.
         """
         from modules.protocol import Protocol
 
         if not any(Protocol.layer_acquires(cfg) for cfg in layer_configs.values()):
             self._refuse(
                 reason='no_acquiring_layer',
-                title='No Channel Set to Acquire',
                 message=(
                     'No channel is set to acquire, so there is no step to make. '
                     'Set a channel to Image or Video first.'
                 ),
             )
+
+    def refuse_layer_settings_out_of_range(self, protocol: Protocol) -> None:
+        """Refuse a protocol whose Layer Settings hold a value no layer setting takes.
+
+        Judged by the settings' layer ranges, for the rows a session applies:
+        those of the layers this scope has, the others being dropped when
+        applied. Asked where a protocol's Layer Settings arrive: a loaded
+        file's own block, and ``ScopeSession.apply_channel_settings`` before
+        it stores anything, for a protocol built in memory or one whose rows
+        are inferred from its steps.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through ``ScopeSession.load_protocol`` and
+        ``apply_channel_settings``.
+
+        Raises:
+            ProtocolRunRefusedError: ``'values_out_of_range'``, naming each
+                value by layer, column and bound.
+        """
+        from modules.protocol import channel_settings_values_refused, refuse_values_out_of_range
+
+        present = {record.key_name for record in self._scope.channel_identity.channels}
+        rows = {name: row for name, row in protocol.channel_settings().items() if name in present}
+        refuse_values_out_of_range(
+            channel_settings_values_refused(rows), "The protocol's Layer Settings"
+        )
 
     def refuse_absent_layers(self, protocol: Protocol) -> None:
         """Refuse a protocol with a step on a layer this scope does not have.
@@ -875,29 +1019,82 @@ class ProtocolsAPI:
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and a run's start.
 
+        A step naming a channel no release has is refused as that first: it
+        is a typo or a hand edit, and no scope has its layer.
+
         Raises:
-            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
-                the layers and the steps. Logged and notified once.
+            ProtocolRunRefusedError: reason ``channel_unknown``, naming the
+                channels and the steps; else ``layer_not_on_scope``, naming
+                the layers and the steps.
         """
-        identity = self._scope.layer_identity
-        present = {record.key_name for record in identity.layers}
+        identity = self._scope.channel_identity
+        present = {record.key_name for record in identity.channels}
         steps = protocol.steps()
+        unknown = steps.loc[~steps['Color'].isin(common_utils.get_layers())]
+        if not unknown.empty:
+            self._refuse(
+                reason='channel_unknown',
+                message=(
+                    f'{len(unknown)} step(s) name a channel LumaViewPro does not know '
+                    f'({", ".join(sorted(set(unknown["Color"])))}), so they cannot be run: '
+                    f'{common_utils.first_few(list(unknown["Name"]), separator=", ")}. '
+                    f'Delete those steps, or correct the file.'
+                ),
+            )
         absent = steps.loc[~steps['Color'].isin(present)]
         if absent.empty:
             return
         missing = sorted(set(absent['Color']))
         layers = ', '.join(missing) + (' layers' if len(missing) > 1 else ' layer')
         names = common_utils.first_few(list(absent['Name']), separator=', ')
-        if identity.layers:
+        if identity.channels:
             scope = f'This scope ({identity.model}) has no {layers}'
         else:
             scope = f"This scope's layers could not be resolved (model {identity.model})"
         self._refuse(
             reason='layer_not_on_scope',
-            title='Layer Not on This Scope',
             message=(
                 f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
                 f'Delete those steps, or open the protocol on a scope that has the layer.'
+            ),
+        )
+
+    def refuse_absent_stimulation(self, protocol: Protocol) -> None:
+        """Refuse a protocol with a step stimulating a channel this scope does not have.
+
+        Asked where a run is about to start. Only an enabled stimulation is
+        judged: every step this session builds carries a disabled entry for
+        every channel of the release, and one loaded from a file keeps those
+        it was saved with.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through a run's start.
+
+        Raises:
+            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
+                the channels and the steps.
+            ProtocolFormatError: a step's stimulation entry is not a config
+                (``Protocol.step_records``).
+        """
+        identity = self._scope.channel_identity
+        present = {record.key_name for record in identity.channels}
+        absent = {}
+        for step in protocol.step_records():
+            for channel, stimulation in (step.stim_config or {}).items():
+                if channel not in present and stimulation.enabled:
+                    absent.setdefault(channel, []).append(step.name)
+        if not absent:
+            return
+        names = sorted({name for steps in absent.values() for name in steps})
+        channels = ', '.join(sorted(absent))
+        self._refuse(
+            reason='layer_not_on_scope',
+            message=(
+                f'This scope ({identity.model}) has no {channels} to stimulate, so '
+                f'{len(names)} step(s) cannot be run: '
+                f'{common_utils.first_few(names, separator=", ")}. '
+                f'Turn that stimulation off in those steps, or run the protocol on a scope '
+                f'that has the layer.'
             ),
         )
 
@@ -944,34 +1141,17 @@ class ProtocolsAPI:
                 first.
 
         Raises:
-            ProtocolRunRefusedError: This scope cannot address them. It
-                has been logged and shown to the user before it is raised,
-                the way the protocol builder's refusal is: this runs
-                before any run exists, so no run funnel has seen it.
+            ProtocolRunRefusedError: This scope cannot address them. Raised,
+                not reported: the caller's boundary reports it.
         """
         named = set(objective_ids)
 
         if self._scope.capabilities.has_turret:
-            carried = {
-                objective
-                for objective in self._scope.runtime_state.get_turret_config().values()
-                if objective is not None
-            }
-            if not named.issubset(carried):
-                self._refuse(
-                    reason='turret_objectives_unassigned',
-                    title='Turret Configuration Required',
-                    message=(
-                        'This protocol uses objectives that are not assigned to turret '
-                        f'positions.\n\nIt needs: {self._render(named)}\n'
-                        f'The turret carries: {self._render(carried) or "None"}\n\n'
-                        'Assign the missing objectives in Objective Control > Turret.'
-                    ),
-                )
+            if not named.issubset(self._turret_carries()):
+                self._refuse_unassigned(named)
         elif len(named) > 1:
             self._refuse(
                 reason='objectives_require_turret',
-                title='One Objective At A Time',
                 message=(
                     'This protocol changes objective between steps, and this scope has '
                     'no way to change it: the objective in the light path is the one '
@@ -993,7 +1173,6 @@ class ProtocolsAPI:
                 )
                 self._refuse(
                     reason='objective_not_mounted',
-                    title='Objective Not Mounted',
                     message=(
                         f'This protocol was made for {self._render(named)}, and {mounted}.'
                         '\n\nSelect the mounted objective, or use a protocol made for it.'
@@ -1013,37 +1192,89 @@ class ProtocolsAPI:
         a Z axis. Permanent, so it is asked before whether the scope knows
         its position.
 
+        A step with no position on a missing axis asks for no motion there.
+        Without X/Y a step's well and tile name a place too: steps with no X/Y
+        that name different wells or tiles would image one field under each
+        name, so they ask for motion as positions do.
+
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by starting a run, which asks it here.
 
         Args:
-            steps: The protocol's steps table (``Protocol.steps()``), its
-                positions already validated as numbers.
+            steps: The protocol's steps table (``Protocol.steps()``): each
+                position a finite number, or NaN where the step has none.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable``. It has been
-                logged and shown before it is raised.
+            ProtocolRunRefusedError: ``positions_unreachable``.
         """
         present = set(self._scope.capabilities.axes)
         needed = []
-        if not {'X', 'Y'} <= present and len(steps[['X', 'Y']].round(3).drop_duplicates()) > 1:
-            needed.append('the steps are at different X/Y positions')
+        if not {'X', 'Y'} <= present:
+            stated = len(steps[['X', 'Y']].dropna().round(3).drop_duplicates())
+            unplaced = steps[steps['X'].isna()]
+            named = unplaced[(unplaced['Well'] != '') | (unplaced['Tile'] != '')]
+            named = len(named[['Well', 'Tile']].drop_duplicates())
+            if stated > 1:
+                needed.append('the steps are at different X/Y positions')
+            elif stated + named > 1:
+                needed.append('the steps name different wells or tiles')
         if 'Z' not in present:
             if steps['Z'].round(3).nunique() > 1:
                 needed.append('the steps are at different Z positions')
             if steps['Auto_Focus'].astype(bool).any():
                 needed.append('autofocus moves Z')
         if needed:
-            missing = ', '.join(axis for axis in ('X', 'Y', 'Z') if axis not in present)
+            missing = ', '.join(axis for axis in StageAxis if axis not in present)
             self._refuse(
                 reason='positions_unreachable',
-                title='Position Not Reachable',
                 message=(
                     f'This protocol needs the scope to move, and this scope has no motor for '
                     f'{missing}: {"; ".join(needed)}.\n\nUse a protocol whose steps are all at '
                     'one position on those axes, without autofocus if there is no Z motor.'
                 ),
             )
+
+    def refuse_missing_positions(self, steps: pd.DataFrame, *, then: str = 'run it') -> None:
+        """Refuse steps that have no position on an axis this scope drives.
+
+        A step recorded on a scope without an axis has no position on it, and
+        on a scope that has the axis it says nothing about where to go there:
+        driven, it would image wherever the last move left the stage under
+        the step's name. One rule for the run, Go To Step and the tile and
+        z-stack builds, each asking it before it reads a position.
+
+        A consult seam, not part of the L2 API surface.
+
+        Args:
+            steps: The steps judged (``Protocol.steps()`` or a selection of it).
+            then: What the person was doing, ending the refusal's words.
+
+        Raises:
+            ProtocolRunRefusedError: ``step_position_missing``, naming the
+                steps and the axes.
+        """
+        lacking = [axis for axis in self._driven_axes() if steps[axis].isna().any()]
+        if not lacking:
+            return
+        missing = steps[steps[lacking].isna().any(axis=1)]
+        self._refuse_missing_positions(list(missing['Name']), lacking, then=then)
+
+    def _driven_axes(self) -> list[str]:
+        """The position axes this scope has a motor for, in X, Y, Z order."""
+        return [axis for axis in StageAxis if axis in self._scope.capabilities.axes]
+
+    def _refuse_missing_positions(self, names: list[str], lacking: list[str], *, then: str) -> None:
+        """Refuse ``step_position_missing`` for the steps ``names``, which have no ``lacking`` position."""
+        axes = ', '.join(lacking)
+        self._refuse(
+            reason='step_position_missing',
+            message=(
+                f'{len(names)} step(s) have no {axes} position, and this scope moves '
+                f'{axes}: {common_utils.first_few(names, separator=", ")}. They were '
+                'recorded on a scope without that axis.\n\n'
+                f'Update those steps here, or delete them, to {then}.'
+            ),
+        )
 
     def refuse_positions_outside_travel(self, steps: pd.DataFrame, labware_key: str) -> None:
         """Refuse a protocol whose steps lie outside this scope's stage travel.
@@ -1062,11 +1293,10 @@ class ProtocolsAPI:
             steps: The protocol's steps table (``Protocol.steps()``), its
                 positions already validated as numbers.
             labware_key: The plate the protocol's X/Y are measured on
-                (``Protocol.labware()``), already validated as known.
+                (``Protocol.labware_id()``), already validated as known.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_outside_travel``. It has
-                been logged and shown before it is raised.
+            ProtocolRunRefusedError: ``positions_outside_travel``.
             ConfigError: No session has bound the scope, so it has no
                 stage offset to judge X/Y with.
         """
@@ -1076,20 +1306,19 @@ class ProtocolsAPI:
         plate = {}
         if {'X', 'Y'} & set(axis_limits):
             plate = {
-                'labware': self._scope.wellplate_loader.get_plate(plate_key=labware_key),
+                'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
                 'stage_offset': self._scope.runtime_state.get_stage_offset(),
             }
         outside = []
         for idx, step in steps.iterrows():
             axes = axes_outside_travel(
-                {axis: step[axis] for axis in ('X', 'Y', 'Z')}, axis_limits, **plate
+                {axis: step[axis] for axis in StageAxis}, axis_limits, **plate
             )
             if axes:
                 outside.append(f'step {idx + 1} ({step["Name"]}): {", ".join(axes)}')
         if outside:
             self._refuse(
                 reason='positions_outside_travel',
-                title='Positions Outside Stage Travel',
                 message=(
                     f"{len(outside)} of the {len(steps)} steps fall outside the stage's travel "
                     f'({common_utils.first_few(outside, separator="; ")}).\n\nMove those steps '
@@ -1120,18 +1349,23 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: A step's gain or exposure is outside the
-                camera's range. It has been logged and shown before it is
-                raised.
+                camera's range.
         """
-        imaging = self._scope.imaging
+        limits = self._scope.capabilities.camera_limits
         checks = (
-            ('Gain', 'gain', 'dB', imaging.min_gain_db_cached, imaging.max_gain_db_cached),
+            (
+                'Gain',
+                'gain',
+                'dB',
+                limits.gain_min_db if limits else None,
+                limits.gain_max_db if limits else None,
+            ),
             (
                 'Exposure',
                 'exposure',
                 'ms',
-                imaging.min_exposure_ms_cached,
-                imaging.max_exposure_ms_cached,
+                limits.exposure_min_ms if limits else None,
+                limits.exposure_max_ms if limits else None,
             ),
         )
         problems = []
@@ -1149,12 +1383,217 @@ class ProtocolsAPI:
         if problems:
             self._refuse(
                 reason='camera_setting_out_of_range',
-                title='Camera Setting Out of Range',
                 message=(
                     common_utils.first_few(problems, separator='\n')
                     + '\n\nEdit these steps to values this camera can take, then run again.'
                 ),
             )
+
+    def _live_turret_slot(self) -> int:
+        """The slot in the light path, which a step made now records; -1 without a turret.
+
+        Asked after ``_refuse_unrecordable_step``, which refuses a step
+        while the slot is unknown.
+        """
+        if not self._scope.capabilities.has_turret:
+            return -1
+        return self._scope.motion.turret_status().slot
+
+    @classmethod
+    def _slot_meant(cls, objective_id: object, slot: int, turret_config: dict) -> int | None:
+        """The slot a step means, or None when the step cannot say.
+
+        A recorded slot is meant while it holds the step's objective. A
+        step that recorded none means the only slot holding its objective:
+        that is no guess. With two or more, it cannot say, and choosing one
+        -- the current slot, the lowest -- would image through glass the
+        step may not have meant.
+        """
+        if slot != -1:
+            return slot if turret_config.get(slot) == objective_id else None
+        holding = slots_holding(objective_id, turret_config)
+        return holding[0] if len(holding) == 1 else None
+
+    def _fill_turret_slots(self, protocol: Protocol) -> None:
+        """Record the slot of each step that recorded none, where only one slot can be meant.
+
+        A protocol from before steps recorded their slot; the steps whose
+        objective is in two or more slots are left for the person
+        (``turret_slot_questions``).
+        """
+        if not self._scope.capabilities.has_turret:
+            return
+        turret_config = self._scope.runtime_state.get_turret_config()
+        steps = protocol.steps()
+        by_slot: dict[int, list[int]] = {}
+        for idx, (objective_id, slot) in enumerate(
+            zip(steps['Objective'], steps['Turret Slot'], strict=True)
+        ):
+            if slot != -1:
+                continue
+            meant = self._slot_meant(objective_id, slot, turret_config)
+            if meant is not None:
+                by_slot.setdefault(meant, []).append(idx)
+        for slot, indices in by_slot.items():
+            protocol.set_turret_slot(indices, slot)
+            _api_log.info(
+                f'[Protocol ] {len(indices)} step(s) recorded no turret slot; slot {slot} is the '
+                'only one holding their objective, and they now record it'
+            )
+
+    def _stamp_turret_slots(self, protocol: Protocol) -> None:
+        """Record the slot of each step of a protocol just built.
+
+        The slot in the light path where it holds the step's objective --
+        the slot the person stands at -- and otherwise the only slot holding
+        it. A caller naming an objective two other slots hold leaves its
+        steps to ``turret_slot_questions``.
+        """
+        if not self._scope.capabilities.has_turret:
+            return
+        live = self._scope.motion.turret_status().slot
+        turret_config = self._scope.runtime_state.get_turret_config()
+        by_slot: dict[int, list[int]] = {}
+        for idx, objective_id in enumerate(protocol.steps()['Objective']):
+            if live is not None and turret_config.get(live) == objective_id:
+                meant = live
+            else:
+                meant = self._slot_meant(objective_id, -1, turret_config)
+            if meant is not None:
+                by_slot.setdefault(meant, []).append(idx)
+        for slot, indices in by_slot.items():
+            protocol.set_turret_slot(indices, slot)
+
+    def turret_slot_questions(self, protocol: Protocol) -> list[TurretSlotQuestion]:
+        """What to ask about ``protocol``'s turret slots: one question per objective, or none.
+
+        A step that cannot say which slot it means is one whose objective is
+        in two or more slots and that recorded none, or whose recorded slot
+        now holds another objective. Each is refused by a run and by going
+        to it until ``point_steps_at_turret_slot`` answers its question.
+        LumaViewPro asks when a protocol is opened. Empty on a scope with no
+        turret, and for steps whose objective no slot holds, which a load
+        and a run refuse as ``turret_objectives_unassigned``.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, so it has no slot assignments to read.
+        """
+        if not self._scope.capabilities.has_turret:
+            return []
+        turret_config = self._scope.runtime_state.get_turret_config()
+        steps = protocol.steps()
+        asked: dict[object, tuple[list[int], list[int]]] = {}
+        for idx, (objective_id, slot) in enumerate(
+            zip(steps['Objective'], steps['Turret Slot'], strict=True)
+        ):
+            if self._slot_meant(objective_id, slot, turret_config) is not None:
+                continue
+            if not slots_holding(objective_id, turret_config):
+                continue
+            unchosen, reassigned = asked.setdefault(objective_id, ([], []))
+            unchosen.append(idx)
+            if slot != -1:
+                reassigned.append(idx)
+        return [
+            TurretSlotQuestion(
+                objective_id=objective_id,
+                step_indexes=tuple(unchosen),
+                reassigned_step_indexes=tuple(reassigned),
+                choices=slots_holding(objective_id, turret_config),
+            )
+            for objective_id, (unchosen, reassigned) in asked.items()
+        ]
+
+    def point_steps_at_turret_slot(
+        self, protocol: Protocol, objective_id: str, slot: int
+    ) -> tuple[int, ...]:
+        """Answer ``objective_id``'s turret slot question: its steps now record ``slot``.
+
+        Points exactly the steps ``turret_slot_questions`` names for
+        ``objective_id``; every other step keeps its slot. Returns the
+        indexes of the steps pointed, which are empty when no question names it.
+
+        Raises:
+            ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
+                does not hold ``objective_id`` now (``offered``: the slots
+                that do). Nothing is changed.
+        """
+        holding = slots_holding(objective_id, self._scope.runtime_state.get_turret_config())
+        if slot not in holding:
+            raise ArgumentRefusedError(
+                'slot_not_holding_objective', argument='slot', value=slot, offered=holding
+            )
+        asked = [q for q in self.turret_slot_questions(protocol) if q.objective_id == objective_id]
+        if not asked:
+            return ()
+        protocol.set_turret_slot(list(asked[0].step_indexes), slot)
+        return asked[0].step_indexes
+
+    def refuse_unchosen_turret_slots(
+        self, protocol: Protocol, *, step_indexes: Iterable[int] | None = None
+    ) -> None:
+        """Refuse when a step (of ``step_indexes``, or any) cannot say which turret slot it means.
+
+        Asked by a run's ``prepare()`` and by going to a step, after the
+        objective rule; a load admits the protocol and asks instead
+        (``turret_slot_questions``), so the protocol can be answered and
+        opened.
+
+        Raises:
+            ProtocolRunRefusedError: ``'turret_slot_reassigned'``, a step's
+                recorded slot now holds another objective;
+                ``'turret_slot_ambiguous'``, a step recorded no slot and its
+                objective is in two or more. Raised, not reported: the
+                caller's boundary reports it.
+        """
+        wanted = None if step_indexes is None else set(step_indexes)
+        for question in self.turret_slot_questions(protocol):
+            named = [idx for idx in question.step_indexes if wanted is None or idx in wanted]
+            if not named:
+                continue
+            which = ', '.join(str(idx + 1) for idx in named)
+            several = len(named) > 1
+            steps = f'Steps {which} use' if several else f'Step {which} uses'
+            slots = ' and '.join(str(slot) for slot in question.choices)
+            reassigned = [idx for idx in named if idx in question.reassigned_step_indexes]
+            if reassigned:
+                self._refuse(
+                    reason='turret_slot_reassigned',
+                    message=(
+                        f'{steps} {question.objective_id}, and the turret slot recorded for {"them" if several else "it"} '
+                        f'now holds another objective. {question.objective_id} is in slot '
+                        f'{slots}. Choose the slot; LumaViewPro asks when the protocol is opened.'
+                    ),
+                )
+            self._refuse(
+                reason='turret_slot_ambiguous',
+                message=(
+                    f'{steps} {question.objective_id}, which is in slots {slots}, and which of '
+                    'them is meant is not recorded. Choose the slot; LumaViewPro asks when the '
+                    'protocol is opened.'
+                ),
+            )
+
+    def _turret_carries(self) -> set[str]:
+        """The objectives a turret slot is assigned, read from the turret configuration."""
+        return {
+            objective
+            for objective in self._scope.runtime_state.get_turret_config().values()
+            if objective is not None
+        }
+
+    def _refuse_unassigned(self, named: set[object]) -> typing.NoReturn:
+        """Refuse objectives no turret slot carries, naming what the turret does carry."""
+        self._refuse(
+            reason='turret_objectives_unassigned',
+            message=(
+                'This protocol uses objectives that are not assigned to turret '
+                f'positions.\n\nIt needs: {self._render(named)}\n'
+                f'The turret carries: {self._render(self._turret_carries()) or "None"}\n\n'
+                'Assign the missing objectives in Objective Control > Turret.'
+            ),
+        )
 
     @staticmethod
     def _render(objective_ids: set[object]) -> str:
@@ -1168,7 +1607,7 @@ class ProtocolsAPI:
         """
         return ', '.join(sorted(map(str, objective_ids)))
 
-    def _refuse(self, reason: str, title: str, message: str) -> typing.NoReturn:
+    def _refuse(self, reason: str, message: str) -> typing.NoReturn:
         """Raise the typed refusal.
 
         The single funnel this surface's refusals route through, so one
@@ -1180,4 +1619,4 @@ class ProtocolsAPI:
         in its place makes the refusal invisible to the census, which is how
         a reason ships with no coverage.
         """
-        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+        raise ProtocolRunRefusedError(reason=reason, message=message)

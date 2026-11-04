@@ -5,20 +5,24 @@ Whether a layer captures an image, a video or nothing decides which steps
 New and Add Step build and what a composite merges. The GUI's acquire
 toggle and its layer-hiding wrote the store directly, and no Session member
 wrote it, so a script or REST could not choose what a protocol acquires
-without writing the settings dict itself. ``ScopeSession.set_layer_acquire``
+without writing the settings dict itself. ``ScopeSession.set_channel_acquire``
 is the one writer: it refuses a layer or a mode it does not know, and a
-layer set to acquire stops stimulating, as the GUI's toggle did.
+layer set to acquire stops stimulating, as the GUI's toggle did. The mode is
+an ``AcquireMode``: the door takes a member or its plain string, the store
+holds the plain string, and ``channel_acquire`` answers the member.
 """
 
 import ast
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, SettingRefusedError
+from modules.acquire_mode import AcquireMode
+from modules.exceptions import ArgumentRefusedError
 from tests.ast_seams import REPO_ROOT
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
 )
+from tests.stock_channels import LED1
 
 
 def _stim(session, layer):
@@ -28,51 +32,62 @@ def _stim(session, layer):
 class TestTheSessionSetsTheMode:
     @pytest.mark.parametrize('mode', ['image', 'video', None])
     def test_the_mode_is_stored(self, session, mode):
-        session.set_layer_acquire('BF', mode)
+        session.set_channel_acquire('BF', mode)
 
         assert session.settings['BF']['acquire'] == mode
 
     @pytest.mark.parametrize('mode', ['image', 'video'])
     def test_a_layer_set_to_acquire_stops_stimulating(self, session, mode):
         with session.settings_lock:
-            session.settings['Green']['stim_config']['enabled'] = True
+            session.settings[LED1]['stim_config']['enabled'] = True
 
-        session.set_layer_acquire('Green', mode)
+        session.set_channel_acquire(LED1, mode)
 
-        assert _stim(session, 'Green') is False
+        assert _stim(session, LED1) is False
 
     def test_a_layer_set_to_nothing_keeps_its_stimulation(self, session):
         with session.settings_lock:
-            session.settings['Green']['stim_config']['enabled'] = True
+            session.settings[LED1]['stim_config']['enabled'] = True
 
-        session.set_layer_acquire('Green', None)
+        session.set_channel_acquire(LED1, None)
 
-        assert _stim(session, 'Green') is True
+        assert _stim(session, LED1) is True
 
     def test_an_unknown_layer_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.set_layer_acquire('Infrared', 'image')
-        assert refused.value.reason == 'layer_unknown'
+            session.set_channel_acquire('Infrared', 'image')
+        assert refused.value.reason == 'channel_unknown'
 
         assert 'Infrared' not in session.settings
 
-    # A list cannot be looked up in the vocabulary; it is refused, not a TypeError.
     @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image'])
     def test_an_unknown_mode_is_refused_and_nothing_changes(self, session, mode):
         before = session.settings['BF']['acquire']
 
-        with pytest.raises(SettingRefusedError) as refused:
-            session.set_layer_acquire('BF', mode)
+        with pytest.raises(ArgumentRefusedError) as refused:
+            session.set_channel_acquire('BF', mode)
 
-        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.acquire')
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'mode')
+        assert refused.value.offered == ('image', 'video')
         assert session.settings['BF']['acquire'] == before
 
+    def test_the_store_holds_the_plain_string_and_the_read_answers_the_member(self, session):
+        session.set_channel_acquire('BF', AcquireMode.VIDEO)
 
-# The ui/ writer this guard can see that is left: the stimulation toggle,
-# deferred with stimulation. Step navigation also writes a step's acquire
-# into its layer, through settings[color].update(...), which this assignment
-# scan does not see; it moves with tier 3's navigation item.
-_UI_WRITERS_ALLOWED = {('ui/layer_control.py', 'update_stim_enable')}
+        assert type(session.settings['BF']['acquire']) is str
+        assert session.settings['BF']['acquire'] == 'video'
+        assert session.channel_acquire('BF') is AcquireMode.VIDEO
+
+    def test_a_layer_set_to_nothing_reads_none(self, session):
+        session.set_channel_acquire('BF', None)
+
+        assert session.channel_acquire('BF') is None
+
+
+# Step navigation also writes a step's acquire into its layer, through
+# settings[color].update(...), which this assignment scan does not see; it
+# moves with tier 3's navigation item.
+_UI_WRITERS_ALLOWED: set[tuple[str, str]] = set()
 
 
 def _acquire_writes(path):
@@ -100,6 +115,6 @@ def test_no_gui_code_writes_a_layers_acquire_mode_itself():
         for hit in _acquire_writes(path)
     }
     assert found == _UI_WRITERS_ALLOWED, (
-        'a layer acquire mode is set through ScopeSession.set_layer_acquire; '
+        'a layer acquire mode is set through ScopeSession.set_channel_acquire; '
         f'these write it themselves: {sorted(found - _UI_WRITERS_ALLOWED)}'
     )

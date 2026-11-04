@@ -8,20 +8,24 @@ Stage B: session.manual_capture, the one path the GUI's Capture button also
 import sys
 import traceback
 import harness
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p4')
 scope = s.scope
 try:
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
 
     # --- Stage A: the API delivers a frame ---
-    arr = scope.imaging.capture_and_wait(force_to_8bit=False, timeout_s=5.0)
-    print('A: capture_and_wait ->', type(arr).__name__, getattr(arr, 'shape', None))
+    arr = scope.imaging.capture_still(force_to_8bit=False, timeout_s=5.0).image
+    print('A: capture_still ->', type(arr).__name__, getattr(arr, 'shape', None))
     harness.check('a script can get one frame from the API', arr is not None)
 
     # --- Stage B: the Session member captures and saves one still ---
-    scope.illumination.led_on('Blue', 100.0, block=True)
-    paths = s.manual_capture.capture(layer='Blue', false_color_on=True).result(timeout=30)
+    scope.illumination.led_on(LED0, 100.0)
+    s.show_channel(LED0)
+    paths = [
+        still.file for still in s.manual_capture.capture(false_color_on=True).result(timeout=30)
+    ]
     print('B: session.manual_capture.capture ->', paths)
     written = len(paths) == 1 and paths[0].is_file() and paths[0].parent == live / 'Manual'
     print('B: file exists:', written, 'bytes:', paths[0].stat().st_size if written else None)

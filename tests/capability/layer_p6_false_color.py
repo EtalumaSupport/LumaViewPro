@@ -6,21 +6,21 @@ import traceback
 import numpy as np
 import harness
 from tests.frame_records import frame_record, plate
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p6')
 scope = s.scope
 try:
     # 1) settable through the Session's settings store?
-    before = s.get_settings_snapshot()['Blue']['false_color']
-    s.update_settings('Blue.false_color', not before)
-    after = s.get_settings_snapshot()['Blue']['false_color']
+    before = s.get_settings_snapshot()[LED0]['false_color']
+    s.update_settings(f'{LED0}.false_color', not before)
+    after = s.get_settings_snapshot()[LED0]['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
-    print(
-        '1: session.get_layer_configs sees:', s.get_layer_configs(['Blue'])['Blue']['false_color']
-    )
+    print('1: session.get_layer_configs sees:', s.get_layer_configs([LED0])[LED0]['false_color'])
 
     # 2) does it change the bytes on disk?
     from modules.image_save import save_image
+    from modules.layer_record import release_colors
 
     arr = (np.arange(64 * 64, dtype=np.uint16).reshape(64, 64) % 4096).astype(np.uint16)
     outs = {}
@@ -31,8 +31,9 @@ try:
             save_folder=live,
             file_root='fc_',
             append=f'{fc}',
-            channel='Blue',
+            channel=LED0,
             false_color_on=fc,
+            channel_colors=release_colors(),
             save_encoding='rgb',
             output_format='TIFF',
             significant_bits=12,
@@ -40,6 +41,8 @@ try:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            white_bits=None,
+            fallback_focus=None,
         )
         outs[fc] = hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:16]
         import tifffile

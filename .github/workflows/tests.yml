@@ -5,9 +5,22 @@
 #
 # Reports, does not block. Branch protection is a separate decision.
 #
-# Targets 4.0.0-beta only, on purpose. `tools/check_rules.py` does not exist
-# on `main` yet, so a `main` job today would fail for the wrong reason and
-# teach everyone to ignore it. Add `main` when 4.0.0 promotes.
+# Targets 4.0.0-beta and the dev/4.0.0 trunk. `tools/check_rules.py` does not
+# exist on `main` yet, so a `main` job today would fail for the wrong reason
+# and teach everyone to ignore it. Add `main` when 4.0.0 promotes.
+#
+# Two depths. A push to the trunk gets the FAST check: one Python, 3.13,
+# every test not marked slow -- a clean Linux checkout that installs, imports
+# and passes, in minutes. The local push suite already ran every test on the
+# other interpreter (its summary names which). The FULL suite, every test on
+# both Pythons, runs on a push to 4.0.0-beta, on a pull request, and nightly
+# on the trunk: `nightly.yml` on main calls this file with `full`, because
+# GitHub schedules only from the default branch. A slow, shared runner is
+# where timing races show (a z-stack's autofocus centred on the floor,
+# 2026-11-02, was found only here), so the full depth still runs every day;
+# on every push it cost 45-50 minutes a run, and the next push cancelled most
+# of them. A failed run emails the pusher. Only the newest push's run is
+# wanted, so a newer push on the same branch cancels the run in progress.
 #
 # FIRST-RUN RISK, named in advance so a red first run is diagnosed rather than
 # guessed at. It cannot be settled without executing this on a real runner,
@@ -31,26 +44,54 @@ name: tests
 
 on:
   push:
-    branches: [4.0.0-beta]
+    branches: [4.0.0-beta, dev/4.0.0]
   pull_request:
     branches: [4.0.0-beta]
+  workflow_call:
+    inputs:
+      ref:
+        description: The branch to check out and test.
+        type: string
+        required: true
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A hung run ends here, not at GitHub's six-hour default: on 2026-10-30
+    # both jobs reached 99% in 53 minutes and then sat silent for four hours.
+    timeout-minutes: 90
+    # 3.12 is the FLOOR: the oldest interpreter we promise to work on, so it
+    # fails first. 3.13 is the newest the installers accept and what
+    # development runs.
+    # Keep the floor in step with scripts/_find_python.py, both install
+    # scripts, and lumaviewpro.py's startup gate; a dependency floor that
+    # outruns these is what made this job unable to install anything at all.
+    # fail-fast off: a red on one interpreter must not cancel the other's
+    # answer. A trunk push runs 3.13 alone (the header), its test files
+    # split across four jobs, shard 0 to 3, so the answer comes in minutes;
+    # a full run is one job per interpreter, shard `all`.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && '["3.13"]' || '["3.12", "3.13"]') }}
+        shard: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && '["0", "1", "2", "3"]' || '["all"]') }}
+    env:
+      # The fast check's selection; empty selects every test.
+      MARKS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && 'not slow' || '' }}
+      SHARDS: 4
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Empty for a push or pull request: the commit that triggered it.
+          ref: ${{ inputs.ref }}
 
-      # 3.12 is the FLOOR, and the floor is what a gate should test: it is the
-      # oldest interpreter we promise to work on, so it fails first. 3.13 is
-      # supported and deliberately not exercised here -- adding it is a matrix,
-      # which is a separate decision. Keep this in step with the floor declared
-      # in scripts/_find_python.py, both install scripts, and lumaviewpro.py's
-      # startup gate; a dependency floor that outruns these is what made this
-      # job unable to install anything at all.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
             requirements.txt
@@ -75,8 +116,46 @@ jobs:
       # failures and errors. -n auto runs the suite across the runner's cores
       # under pytest-xdist, as every local run does; serially it took 12 min
       # on 2026-09-14, before the suite reached 11,000 tests.
+      # A shard takes every fourth test file in git's order, so the four
+      # together run each file exactly once; `all` runs the whole tree.
       - name: Tests
-        run: python -m pytest -n auto -rfE
+        run: |
+          if [ "${{ matrix.shard }}" = all ]; then
+            python -m pytest -n auto -rfE -m "$MARKS"
+          else
+            git ls-files tests | grep -E '/test_[^/]*\.py$|_test\.py$' \
+              | awk -v n="$SHARDS" -v i="${{ matrix.shard }}" 'NR % n == i' > "$RUNNER_TEMP/shard_files.txt"
+            echo "shard ${{ matrix.shard }} of $SHARDS: $(wc -l < "$RUNNER_TEMP/shard_files.txt") test files"
+            python -m pytest -n auto -rfE -m "$MARKS" $(cat "$RUNNER_TEMP/shard_files.txt")
+          fi
+
+      # A red probe's logs are written under pytest's temporary folder, which
+      # the runner discards with the job; kept here, a red is read from its
+      # own log rather than rerun in the hope it fails again. The whole
+      # LVP_Log folder, not bench_results alone: a capture's give-up line
+      # (its wait, the frames handed over and stored, the last frame's age)
+      # is written to the LVP log, never to the probe's console.
+      - name: Probe logs of a red run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-logs-${{ matrix.python-version }}-${{ matrix.shard }}
+          path: /tmp/pytest-of-runner/**/test_probe_*/checkout/logs/LVP_Log/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Every failed test phase's whole report -- its traceback, every log
+      # line production wrote during it, its stdout and stderr -- written by
+      # tests/conftest.py whatever the console printed: a flake is read from
+      # the run it failed in, never rerun in the hope it fails again.
+      - name: Failure files of a red run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-failures-${{ matrix.python-version }}-${{ matrix.shard }}
+          path: build/test_failures/**
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Lint
         run: ruff check .

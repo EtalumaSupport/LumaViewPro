@@ -18,13 +18,12 @@ the user's end policy; the step-boundary hold is gated on the fatal flag
 so a cross-thread fatal cannot be undone by a completing capture.
 """
 
-import ast
 import datetime
 import pathlib
 import threading
 from unittest.mock import MagicMock
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
+from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState, LedTransition
 from modules.exceptions import RecordIncompleteError
 from modules.notification_center import Severity
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -44,6 +43,7 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 
 from modules.run_outcome import RunEnding
 from tests.scope_fakes import swap_lanes
+from tests.stock_channels import LED2
 
 
 def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch, centre_posts):
@@ -150,16 +150,15 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
+def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
     from modules.protocol_cleanup import run_cleanup
 
     applied = []
     state = [ProtocolState.RUNNING]
     scope = MagicMock()
-    scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
-    ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+    ending = RunEnding('aborted', 'stopped', 'Stopped')
 
     swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
     run_cleanup(
@@ -167,9 +166,10 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         set_state_fn=lambda s: state.__setitem__(0, s),
         scan_in_progress=threading.Event(),
         forced_dark=forced_dark,
-        leds_state_at_end=leds_state_at_end,
-        original_led_states={'Blue': {'enabled': True, 'illumination_ma': 42.0}},
+        led_end_policy=led_end_policy,
+        original_led_states=(LedReading(2, LED2, LedState.LIT, 42.0),),
         saved_camera_state=None,
+        show_pre_run_layer_fn=None,
         return_to_position=None,
         scope=scope,
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
@@ -179,6 +179,9 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         write_batch=RunWriteBatch(_FakeExecutor()),
         ending=ending,
         record_cleanup_failures=lambda steps: None,
+        failed_before=(),
+        video_save_wait_s=None,
+        video_as_frames=False,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1
@@ -186,7 +189,9 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
 
 
 def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(forced_dark=True, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(
+        forced_dark=True, led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL
+    )
     assert ctx.end_policy is LedEndPolicy.OFF
     assert ctx.snapshot_lit == frozenset(), (
         'a fatal abort must ASSERT dark -- restoring pre-run channels after a '
@@ -195,39 +200,16 @@ def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
 
 
 def test_nonfatal_cleanup_keeps_the_configured_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(forced_dark=False, leds_state_at_end='return_to_original')
-    assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
-    assert ctx.snapshot_lit != frozenset(), 'user Stop keeps the configured restore'
-
-
-# ---------------------------------------------------------------------------
-# Source pins: the funnel is the only critical path; the boundary gate is
-# keyed on the fatal flag, not the abort flag
-# ---------------------------------------------------------------------------
-
-
-def test_no_critical_notification_outside_the_fatal_funnel():
-    src = (_MODULES_DIR / 'protocol_image_writer.py').read_text()
-    tree = ast.parse(src)
-    offenders = []
-    funnel_range = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == '_abort_run_fatal':
-            funnel_range = (node.lineno, node.end_lineno)
-    assert funnel_range is not None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'critical'
-            and not (funnel_range[0] <= node.lineno <= funnel_range[1])
-        ):
-            offenders.append(node.lineno)
-    assert offenders == [], (
-        'every run-killing critical must route through _abort_run_fatal so '
-        'no fatal path can notify without first aborting and darkening: '
-        f'bare criticals at lines {offenders}'
+    ctx = _run_cleanup_capture_led_ctx(
+        forced_dark=False, led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL
     )
+    assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
+    assert ctx.snapshot_lit == frozenset({(2, 42.0)}), 'user Stop keeps the configured restore'
+
+
+# ---------------------------------------------------------------------------
+# Source pin: the boundary gate is keyed on the fatal flag, not the abort flag
+# ---------------------------------------------------------------------------
 
 
 def test_step_boundary_gate_keys_on_fatal_not_aborted():

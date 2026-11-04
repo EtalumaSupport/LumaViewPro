@@ -15,12 +15,15 @@ Public API:
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
   set_fps(fps)          -- runtime FPS-cap change
-  update_layer_config(active_layer, open_layer)
+  update_layer_config(open_layer)
                         -- UI-thread publishes Kivy widget state for
                            the next frame
   bump_protocol_hold(hold_seconds)
                         -- protocol-side bumps the hold deadline so
                            the saved frame stays on screen
+  protocol_hold_in_force
+                        -- whether that deadline is still ahead; a live
+                           blit run during it draws nothing
   add_frame_listener(callback) / remove_frame_listener(callback)
                         -- per-frame fan-out hook for future REST
                            streaming / plugin live-processing.
@@ -84,7 +87,6 @@ class ScopeDisplayThread:
         # write whenever state changes. Lock is uncontended in practice
         # (publish rate ~30Hz, render rate <=30Hz).
         self._config_lock = threading.Lock()
-        self._active_layer: str | None = None
         self._open_layer: str | None = None
         self._fps: int = 30
         self._min_frame_interval: float = 1.0 / 30
@@ -115,11 +117,9 @@ class ScopeDisplayThread:
         """Render through *renderer* at up to *fps* (0 uncapped)."""
         self._renderer = renderer
         if self._thread is not None and self._thread.is_alive():
-            logger.debug(
-                'scope_display_thread already running; set_fps + resume instead of re-start'
-            )
+            # A pause is the user's frozen picture; a second start keeps it.
+            logger.debug('scope_display_thread already running; set_fps instead of re-start')
             self.set_fps(fps)
-            self.resume()
             return
         self.set_fps(fps)
         self._stop_event.clear()
@@ -164,13 +164,8 @@ class ScopeDisplayThread:
             self._fps = fps
             self._min_frame_interval = 0.0 if fps == 0 else 1.0 / max(1, fps)
 
-    def update_layer_config(
-        self,
-        active_layer: str | None,
-        open_layer: str | None,
-    ) -> None:
+    def update_layer_config(self, open_layer: str | None) -> None:
         with self._config_lock:
-            self._active_layer = active_layer
             self._open_layer = open_layer
 
     def bump_protocol_hold(self, hold_seconds: float) -> None:
@@ -208,6 +203,12 @@ class ScopeDisplayThread:
         return self._paused.is_set()
 
     @property
+    def protocol_hold_in_force(self) -> bool:
+        """Whether a held frame (a saved or derived image) is still due its time on screen."""
+        with self._config_lock:
+            return self._protocol_hold_until > time.monotonic()
+
+    @property
     def generation(self) -> int:
         return self._generation
 
@@ -233,7 +234,6 @@ class ScopeDisplayThread:
 
             # Snapshot config under lock; release before doing work.
             with self._config_lock:
-                active_layer = self._active_layer
                 open_layer = self._open_layer
                 min_frame_interval = self._min_frame_interval
                 hold_until = self._protocol_hold_until
@@ -259,7 +259,6 @@ class ScopeDisplayThread:
             # we just call its body.
             try:
                 status = widget._render_one_frame(
-                    active_layer=active_layer,
                     open_layer=open_layer,
                     dispatch_time=cycle_start,
                     generation=self._generation,

@@ -24,6 +24,7 @@ import pytest
 # mock so the real SDK loads here. When the flag is NOT set, this import
 # succeeds against the conftest mock and the marker below skips the
 # tests at collection time.
+from drivers import host_clock
 from drivers.pyloncamera import PylonCamera
 
 
@@ -244,6 +245,34 @@ class TestPylon(unittest.TestCase):
             f'Errors: {result["errors"]}',
         )
 
+    def test_the_clock_latch_counts_the_host_s_time_at_the_stated_rate(self):
+        """Two latches of the camera's clock, while it grabs, are as far
+        apart in its ticks as the host's steady clock says, at the tick
+        rate the driver states. Each latch is bracketed alone, the read
+        after it outside the bracket; the brackets are printed, since half
+        of one is what a mapping of the two clocks can claim."""
+        self.assertTrue(self.camera.supports_clock_latch(), 'no TimestampLatch on this camera')
+        hz = self.camera.timestamp_tick_frequency_hz
+
+        first_ns, first_bracket, first_ticks = self._latch()
+        time.sleep(0.5)
+        second_ns, second_bracket, second_ticks = self._latch()
+        print(f'\n  tick hz {hz}; brackets {first_bracket} ns, {second_bracket} ns')
+
+        host_s = (second_ns - first_ns) / 1e9
+        camera_s = (second_ticks - first_ticks) / hz
+        self.assertAlmostEqual(
+            camera_s, host_s, delta=(first_bracket + second_bracket) / 2e9 + 1e-4
+        )
+
+    def _latch(self):
+        """One latch: the host's steady time at its bracket's middle, the
+        bracket's width, and the ticks latched (read after the bracket)."""
+        before = host_clock.steady_ns()
+        self.camera.latch_clock()
+        after = host_clock.steady_ns()
+        return (before + after) // 2, after - before, self.camera.latched_clock_ticks()
+
     def test_worker_thread_alive_after_connect(self):
         """After PylonCamera.connect() returns, the Stage B worker thread
         must be alive (daemon, named 'PylonImageGrabWorker') so the SDK
@@ -321,76 +350,62 @@ class TestPylon(unittest.TestCase):
 
 
 @pytest.fixture
-def pylon_imaging():
-    """The public imaging API over a connected Basler body."""
-    import threading
+def pylon_scope():
+    """A real scope over a connected Basler body, and the body's driver."""
+    from tests.scope_fakes import build_scope
 
-    from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
-    from tests.scope_fakes import give_stub_lanes
-
-    cam = PylonCamera()
-    cam.open_and_start()
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    imaging._populate_camera_cache()
-    yield imaging, cam
-    cam.disconnect()
-    time.sleep(0.5)
+    scope = build_scope(camera_type='pylon')
+    return scope, scope._camera_driver
 
 
 @pytest.mark.pylon_hardware
-def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_imaging):
+def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_scope):
     """The range the public setters refuse against is the one the body
     declares, and a refused value never reaches the camera."""
     from modules.exceptions import CameraSettingOutOfRangeError
 
-    imaging, cam = pylon_imaging
-    min_gain = imaging.min_gain_db_cached
-    max_gain = imaging.max_gain_db_cached
-    max_exposure = imaging.max_exposure_ms_cached
+    scope, cam = pylon_scope
+    camera = scope.camera
+    limits = scope.capabilities.camera_limits
+    min_gain = limits.gain_min_db
+    max_gain = limits.gain_max_db
+    max_exposure = limits.exposure_max_ms
     print(
-        f'\n  gain {min_gain} to {max_gain} dB, exposure {imaging.min_exposure_ms_cached}'
+        f'\n  gain {min_gain} to {max_gain} dB, exposure {limits.exposure_min_ms}'
         f' to {max_exposure} ms'
     )
     assert max_gain is not None and max_exposure is not None
 
-    imaging.set_gain_db(min_gain if min_gain is not None else 0.0)
-    imaging.set_exposure_ms(15.0)
+    camera.set_gain_db(min_gain if min_gain is not None else 0.0)
+    camera.set_exposure_ms(15.0)
     gain_before = cam.get_gain()
     exposure_before = cam.get_exposure_t()
 
     with pytest.raises(CameraSettingOutOfRangeError) as over_gain:
-        imaging.set_gain_db(max_gain + 5.0)
+        camera.set_gain_db(max_gain + 5.0)
     print(f'  {over_gain.value}')
     assert over_gain.value.reason == 'gain_db_out_of_range'
-    assert (over_gain.value.requested, over_gain.value.minimum, over_gain.value.maximum) == (
+    assert (over_gain.value.requested, over_gain.value.limits) == (
         max_gain + 5.0,
-        min_gain,
-        max_gain,
+        (min_gain, max_gain),
     )
     assert cam.get_gain() == pytest.approx(gain_before, abs=0.01)
 
     if min_gain is not None:
         with pytest.raises(CameraSettingOutOfRangeError) as under_gain:
-            imaging.set_gain_db(min_gain - 1.0)
+            camera.set_gain_db(min_gain - 1.0)
         print(f'  {under_gain.value}')
         assert cam.get_gain() == pytest.approx(gain_before, abs=0.01)
 
     with pytest.raises(CameraSettingOutOfRangeError) as over_exposure:
-        imaging.set_exposure_ms(max_exposure + 1.0)
+        camera.set_exposure_ms(max_exposure + 1.0)
     print(f'  {over_exposure.value}')
     assert over_exposure.value.reason == 'exposure_ms_out_of_range'
-    assert over_exposure.value.maximum == max_exposure
+    assert over_exposure.value.limits[1] == max_exposure
     assert cam.get_exposure_t() == pytest.approx(exposure_before, abs=0.01)
 
     in_range_gain = (min_gain or 0.0) + (max_gain - (min_gain or 0.0)) / 2
-    imaging.set_gain_db(in_range_gain)
+    camera.set_gain_db(in_range_gain)
     assert cam.get_gain() == pytest.approx(in_range_gain, abs=0.1)
 
 

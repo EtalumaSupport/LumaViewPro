@@ -8,8 +8,8 @@ bundle asserts the user chose something they were actually refused.
 The two halves of that split on whether the write dispatches:
 
 - A TEXT box does not. Assigning ``.text`` rebuilds the lines and the cursor
-  and never touches ``focus``, so the ``on_focus`` binding these handlers hang
-  from cannot fire from an app write. The three text boxes are driven through
+  and never touches ``focus``, so the ``on_commit`` binding these handlers hang
+  from cannot fire from an app write. The two text boxes are driven through
   their REAL handlers here, one commit per test, and what is pinned is that the
   attempt and the correction are BOTH recorded and the reverted value is never
   reported as typed.
@@ -29,6 +29,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.microscope_settings as ms
 import ui.protocol_settings as ps
+from ui.zstack import ZStack
 from modules import gui_logger
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -65,32 +66,11 @@ def _advanced_panel(monkeypatch, widget_id, widget, stored):
     return _Panel()
 
 
-def test_a_refused_fps_limit_records_the_attempt_not_the_revert(emitted, monkeypatch):
-    """Type 500 into a box that caps at 200: the bundle must not claim 30."""
-    from ui.advanced_settings import AdvancedSettings
-
-    widget = _Widget('500')
-    stored = {'video': {'max_fps': 30}}
-    panel = _advanced_panel(monkeypatch, 'video_max_fps_input', widget, stored)
-
-    AdvancedSettings.update_video_max_fps(panel)  # one commit -- refused
-
-    assert ('VIDEO_MAX_FPS', '500') in emitted, (
-        f'the refused entry left no record of what was typed: {emitted}'
-    )
-    assert ('VIDEO_MAX_FPS_APPLIED', '30') in emitted, (
-        f'the revert was not reported as the correction: {emitted}'
-    )
-    assert ('VIDEO_MAX_FPS', '30') not in emitted, (
-        f'the reverted value was recorded as the one the user typed: {emitted}'
-    )
-
-
 def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypatch):
     from ui.advanced_settings import AdvancedSettings
 
     widget = _Widget('99999')
-    stored = {'video': {'max_duration_seconds': 300}}
+    stored = {'video': {'max_duration_s': 300}}
     panel = _advanced_panel(monkeypatch, 'video_max_duration_input', widget, stored)
 
     AdvancedSettings.update_video_max_duration(panel)
@@ -109,23 +89,34 @@ def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypa
 def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
     """A path-illegal root is recorded, and stored, as typed; the filename
     prefix made of it is the protocol's (capture_prefix), not the field's."""
-    from unittest.mock import MagicMock
+    from types import SimpleNamespace
 
+    import modules.app_context as _app_ctx
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
     from ui.protocol_settings import ProtocolSettings
 
-    widget = _Widget('my/run:1')
+    session = ScopeSession.create(complete_settings(), simulate=True)
+    try:
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
+        widget = _Widget('my/run:1')
 
-    class _Panel:
-        ids: ClassVar[dict] = {'capture_root': widget}
-        _protocol = MagicMock()
+        class _Panel(ProtocolSettings):
+            """The real class, with only the widget tree stubbed."""
 
-    panel = _Panel()
-    ProtocolSettings.update_capture_root(panel, widget.text)
+            def __init__(self, protocol):
+                self.ids = {'capture_root': widget}
+                self._protocol = protocol
 
-    typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
-    assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
-    panel._protocol.modify_capture_root.assert_called_once_with(capture_root='my/run:1')
-    assert widget.text == 'my/run:1', 'the field shows what was typed'
+        panel = _Panel(session.create_empty_protocol())
+        panel.update_capture_root(widget.text)
+
+        typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
+        assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
+        assert panel._protocol.capture_root() == 'my/run:1'
+        assert widget.text == 'my/run:1', 'the field shows what was typed'
+    finally:
+        session.shutdown()
 
 
 class _Spinner:
@@ -175,9 +166,9 @@ class _Microscope(ms.MicroscopeSettings):
             'sequenced_image_output_format_spinner': _Spinner(
                 'Select', self.select_sequenced_image_output_format
             ),
-            'video_recording_format_spinner': _Spinner(
-                'Select', self.select_video_recording_format
-            ),
+            # kv text 'Select' with text_autoupdate, which takes the first
+            # value on construction: the spinner reads 'mp4' before any restore.
+            'video_recording_format_spinner': _Spinner('mp4', self.select_video_recording_format),
             'binning_spinner': _Spinner('Select', self.select_binning_size),
             'jpg_quality_slider': SimpleNamespace(value=0),
             'jpg_quality_value_label': SimpleNamespace(text=''),
@@ -219,7 +210,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
     )
     zstack = SimpleNamespace(
         ids={
-            name: SimpleNamespace(text='')
+            name: SimpleNamespace(focus=False, text='')
             for name in (
                 'zstack_spinner',
                 'zstack_stepsize_id',
@@ -228,13 +219,14 @@ def cold_start(tmp_path, monkeypatch, caplog):
             )
         }
     )
+    zstack.show_settings = lambda: ZStack.show_settings(zstack)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     ctx = SimpleNamespace(
         session=session,
         settings=session.settings,
         update_settings=session.update_settings,
         lumaview=SimpleNamespace(scope=session.scope),
-        wellplate_loader=session.wellplate_loader,
+        scope=session.scope,
         initializing=True,
         camera_executor=None,
         source_path=str(tmp_path),
@@ -250,11 +242,11 @@ def cold_start(tmp_path, monkeypatch, caplog):
         ),
         image_settings=SimpleNamespace(
             layer_lookup=lambda layer: layer_widget,
+            set_layer_exposure_ranges=lambda: None,
             reconcile_layers_to_camera_caps=lambda: None,
         ),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-    monkeypatch.setattr(gui_logger, '_write_backs', {})
     microscope = _Microscope()
     try:
         with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
@@ -268,22 +260,22 @@ def cold_start(tmp_path, monkeypatch, caplog):
 
 
 def test_restoring_labware_at_startup_is_not_recorded_as_a_selection(cold_start):
-    """The restore writes the spinner, whose write runs select_labware, and
-    then calls it again: two records of the stored plate, neither a pick."""
+    """The restore shows the stored plate and records no pick. (In the app
+    the scope's visibility restore has shown it already, which this fixture
+    stubs, so whether this write runs select_labware is not asserted here.)"""
     plate = cold_start.settings['protocol']['labware']
     assert cold_start.labware.ids['labware_spinner'].text == plate
-    assert cold_start.labware.picks == 2, 'the write and the call each ran the handler'
     assert not [line for line in cold_start.recorded if line.startswith('SELECT LABWARE')], (
         cold_start.recorded
     )
 
 
 def test_restoring_binning_at_startup_is_not_recorded_as_a_selection(cold_start):
-    """The twin of the labware restore: the spinner write and the explicit
-    select_binning_size() each run the handler; neither is a pick."""
+    """The twin of the labware restore: the spinner write runs
+    select_binning_size once, and it is not a pick."""
     label = cold_start.settings['binning']['size']
     assert cold_start.microscope.ids['binning_spinner'].text == label
-    assert cold_start.microscope.binning_picks == 2, 'the write and the call each ran the handler'
+    assert cold_start.microscope.binning_picks == 1, 'the restore ran the handler other than once'
     assert not [line for line in cold_start.recorded if line.startswith('SELECT BINNING')], (
         cold_start.recorded
     )

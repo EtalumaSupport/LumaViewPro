@@ -13,6 +13,9 @@ import time
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError
+from modules.lumascope_api.bring_up import Part
+
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     executor,
@@ -35,7 +38,7 @@ def _count_teardowns(executor, monkeypatch):
 
 
 def _ended(executor, run):
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome is not None, 'the run never reported'
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never went idle'
     deadline = time.monotonic() + COMPLETION_TIMEOUT
@@ -60,7 +63,7 @@ def test_a_stopped_run_is_torn_down_once(executor, tmp_path, monkeypatch):
     teardowns = _count_teardowns(executor, monkeypatch)
     run = _start_run(executor, tmp_path, threading.Event())
 
-    executor._reset(run)
+    run.stop()
     outcome = _ended(executor, run)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
@@ -86,15 +89,17 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
     teardowns = _count_teardowns(executor, monkeypatch)
 
     unplugged = threading.Event()
-    connected = executor._scope.are_all_connected
+    unconnected = executor._scope.unconnected_parts
 
     def the_move_fails(*args, **kwargs):
         unplugged.set()
-        raise RuntimeError('the stage did not answer')
+        raise BoardNoReplyError('the stage did not answer')
 
     monkeypatch.setattr(executor._step_executor, 'go_to_step', the_move_fails)
     monkeypatch.setattr(
-        executor._scope, 'are_all_connected', lambda: not unplugged.is_set() and connected()
+        executor._scope,
+        'unconnected_parts',
+        lambda: (Part.CAMERA,) if unplugged.is_set() else unconnected(),
     )
     run = _start_run(executor, tmp_path, threading.Event())
 

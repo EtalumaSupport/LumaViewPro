@@ -19,17 +19,11 @@ branches match. Reporting rather than raising is a deliberate choice to
 be more forgiving than the GUI: a REST caller must not be killed by
 one bad UI callback. Silence is the only option with no argument for
 it.
-
-Note on the assertion shape: the suite replaces the whole `lvp_logger`
-module with a MagicMock (`conftest.py`), so log records are asserted
-through the mock. Reading stdout/caplog for `lvp_logger` output proves
-nothing here.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
-from lvp_logger import logger
 
 from modules import kivy_utils
 from modules.scope_session import ScopeSession
@@ -39,7 +33,6 @@ from modules.scope_session import ScopeSession
 def _headless_dispatcher():
     """Force the no-GUI branch, the one a test process runs on."""
     ScopeSession.set_ui_dispatcher(None)
-    logger.reset_mock()
 
 
 def _boom(_dt):
@@ -66,13 +59,13 @@ def test_headless_callback_failure_does_not_reach_the_caller():
     kivy_utils.schedule_ui(_boom)
 
 
-def test_a_healthy_headless_callback_still_runs_and_logs_nothing():
+def test_a_healthy_headless_callback_still_runs_and_logs_nothing(caplog):
     called = MagicMock()
 
     kivy_utils.schedule_ui(called)
 
     called.assert_called_once_with(0)
-    assert not logger.exception.called, (
+    assert not [r for r in caplog.records if r.exc_info], (
         'a callback that returned normally must not produce an exception '
         'record; a logger that fires on the happy path is noise, not signal'
     )

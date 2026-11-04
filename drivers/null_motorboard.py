@@ -19,8 +19,9 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Mapping
+from typing import ClassVar
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import PartAbsentError
 from drivers.registry import motor_registry
 from drivers.motorconfig import read_only_axes_config
 
@@ -35,6 +36,9 @@ class NullMotionBoard:
     directly (``driver``, ``thread_lock``, etc.).
     """
 
+    # No board, so no text wire: the diagnostic door sends it nothing.
+    takes_text_commands: ClassVar[bool] = False
+
     def __init__(self):
         # Required attributes accessed directly by lumascope_api and callers
         self.driver = True  # truthy sentinel -- satisfies `not self.motion.driver`
@@ -47,8 +51,7 @@ class NullMotionBoard:
         self.initial_homing_complete = True  # trivially "homed" (no motors to home)
         self.initial_t_homing_complete = True
         self._has_turret = False
-        self._connect_fails = 0
-        self.firmware_version = ''
+        self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
         self.is_v3 = False
@@ -108,7 +111,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise HardwareError(f'target_pos({axis}): no motor board')
+        raise PartAbsentError(f'target_pos({axis}): no motor board')
 
     def current_pos(self, axis: str) -> float:
         """Null implementation: raises, as a board that cannot be read does.
@@ -116,7 +119,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise HardwareError(f'current_pos({axis}): no motor board')
+        raise PartAbsentError(f'current_pos({axis}): no motor board')
 
     def target_pos_steps(self, axis: str) -> int:
         """Null implementation: raises, as a board that cannot be read does.
@@ -124,7 +127,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise HardwareError(f'target_pos_steps({axis}): no motor board')
+        raise PartAbsentError(f'target_pos_steps({axis}): no motor board')
 
     def current_pos_steps(self, axis: str) -> int:
         """Null implementation: raises, as a board that cannot be read does.
@@ -132,7 +135,15 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise HardwareError(f'current_pos_steps({axis}): no motor board')
+        raise PartAbsentError(f'current_pos_steps({axis}): no motor board')
+
+    def steps_to_position(self, axis: str, steps: int) -> float:
+        """Null implementation: raises, as its position reads do.
+
+        Raises:
+            HardwareError: there is no motor board.
+        """
+        raise PartAbsentError(f'steps_to_position({axis}): no motor board')
 
     # ------------------------------------------------------------------
     # Status
@@ -412,29 +423,13 @@ class NullMotionBoard:
         """
         return {'status': False}
 
-    def exchange_command(self, command, response_numlines=1, timeout=None):
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            None: Always.
-        """
-        return None
-
-    def exchange_multiline(self, command, timeout=60, end_markers=None) -> list:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            list: Always empty.
-        """
-        return []
-
     def motor_stop(self) -> bool:
-        """No motor, no stop.
+        """No motor, so nothing is left moving.
 
         Returns:
-            bool: Always False.
+            bool: Always True.
         """
-        return False
+        return True
 
     def interlocks(self) -> frozenset[str]:
         """No motor, no interlock."""

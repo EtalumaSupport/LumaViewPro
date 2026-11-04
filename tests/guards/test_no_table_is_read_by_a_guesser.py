@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 
-_PANDAS_READERS = {'read_csv', 'read_table', 'read_fwf', 'read_excel'}
+_PANDAS_READERS = Words({'read_csv', 'read_table', 'read_fwf', 'read_excel'})
 
 
 def _production_sources():

@@ -18,9 +18,7 @@ because it fails in front of a user.
 
 from __future__ import annotations
 
-import ast
-
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import imported_names, iter_package_modules
 
 # No exemption. The one file that held one -- the GUI's event subscriber --
 # now lives in ui/, where its widget writes belong. A ui/ import under
@@ -35,24 +33,12 @@ _UI_IMPORT_EXEMPT: frozenset[str] = frozenset()
 _KIVY_IMPORT_EXEMPT: frozenset[str] = frozenset()
 
 
-def _imported_roots(tree: ast.Module):
-    """Yield (lineno, dotted_name) for every import anywhere in the module."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            # A relative import has no module root to police.
-            if node.level == 0 and node.module:
-                yield node.lineno, node.module
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                yield node.lineno, alias.name
-
-
 def _violations(prefix: str, exempt: frozenset[str]) -> list[str]:
     found = []
     for rel_path, tree in iter_package_modules(('modules',)):
         if rel_path in exempt:
             continue
-        for lineno, name in _imported_roots(tree):
+        for lineno, name in imported_names(tree):
             if name == prefix or name.startswith(f'{prefix}.'):
                 found.append(f'{rel_path}:{lineno} imports {name}')
     return found
@@ -95,6 +81,6 @@ def test_the_exemption_is_real():
     for rel_path, tree in iter_package_modules(('modules',)):
         if rel_path not in _UI_IMPORT_EXEMPT:
             continue
-        assert any(name == 'ui' or name.startswith('ui.') for _, name in _imported_roots(tree)), (
+        assert any(name == 'ui' or name.startswith('ui.') for _, name in imported_names(tree)), (
             f'{rel_path} is exempt from the ui/ ban but imports no ui/ module'
         )

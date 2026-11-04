@@ -13,6 +13,7 @@ field-merge into hardware that does not exist.
 """
 
 import json
+import logging
 import pathlib
 
 import pytest
@@ -20,8 +21,9 @@ import pytest
 from drivers.exceptions import ConfigReadError
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
-from lvp_logger import logger as _mock_logger
 from modules.path_utils import read_installation_file
+from tests.stock_channels import LED2
+from tests.wire_boards import motor_on_the_wire
 
 
 def make_config(tmp_path, defaults=None):
@@ -33,30 +35,55 @@ def make_config(tmp_path, defaults=None):
 def bare_board(monkeypatch, response):
     """A MotorBoard with no serial machinery: only what get_config touches."""
     board = MotorBoard.__new__(MotorBoard)
-    monkeypatch.setattr(board, 'exchange_command', lambda cmd, **kw: response, raising=False)
+
+    def exchange(cmd, **kw):
+        # an exception is raised, as the wire raises a dropped reply
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(board, 'exchange_command', exchange, raising=False)
     return board
 
 
 class TestGetConfig:
-    def test_valid_json_parses(self, monkeypatch):
-        board = bare_board(monkeypatch, '{"Serial Number": "SN1"}')
-        assert board.get_config() == {'Serial Number': 'SN1'}
+    """The firmware's own CONFIG replies, on the firmware-backed simulator: the
+    3.0 firmware answers JSON, the field firmware a Python dict repr, and a
+    lost or garbled reply is the wire's own fault. ``{}`` and a bare number
+    are answers no emulated firmware gives, so those two cases script the
+    exchange."""
 
-    def test_legacy_dict_repr_parses(self, monkeypatch):
-        board = bare_board(monkeypatch, "{'Serial Number': 'SN1'}")
-        assert board.get_config() == {'Serial Number': 'SN1'}
+    @pytest.mark.firmware_tier
+    def test_valid_json_parses(self):
+        board, _sim = motor_on_the_wire(dialect='3.0')
+        assert board.exchange_command('CONFIG').startswith('{"')
+        assert board.get_config()['Serial Number'] == 'SIM-0000'
+
+    @pytest.mark.firmware_tier
+    def test_legacy_dict_repr_parses(self):
+        """The field firmware, the one the shipped scopes run, answers CONFIG
+        with a Python dict repr."""
+        board, _sim = motor_on_the_wire(dialect='field')
+        assert board.exchange_command('CONFIG').startswith("{'")
+        assert board.get_config()['Serial Number'] == 'SIM-0000'
 
     def test_empty_mapping_is_a_valid_answer(self, monkeypatch):
         board = bare_board(monkeypatch, '{}')
         assert board.get_config() == {}
 
-    def test_no_answer_raises(self, monkeypatch):
-        board = bare_board(monkeypatch, None)
-        with pytest.raises(ConfigReadError):
+    @pytest.mark.firmware_tier
+    @pytest.mark.slow
+    def test_no_answer_raises(self):
+        """Slow: the lost reply is waited out for the read's own bound."""
+        board, sim = motor_on_the_wire()
+        sim.drop_next_reply()
+        with pytest.raises(ConfigReadError, match='board did not answer CONFIG'):
             board.get_config()
 
-    def test_unparseable_payload_raises(self, monkeypatch):
-        board = bare_board(monkeypatch, 'garbage %% not json')
+    @pytest.mark.firmware_tier
+    def test_unparseable_payload_raises(self):
+        board, sim = motor_on_the_wire()
+        sim.garble_next_reply()
         with pytest.raises(ConfigReadError):
             board.get_config()
 
@@ -74,12 +101,13 @@ class TestLoaderRecordsProvenance:
         monkeypatch.setattr(board, '_rebuild_cached_values', lambda: None, raising=False)
         return board
 
-    def test_failed_read_sets_the_flag_and_survives(self, tmp_path, monkeypatch):
+    def test_failed_read_sets_the_flag_and_survives(self, tmp_path, monkeypatch, caplog):
         board = self._board_with_config(tmp_path, monkeypatch, 'garbage %%')
-        _mock_logger.reset_mock()
         board._load_board_config()
         assert board.motorconfig.board_config_read_ok is False
-        assert any('unreadable' in str(c) for c in _mock_logger.warning.call_args_list)
+        assert any(
+            'unreadable' in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        )
 
     def test_clean_read_leaves_the_flag_true(self, tmp_path, monkeypatch):
         board = self._board_with_config(tmp_path, monkeypatch, '{"Serial Number": "SN1"}')
@@ -92,15 +120,30 @@ class TestLoaderRecordsProvenance:
         board._load_board_config()
         assert board.motorconfig.board_config_read_ok is True
 
-    def test_merge_failure_records_unreliable_state(self, tmp_path, monkeypatch):
+    def test_a_section_that_is_not_a_mapping_is_rejected_and_its_default_kept(
+        self, tmp_path, monkeypatch
+    ):
+        board = self._board_with_config(
+            tmp_path, monkeypatch, '{"Axis Present": 1, "Serial Number": "SN1"}'
+        )
+        board.motorconfig = make_config(tmp_path, {'Axis Present': {'X': False}})
+        board._load_board_config()
+        assert board.motorconfig.axis_present('X') is False, 'the default stands'
+        assert board.motorconfig.serial_number() == 'SN1', 'the rest of the config merges'
+        assert board.motorconfig.board_config_read_ok is True, 'the board answered'
+
+    def test_a_defect_in_the_merge_leaves_as_itself(self, tmp_path, monkeypatch):
         board = self._board_with_config(tmp_path, monkeypatch, '{"Serial Number": "SN1"}')
 
         def boom():
+            # a stand-in by design: our own defect in the merge, which no
+            # board config can produce
             raise RuntimeError('cache rebuild failed')
 
         monkeypatch.setattr(board, '_rebuild_cached_values', boom, raising=False)
-        board._load_board_config()
-        assert board.motorconfig.board_config_read_ok is False
+        with pytest.raises(RuntimeError, match='cache rebuild failed'):
+            board._load_board_config()
+        assert board.motorconfig.board_config_read_ok is True, 'not recorded as the board unread'
 
 
 class TestFlagExistsEverywhere:
@@ -121,21 +164,23 @@ class TestWholesaleLedBlock:
     def test_board_block_replaces_a_defaults_block_whole(self, tmp_path):
         config = make_config(
             tmp_path,
-            defaults={'Layers': {'hypothetical': 'dict-shaped'}, 'Filterset': 'Old'},
+            defaults={'Channels': {'BF': {'led_channel': 3}, LED2: {}}, 'Filterset': 'Old'},
         )
-        config.update_from_board({'Layers': [{'key_name': 'BF'}], 'Filterset': 'New'})
+        config.update_from_board({'Channels': {'BF': {'led_channel': 4}}, 'Filterset': 'New'})
         block = config.led_block()
-        assert block == {'Layers': [{'key_name': 'BF'}], 'Filterset': 'New'}
+        assert block == {'Channels': {'BF': {'led_channel': 4}}, 'Filterset': 'New'}
 
     def test_absent_block_is_none_not_empty(self, tmp_path):
         config = make_config(tmp_path)
         config.update_from_board({'Serial Number': 'SN1'})
         assert config.led_block() is None
 
-    def test_block_without_filterset_gets_an_empty_string(self, tmp_path):
+    def test_the_block_is_the_keys_the_board_holds(self, tmp_path):
+        # The identity resolver decides what each key means: a Channels block
+        # with no Filterset, and the old Layers block, are handed over as held.
         config = make_config(tmp_path)
-        config.update_from_board({'Layers': []})
-        assert config.led_block() == {'Layers': [], 'Filterset': ''}
+        config.update_from_board({'Channels': {}, 'Layers': []})
+        assert config.led_block() == {'Channels': {}, 'Layers': []}
 
 
 def test_defaults_file_never_carries_an_led_block():
@@ -147,5 +192,6 @@ def test_defaults_file_never_carries_an_led_block():
     """
     with open(pathlib.Path('data/motorconfig_defaults.json'), encoding='utf-8') as f:
         defaults = json.load(f)
+    assert 'Channels' not in defaults
     assert 'Layers' not in defaults
     assert 'Filterset' not in defaults

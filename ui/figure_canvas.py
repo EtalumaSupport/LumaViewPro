@@ -16,6 +16,10 @@ class FigureCanvasKivyAgg(KivyImage):
 
     def __init__(self, figure, **kwargs):
         super().__init__(**kwargs)
+        self.show(figure)
+
+    def show(self, figure):
+        """Render *figure* in place of the one shown, into the same texture."""
         self.figure = figure
         self._canvas_agg = FigureCanvasAgg(figure)
         self.draw()

@@ -1,9 +1,9 @@
 """P10 -- an autofocus whose search would leave Z's travel is refused, by the API.
 
 GUI entry: ui/vertical_control.py run_autofocus_from_ui -> the standalone
-autofocus run, the one `ProtocolRunner.run_autofocus` starts.
+autofocus run, the one `ProtocolRunner.start_autofocus` starts.
 
-Three starts, each through `run_autofocus` and the Session's outcome
+Three starts, each through `start_autofocus` and the Session's outcome
 listener, which hears the failure no caller waits on:
 
   top of travel     the first window reaches past the maximum: refused before
@@ -28,10 +28,10 @@ TIMEOUT_S = 300
 def _autofocus_from(session, runner, z, heard):
     """Autofocus once from ``z``; return (outcome, travel refusals heard, Z after)."""
     motion = session.scope.motion
-    motion.move_absolute('Z', z)
+    motion.move_z(z)
     heard.clear()
-    outcome = runner.run_autofocus(layer=LAYER).wait(timeout_s=TIMEOUT_S)
-    while motion.is_moving():
+    outcome = runner.start_autofocus(channel=LAYER).result(timeout=TIMEOUT_S)
+    while motion.is_any_axis_moving():
         pass
     refused = [n for n in heard if getattr(n, 'reason', None) == 'out_of_travel']
     return outcome, refused, motion.get_current_position('Z')
@@ -42,12 +42,12 @@ def body(session, runner):
     session.add_outcome_listener(heard.append)
     limits = session.scope.motion.get_axis_limits('Z')
     objective = session.scope.runtime_state.get_current_objective()
-    af_range = objective['AF_range']
+    half_range = objective.autofocus_half_range_um
     figure('Z travel', limits)
     figure('objective', session.scope.runtime_state.get_current_objective_id())
-    figure('AF_range', af_range)
+    figure('autofocus_half_range_um', half_range)
 
-    for name, start in (('top', limits['max']), ('bottom', limits['min'])):
+    for name, start in (('top', limits.max_um), ('bottom', limits.min_um)):
         outcome, refused, z_after = _autofocus_from(session, runner, start, heard)
         figure(f'{name}: status', outcome.status)
         figure(f'{name}: focus', outcome.af_focus_z_um)
@@ -65,7 +65,7 @@ def body(session, runner):
             f'start {start}, after {z_after}',
         )
 
-    mid = (limits['min'] + limits['max']) / 2.0
+    mid = (limits.min_um + limits.max_um) / 2.0
     outcome, refused, _ = _autofocus_from(session, runner, mid, heard)
     figure('mid: status', outcome.status)
     figure('mid: focus', outcome.af_focus_z_um)

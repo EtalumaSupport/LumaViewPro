@@ -5,7 +5,7 @@ The GUI's Capture button used to decide the channel, folder, name,
 summing, format, depth and overlay copy itself, reaching past the API to
 do it, so a script or REST caller had no way to make the same file.
 `session.manual_capture.capture` makes every one of those decisions from
-the session's settings; the caller names only the open drawer, its
+the session's settings and its shown channel; the caller names only its
 false-colour state and the overlays it wants.
 
 Run against the simulator with the lanes the factory builds and starts, so
@@ -25,17 +25,17 @@ import pytest
 
 import modules.image_mode as image_mode
 from modules.exceptions import (
-    ArgumentRefusedError,
-    CaptureError,
+    CaptureFailedError,
     HardwareCommandRefusedError,
-    MissingPart,
+    LaneCallStillRunningError,
 )
-from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
-from modules.lumascope_api.imaging import capture_failure_cause
+from modules.image_mode import OutputFormat
+from modules.image_utils import read_file_record, read_tiff_with_legacy_collapse
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0, LED2
 
 RESULT_TIMEOUT_S = 30.0
 
@@ -77,17 +77,21 @@ def over_the_first_well(session) -> str:
     """
     scope = session.scope
     x_mm, y_mm = scope.runtime_state.get_labware().get_well_position(0, 0)
-    for axis, plate_mm in (('X', x_mm), ('Y', y_mm)):
-        scope.motion.move_absolute(axis, scope.runtime_state.plate_to_stage_axis(axis, plate_mm))
+    stage = scope.runtime_state.plate_to_stage(x_mm, y_mm)
+    scope.motion.move_xy(x_um=stage.x_um)
+    scope.motion.move_xy(y_um=stage.y_um)
     label = scope.runtime_state.get_well_label()
     assert label, 'the stage was moved over a well'
     return label
 
 
 def _capture(session, **kwargs):
-    kwargs.setdefault('layer', None)
     kwargs.setdefault('false_color_on', False)
     return session.manual_capture.capture(**kwargs).result(timeout=RESULT_TIMEOUT_S)
+
+
+def _files(session, **kwargs):
+    return [still.file for still in _capture(session, **kwargs)]
 
 
 class _LaneBlocker:
@@ -115,14 +119,14 @@ def _wait_until_queued(session, depth):
 
 
 class TestWhereTheFileLands:
-    def test_no_drawer_and_no_led_is_brightfield_in_manual(self, still_session):
+    def test_a_fresh_session_shows_brightfield_and_names_it_in_manual(self, still_session):
         session, tmp_path = still_session
         well = over_the_first_well(session)
 
-        paths = _capture(session)
+        stills = _capture(session)
 
-        assert len(paths) == 1
-        path = paths[0]
+        assert len(stills) == 1
+        path = stills[0].file
         assert isinstance(path, pathlib.Path)
         assert path.parent == tmp_path / 'Manual'
         assert path.name == f'live_{well}_BF_000001.tiff'
@@ -146,50 +150,43 @@ class TestWhereTheFileLands:
         with session.scope.motion._axis_state_lock:
             session.scope.motion._axis_state['X'] = AxisState.UNKNOWN
 
-        paths = _capture(session)
+        stills = _capture(session)
 
-        assert [p.name for p in paths] == ['live_BF_000001.tiff']
-        assert paths[0].is_file()
+        assert [s.file.name for s in stills] == ['live_BF_000001.tiff']
+        assert stills[0].file.is_file()
+        assert stills[0].well_label is None
         assert shown == ['Position Not Recorded']
 
-    def test_the_open_drawer_names_the_channel_when_nothing_is_lit(self, still_session):
+    def test_the_shown_channel_names_the_still_when_nothing_is_lit(self, still_session):
+        session, _ = still_session
+        session.show_channel(LED0)
+
+        (path,) = _files(session)
+
+        assert f'_{LED0}_' in path.name
+        assert read_file_record(path)['channel'] == LED0
+
+    def test_a_second_still_takes_the_next_number(self, still_session):
         session, _ = still_session
 
-        (path,) = _capture(session, layer='Blue')
-
-        assert '_Blue_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == 'Blue'
-
-    def test_a_lit_led_outranks_the_open_drawer(self, still_session):
-        session, _ = still_session
-        session.scope.illumination.led_on('Green', 50.0)
-
-        (path,) = _capture(session, layer='Blue')
-
-        assert '_Green_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == 'Green'
-
-    def test_a_second_still_takes_the_next_number_and_is_a_path(self, still_session):
-        session, _ = still_session
-
-        (first,) = _capture(session)
-        (second,) = _capture(session)
+        (first,) = _files(session)
+        (second,) = _files(session)
 
         assert first.name.endswith('_000001.tiff')
         assert second.name.endswith('_000002.tiff')
-        assert isinstance(second, pathlib.Path)
 
     def test_a_folder_per_channel(self, tmp_path):
         settings = _settings(tmp_path)
         settings['separate_folder_per_channel'] = True
         with _open_session(settings) as session:
-            (path,) = _capture(session, layer='Red')
+            session.show_channel(LED2)
+            (path,) = _files(session)
 
-        assert path.parent == tmp_path / 'Manual' / 'Red'
+        assert path.parent == tmp_path / 'Manual' / LED2
 
     def test_the_live_format_is_the_settings(self, tmp_path):
         with _open_session(_settings(tmp_path, live_format='JPG')) as session:
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         assert path.suffix == '.jpg'
         assert path.read_bytes()[:2] == b'\xff\xd8'
@@ -199,7 +196,7 @@ class TestOverlays:
     def test_an_overlay_is_a_second_file_from_the_same_capture(self, still_session):
         session, _ = still_session
 
-        raw, overlay = _capture(session, crosshairs=True)
+        raw, overlay = _files(session, crosshairs=True)
 
         assert overlay.name == raw.name.replace('.tiff', '_overlay.tiff')
         raw_pixels = read_tiff_with_legacy_collapse(raw)
@@ -215,15 +212,15 @@ class TestOverlays:
         overlay's 8-bit rendering must scale against the summed depth, since
         scaling against the per-frame depth refuses the frame."""
         settings = _settings(tmp_path)
-        settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+        settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
         settings['BF']['sum'] = 3
         with _open_session(settings) as session:
             # At the sample: homing leaves Z at the floor, where the
             # simulated specimen is a defocused blur with no bright detail.
             sample_z = session.scope._camera_driver.get_nominal_focal_z()
-            session.scope.motion.move_absolute('Z', sample_z)
+            session.scope.motion.move_z(sample_z)
             session.scope.illumination.led_on('BF', 200.0)
-            paths = _capture(session, bullseye=True, crosshairs=True)
+            paths = _files(session, bullseye=True, crosshairs=True)
             peak = int(read_tiff_with_legacy_collapse(paths[0]).max())
 
         assert peak > 4095, f'the summed frame never left the per-frame range (peak {peak})'
@@ -233,40 +230,31 @@ class TestOverlays:
 
 
 class TestRefusalsAndFailures:
-    def test_a_layer_that_is_not_a_channel_is_refused_before_anything_happens(self, tmp_path):
-        settings = _settings(tmp_path)
-        settings['separate_folder_per_channel'] = True
-        with _open_session(settings) as session:
-            with pytest.raises(ArgumentRefusedError) as refused:
-                session.manual_capture.capture(layer='Foo', false_color_on=False)
-            assert (refused.value.reason, refused.value.argument) == ('layer_unknown', 'layer')
-            assert not session.manual_capture.in_flight
-
-        assert not (tmp_path / 'Manual').exists()
-
-    def test_a_layer_this_scope_lacks_names_no_still(self, tmp_path):
-        """A still named for Lumi on a scope with no Lumi would be a file labelled with what nobody imaged."""
-        settings = _settings(tmp_path)
-        with _open_session(settings) as session:
-            assert session.scope.layer_identity.find('Lumi') is None
-            with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer='Lumi', false_color_on=False)
-            assert refused.value.missing == MissingPart.layer('Lumi')
-            assert not session.manual_capture.in_flight
-
-        assert not list(tmp_path.rglob('*.tif*'))
+    def test_a_still_has_no_stop_so_stop_leaves_it_to_finish(self, still_session):
+        """A still is an ``Operation`` with no stop: ``stop()`` while it is
+        on the lane does nothing, and the still is written (Eric 2026-10-13:
+        refusing it "seems rude")."""
+        session, _ = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            still = session.manual_capture.capture(false_color_on=False)
+            assert still.stop() is None
+            assert not still.done()
+        finally:
+            blocker.release()
+        assert still.result(timeout=RESULT_TIMEOUT_S)[0].file.is_file()
 
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            first = session.manual_capture.capture(layer=None, false_color_on=False)
+            first = session.manual_capture.capture(false_color_on=False)
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
             assert refused.value.reason == 'capture_in_flight'
         finally:
             blocker.release()
-        assert first.result(timeout=RESULT_TIMEOUT_S)[0].is_file()
+        assert first.result(timeout=RESULT_TIMEOUT_S)[0].file.is_file()
         assert not session.manual_capture.in_flight
 
     def test_the_guard_holds_until_the_lane_body_ends_not_the_callers_wait(self, tmp_path):
@@ -285,78 +273,152 @@ class TestRefusalsAndFailures:
                 return original(request)
 
             session.manual_capture._capture_and_save = observed
-            first = session.manual_capture.capture(layer=None, false_color_on=False)
+            first = session.manual_capture.capture(false_color_on=False)
             assert body_running.wait(5.0), 'the still never started on the lane'
             with pytest.raises(concurrent.futures.TimeoutError):
                 first.result(timeout=0.1)
 
             assert session.manual_capture.in_flight
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
             assert refused.value.reason == 'capture_in_flight'
             first.result(timeout=RESULT_TIMEOUT_S)
             assert not session.manual_capture.in_flight
 
     def test_a_still_while_a_run_holds_the_camera_is_refused_at_the_call(self, still_session):
         session, _ = still_session
-        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         assert held is not None
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
         finally:
             held.release()
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
-    def test_a_still_the_lane_drops_unrun_settles_and_frees_the_guard(self, still_session):
-        """The lane drops what it holds when the scope goes away; a still it
-        dropped must say so, not leave its caller and the guard waiting."""
+    def test_a_still_queued_when_the_scope_disconnects_is_refused_and_frees_the_guard(
+        self, still_session
+    ):
+        """The camera lane closes as the scope disconnects; a still it held
+        queued is refused saying so, not left with its caller and the guard
+        waiting."""
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(layer=None, false_color_on=False)
+            future = session.manual_capture.capture(false_color_on=False)
             _wait_until_queued(session, 1)
-            session.camera_executor.clear_pending()
+            session.camera_executor.shutdown(wait=False)
         finally:
             blocker.release()
-        with pytest.raises(concurrent.futures.CancelledError):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
             future.result(timeout=RESULT_TIMEOUT_S)
-        assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
+        assert refused.value.reason == 'scope_disconnected'
+        assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
-    def test_no_frame_raises_with_the_engines_cause(self, still_session):
+    def test_no_frame_raises_the_captures_own_failure(self, still_session):
+        session, tmp_path = still_session
+        session.scope.simulation.stall_stream(0.0, 600.0)
+
+        future = session.manual_capture.capture(false_color_on=False)
+
+        with pytest.raises(CaptureFailedError) as failed:
+            future.result(timeout=RESULT_TIMEOUT_S)
+        assert failed.value.reason == 'no_frame', (
+            "the still raises the capture's own reason, not a save-time placeholder"
+        )
+        assert not list((tmp_path / 'Manual').glob('*.tiff'))
+        assert not session.manual_capture.in_flight
+
+    def test_a_stopped_feed_is_refused_as_not_streaming(self, still_session):
         session, tmp_path = still_session
         session.scope._camera_driver.stop_grabbing()
 
-        future = session.manual_capture.capture(layer=None, false_color_on=False)
+        future = session.manual_capture.capture(false_color_on=False)
 
-        with pytest.raises(CaptureError) as failed:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
             future.result(timeout=RESULT_TIMEOUT_S)
-        assert failed.value.reason == 'no_frame_returned'
-        assert str(failed.value) == capture_failure_cause(
-            session.scope.imaging.last_capture_info
-        ), "the failure must carry the capture engine's cause, not a save-time placeholder"
+        assert refused.value.reason == 'camera_not_streaming'
         assert not list((tmp_path / 'Manual').glob('*.tiff'))
         assert not session.manual_capture.in_flight
+
+
+def _after_the_lanes_queue(session):
+    """Return once the camera lane has run everything queued before this call:
+    the lane is serial, so a marker put now runs after them."""
+    done = threading.Event()
+    session.camera_executor.put(IOTask(action=done.set))
+    assert done.wait(RESULT_TIMEOUT_S), 'the camera lane never reached the marker'
+
+
+class TestAStillIsWaitedForWithinItsBound:
+    """The still's wait is bounded: past it the caller is told the still is
+    still running, and the still may yet be taken and saved."""
+
+    @pytest.fixture
+    def short_bound(self, monkeypatch):
+        # a stand-in by design: the bound's size is not what these tests pin,
+        # only what the caller is told when it runs out.
+        from modules.manual_capture import ManualCaptureController
+
+        monkeypatch.setattr(ManualCaptureController, '_bound_s', lambda self, request: 0.2)
+
+    def test_a_still_past_its_bound_is_told_still_running_and_is_saved_after(
+        self, still_session, short_bound
+    ):
+        session, tmp_path = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            operation = session.manual_capture.capture(false_color_on=False)
+            with pytest.raises(LaneCallStillRunningError) as overran:
+                operation.result(timeout=RESULT_TIMEOUT_S)
+            assert overran.value.reason == 'call_overran'
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.manual_capture.capture(false_color_on=False)
+            assert refused.value.reason == 'capture_in_flight'
+        finally:
+            blocker.release()
+        _after_the_lanes_queue(session)
+
+        assert not session.manual_capture.in_flight
+        assert len(list((tmp_path / 'Manual').glob('*.tiff'))) == 1
+
+    def test_a_still_past_its_bound_then_refused_unrun_frees_the_guard(
+        self, still_session, short_bound
+    ):
+        session, _ = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            operation = session.manual_capture.capture(false_color_on=False)
+            with pytest.raises(LaneCallStillRunningError):
+                operation.result(timeout=RESULT_TIMEOUT_S)
+            # The lane answers what it will not run as it closes, and the
+            # guard goes with it.
+            session.camera_executor.shutdown(wait=False)
+        finally:
+            blocker.release()
+
+        assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
 
 class TestTheRecordIsTheCapturesMoment:
     def test_a_gain_write_queued_during_the_still_does_not_reach_its_record(self, still_session):
         session, _ = still_session
-        session.scope.imaging.set_gain_db(1.0)
+        session.scope.camera.set_gain_db(1.0)
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(layer=None, false_color_on=False)
+            future = session.manual_capture.capture(false_color_on=False)
             # The still is queued behind the blocker before the write is sent.
             _wait_until_queued(session, 1)
-            writer = threading.Thread(target=session.scope.imaging.set_gain_db, args=(20.0,))
+            writer = threading.Thread(target=session.scope.camera.set_gain_db, args=(20.0,))
             writer.start()
         finally:
             blocker.release()
-        (path,) = future.result(timeout=RESULT_TIMEOUT_S)
+        (still,) = future.result(timeout=RESULT_TIMEOUT_S)
+        path = still.file
         writer.join(RESULT_TIMEOUT_S)
 
-        assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
+        assert read_file_record(path)['gain_db'] == pytest.approx(1.0)
 
 
 class TestTheStillIsMadeAfterThePendingWrites:
@@ -372,7 +434,7 @@ class TestTheStillIsMadeAfterThePendingWrites:
         # A first still drains whatever bring-up left pending, so the
         # second has the LED change alone to wait out.
         _capture(session)
-        imaging.frame_validity.invalidate('led')
+        imaging.frame_validity.invalidate('led', began_ns=None)
 
         _capture(session)
 
@@ -381,3 +443,82 @@ class TestTheStillIsMadeAfterThePendingWrites:
         assert info['drained'] >= imaging.frame_validity.SKIP_FRAMES['led'], (
             f'the still was not drained past the LED write: {info}'
         )
+
+
+class TestAStillReturnsItsRecord:
+    """A still's result is its file with the instrument's record of it,
+    built at the capture, so a JPG -- whose file embeds none of it -- says
+    where and how it was taken as a TIFF does."""
+
+    # parametrize-justified: each format is its own writer branch, and a JPG
+    # embeds no metadata, so its record is the capture's alone.
+    @pytest.mark.parametrize('live_format', ['TIFF', 'OME-TIFF', 'JPG'])
+    def test_each_format_returns_its_file_with_the_record(self, tmp_path, live_format):
+        with _open_session(_settings(tmp_path, live_format=live_format)) as session:
+            well = over_the_first_well(session)
+            x_mm, y_mm = session.scope.runtime_state.get_labware().get_well_position(0, 0)
+            objective_id, _ = session.scope.runtime_state.resolve_current_objective()
+
+            (still,) = _capture(session)
+
+        assert still.file.is_file()
+        assert still.output_format == live_format
+        assert type(still.output_format) is OutputFormat
+        assert still.channel == 'BF'
+        assert still.objective_id == objective_id
+        assert still.well_label == well
+        assert still.plate_x_mm == pytest.approx(x_mm, abs=0.01)
+        assert still.plate_y_mm == pytest.approx(y_mm, abs=0.01)
+        assert still.stage_z_um is not None
+        assert still.frame.frames_summed == 1
+        assert still.significant_bits == 8
+        assert 0 <= still.statistics.minimum <= still.statistics.maximum <= 255
+
+    def test_the_statistics_are_the_saved_pixels(self, still_session):
+        from modules.image_utils import image_statistics, load_pixels
+
+        session, _ = still_session
+
+        (still,) = _capture(session)
+
+        pixels, bits, _ = load_pixels(still.file)
+        assert bits == still.significant_bits
+        assert still.statistics == image_statistics(pixels)
+
+    def test_an_overlay_copy_states_its_own_pixels_and_its_frames_record(self, still_session):
+        session, _ = still_session
+
+        raw, overlay = _capture(session, crosshairs=True)
+
+        assert overlay.frame == raw.frame
+        assert overlay.significant_bits == 8
+        # The crosshairs are drawn white, so the copy reaches full scale.
+        assert overlay.statistics.maximum == 255
+        assert overlay.statistics != raw.statistics
+
+    def test_the_record_is_the_jobs_result_on_the_wire(self, still_session):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        session, _ = still_session
+        with TestClient(build_app(session)) as client:
+            job = client.post(
+                '/api/v1/manual_capture/capture', json={'false_color_on': False}
+            ).json()
+            ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
+
+        assert ended['status'] == 'completed', ended
+        (still,) = ended['result']
+        assert still['file']['name'] == 'Manual/live_BF_000001.tiff'
+        assert still['channel'] == 'BF'
+        assert still['frame']['frames_summed'] == 1
+        assert set(still['statistics']) == {
+            'minimum',
+            'maximum',
+            'mean',
+            'standard_deviation',
+            'percentile_1',
+            'median',
+            'percentile_99',
+        }

@@ -32,6 +32,7 @@ from tests.scope_fakes import spec_scope
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def _writer(file_io_executor=None):
@@ -41,6 +42,7 @@ def _writer(file_io_executor=None):
         aborted=threading.Event(),
         write_batch=RunWriteBatch(file_io_executor or MagicMock()),
         abort_fn=MagicMock(),
+        end_run_fatally=lambda reason, message: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
         execution_record=MagicMock(),
@@ -49,11 +51,13 @@ def _writer(file_io_executor=None):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=False,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
 
 
@@ -165,7 +169,7 @@ class TestStillPendingWrites:
             _close(writer)
             with pytest.raises(RunWriteRefusedError) as refused:
                 _submit(writer)
-            assert refused.value.reason == 'run_ended'
+            assert refused.value.reason == 'run_writes_ended'
 
         assert _owed(writer) == 0, (
             'a write the executor never took cannot be owed, or the run ends '

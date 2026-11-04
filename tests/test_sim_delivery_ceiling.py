@@ -22,7 +22,7 @@ GENERATION_COST_S = 0.015
 
 def _free_run_rate(cam, seconds=1.0):
     arrivals = []
-    cam.register_frame_callback(lambda img, ts, chunks: arrivals.append(time.monotonic()))
+    cam.register_frame_callback(lambda frame: arrivals.append(time.monotonic()))
     try:
         time.sleep(seconds)
     finally:

@@ -8,8 +8,10 @@ import pathlib
 import numpy as np
 import pandas as pd
 
+from modules import post_derivation
 from modules.common_utils import PostFunction, read_table, recover_step_label, to_int
 from modules.protocol import _bool_cell, _float_cell, _int_cell
+from modules.protocol_execution_record import ProtocolExecutionRecord
 
 from lvp_logger import logger
 
@@ -23,6 +25,7 @@ _RECORD_CELLS = {
     'Z': _float_cell,
     'Tile Group ID': _int_cell,
     'Custom Step': _bool_cell,
+    'Channel Group ID': _int_cell,
     **dict.fromkeys(PostFunction.list_values(), _bool_cell),
 }
 
@@ -46,7 +49,17 @@ class ProtocolPostRecord:
     # 'custom<NNNN>' prefix) travels with every record so output filenames
     # derive from the persisted field instead of re-parsing the rendered
     # Name, which truncated user labels containing token-shaped segments.
-    CURRENT_VERSION = 2
+    # v3 adds Channel Group ID: the Add an output's source steps came from,
+    # so a composite built from stitched or projected outputs groups by Add
+    # as one built from raw images does. -1: no single Add.
+    # v4 replaces the five kind columns with Derivation: the builds that made
+    # the output, in order, with their settings (``post_derivation``). The
+    # kinds are read from it, so two outputs of the same source made two
+    # ways are told apart, and a v1-v3 row's kinds become its derivation
+    # with each setting unknown. v5 states each row's time with its UTC
+    # offset (``ProtocolExecutionRecord.TIMESTAMP_FORMAT``); an older row's
+    # time states none and is kept as written when the file is upgraded.
+    CURRENT_VERSION = 5
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
     def __del__(self):
@@ -78,7 +91,8 @@ class ProtocolPostRecord:
         'Tile Group ID',
         'Tile',
         'Custom Step',
-        *PostFunction.list_values(),
+        'Channel Group ID',
+        'Derivation',
     )
 
     def __init__(self, file_loc: pathlib.Path, records: pd.DataFrame | None = None):
@@ -96,9 +110,13 @@ class ProtocolPostRecord:
         else:
             self._records = records
         self._pending_records = []  # Accumulated dicts, merged lazily
+        # A row replaced in place (an output built again after its file was
+        # deleted) cannot be appended; the file is rewritten once, at
+        # complete(), however many rows were replaced.
+        self._rewrite_due = False
 
     def _initialize_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'w')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
+        self._outfile_fp = open(outfile, 'w', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
         self._outfile_csv.writerow([self.FILE_HEADER])
         self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
@@ -107,10 +125,13 @@ class ProtocolPostRecord:
         self._outfile_csv.writerow(self.COLUMNS)
 
     def _reopen_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'a')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
+        self._outfile_fp = open(outfile, 'a', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
 
-    def complete(self):
+    def complete(self) -> None:
+        if self._rewrite_due:
+            self._rewrite_outfile()
+            self._rewrite_due = False
         self._close_outfile()
 
     def _close_outfile(self):
@@ -142,6 +163,8 @@ class ProtocolPostRecord:
                 ('Tile Group ID', int),
                 ('Tile', str),
                 ('Custom Step', bool),
+                ('Channel Group ID', int),
+                ('Derivation', str),
                 *post_function_tuples,
             ]
         )
@@ -201,7 +224,8 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
-        **kwargs: dict,
+        channel_group_id: int,
+        derivation: str,
     ) -> dict:
         abs_path = root_path / file_path
 
@@ -221,9 +245,11 @@ class ProtocolPostRecord:
             'Tile Group ID': tile_group_id,
             'Tile': tile,
             'Custom Step': custom_step,
+            'Channel Group ID': channel_group_id,
+            'Derivation': derivation,
+            **post_derivation.kinds(derivation),
             'Raw': False,
             'File Exists': abs_path.exists(),
-            **kwargs,
         }
 
     def add_record(
@@ -244,11 +270,20 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
-        **kwargs: dict,
-    ):
+        channel_group_id: int,
+        derivation: str,
+    ) -> None:
 
-        if self.file_exists_in_records(filepath=file_path):
-            logger.info(f'[{self._name} ] File {file_path} already exists in records. Skipping.')
+        # One row per file: a file already recorded was built again (its
+        # earlier file was gone), so its row is replaced, not doubled.
+        replacing = self.file_exists_in_records(filepath=file_path)
+        if replacing:
+            logger.info(f'[{self._name} ] File {file_path} was built again; replacing its record.')
+            self._flush_pending()
+            self._records = self._records[self._records['Filepath'] != file_path].reset_index(
+                drop=True
+            )
+            self._rewrite_due = True
 
         record_dict = self._create_record_dict(
             root_path=root_path,
@@ -267,10 +302,13 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
-            **kwargs,
+            channel_group_id=channel_group_id,
+            derivation=derivation,
         )
 
         self._pending_records.append(record_dict)
+        if replacing:
+            return
 
         self._add_record_to_file(
             file_path=file_path,
@@ -288,7 +326,8 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
-            **kwargs,
+            channel_group_id=channel_group_id,
+            derivation=derivation,
         )
 
     def _add_record_to_file(
@@ -308,13 +347,14 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
-        **kwargs: dict,
-    ):
+        channel_group_id: int,
+        derivation: str,
+    ) -> None:
 
         self._outfile_csv.writerow(
             [
                 file_path,
-                timestamp,
+                timestamp.strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT),
                 name,
                 label,
                 scan_count,
@@ -328,14 +368,15 @@ class ProtocolPostRecord:
                 tile_group_id,
                 tile,
                 custom_step,
-                *kwargs.values(),
+                channel_group_id,
+                derivation,
             ]
         )
         self._outfile_fp.flush()
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path) -> 'ProtocolPostRecord':
-        with open(file_path) as fp:
+        with open(file_path, encoding='utf-8') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
@@ -346,7 +387,7 @@ class ProtocolPostRecord:
                 raise Exception('Version key not found')
 
             file_version = int(version[1])
-            if file_version not in (1, 2):
+            if file_version not in (1, 2, 3, 4, 5):
                 raise Exception('Unsupported protocol post-processing record version')
 
             # Search for "Images" to indicate start of images data
@@ -382,7 +423,14 @@ class ProtocolPostRecord:
                 # whole record file.
                 df = cls._create_empty_df()
             else:
-                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+                # Per cell, by the run record's one reader: a column-wide
+                # conversion refuses rows that state different offsets, or an
+                # offset beside none, and the caller would then move the whole
+                # record aside. The column's dtype is left to pandas; every
+                # cell is a datetime either way.
+                df['Timestamp'] = [
+                    ProtocolExecutionRecord.read_timestamp(cell) for cell in df['Timestamp']
+                ]
 
                 # Convert filename to pathlib type
                 df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
@@ -407,6 +455,19 @@ class ProtocolPostRecord:
                 # keeps their machine names from being misread as labels.
                 df['Label'] = [recover_step_label(row)[0] for _, row in df.iterrows()]
 
+            if 'Channel Group ID' not in df.columns:
+                # Pre-v3 records never carried the Add an output came from.
+                df['Channel Group ID'] = pd.Series([-1] * len(df), index=df.index, dtype=int)
+
+            if len(df) > 0:
+                if 'Derivation' not in df.columns:
+                    # Pre-v4 records kept each output's kinds, not how it was made.
+                    df['Derivation'] = [post_derivation.from_kinds(row) for _, row in df.iterrows()]
+                df[PostFunction.list_values()] = pd.DataFrame(
+                    [post_derivation.kinds(derivation) for derivation in df['Derivation']],
+                    index=df.index,
+                )
+
             record = ProtocolPostRecord(
                 file_loc=file_path,
                 records=df,
@@ -430,7 +491,6 @@ class ProtocolPostRecord:
         """
         self._close_outfile()
         tmp_loc = self._file_loc.with_name(self._file_loc.name + '.tmp')
-        post_function_columns = PostFunction.list_values()
         try:
             self._initialize_outfile(outfile=tmp_loc)
             for _, row in self.records().iterrows():
@@ -450,7 +510,8 @@ class ProtocolPostRecord:
                     tile_group_id=row['Tile Group ID'],
                     tile=row['Tile'],
                     custom_step=row['Custom Step'],
-                    **{column: row[column] for column in post_function_columns},
+                    channel_group_id=row['Channel Group ID'],
+                    derivation=row['Derivation'],
                 )
             self._close_outfile()
             os.replace(tmp_loc, self._file_loc)

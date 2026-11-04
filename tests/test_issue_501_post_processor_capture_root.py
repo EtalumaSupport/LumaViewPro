@@ -48,7 +48,7 @@ COMMON_UTILS_PATH = REPO / 'modules' / 'common_utils.py'
 
 
 def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.FunctionDef:
-    source = path.read_text()
+    source = path.read_text(encoding='utf-8')
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:

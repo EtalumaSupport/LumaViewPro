@@ -53,8 +53,8 @@ def test_disconnect_darkens_every_lit_channel(scope):
     # One channel passing does not prove the command was a leds-off rather
     # than an off aimed at whichever channel the code happened to track.
     driver = scope._led_driver
-    scope.illumination.led_on(channel=0, illumination_ma=30)
-    scope.illumination.led_on(channel=1, illumination_ma=40)
+    scope.illumination.led_on_by_address(0, 30)
+    scope.illumination.led_on_by_address(1, 40)
     assert len(_lit_channels(driver)) >= 2, 'precondition: two channels lit'
 
     scope.disconnect()

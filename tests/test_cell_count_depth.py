@@ -10,26 +10,27 @@ converter; a legacy left-justified file (no narrow tag) correctly reads as 16.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 
+from modules.cell_count_method import CellCountMethod
 from modules import image_utils
-from modules.post_processing import PostProcessing, default_cell_count_method
+from modules.post_processing import PostProcessing
+from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 
 def _meta(significant_bits):
     return {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
-        'objective': '10x',
+        'channel': LED1,
+        'objective': {'id': '10x'},
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-        'datetime': '2026:06:18 12:00:00',
-        'camera_make': 'Test',
-        'microscope': 'TestScope',
-        'well_label': 'A1',
+        'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
         'significant_bits': significant_bits,
     }
 
@@ -41,9 +42,10 @@ def _write_plain_tiff(path, value, significant_bits):
         file_loc=path,
         metadata=_meta(significant_bits),
         ome=False,
-        color='Green',
+        color=release_color(LED1),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 
@@ -60,8 +62,8 @@ def _capture_depth(post):
             {
                 'summary': {
                     'num_regions': 0,
-                    'total_object_area': 0,
-                    'area_unit': 'px2',
+                    'total_object_area_px2': 0.0,
+                    'total_object_area_um2': None,
                     'total_object_intensity': 0.0,
                 }
             },
@@ -77,7 +79,7 @@ def test_folder_walk_threads_12bit_depth(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
 
     assert captured['significant_bits'] == 12
 
@@ -88,6 +90,6 @@ def test_folder_walk_legacy_file_defaults_to_container_width(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
 
     assert captured['significant_bits'] == 16

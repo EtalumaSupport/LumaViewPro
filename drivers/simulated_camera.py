@@ -7,8 +7,8 @@ camera state (exposure, gain, binning, frame size, pixel format), and
 supports the full Camera ABC interface.
 """
 
-import datetime
-import pathlib
+import collections
+import dataclasses
 from dataclasses import dataclass
 import threading
 import random
@@ -19,20 +19,23 @@ from typing import ClassVar
 import cv2
 import numpy as np
 
-from lvp_logger import logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
+from lib.log_helpers import logger
+from drivers import host_clock
+from drivers.camera import Camera, Frame, FrameGrid, HandOver, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
-from drivers.exceptions import HardwareError
+from drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    PartAbsentError,
+)
 from drivers.registry import camera_registry
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
 # sim-mode runs produce a populated logs/camera.log for verification.
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    _cam_log = None
+from lib.log_helpers import camera_logger as _cam_log
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,91 @@ class SimulatedStall:
             )
 
 
+@dataclass(frozen=True)
+class SensorExposure:
+    """What one simulated frame was exposed under: the settings the sensor
+    applied when its exposure started, which is what its pixels show.
+
+    A write reaches the camera's register at once -- the frame's chunk
+    reports the register -- but a frame already started comes out under the
+    settings it started with. This record is that difference made
+    readable: a frame's chunk can name the new gain while this names the
+    gain its pixels were made at.
+
+    Attributes:
+        frame_id: The camera's frame counter, as the frame's ``FrameID``
+            chunk carries it.
+        started_ticks: The camera's clock when the exposure started, as the
+            frame's ``Timestamp`` chunk carries it.
+        exposure_us: The exposure applied.
+        gain_db: The gain applied.
+        black_level: The black level applied.
+        illumination_ma: The LED current lighting the sample, summed over
+            the lit addresses; 0 for an unlit field.
+        light: The light on the sample per second of exposure at unity
+            gain: each lit address's current times its layer's light per
+            mA-second, summed; 0 for an unlit field.
+        x_um: The stage's X when the exposure started; None on a scope
+            with no X axis.
+        y_um: The stage's Y, likewise.
+        z_um: Z when the exposure started; None on a scope with no focus axis.
+        z_end_um: Z when the exposure ended (the next frame's start); None
+            until then, and on a scope with no focus axis.
+        depth_of_field_um: The objective's depth of field the frame was
+            focused through; None when no objective is known.
+        pixel_size_um: The objective's image scale the frame was drawn at,
+            micrometres of stage per sensor pixel at binning 1; None when no
+            objective or no optics are known, and the frame is drawn at the
+            scene's nominal scale.
+    """
+
+    frame_id: int
+    started_ticks: int
+    exposure_us: float
+    gain_db: float
+    black_level: float
+    illumination_ma: float
+    light: float
+    x_um: float | None
+    y_um: float | None
+    z_um: float | None
+    z_end_um: float | None
+    depth_of_field_um: float | None
+    pixel_size_um: float | None
+
+
+class _SensorInput:
+    """A value the simulated sensor applies ``SENSOR_APPLY_DELAY_US`` after it changes.
+
+    Every assignment is recorded in the input's history as changed now, so a
+    write site added later cannot leave a change the sensor never sees.
+    ``take`` records one with the time its owner says it changed.
+
+    Args:
+        name: The input's name in the camera's history, which
+            ``_start_exposure`` reads it by.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __set_name__(self, owner: type, attribute: str) -> None:
+        self._slot = f'_input{attribute}'
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__[self._slot]
+
+    def __set__(self, obj: 'SimulatedCamera', value: object) -> None:
+        self.take(obj, value, None)
+
+    def take(self, obj: 'SimulatedCamera', value: object, changed_ns: int | None) -> None:
+        """Set the input on ``obj``, changed at ``changed_ns`` (None for now)."""
+        obj.__dict__[self._slot] = value
+        obj._input_changed(self.name, value, changed_ns)
+
+
 class _SimImageHandler(ImageHandlerBase):
     """The real drivers' frame buffer, with a wait for the next stored frame.
 
@@ -77,18 +165,31 @@ class _SimImageHandler(ImageHandlerBase):
         super().__init__()
         self._stored = threading.Condition()
 
-    def _store_frame(self, image, timestamp, chunks=None, *, significant_bits, wire_bytes):
-        super()._store_frame(
-            image, timestamp, chunks, significant_bits=significant_bits, wire_bytes=wire_bytes
+    def _store_frame(
+        self, image, chunks=None, *, handed_over, significant_bits, wire_bytes
+    ) -> Frame | None:
+        frame = super()._store_frame(
+            image,
+            chunks,
+            handed_over=handed_over,
+            significant_bits=significant_bits,
+            wire_bytes=wire_bytes,
         )
         with self._stored:
             self._stored.notify_all()
+        return frame
 
     def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
-        """True once a frame later than ordinal ``since`` is stored; False on timeout."""
+        """True once more than ``since`` frames are stored; False on timeout.
+
+        ``since`` is a stored count (``delivered_counts[0]``), never the
+        hand-over ordinal: a frame handed over before the call but still on
+        its way to the store would satisfy an ordinal, and the capture would
+        take the frame stored before it asked.
+        """
         deadline = time.monotonic() + timeout_s
         with self._stored:
-            while self.frames_delivered <= since:
+            while self.delivered_counts[0] <= since:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return False
@@ -121,9 +222,69 @@ class SimulatedCamera(Camera):
     _SENSOR = simulated_profile().native_resolution
     MODEL_NAME = simulated_profile().model_name
     SERIAL_NUMBER = 'SIM-CAM-001'
+    FIRMWARE_VERSION = 'SIM-FW-1.0'
 
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
+
+    # How many frames the sensor has started, and not yet delivered, when a
+    # setting is written at the delivery ceiling's period: they come out
+    # under the settings they started with. The simulated camera's own
+    # constant, never the gate's skip count or the timing record (b) runs
+    # on: coupled to either, a test of the gate passes by construction. Two
+    # is the depth of a frame exposing and a frame reading out; frames held
+    # between the hand-over and the store are the simulated backlog's.
+    #
+    # A frame leaves the pipeline its own period after it starts, plus the
+    # rest of the pipeline at the ceiling's period: the LS850T hands a frame
+    # over at its start, plus its period, plus one minimum period, whatever
+    # the exposure. So at a longer exposure fewer frames are in flight at a
+    # write, one or two at this depth.
+    SENSOR_PIPELINE_FRAMES = 2
+
+    # The chunks every frame carries, as a Basler body's enabled chunks.
+    CHUNKS: ClassVar[tuple[str, ...]] = ('FrameID', 'Timestamp', 'ExposureTime', 'Gain')
+
+    # How long after a change the sensor's exposures show it: a register
+    # write, the LED, and the stage's X, Y and Z. An exposure starting
+    # sooner is made under the state as it stood this long before it began.
+    # The simulated camera's own constant, never read from its timing record
+    # (that record is measured from this camera, so a rule run on it is
+    # tested against something it did not set). Longer than one frame
+    # interval at the delivery ceiling (25 ms) and off its grid, so a frame
+    # rule without the delay term returns a stale frame on every run.
+    SENSOR_APPLY_DELAY_US = 37_000
+
+    # The sensor's inputs, each recorded in its history when it changes:
+    # the registers, Z, the stage's (X, Y), and the light as (the lit
+    # current summed over the lit addresses, the light it makes).
+    _exposure_us = _SensorInput('exposure_us')
+    _gain = _SensorInput('gain_db')
+    _black_level = _SensorInput('black_level')
+    _z_position = _SensorInput('z_um')
+    _stage_xy = _SensorInput('stage_xy')
+    _illumination = _SensorInput('illumination')
+    _SCOPE_INPUTS: ClassVar[dict[str, str]] = {
+        'z_um': '_z_position',
+        'stage_xy': '_stage_xy',
+        'illumination': '_illumination',
+    }
+
+    # The LED current a camera built with no scope around it is lit at.
+    REFERENCE_ILLUMINATION_MA = 10.0
+
+    # The light per mA-second at unity gain when no scope says which layer
+    # is lit: it puts the camera's own defaults (10 ms, 1 dB, the reference
+    # current) at brightness 1.0, the specimen at its own grey levels.
+    _UNWIRED_LIGHT_PER_MA_S = 1.0 / (0.010 * 10.0 ** (1.0 / 20.0) * REFERENCE_ILLUMINATION_MA)
+
+    # How many delivered frames' exposure records the camera keeps for
+    # ``exposed_under``: a bound on memory, far more than a capture's wait
+    # or a test's look back covers.
+    EXPOSURE_RECORDS_KEPT = 256
+
+    # The camera's own clock: nanosecond ticks, as a Basler USB3 body's.
+    TIMESTAMP_TICK_HZ = 1_000_000_000
 
     # Free-run delivery ceiling in frames per second. A real camera's
     # sensor readout and link bandwidth bound its frame rate however
@@ -155,22 +316,63 @@ class SimulatedCamera(Camera):
         'binning': 'set_binning_size',
         'pixel_format': 'set_pixel_format',
         'black_level': 'set_black_level',
+        'auto_gain': 'auto_gain',
+        'auto_gain_once': 'auto_gain_once',
     }
     # What a refused write answers, by name: a real SDK's node write
-    # answers False, nothing, a bare True that confirms no value, or raises.
-    REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = ('false', 'none', 'true', 'raise')
+    # answers False, nothing, a bare True that confirms no value, or raises;
+    # or answers False because the camera left the bus during the write; or
+    # is not answered in time while the camera stays on the bus.
+    REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = (
+        'false',
+        'none',
+        'true',
+        'raise',
+        'removed',
+        'no_answer',
+    )
+    # The answers no real driver gives for a node: a frame-size write answers
+    # the window it delivers or False, never a bare True.
+    _ANSWERS_NO_DRIVER_GIVES: ClassVar[dict[str, frozenset[str]]] = {
+        'frame_size': frozenset({'true'}),
+    }
+    # The nodes a read can be failed on (refuse_read): each by the getter
+    # the API reads it through, and what the real driver that reads the
+    # node answers when the read fails. The Pylon and IDS gain, exposure,
+    # binning, frame-size and pixel-format getters catch every failure and
+    # answer their failed-read value; the black-level and frame-rate
+    # getters, IDS's live minimum exposure and Pylon's auto modes raise
+    # CameraReadFailedError. The FX2 reads no node.
+    FAILED_READS: ClassVar[dict[str, tuple[str, object]]] = {
+        'gain': ('get_gain', -1),
+        'exposure': ('get_exposure_t', -1),
+        'frame_size': ('get_frame_size', None),
+        'binning': ('get_binning_size', -1),
+        'pixel_format': ('get_pixel_format', None),
+        'black_level': ('get_black_level', CameraReadFailedError),
+        'frame_rate': ('get_resulting_frame_rate', CameraReadFailedError),
+        'minimum_exposure': ('get_min_exposure', CameraReadFailedError),
+        'auto_gain': ('get_auto_gain_mode', CameraReadFailedError),
+        'auto_exposure': ('get_auto_exposure_mode', CameraReadFailedError),
+    }
+    # How a read fails: the node's answer above, or that answer with the
+    # camera gone from the bus during the read.
+    FAILED_READ_ANSWERS: ClassVar[tuple[str, ...]] = ('failed', 'removed')
 
     def __init__(
         self,
         width: int = _SENSOR['width'],
         height: int = _SENSOR['height'],
-        grab_delay: float = 0.0,
-        z_position_func: Callable[[], float | None] | None = None,
-        illumination_func: Callable[[], float] | None = None,
+        scope_inputs: Callable[[], dict[str, tuple[object, int | None]]] | None = None,
         depth_of_field_func: Callable[[], float | None] | None = None,
+        pixel_size_func: Callable[[], float | None] | None = None,
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
     ):
+        # Each input's values as it changed, oldest first: (host monotonic
+        # ns, the value from then on), by input name.
+        self._input_history: dict[str, collections.deque] = {}
+        self._lock = threading.RLock()
         # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
         # below are the CURRENT frame size in post-binning (displayed) pixels,
         # matching the Pylon driver's convention: set_frame_size takes the
@@ -181,7 +383,6 @@ class SimulatedCamera(Camera):
         self._native_height = height
         self._width = width
         self._height = height
-        self._grab_delay = grab_delay
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
         self._gain = 1.0
@@ -197,7 +398,26 @@ class SimulatedCamera(Camera):
         self._frame_rate_limit_enabled = False
         self._frame_rate_target = 30.0
 
-        self._lock = threading.RLock()
+        # The camera's clock: its own epoch, unrelated to the host's, so a
+        # mapping between the two has to be measured, as on a real body.
+        self._clock_offset_ns = random.randrange(10**12)
+        # What the last latch_clock latched; 0, as a body's value node
+        # reads before its first latch.
+        self._latched_ticks = 0
+        # The camera's frame counter: one per exposure started.
+        self._frames_started = 0
+        # How many frames handed over wait on the way to the store before
+        # the oldest reaches it: a host backlog (``delay_delivery``). 0
+        # stores each frame as it is handed over.
+        self._backlog_frames = 0
+        # Chunks the next frames arrive without, each with how many frames
+        # are left to lose it (``withhold_chunk``).
+        self._withheld_chunks: dict[str, int] = {}
+        # What each recently delivered frame was exposed under, by its
+        # FrameID, oldest first (``exposed_under``).
+        self._exposure_records: collections.OrderedDict[int, SensorExposure] = (
+            collections.OrderedDict()
+        )
 
         # A real camera free-runs: while it is grabbing, frames arrive on the
         # SDK's own thread whether or not anyone reads them, and a reader gets
@@ -208,11 +428,11 @@ class SimulatedCamera(Camera):
         # stream nobody was watching looked the same.
         self._acquisition_thread: threading.Thread | None = None
         self._acquisition_stop = threading.Event()
-        # A stretch of monotonic time in which the stream delivers nothing
-        # while the camera stays connected and grabbing: the silent stall a
-        # real camera's USB link or grab loop can fall into. None when no
-        # stall is set. See hold_frames.
-        self._held_window: tuple[float, float] | None = None
+        # A stretch of host steady time (ns) in which the stream delivers
+        # nothing while the camera stays connected and grabbing: the silent
+        # stall a real camera's USB link or grab loop can fall into. None
+        # when no stall is set. See hold_frames.
+        self._held_window: tuple[int, int] | None = None
 
         # Synthetic image state -- can be set externally for test scenarios
         # 'specimen', 'black', 'white', 'noise', 'focus_target'.
@@ -220,13 +440,13 @@ class SimulatedCamera(Camera):
         # renders it too, with a warning.
         self._test_pattern = 'specimen'
 
-        # The specimen at the full sensor, built when first rendered or
-        # loaded; the frames cut from it at the current binning and size, one
-        # per drift step; and each source's last defocused frame, reused
-        # while Z, the objective and the frame are unchanged. Each cache
-        # entry is a (key, value) pair, rebuilt when its key changes.
-        self._specimen_native: np.ndarray | None = None
-        self._specimen_cut: tuple | None = None
+        # The sample on the stage; each drift step's last in-focus frame cut
+        # from it, reused while the stage, the scale and the frame are
+        # unchanged; and each source's last defocused frame, reused while Z,
+        # the objective, the frame and where it was cut are unchanged. Each
+        # cache entry is a (key, value) pair, rebuilt when its key changes.
+        self._specimen = the_specimen()
+        self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
         self._focus_target_cache: tuple | None = None
@@ -238,16 +458,30 @@ class SimulatedCamera(Camera):
         self._z_position = self._NOMINAL_FOCAL_Z_UM
         self._focal_z = self._NOMINAL_FOCAL_Z_UM + random.uniform(-focal_spread_um, focal_spread_um)
         logger.info(f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um')
-        self._z_position_func = z_position_func  # Optional: auto-query Z from motor
-        # Optional: auto-query how much light is on the sample. Unwired, the
-        # camera renders as though the field were lit, which is what a camera
-        # constructed on its own with no scope around it has to assume.
-        self._illumination_func = illumination_func
+        # The stage's X and Y, told by set_stage_xy so the field follows
+        # them; (None, None) holds the field still, as on a scope with no
+        # XY stage.
+        self._stage_xy = (None, None)
+        # The light on the sample, told by set_illumination: the lit current
+        # summed over the lit addresses, and the light it makes. A camera
+        # constructed on its own with no scope around it renders as though
+        # the field were lit at the reference current.
+        self._illumination = (
+            self.REFERENCE_ILLUMINATION_MA,
+            self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S,
+        )
+        # Optional: the scope's Z, stage and light, each with when its owner
+        # recorded it changing (None when it cannot say), read as each
+        # exposure starts; on a scope they replace what the setters told.
+        self._scope_inputs = scope_inputs
         # Optional: auto-query the objective's depth of field (um); None when
         # no objective is known.
         self._depth_of_field_func = depth_of_field_func
+        # Optional: auto-query the objective's image scale (um of stage per
+        # pixel at binning 1); None when no objective or no optics are known.
+        self._pixel_size_func = pixel_size_func
 
-        # Apply timing preset (overrides grab_delay if preset given)
+        # The timing preset is the one setter of the transfer time.
         self.set_timing_mode(timing)
 
         # Let the base class call connect()
@@ -271,54 +505,6 @@ class SimulatedCamera(Camera):
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
 
-    def load_specimen(self, image_dir: str | None = None) -> None:
-        """Load the specimen this camera images, and show it.
-
-        The first image in ``image_dir`` (png, jpg, tiff), else in
-        data/sim_images/, as grayscale at the full sensor size; with none,
-        the generated specimen field: one sample, as a real one is, seen
-        drifting a pixel around a circle so a running stream looks alive.
-
-        Args:
-            image_dir: Path to a directory holding the image. None looks in
-                data/sim_images/ relative to the app root.
-        """
-        if image_dir is None:
-            for candidate in [
-                pathlib.Path(__file__).resolve().parent.parent / 'data' / 'sim_images',
-                pathlib.Path('.') / 'data' / 'sim_images',
-            ]:
-                if candidate.is_dir():
-                    image_dir = candidate
-                    break
-
-        loaded = None
-        if image_dir is not None and pathlib.Path(image_dir).is_dir():
-            files = [
-                fp
-                for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff')
-                for fp in sorted(pathlib.Path(image_dir).glob(ext))
-            ]
-            for fp in files:
-                image = cv2.imread(str(fp), cv2.IMREAD_GRAYSCALE)
-                if image is None:
-                    logger.warning(f'[SimCamera ] Could not load {fp}')
-                    continue
-                loaded = cv2.resize(
-                    image, (self._native_width, self._native_height), interpolation=cv2.INTER_AREA
-                )
-                logger.info(f'[SimCamera ] Loaded the specimen image: {fp.name}')
-                break
-
-        self._specimen_native = (
-            loaded
-            if loaded is not None
-            else specimen_field(self._native_height, self._native_width)
-        )
-        self._specimen_cut = None
-        self._defocused = {}
-        self._test_pattern = 'specimen'
-
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
@@ -332,10 +518,14 @@ class SimulatedCamera(Camera):
             self.active = True
             self.model_name = self.MODEL_NAME
             self._device_serial = self.SERIAL_NUMBER
+            self._device_firmware = self.FIRMWARE_VERSION
             self._device_removed = False
 
             self._load_profile()
             self.init_camera_config()
+            # The camera stamps each frame on its own clock, read at connect
+            # as the Pylon driver reads its body's tick rate.
+            self.timestamp_tick_frequency_hz = self.TIMESTAMP_TICK_HZ
             # A fresh handler per connection, as the real drivers build one:
             # its frame count starts over, and the durable callback registry
             # is pushed onto it so a listener registered before a reconnect
@@ -345,13 +535,12 @@ class SimulatedCamera(Camera):
             # connect() returns CONFIGURED but NOT grabbing; the single
             # start fires later via open_and_start() (the start gate).
 
-            if _cam_log is not None:
-                _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
+            _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
             logger.info(f'[CAM Sim   ] Connected: {self.model_name} ({self._device_serial})')
             return True
 
-    def disconnect(self) -> bool:
-        """Mark the simulated camera as disconnected.
+    def _disconnect(self) -> bool:
+        """Mark the simulated camera as disconnected and let go of what it drew.
 
         Returns:
             bool: True when the camera was active before this call,
@@ -362,8 +551,7 @@ class SimulatedCamera(Camera):
                 return False
             self._grabbing = False
             self.active = None
-            if _cam_log is not None:
-                _cam_log.info('sim Disconnected')
+            _cam_log.info('sim Disconnected')
             logger.info('[CAM Sim   ] Disconnected')
         # Stop acquisition OUTSIDE self._lock (mirroring stop_grabbing): the
         # acquisition loop generates frames under self._lock, so joining it
@@ -376,6 +564,13 @@ class SimulatedCamera(Camera):
         # (the base config path takes them the other way). Acquisition is
         # stopped above, so nothing writes the frame buffer from here on.
         self._reset_lifecycle_state()
+        # A disconnected camera keeps no frame it cut. Its scope and the
+        # scope's API modules refer to each other, so the camera goes only at
+        # the collector's full pass, and its cut frames would go with it
+        # then, not now. The drawn tiles are the process's sample's, capped
+        # at its 512 (about 36 MB) however many cameras come and go.
+        self._specimen_cut = {}
+        self._defocused = {}
         return True
 
     def is_connected(self) -> bool:
@@ -415,21 +610,19 @@ class SimulatedCamera(Camera):
         """
         return self._grabbing
 
-    def start_grabbing(self) -> None:
+    def _start_grabbing(self) -> None:
         """Begin acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = True
-            if _cam_log is not None:
-                _cam_log.info('sim start_grabbing')
+            _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
         self._start_acquisition()
 
-    def stop_grabbing(self) -> None:
+    def _stop_grabbing(self) -> None:
         """Stop acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = False
-            if _cam_log is not None:
-                _cam_log.info('sim stop_grabbing')
+            _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
         self._stop_acquisition()
 
@@ -460,34 +653,61 @@ class SimulatedCamera(Camera):
 
     def leave_bus(self) -> None:
         """The camera leaves the bus, as a real one is marked when its
-        device is removed; its own reconnect brings it back."""
+        device is removed, and is torn down as a real one is
+        (``_schedule_async_teardown``); its own reconnect brings it back."""
         self._mark_disconnected()
+        self._schedule_async_teardown()
 
-    def refuse_write(self, node: str, answer: str) -> None:
-        """The next write of ``node`` answers ``answer`` and moves nothing.
+    @classmethod
+    def answers_for(cls, node: str) -> tuple[str, ...]:
+        """The refused-write answers ``node`` can be given: those a real driver gives for it."""
+        never = cls._ANSWERS_NO_DRIVER_GIVES.get(node, frozenset())
+        return tuple(a for a in cls.REFUSED_WRITE_ANSWERS if a not in never)
+
+    def refuse_write(self, node: str, answer: str, count: int = 1) -> None:
+        """The next ``count`` writes of ``node`` answer ``answer`` and move nothing.
 
         Args:
             node: One of ``WRITABLE_NODES``.
             answer: One of ``REFUSED_WRITE_ANSWERS``: ``'false'``,
                 ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
-                ``RuntimeError`` as a failed node write.
+                ``CameraWriteFailedError``, as a real driver's failed node
+                write does; ``'removed'``
+                takes the camera off the bus and returns False, as a
+                camera pulled during the write does; ``'no_answer'``
+                raises ``CameraNoAnswerError`` as a write the camera did
+                not answer in time, leaving it on the bus.
+            count: How many writes in a row meet it, 1 or more: a write
+                sent again at once meets the second.
 
         Raises:
-            ValueError: ``node`` or ``answer`` is not one of those.
+            ValueError: ``node`` or ``answer`` is not one of those, or the
+                answer is one no real driver gives for that node.
         """
         if node not in self.WRITABLE_NODES:
             raise ValueError(f'{node!r} is not one of {tuple(self.WRITABLE_NODES)}')
-        if answer not in self.REFUSED_WRITE_ANSWERS:
-            raise ValueError(f'{answer!r} is not one of {self.REFUSED_WRITE_ANSWERS}')
+        taken = self.answers_for(node)
+        if answer not in taken:
+            raise ValueError(f'{answer!r} is not one of {taken} for {node!r}')
         setter = self.WRITABLE_NODES[node]
 
-        # The refusal stands in for the setter on this camera, once: the
-        # first write takes it away again, so the next reaches the node.
+        # The refusal stands in for the setter on this camera for ``count``
+        # writes: the last of them takes it away again, so the next reaches
+        # the node.
+        left = [count]
+
         def refused(*args, **kwargs):
-            vars(self).pop(setter, None)
+            left[0] -= 1
+            if left[0] <= 0:
+                vars(self).pop(setter, None)
             logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
             if answer == 'raise':
-                raise RuntimeError(f'simulated {node} node write failed')
+                raise CameraWriteFailedError(f'simulated {node} node write failed')
+            if answer == 'removed':
+                self.leave_bus()
+                return False
+            if answer == 'no_answer':
+                raise CameraNoAnswerError(f'simulated {node} write: the camera did not answer')
             return {'false': False, 'none': None, 'true': True}[answer]
 
         vars(self)[setter] = refused
@@ -496,6 +716,45 @@ class SimulatedCamera(Camera):
         """Take back a ``refuse_write`` on ``node`` that no write has met yet."""
         vars(self).pop(self.WRITABLE_NODES[node], None)
 
+    def refuse_read(self, node: str, answer: str, count: int = 1) -> None:
+        """The next ``count`` reads of ``node`` fail, answering as the
+        node's real driver does (``FAILED_READS``).
+
+        Args:
+            node: One of ``FAILED_READS``.
+            answer: One of ``FAILED_READ_ANSWERS``: ``'failed'``, the
+                node's answer; ``'removed'``, the camera taken off the bus
+                first, as a camera pulled during the read is, then the
+                node's answer.
+            count: How many reads in a row meet it, 1 or more.
+
+        Raises:
+            ValueError: ``node`` or ``answer`` is not one of those.
+        """
+        if node not in self.FAILED_READS:
+            raise ValueError(f'{node!r} is not one of {tuple(self.FAILED_READS)}')
+        if answer not in self.FAILED_READ_ANSWERS:
+            raise ValueError(f'{answer!r} is not one of {self.FAILED_READ_ANSWERS}')
+        getter, failure = self.FAILED_READS[node]
+        left = [count]
+
+        def refused(*args, **kwargs):
+            left[0] -= 1
+            if left[0] <= 0:
+                vars(self).pop(getter, None)
+            logger.warning(f'[CAM Sim   ] {node} read failed ({answer}, simulated)')
+            if answer == 'removed':
+                self.leave_bus()
+            if failure is CameraReadFailedError:
+                raise CameraReadFailedError(f'simulated {node} node read failed')
+            return failure
+
+        vars(self)[getter] = refused
+
+    def allow_read(self, node: str) -> None:
+        """Take back a ``refuse_read`` on ``node`` that no read has met yet."""
+        vars(self).pop(self.FAILED_READS[node][0], None)
+
     def hold_frames(self, stall: SimulatedStall) -> None:
         """Stall the stream as ``stall`` says, starting its clock now.
 
@@ -503,8 +762,8 @@ class SimulatedCamera(Camera):
         stop. This is how a simulated scope shows what happens when a stream
         stops delivering, without hardware.
         """
-        start = time.monotonic() + stall.after_s
-        self._held_window = (start, start + stall.for_s)
+        start = host_clock.steady_ns() + round(stall.after_s * 1e9)
+        self._held_window = (start, start + round(stall.for_s * 1e9))
         logger.info(
             f'[CAM Sim   ] frames will stop in {stall.after_s:g} s for {stall.for_s:g} s '
             '(simulated stall)'
@@ -514,16 +773,49 @@ class SimulatedCamera(Camera):
         """End a stall set by ``hold_frames``, or take back one not yet begun."""
         self._held_window = None
 
-    def _frame_interval_s(self) -> float:
-        """The free-run frame period: the exposure, never shorter than the
-        delivery ceiling's period. The pacing and the reported frame rate
-        both read it, so the report cannot drift from the pacing."""
-        return max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+    def delay_delivery(self, frames: int) -> None:
+        """Hold ``frames`` handed-over frames on the way to the store from now on.
+
+        A frame is stored only once ``frames`` more have been handed over
+        behind it, as a frame waits in a driver's queue that has fallen
+        behind: it is numbered and timed at its hand-over and stored later.
+        0 stores each frame as it is handed over, and the frames still held
+        are stored at once.
+        """
+        self._backlog_frames = frames
+
+    def withhold_chunk(self, name: str, frames: int) -> None:
+        """Hand over the next ``frames`` frames without their ``name`` chunk.
+
+        As a Basler frame arrives whose chunk the driver could not read: the
+        frame is delivered, and only that one fact of it is missing. 0 takes
+        back a withholding no frame has met yet.
+        """
+        if name not in self.CHUNKS:
+            raise ValueError(f'{name!r} is not one of {self.CHUNKS}')
+        with self._lock:
+            if frames > 0:
+                self._withheld_chunks[name] = frames
+            else:
+                self._withheld_chunks.pop(name, None)
+
+    def exposed_under(self, frame_id: int) -> SensorExposure | None:
+        """What the delivered frame ``frame_id`` was exposed under; None for
+        one this camera did not deliver or no longer keeps a record of."""
+        with self._lock:
+            return self._exposure_records.get(frame_id)
+
+    def _frame_interval_s(self, exposure_us: float) -> float:
+        """The free-run frame period at ``exposure_us``: the exposure, never
+        shorter than the delivery ceiling's period. The pacing and the
+        reported frame rate both read it, so the report cannot drift from
+        the pacing."""
+        return max(exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
 
     def get_resulting_frame_rate(self) -> float | None:
         if not self.active:
             return None
-        return 1.0 / self._frame_interval_s()
+        return 1.0 / self._frame_interval_s(self._exposure_us)
 
     def get_link_info(self) -> dict | None:
         if not self.active:
@@ -534,64 +826,166 @@ class SimulatedCamera(Camera):
         """Store one new frame per frame interval while grabbing.
 
         The interval is the exposure, never shorter than the delivery
-        ceiling's period (``_MAX_DELIVERY_FPS``). Frames are due on a
-        fixed schedule, so the host time spent generating and delivering
-        a frame comes out of the interval rather than adding to it -- a
-        real camera's frame period does not include host work. A loop
-        that falls behind (generation slower than the interval) delivers
-        the next frame at once and re-anchors, never bursting to catch up.
+        ceiling's period (``_MAX_DELIVERY_FPS``). Frames start on a
+        fixed schedule on the host's steady clock, so the host time spent
+        generating and delivering a frame comes out of the interval rather
+        than adding to it -- a real camera's frame period does not include
+        host work. A frame is started at the time it was due, however late
+        the thread reaches it: its exposure start and the settings it is
+        made under are read at that time, so two exposures never start
+        less than an interval apart on the camera's clock. A loop that
+        falls a whole interval behind starts the next frame at the time it
+        found itself late and re-anchors there, never starting every frame
+        it missed.
 
-        Each frame goes through the image handler's ``_store_frame``, which
-        counts it, buffers it with its depth and fires the per-frame
-        callbacks. SimulatedCamera has no chunk surface, so chunks is always
-        None -- recording callers already treat None as "skip chunk-derived
-        metadata."
+        A frame leaves the pipeline its own frame interval after it starts,
+        plus ``SENSOR_PIPELINE_FRAMES - 1`` of the ceiling's periods, as the
+        camera hands a frame over on its own time. It is numbered as it
+        leaves, before its image is made and carried, then goes through the
+        image handler's ``_store_frame``, which counts it, buffers it with
+        its depth and fires the per-frame callbacks.
+
+        A frame is exposed under the settings in force when it starts
+        (``SensorExposure``), and the frames started and not yet out of the
+        pipeline when a setting is written (``SENSOR_PIPELINE_FRAMES`` at
+        the ceiling's period, fewer at a longer exposure) come out under the
+        old settings, timed and rendered by them, and the new ones reach the
+        output after them. Each frame carries the chunks a Basler body
+        stamps: its counter and its exposure start on the camera's clock
+        from the snapshot, and the exposure and gain from the register as
+        the frame is tagged, so the chunk leads the content as it does on
+        the bench.
         """
-        next_due = time.monotonic()
+        next_due = host_clock.steady_ns()
         stalled = False
+        # Frames handed over and on their way to the store, oldest first
+        # (delay_delivery).
+        on_the_way: collections.deque = collections.deque()
+        # The frames started and not yet out of the pipeline, oldest first,
+        # each with the time it leaves.
+        in_flight: collections.deque = collections.deque()
+        readout_ns = round((self.SENSOR_PIPELINE_FRAMES - 1) * 1e9 / self._MAX_DELIVERY_FPS)
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
-            if handler is None or not self._grabbing:
+            # A camera off the bus delivers nothing, as a removed one does.
+            if handler is None or not self._grabbing or self.is_device_removed():
                 return
-            interval_s = self._frame_interval_s()
             held = self._held_window
-            now = time.monotonic()
+            now = host_clock.steady_ns()
             if held is not None and held[0] <= now < held[1]:
                 # Stalled: nothing reaches the host, and the stream picks up
                 # on its own schedule when the stall ends.
                 if not stalled:
                     stalled = True
                     logger.info('[CAM Sim   ] simulated stall: frames stopped')
-                if self._acquisition_stop.wait(min(interval_s, held[1] - now)):
+                if self._acquisition_stop.wait(
+                    min(self._frame_interval_s(self._exposure_us), (held[1] - now) / 1e9)
+                ):
                     return
-                next_due = time.monotonic()
+                next_due = host_clock.steady_ns()
                 continue
             if stalled:
                 stalled = False
                 logger.info('[CAM Sim   ] simulated stall: frames resumed')
+            # A start due is taken before a frame leaving: a frame leaves
+            # after its successor starts, which ends its exposure.
+            if now >= next_due:
+                with self._lock:
+                    started = self._start_exposure(next_due)
+                    # The newest frame's exposure ends as this one starts.
+                    if in_flight:
+                        newest, leaves_at = in_flight[-1]
+                        in_flight[-1] = (
+                            dataclasses.replace(newest, z_end_um=started.z_um),
+                            leaves_at,
+                        )
+                    # The frame's own exposure is the inter-frame interval,
+                    # bounded below by the delivery ceiling.
+                    interval_ns = round(self._frame_interval_s(started.exposure_us) * 1e9)
+                    in_flight.append((started, next_due + interval_ns + readout_ns))
+                next_due = max(next_due + interval_ns, now)
+                continue
+            if not in_flight or in_flight[0][1] > now:
+                wake_at = next_due if not in_flight else min(next_due, in_flight[0][1])
+                if self._acquisition_stop.wait((wake_at - now) / 1e9):
+                    return
+                continue
             with self._lock:
-                image = self._generate_image()
-                bits = self.significant_bits
+                exposure, _ = in_flight.popleft()
+                # The frame is numbered and timed as it leaves the pipeline,
+                # as a camera hands a frame over on its own time, before the
+                # host makes and carries it. A write waits on this lock while
+                # the image is made and can land in the transfer, so a frame
+                # numbered after them would be placed after a change it
+                # predates, and the count a change needs would grow with the
+                # host's image time.
+                handed_over = handler.hand_over()
+                image = self._generate_image(exposure)
+                # The depth is the format the frame was made under, as a real
+                # camera's comes from its grab result; never a read of the
+                # camera's node, which an injected read fault replaces.
+                bits = self.significant_bits_for_format(self._pixel_format)
+                chunks = {
+                    'FrameID': exposure.frame_id,
+                    'Timestamp': exposure.started_ticks,
+                    'ExposureTime': self._exposure_us,
+                    'Gain': self._gain,
+                }
+                for name, left in list(self._withheld_chunks.items()):
+                    del chunks[name]
+                    if left > 1:
+                        self._withheld_chunks[name] = left - 1
+                    else:
+                        del self._withheld_chunks[name]
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
-            # the frame being made and the host having it.
+            # the frame being numbered and made and the host storing it.
             if self._grab_delay > 0:
                 time.sleep(self._grab_delay)
-            # The simulated link is USB3 carrying the format unpacked, as a
-            # Basler USB3 camera carries Mono12: the generated array is the
-            # acquired window in its wire container.
-            handler._store_frame(
-                image, datetime.datetime.now(), significant_bits=bits, wire_bytes=image.nbytes
-            )
-            # Honor the configured exposure as the inter-frame interval,
-            # bounded below by the delivery ceiling.
-            next_due = max(next_due + interval_s, time.monotonic())
-            if self._acquisition_stop.wait(next_due - time.monotonic()):
-                return
+            # A stall that began while this frame was being made holds it
+            # too: it had not reached the host, and nothing reaches the host
+            # during a stall. Without this, the one frame in the making when
+            # a stall is set arrives after it, so a stall set just before a
+            # single grab sometimes delivers that grab a frame. Its number
+            # is left unused, as a dropped frame's is.
+            held = self._held_window
+            if held is not None and held[0] <= host_clock.steady_ns() < held[1]:
+                continue
+            # The host has the frame here: it is stored once the backlog
+            # behind it is handed over; with none it goes at once, and a
+            # backlog taken back releases every frame it held.
+            on_the_way.append((handed_over, image, bits, chunks, exposure))
+            while len(on_the_way) > self._backlog_frames:
+                self._deliver(handler, *on_the_way.popleft())
 
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
+    def _deliver(
+        self,
+        handler: _SimImageHandler,
+        handed_over: HandOver,
+        image: np.ndarray,
+        bits: int,
+        chunks: dict[str, int | float],
+        exposure: SensorExposure,
+    ) -> None:
+        """Store one handed-over frame, and keep what it was exposed under."""
+        with self._lock:
+            self._exposure_records[exposure.frame_id] = exposure
+            while len(self._exposure_records) > self.EXPOSURE_RECORDS_KEPT:
+                self._exposure_records.popitem(last=False)
+        # The simulated link is USB3 carrying the format unpacked, as a
+        # Basler USB3 camera carries Mono12: the generated array is the
+        # acquired window in its wire container.
+        handler._store_frame(
+            image,
+            chunks,
+            handed_over=handed_over,
+            significant_bits=bits,
+            wire_bytes=image.nbytes,
+        )
+
     def _frame_grid(self) -> FrameGrid:
         """Windows of 4 x 4 steps, up to the sensor at the current binning.
 
@@ -611,8 +1005,7 @@ class SimulatedCamera(Camera):
         with self.update_camera_config(), self._lock:
             self._width = plan.acq_width
             self._height = plan.acq_height
-            if _cam_log is not None:
-                _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
+            _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
         return True
 
     def get_min_frame_size(self) -> dict:
@@ -653,14 +1046,12 @@ class SimulatedCamera(Camera):
             bool: True on success, False when the format is not supported.
         """
         if pixel_format not in self.profile.pixel_formats:
-            if _cam_log is not None:
-                _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
+            _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
             return False
         with self.update_camera_config(), self._lock:
             self._pixel_format = pixel_format
-            if _cam_log is not None:
-                _cam_log.info(f'sim set_pixel_format({pixel_format})')
+            _cam_log.info(f'sim set_pixel_format({pixel_format})')
         return True
 
     def get_pixel_format(self) -> str:
@@ -698,20 +1089,18 @@ class SimulatedCamera(Camera):
         if not self.active:
             return False
         if exposure_ms > self.max_exposure:
-            if _cam_log is not None:
-                _cam_log.warning(
-                    f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms'
-                )
+            _cam_log.warning(
+                f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms'
+            )
             logger.warning(
                 f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
             return False
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
-                )
+            _cam_log.info(
+                f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
+            )
             logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
             return self._exposure_us
 
@@ -750,11 +1139,22 @@ class SimulatedCamera(Camera):
             HardwareError: No camera is active.
         """
         if not self.active:
-            raise HardwareError('Camera temperature read: no camera is active')
+            raise PartAbsentError('Camera temperature read: no camera is active')
         return {'sensor': 35.0, 'board': 40.0}
 
     def supports_temperature(self) -> bool:
         return bool(self.active)
+
+    def supports_clock_latch(self) -> bool:
+        return bool(self.active)
+
+    def latch_clock(self) -> None:
+        with self._lock:
+            self._latched_ticks = self.camera_clock_ticks()
+
+    def latched_clock_ticks(self) -> int:
+        with self._lock:
+            return self._latched_ticks
 
     # ------------------------------------------------------------------
     # Frame rate
@@ -770,8 +1170,7 @@ class SimulatedCamera(Camera):
             self._frame_rate_limit_enabled = enabled
             if enabled:
                 self._frame_rate_target = fps
-            if _cam_log is not None:
-                _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
+            _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
 
     # ------------------------------------------------------------------
     # Binning
@@ -786,8 +1185,7 @@ class SimulatedCamera(Camera):
             bool: True on success, False when ``size`` is unsupported.
         """
         if size < 1 or size > 4:
-            if _cam_log is not None:
-                _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
+            _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
             return False
         with self.update_camera_config(), self._lock:
@@ -799,8 +1197,7 @@ class SimulatedCamera(Camera):
             # but isolated binning changes (no frame re-push) still stay valid.
             self._width = min(self._width, self._native_width // size)
             self._height = min(self._height, self._native_height // size)
-            if _cam_log is not None:
-                _cam_log.info(f'sim set_binning_size({size})')
+            _cam_log.info(f'sim set_binning_size({size})')
         return True
 
     def get_binning_size(self) -> int:
@@ -815,12 +1212,84 @@ class SimulatedCamera(Camera):
     # Z-dependent focus simulation
     # ------------------------------------------------------------------
     def set_z_position(self, z: float) -> None:
-        """Set current Z position (um) for focus simulation.
+        """Tell the sensor where Z stands now (um), for focus simulation.
+
+        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
+        focused at it.
 
         Args:
             z: Current Z stage position in micrometers.
         """
-        self._z_position = float(z)
+        with self._lock:
+            self._z_position = float(z)
+
+    def set_stage_xy(self, x_um: float | None, y_um: float | None) -> None:
+        """Tell the sensor where the stage's X and Y stand now (um).
+
+        The field follows them in exposures starting ``SENSOR_APPLY_DELAY_US``
+        or more from now. None for an axis the scope lacks holds the field
+        still along it.
+        """
+        with self._lock:
+            self._stage_xy = (x_um, y_um)
+
+    def set_illumination(self, lit_ma: float, light: float | None = None) -> None:
+        """Tell the sensor the light on the sample now.
+
+        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
+        lit by it.
+
+        Args:
+            lit_ma: The LED current lighting the sample, summed over the lit
+                addresses; 0 for an unlit field.
+            light: Each lit address's current times its layer's light per
+                mA-second, summed. None takes the current at the light of a
+                camera with no scope around it.
+        """
+        if light is None:
+            light = float(lit_ma) * self._UNWIRED_LIGHT_PER_MA_S
+        with self._lock:
+            self._illumination = (float(lit_ma), float(light))
+
+    def _input_changed(self, name: str, value: object, changed_ns: int | None) -> None:
+        """Record that input ``name`` holds ``value``, changed at ``changed_ns``.
+
+        ``changed_ns`` is the host monotonic time its owner recorded the
+        change, or None for now. A value equal to the newest recorded is no
+        change. A time no later than the newest record's is now: the value
+        was seen to change since that record, and the owner's time is a
+        change before it.
+        """
+        with self._lock:
+            history = self._input_history.setdefault(name, collections.deque())
+            if history and history[-1][1] == value:
+                return
+            now = host_clock.steady_ns()
+            at = now if changed_ns is None else min(changed_ns, now)
+            if history and at <= history[-1][0]:
+                at = now
+            history.append((at, value))
+
+    def _input_at(self, name: str, at_ns: int) -> object:
+        """Input ``name``'s value as it stood at ``at_ns``. Call with ``_lock`` held.
+
+        The newest recorded no later than ``at_ns``, or the oldest kept when
+        every record is newer. Records older than that one can never be read
+        again and are dropped.
+        """
+        history = self._input_history[name]
+        while len(history) > 1 and history[1][0] <= at_ns:
+            history.popleft()
+        return history[0][1]
+
+    def _read_scope_inputs(self) -> None:
+        """Take the scope's Z, stage and light, each with when it changed. Call with ``_lock`` held."""
+        if self._scope_inputs is None:
+            return
+        for name, (value, changed_ns) in self._scope_inputs().items():
+            if value is None:
+                continue
+            getattr(type(self), self._SCOPE_INPUTS[name]).take(self, value, changed_ns)
 
     def get_z_position(self) -> float:
         """Return the current Z position used for focus simulation.
@@ -902,57 +1371,100 @@ class SimulatedCamera(Camera):
         self._focus_target_cache = (key, target)
         return target
 
-    def _specimen_frame(self, h: int, w: int) -> tuple[np.ndarray, str]:
-        """The in-focus specimen as this frame sees it, and which drift step it is.
+    def _specimen_frame(
+        self, h: int, w: int, exposure: SensorExposure
+    ) -> tuple[np.ndarray, str, tuple]:
+        """The in-focus specimen as this frame sees it, which drift step it is, and where it was cut.
 
-        The frame is a region of the sensor, centred, at the current binning:
-        the specimen is reduced once when the binning changes and each drift
-        step's frame cut from it, never re-scaled per frame, so it keeps its
-        proportions.
+        The frame is a region of the sensor, centred on the stage where
+        ``exposure`` started: drawn at binning 1 at the objective's scale,
+        then binned, as the sensor sums its pixels. The drift moves it a
+        binned pixel a step.
         """
-        key = (h, w, self._binning)
-        if self._specimen_cut is None or self._specimen_cut[0] != key:
-            if self._specimen_native is None:
-                self._specimen_native = specimen_field(self._native_height, self._native_width)
-            sensor = self._specimen_native
-            if self._binning > 1:
-                sensor = cv2.resize(
-                    sensor,
-                    (self._native_width // self._binning, self._native_height // self._binning),
-                    interpolation=cv2.INTER_AREA,
-                )
-            self._specimen_cut = (key, drift_frames(sensor, h, w))
-            self._defocused = {}
-        step = self._drift_index % len(self._specimen_cut[1])
+        step = self._drift_index % len(DRIFT_STEPS)
         self._drift_index += 1
-        return self._specimen_cut[1][step], f'specimen {step}'
+        b = self._binning
+        place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
+        cached = self._specimen_cut.get(step)
+        if cached is None or cached[0] != place:
+            dy, dx = DRIFT_STEPS[step]
+            frame = self._specimen.view(
+                exposure.x_um,
+                exposure.y_um,
+                h * b,
+                w * b,
+                exposure.pixel_size_um,
+                shift=(dy * b, dx * b),
+            )
+            if b > 1:
+                frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+            cached = self._specimen_cut[step] = (place, frame)
+        return cached[1], f'specimen {step}', place
 
-    def _blur_sigma_px(self) -> float:
-        """The defocus blur at the current Z and objective, as a sigma in pixels."""
-        if self._z_position_func is not None:
-            z = self._z_position_func()
-            if z is None:
-                # No focus axis to read: a manual scope is focused by hand,
-                # so its sample is rendered in focus.
-                return 0.0
-            self._z_position = z
+    def camera_clock_ticks(self) -> int:
+        """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
+        return host_clock.steady_ns() + self._clock_offset_ns
+
+    def _start_exposure(self, started_ns: int) -> SensorExposure:
+        """Start a frame's exposure at ``started_ns``. Call with ``_lock`` held.
+
+        The registers, Z, the stage and the light are each as they stood
+        ``SENSOR_APPLY_DELAY_US`` before the start, read against the time
+        each changed (``_input_at``). The objective is asked here, as the frame
+        starts: the glass in the light path is not a setting the sensor
+        applies. An unknown objective is None, which renders in focus;
+        unwired, the camera has a nominal depth of field, as a camera built
+        with no scope around it must.
+
+        Args:
+            started_ns: The host steady time the frame was due to start,
+                earlier than now when the acquisition loop runs late.
+        """
+        self._read_scope_inputs()
+        applied_at = started_ns - self.SENSOR_APPLY_DELAY_US * 1_000
+        x_um, y_um = self._input_at('stage_xy', applied_at)
+        illumination_ma, light = self._input_at('illumination', applied_at)
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
         else:
             dof = self._depth_of_field_func()
-            if dof is None:
-                # No objective is known, so there is no focus to model.
-                return 0.0
-        defocus = abs(self._z_position - self._focal_z)
+        um_per_px = None if self._pixel_size_func is None else self._pixel_size_func()
+        self._frames_started += 1
+        return SensorExposure(
+            frame_id=self._frames_started,
+            started_ticks=started_ns + self._clock_offset_ns,
+            exposure_us=self._input_at('exposure_us', applied_at),
+            gain_db=self._input_at('gain_db', applied_at),
+            black_level=self._input_at('black_level', applied_at),
+            illumination_ma=illumination_ma,
+            light=light,
+            x_um=x_um,
+            y_um=y_um,
+            z_um=self._input_at('z_um', applied_at),
+            z_end_um=None,
+            depth_of_field_um=dof,
+            pixel_size_um=um_per_px,
+        )
+
+    def _blur_sigma_px(self, exposure: SensorExposure) -> float:
+        """The defocus blur ``exposure`` was made with, as a sigma in pixels."""
+        if exposure.z_um is None or exposure.depth_of_field_um is None:
+            # No focus axis to read (a manual scope is focused by hand), or
+            # no objective known: there is no focus to model.
+            return 0.0
+        dof = exposure.depth_of_field_um
+        defocus = abs(exposure.z_um - self._focal_z)
         # A binned pixel is larger, so the same blur spans fewer of them.
         return self._BLUR_PX_PER_DOF * defocus / dof / self._binning
 
-    def _defocus(self, sharp: np.ndarray, source: str) -> np.ndarray:
-        """``sharp`` as the objective images it at the current Z."""
-        sigma = self._blur_sigma_px()
+    def _defocus(
+        self, sharp: np.ndarray, source: str, place: tuple | None, exposure: SensorExposure
+    ) -> np.ndarray:
+        """``sharp``, cut at ``place``, as the objective imaged it for ``exposure``."""
+        sigma = self._blur_sigma_px(exposure)
         if sigma < 0.3:
             return sharp
-        key = (sharp.shape, self._binning, round(sigma, 2))
+        key = (sharp.shape, self._binning, round(sigma, 2), place)
         cached = self._defocused.get(source)
         if cached is not None and cached[0] == key:
             return cached[1]
@@ -964,36 +1476,37 @@ class SimulatedCamera(Camera):
         self,
         sharp: np.ndarray,
         source: str,
+        place: tuple | None,
         dtype,
         max_val: int,
         brightness: float,
-        *,
-        specimen: bool,
+        exposure: SensorExposure,
     ) -> np.ndarray:
         """A sample frame: defocused, scaled to ``dtype`` and lit.
 
-        The ``specimen`` is what a live view shows: floored so it stays
-        visible at the short default exposures. A test pattern is not, so
-        its signal follows exposure, gain and focus exactly. Zero is exempt
-        and stays zero: it means no light reached the sample, and a floor
-        that lifts darkness back to a visible field is what made an unlit
-        capture indistinguishable from a lit one.
+        Its signal follows exposure, gain, light and focus, and each pixel
+        saturates at full scale on its own, as a sensor's does: the
+        specimen's bright parts first. Zero stays zero: no light reached
+        the sample.
         """
         if brightness <= 0.0:
             return np.zeros(sharp.shape, dtype=dtype)
-        if specimen:
-            brightness = max(0.5, brightness)
-        img = self._defocus(sharp, source)
+        img = self._defocus(sharp, source, place, exposure)
         if dtype == np.uint16:
-            return (img.astype(np.float32) * (max_val / 255.0 * brightness)).astype(dtype)
+            scaled = img.astype(np.float32) * (max_val / 255.0 * brightness)
+            return np.minimum(scaled, max_val).astype(dtype)
         if brightness != 1.0:
+            # Saturates at 255.
             return cv2.convertScaleAbs(img, alpha=brightness)
         # A frame of its own: the cached one would be shared with every
         # frame after it, and a reader may write into what it was handed.
         return np.array(img)
 
-    def _illumination_scale(self) -> float:
-        """1.0 when the sample is lit, 0.0 when nothing is.
+    @staticmethod
+    def _brightness(exposure: SensorExposure) -> float:
+        """The fraction of the specimen's own grey levels ``exposure`` renders:
+        exposure (s) x linear gain x the light on the sample; 1.0 shows the
+        field as it is, above 1 its bright parts saturate.
 
         A camera sees what the illumination gives it, so an unlit field is
         black however long the exposure or however high the gain. Without
@@ -1002,21 +1515,18 @@ class SimulatedCamera(Camera):
         on, a channel left dark through a run -- was reproducible only on
         a bench.
 
-        Unwired, the answer is 1.0: a camera built with no scope around it
-        has no illumination to ask about, and rendering it black would
-        make every standalone camera test describe a fault.
+        Unwired, the sample is lit (``_start_exposure``): a camera built
+        with no scope around it has no illumination to ask about, and
+        rendering it black would make every standalone camera test describe
+        a fault.
 
-        Intensity is deliberately not modelled. The question this answers
-        is whether there is light, which is what distinguishes a failure
-        from a capture; how bright a lit field looks already follows
-        exposure and gain.
+        The gain is held in dB, so it multiplies the signal by 10^(dB/20).
         """
-        if self._illumination_func is None:
-            return 1.0
-        return 1.0 if self._illumination_func() > 0.0 else 0.0
+        exposure_s = exposure.exposure_us / 1_000_000.0
+        return exposure_s * 10.0 ** (exposure.gain_db / 20.0) * exposure.light
 
-    def _generate_image(self) -> np.ndarray:
-        """Generate a synthetic image based on current settings."""
+    def _generate_image(self, exposure: SensorExposure) -> np.ndarray:
+        """Generate a synthetic image as ``exposure`` made it, at the current geometry and pattern."""
         h = self._height
         w = self._width
 
@@ -1027,46 +1537,42 @@ class SimulatedCamera(Camera):
             dtype = np.uint8
             max_val = 255
 
-        # Scale brightness by exposure and gain; the gain is held in dB, so it
-        # multiplies the signal by 10^(dB/20)
-        raw = (self._exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
-        brightness = min(1.0, raw) * self._illumination_scale()
+        brightness = self._brightness(exposure)
         if self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
             img = np.full((h, w), max_val, dtype=dtype)
         elif self._test_pattern == 'noise':
-            img = np.random.randint(0, int(max_val * brightness) + 1, (h, w), dtype=dtype)
+            img = np.random.randint(0, int(max_val * min(1.0, brightness)) + 1, (h, w), dtype=dtype)
         elif self._test_pattern == 'focus_target':
             img = self._render_sample(
                 self._make_focus_target(h, w),
                 'focus_target',
+                None,
                 dtype,
                 max_val,
                 brightness,
-                specimen=False,
+                exposure,
             )
         else:
-            # No specific pattern was asked for: the specimen. Built lazily,
-            # because this is reachable before load_specimen() has run -- a
-            # camera-init failure skips that call entirely.
+            # No specific pattern was asked for: the specimen.
             if self._test_pattern != 'specimen':
                 logger.warning(
                     f'[SimCamera ] Unknown test pattern '
                     f'{self._test_pattern!r} -- rendering the specimen field'
                 )
-            frame, source = self._specimen_frame(h, w)
-            img = self._render_sample(frame, source, dtype, max_val, brightness, specimen=True)
+            frame, source, place = self._specimen_frame(h, w, exposure)
+            img = self._render_sample(frame, source, place, dtype, max_val, brightness, exposure)
 
-        if self._black_level:
+        if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale
             # saturates there, as a sensor's output does; the integer cast
             # would otherwise wrap a bright pixel to near zero.
-            img = np.minimum(np.rint(img.astype(np.float32) + self._black_level), max_val)
+            img = np.minimum(np.rint(img.astype(np.float32) + exposure.black_level), max_val)
             img = img.astype(dtype)
         return img
 
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Wait for a frame stored after this call, then return it.
 
         The acquisition thread is the only producer, as a real camera's SDK
@@ -1078,15 +1584,14 @@ class SimulatedCamera(Camera):
             timeout_s: Wall-clock seconds to wait for the next frame.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``. ``success=False`` when the camera is not
-                grabbing or no frame arrived within ``timeout_s``.
+            The stored ``Frame``, or None when the camera is not grabbing or
+            no frame arrived within ``timeout_s``.
         """
         handler = self.cam_image_handler
         if not self._grabbing or handler is None:
-            return False, None, None
-        if not handler.wait_for_frame_after(handler.frames_delivered, timeout_s):
-            return False, None, None
+            return None
+        if not handler.wait_for_frame_after(handler.delivered_counts[0], timeout_s):
+            return None
         return self.grab()
 
     # ------------------------------------------------------------------
@@ -1101,6 +1606,14 @@ class SimulatedCamera(Camera):
         if not self.active:
             return -1
         return self._gain
+
+    def get_auto_gain_mode(self) -> str:
+        """The simulated auto-gain mode, as a camera names it."""
+        return 'Continuous' if self._auto_gain_enabled else 'Off'
+
+    def get_auto_exposure_mode(self) -> str:
+        """The simulated auto-exposure mode, as a camera names it."""
+        return 'Continuous' if self._auto_exposure_enabled else 'Off'
 
     # ------------------------------------------------------------------
     # Black level: an offset in DN of the delivered pixel format, added to
@@ -1142,6 +1655,12 @@ class SimulatedCamera(Camera):
         the simulator and not only on a bench. The simulated gain does not
         move on a refusal.
 
+        While continuous auto-gain runs, the write is accepted and answered
+        but the gain stays where the loop holds it: a Basler body takes a
+        Gain write under GainAuto=Continuous, reads it back, and its loop
+        takes the node back at its next update, so a value meant for the
+        sensor must be written once the loop is off.
+
         Args:
             value: Gain in dB.
 
@@ -1155,9 +1674,9 @@ class SimulatedCamera(Camera):
             logger.warning(f'[CAM Sim   ] Gain {value} dB outside [{low}, {high}] dB')
             return False
         with self._lock:
-            self._gain = float(value)
-            if _cam_log is not None:
-                _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
+            if not self._auto_gain_enabled:
+                self._gain = float(value)
+            _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
             logger.debug(f'[CAM Sim   ] Gain set to {value}')
         return float(value)
 
@@ -1207,10 +1726,11 @@ class SimulatedCamera(Camera):
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
     ) -> bool:
-        """Enable or disable simulated continuous auto-gain.
+        """Enable or disable simulated continuous auto-gain and auto-exposure.
 
-        On enable, the simulator converges immediately by setting gain
-        to the midpoint of [min_gain_db, max_gain_db].
+        The two loops switch together, as a Basler body's ``GainAuto`` and
+        ``ExposureAuto`` do. On enable, the simulator converges immediately
+        by setting gain to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to enable, False to disable.
@@ -1225,6 +1745,7 @@ class SimulatedCamera(Camera):
         """
         with self._lock:
             self._auto_gain_enabled = state
+            self._auto_exposure_enabled = state
             if state:
                 self._auto_gain_target_brightness = target_brightness
                 if min_gain_db is not None:
@@ -1232,10 +1753,9 @@ class SimulatedCamera(Camera):
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
                 self._gain = self._converged_gain()
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
-                )
+            _cam_log.info(
+                f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
+            )
         return True
 
     def auto_gain_once(

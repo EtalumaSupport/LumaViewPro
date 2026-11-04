@@ -6,24 +6,29 @@ import dataclasses
 import enum
 import gc
 import io
-import json
 import numbers
 import os
 import pathlib
 import platform
 import re
+import sys
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, Final, Protocol
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
-import numpy as np
 import psutil
 
-from modules.video_cadence import effective_recording_fps
+from modules.acquire_mode import AcquireMode
 
 if TYPE_CHECKING:
-    from modules.lumascope_api.illumination import IlluminationAPI
-    from modules.scope_capabilities import ScopeCapabilities
+    from collections.abc import Iterable, Mapping
+
+    import pandas as pd
+
+    from modules.layer_record import Modality
+
+    from modules.lumascope_api.illumination import LedReading
+    from modules.scope_capabilities import FieldOfView, ScopeCapabilities
 
 
 # ---------------------------------------------------------------------------
@@ -38,17 +43,6 @@ DEFAULT_STAGE_TRAVEL_UM = {'x': 120000.0, 'y': 80000.0}
 
 
 @enum.unique
-class ColorChannel(enum.Enum):
-    Blue = 0
-    Green = 1
-    Red = 2
-    BF = 3
-    PC = 4
-    DF = 5
-    Lumi = 6
-
-
-@enum.unique
 class PostFunction(enum.Enum):
     COMPOSITE = 'Composite'
     STITCHED = 'Stitched'
@@ -59,25 +53,6 @@ class PostFunction(enum.Enum):
     @classmethod
     def list_values(cls):
         return [c.value for c in cls]
-
-
-# ---------------------------------------------------------------------------
-# JSON serialization
-# ---------------------------------------------------------------------------
-
-
-class CustomJSONizer(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-
-        return super().default(obj)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -96,7 +71,7 @@ class StepNameComponents:
 
     well: str = ''  # 'A2'; the base when no custom_prefix is set
     custom_prefix: str = ''  # step label (user text or 'custom0001'); renders as the base when set
-    channel: str | None = None  # 'BF' | 'Green' | 'Composite' | None
+    channel: str | None = None  # 'BF' | 'Ex488' | 'Composite' | None
     tile: str | None = None  # tile label, rendered '_T<tile>'
     objective: str | None = None  # short objective name (turret builds)
     turret_position: int | None = None  # rendered '_Turret<n>'
@@ -206,7 +181,11 @@ def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
     return True
 
 
-def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
+def parse_legacy_step_name(
+    name: str,
+    known_layers: 'Iterable[str] | None' = None,
+    known_objectives: 'Iterable[str]' = (),
+) -> StepNameComponents:
     """Recover the components from a rendered step name, by SHAPE not position.
 
     LEGACY LOAD BOUNDARY ONLY: the run-time pipeline never decodes a name --
@@ -226,7 +205,7 @@ def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> Step
     boundary and never trusted with user-typed text.
     """
     if known_layers is None:
-        known_layers = get_layers()
+        known_layers = get_stored_channel_names()
     layers = set(known_layers)
     objectives = set(known_objectives)
 
@@ -327,7 +306,7 @@ def step_components(step, **overrides) -> StepNameComponents:
     return dataclasses.replace(base, **overrides) if overrides else base
 
 
-def recover_step_label(step) -> tuple[str, bool]:
+def recover_step_label(step: 'pd.Series | Mapping[str, object]') -> tuple[str, bool]:
     """Recover (label, is_auto) for a legacy row that predates the Label column.
 
     Load-boundary classification, run once per row when migrating a pre-Label
@@ -376,7 +355,7 @@ def recover_step_label(step) -> tuple[str, bool]:
     else:
         anchored = re.fullmatch(r'custom\d+', segs[0]) is not None
         machine_base = segs[0]
-    if anchored and _machine_tokens_only(segs[1:], set(get_layers()), set()):
+    if anchored and _machine_tokens_only(segs[1:], set(get_stored_channel_names()), set()):
         return machine_base, True
 
     return name, False
@@ -400,20 +379,6 @@ def resolve_step_rename(raw_text: str) -> str | None:
         The text to rename to, or None if the field is blank.
     """
     return raw_text if raw_text.strip() else None
-
-
-# The z-stack position labels the settings store, each with the reference a
-# stack is built from. The one vocabulary: the settings writer refuses any
-# other label (``settings_paths``), and the reader below converts them.
-ZSTACK_POSITION_LABELS: Final[dict[str, str]] = {
-    'Current Position at Top': 'top',
-    'Current Position at Center': 'center',
-    'Current Position at Bottom': 'bottom',
-}
-
-
-def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
-    return ZSTACK_POSITION_LABELS[text_label]
 
 
 def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:
@@ -504,26 +469,36 @@ def get_layers() -> list[str]:
     return list(release_catalogue())
 
 
+def get_stored_channel_names() -> list[str]:
+    """Every channel name a saved file may hold: the release's keys, then the
+    old names earlier releases stored (``layer_record.stored_channel_names``)."""
+    from modules.layer_record import stored_channel_names
+
+    return list(stored_channel_names())
+
+
+def _layers_of_modality(modality: 'Modality') -> list[str]:
+    from modules.layer_record import release_layers
+
+    return [layer.key for layer in release_layers() if layer.modality == modality]
+
+
 def get_transmitted_layers() -> list[str]:
-    return [k for k in get_layers() if k in ('BF', 'PC', 'DF')]
+    from modules.layer_record import Modality
+
+    return _layers_of_modality(Modality.TRANSMITTED)
 
 
 def get_fluorescence_layers() -> list[str]:
-    return [k for k in get_layers() if k in ('Blue', 'Green', 'Red')]
+    from modules.layer_record import Modality
 
-
-def get_bright_background_layers() -> list[str]:
-    """Layers whose field of view is bright, so overlays drawn on them
-    (scale bar, annotation text) must be dark to stay visible. Brightfield
-    and phase contrast have a bright background; darkfield does not -- it
-    shows bright subjects on a dark field -- so it is excluded here even
-    though it is a transmitted-light mode.
-    """
-    return [k for k in get_layers() if k in ('BF', 'PC')]
+    return _layers_of_modality(Modality.FLUORESCENCE)
 
 
 def get_luminescence_layers() -> list[str]:
-    return [k for k in get_layers() if k == 'Lumi']
+    from modules.layer_record import Modality
+
+    return _layers_of_modality(Modality.LUMINESCENCE)
 
 
 def get_image_layers() -> list[str]:
@@ -535,62 +510,49 @@ def get_layers_with_led() -> list[str]:
     return get_transmitted_layers() + get_fluorescence_layers()
 
 
-class LayerDrawer(Protocol):
-    """A layer's drawer, as the open-layer scan sees it."""
-
-    collapse: bool
-
-
-class LayerDrawers(Protocol):
-    """What the open-layer scan needs of the image-settings panel: a drawer
-    per layer name, raising KeyError for a layer this build gave none."""
-
-    def accordion_item_lookup(self, layer: str) -> LayerDrawer: ...
-
-
-def get_opened_layer(lumaview_imagesettings: LayerDrawers) -> str | None:
-    """The layer whose drawer is open, or None when none is.
-
-    A catalogue layer this build never gave a drawer raises KeyError from
-    the lookup and is simply not open. Anything else is a bug in the widget
-    tree and stays loud: reading it as "nothing is open" is what let a
-    torn-down widget pass for a user who had selected nothing.
-    """
-    for layer in get_layers():
-        try:
-            layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
-        except KeyError:
-            continue
-        if not layer_accordion_obj.collapse:
-            return layer
-    return None
-
-
 DEFAULT_LAYER = 'BF'
 
 
-def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | None) -> str:
-    """The channel a manual output imaged: lit LED, else open layer, else BF.
+class Light(NamedTuple):
+    """What lit one frame, from one read of the LEDs.
 
-    A lit LED is direct evidence of what is illuminating the sample, so it
-    outranks the open accordion -- a channel can be lit while a different
-    layer's drawer is open, and the light is the truth. The open layer is
-    the tiebreak for luminescence, which images with no LED lit at all and
-    would otherwise be unnameable. With more than one LED lit, the first in
-    the driver's channel order wins.
-
-    get_led_states() answers None when no LED board is installed: nothing
-    is lit, so a board-less scope falls through to the layer.
-
-    Shared by the manual still capture and the manual recording so the two
-    outputs can never disagree about what one frame is.
+    Attributes:
+        channel: The channel the frame is named for (``light_of``).
+        illumination_by_channel_ma: The current of every lit LED a layer
+            names, by that layer's key, in address order; empty when none
+            was lit.
     """
-    states = illumination.get_led_states()
-    if states is not None:
-        for color, state in states.items():
-            if state['enabled']:
-                return color
-    return open_layer or DEFAULT_LAYER
+
+    channel: str
+    illumination_by_channel_ma: 'Mapping[str, float]'
+
+
+def light_of(readings: 'tuple[LedReading, ...] | None', shown_layer: str) -> Light:
+    """The channel a recorded frame was imaged in, and every lit layer's current, from one read.
+
+    The channel is the lit LED, else ``shown_layer``, the layer the recording
+    is named for. A recording refuses to start with another LED lit and
+    refuses every light while it runs (``ManualRecordingController.start``),
+    and a protocol's video step lights its own layer alone, so a frame's
+    lit LED is its layer's; the shown layer names a frame with no LED lit,
+    as luminescence images. With more than one LED lit, the first in
+    address order wins; a lit address the identity names no layer for
+    names no channel and has no current here.
+
+    Lit is the frame record's meaning: commanded on at a current above 0 mA,
+    since the board takes 0 mA as off (``snapshot_lit_pairs``). An LED left
+    on at 0 mA names nothing. ``readings`` is None when no LED board is
+    installed: nothing is lit, so a board-less scope falls through to the
+    layer.
+    """
+    from modules.lumascope_api.illumination import snapshot_lit_pairs
+
+    lit = {address for address, _ma in snapshot_lit_pairs(readings)}
+    named = [r for r in readings or () if r.address in lit and r.name is not None]
+    return Light(
+        channel=named[0].name if named else shown_layer,
+        illumination_by_channel_ma={r.name: r.illumination_ma for r in named},
+    )
 
 
 def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
@@ -654,7 +616,7 @@ def to_int(val) -> int | None:
 
 def get_pixel_size(
     focal_length: float,
-    binning_size: int,
+    binning_size: int | None,
     *,
     capabilities: 'ScopeCapabilities',
 ) -> float | None:
@@ -663,9 +625,9 @@ def get_pixel_size(
     Reads the tube focal length and sensor pixel size from the scope
     capabilities the caller hands in (the single source of truth for image
     scale). Returns None when the scope cannot report its optics (unknown
-    camera, no declared optics) -- callers then degrade honestly (no scale
-    bar, no field of view, no PhysicalSizeX) rather than using an invented
-    scale. There is deliberately no hardcoded fallback: a guessed pixel size
+    camera, no declared optics) or the binning is unknown -- callers then
+    degrade honestly (no scale bar, no field of view, no PhysicalSizeX)
+    rather than using an invented scale. There is deliberately no hardcoded fallback: a guessed pixel size
     is written into every image and cannot be told from a measured one.
 
     The capabilities are required, never looked up: every producer of a
@@ -675,7 +637,7 @@ def get_pixel_size(
     """
     tube_focal_length = capabilities.lens_focal_length_mm
     pixel_width = capabilities.pixel_size_um
-    if tube_focal_length is None or pixel_width is None:
+    if tube_focal_length is None or pixel_width is None or binning_size is None:
         return None
     magnification = tube_focal_length / focal_length
     um_per_pixel = pixel_width / magnification
@@ -709,16 +671,15 @@ def get_field_of_view(
 FOV_UNKNOWN_TEXT = 'unknown'
 
 
-def format_field_of_view(fov_size: dict | None) -> tuple[str, str]:
+def format_field_of_view(fov: 'FieldOfView | None') -> tuple[str, str]:
     """Render (width, height) FOV label text for the settings readouts.
 
     Returns the rounded micron strings, or ('unknown', 'unknown') when the
-    scope cannot report a field of view (no known pixel size). The three FOV
-    readouts share this so an unmeasurable scope reads the same everywhere.
+    scope cannot report a field of view (``RuntimeState.get_field_of_view``).
     """
-    if fov_size is None:
+    if fov is None:
         return (FOV_UNKNOWN_TEXT, FOV_UNKNOWN_TEXT)
-    return (str(round(fov_size['width'], 0)), str(round(fov_size['height'], 0)))
+    return (str(round(fov.width_um, 0)), str(round(fov.height_um, 0)))
 
 
 def max_decimal_precision(parameter: str) -> int:
@@ -1298,8 +1259,8 @@ def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
 
     Long-run leak detection: GDI/handle/thread/GC counts should plateau
     in steady state. A steady upward trend across successive snapshots
-    indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
-    section for healthy/unhealthy patterns.
+    indicates a leak; GDI is the one to watch first on Windows, where the
+    desktop degrades near 5,000 objects and a process is capped at 10,000.
     """
     proc = _self_process()
     disk = psutil.disk_usage(path)
@@ -1453,21 +1414,23 @@ def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
         metrics['thread_count'] = -1
         metrics['thread_names'] = []
 
-    # --- Python GC (catches reference-cycle / closure-capture leaks) ---
-    # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects), which the hourly production cadence absorbs; the 60 s
-    # engineering cadence pays it sixty times as often, deliberately.
+    # --- Python heap (catches reference-cycle / closure-capture leaks) ---
+    # The count is of the memory blocks Python's allocator holds, which it
+    # keeps as a running total. Not len(gc.get_objects()): that list hands
+    # this thread every object the collector tracks, a tuple another thread
+    # is still building among them, and that thread's tuple() then raises
+    # SystemError -- a protocol run ended that way.
     # Steady linear growth indicates accumulation, typically from
     # observers/callbacks holding refs; the growth-rate thresholds are
-    # the gc_objects_growth_per_hr row in PERFORMANCE_BUDGETS.md.
+    # the allocated_blocks_growth_per_hr row in PERFORMANCE_BUDGETS.md.
     try:
-        metrics['gc_objects'] = len(gc.get_objects())
+        metrics['allocated_blocks'] = sys.getallocatedblocks()
         gc_stats = gc.get_stats()
         metrics['gc_gen0_collections'] = gc_stats[0]['collections']
         metrics['gc_gen1_collections'] = gc_stats[1]['collections']
         metrics['gc_gen2_collections'] = gc_stats[2]['collections']
     except Exception:
-        metrics['gc_objects'] = -1
+        metrics['allocated_blocks'] = -1
         metrics['gc_gen0_collections'] = -1
         metrics['gc_gen1_collections'] = -1
         metrics['gc_gen2_collections'] = -1
@@ -1561,47 +1524,52 @@ def _coerce_positive_float(value) -> float:
         result = float(value)
     except (TypeError, ValueError):
         return 0.0
-    # NaN != NaN; a NaN duration/fps means "unknown", treated as 0.
+    # NaN != NaN; a NaN duration means "unknown", treated as 0.
     return result if result == result and result > 0 else 0.0
 
 
-def estimate_step_write_mb(step, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+def estimate_step_write_mb(
+    step: 'pd.Series | Mapping[str, object] | None',
+    *,
+    video_as_frames: bool = False,
+    video_fps: float | None,
+) -> float:
     """Estimate the disk a single protocol step will write, in MB.
 
     One owner for write-size estimation, shared by the pre-scan free-space check
     and the per-write threshold so the two cannot drift. An image step writes
     one file. A video step scales with the recording: the frame count is
-    duration_s * the EFFECTIVE recording rate -- the step's configured fps run
-    through the same rate-authority clamp the recording itself uses -- and each
-    frame costs about one image when saved as individual TIFFs
-    (video_as_frames) or a compressed fraction of that in an MP4. Sizing from
-    the effective rate keeps the guard honest both ways: a configured rate the
-    camera cannot deliver no longer over-reserves, and a global cap below the
-    configured rate no longer aborts a run that would have fit.
+    duration_s * the rate the recording is sized at (``video_sizing_fps``: the
+    global limit, else the camera's delivered rate), and each frame costs
+    about one image when saved as individual TIFFs (video_as_frames) or a
+    compressed fraction of that in an MP4.
 
-    Total by construction: a None / malformed step or Video Config sizes to the
-    single-image estimate rather than raising, so the broad except around the
-    disk check can never silently disable the guard.
+    A None / malformed step or Video Config sizes to the single-image
+    estimate.
 
     Args:
         step: A protocol step (pandas Series / dict / None); reads Acquire +
             Video Config.
         video_as_frames: Run-level flag -- video saved as individual frames
             rather than a compressed MP4.
-        global_max_fps: The run's snapshot of the global "Video max FPS" cap
-            (0 = uncapped). Required so a video step can never be sized at a
-            rate the recording will not run at.
+        video_fps: The rate a video step is sized at
+            (``video_cadence.video_sizing_fps``); None when it is not known,
+            which only a protocol with no video step may pass.
 
     Returns:
         Estimated megabytes the step will write to disk.
+
+    Raises:
+        ValueError: ``step`` is a video step and ``video_fps`` is None.
     """
     get = getattr(step, 'get', None)
-    if get is None or get('Acquire') != 'video':
+    if get is None or get('Acquire') != AcquireMode.VIDEO:
         return ESTIMATED_IMAGE_STEP_MB
+    if video_fps is None:
+        raise ValueError('A video step cannot be sized without the rate it records at.')
     video_config = read_video_config(step)
     duration_s = _coerce_positive_float(video_config.get('duration'))
-    fps = effective_recording_fps(_coerce_positive_float(video_config.get('fps')), global_max_fps)
-    frames = max(1, int(duration_s * fps))
+    frames = max(1, int(duration_s * video_fps))
     if video_as_frames:
         return frames * ESTIMATED_IMAGE_STEP_MB
     return max(

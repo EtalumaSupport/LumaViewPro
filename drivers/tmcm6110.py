@@ -37,11 +37,20 @@ import threading
 import time
 from collections.abc import Mapping
 from functools import partial
-from typing import NamedTuple, NoReturn
+from typing import ClassVar, NamedTuple, NoReturn
 
 import serial
 
-from drivers.exceptions import HardwareError, MotionInterlockError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    HardwareError,
+    MotionInterlockError,
+    MotionNotCompletedError,
+    PartAbsentError,
+)
 from drivers.motorconfig import read_only_axes_config
 from drivers.registry import motor_registry
 from drivers.serial_backend import PYSERIAL, SerialBackend
@@ -257,6 +266,9 @@ class Tmcm6110Board:
     ``found = False``.
     """
 
+    # The board speaks TMCL, not text: the diagnostic door sends it nothing.
+    takes_text_commands: ClassVar[bool] = False
+
     def __init__(self, *, motorconfig_defaults: Mapping, backend: SerialBackend = PYSERIAL):
         # One datagram in flight: the board must not get a second command
         # before it has replied to the first. Re-entrant so a lid refusal
@@ -350,9 +362,9 @@ class Tmcm6110Board:
     def _exchange(self, command: int, type_: int, motor: int, value: int = 0) -> int:
         """Send one command and return its reply's value.
 
-        A port that is gone is looked for again first, as a replugged
-        board would be. A command that starts X or Y moving reads the lid
-        first, under the same lock. Whatever is waiting on the port is
+        A port that is gone stays gone: nothing reopens a board during a
+        session. A command that starts X or Y moving reads the lid first,
+        under the same lock. Whatever is waiting on the port is
         discarded before the write, so a reply that came late is never
         read as the next command's. One reply that does not come, does not
         check, or answers another command is one failed command: the port
@@ -370,34 +382,37 @@ class Tmcm6110Board:
         what = f'{COMMAND_NAMES.get(command, command)} {type_}, motor {motor}, value {value}'
         with self._lock:
             if self._serial is None:
-                self._serial = self._open_identified()
-                if self._serial is None:
-                    raise HardwareError(f'{what}: the TMCM-6110 is not connected')
+                raise BoardPortFailedError(f'{what}: the TMCM-6110 is not connected')
             if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
                 self._refuse_for_lid(moved=False)
+            # Encoded outside the port's try: a value it cannot encode is
+            # our defect, not a lost board.
+            datagram = encode_command(command, type_, motor, value)
             try:
                 self._serial.reset_input_buffer()
-                self._serial.write(encode_command(command, type_, motor, value))
+                self._serial.write(datagram)
                 raw = self._serial.read(DATAGRAM_BYTES)
             except serial.SerialTimeoutException as e:
-                raise HardwareError(
+                raise BoardPortFailedError(
                     f'{what}: the TMCM-6110 did not take the write within {REPLY_TIMEOUT_S} s'
                 ) from e
             except Exception as e:
                 self._drop_port()
-                raise HardwareError(f'{what}: the TMCM-6110 port failed: {e}') from e
+                raise BoardPortFailedError(f'{what}: the TMCM-6110 port failed: {e}') from e
             if len(raw) < DATAGRAM_BYTES:
-                raise HardwareError(
+                raise BoardNoReplyError(
                     f'{what}: no reply from the TMCM-6110 within {REPLY_TIMEOUT_S} s'
                 )
             try:
                 reply = decode_reply(raw)
             except ValueError as e:
-                raise HardwareError(f'{what}: {e}') from e
+                raise BoardReplyUnreadableError(f'{what}: {e}') from e
             if reply.command != command:
-                raise HardwareError(f'{what}: the reply answers command {reply.command}')
+                raise BoardReplyUnreadableError(
+                    f'{what}: the reply answers command {reply.command}'
+                )
             if reply.status != STATUS_OK:
-                raise HardwareError(
+                raise BoardReportedError(
                     f'{what}: the TMCM-6110 refused it with status {reply.status} '
                     f'({STATUS_WORDS.get(reply.status, "unknown status")})'
                 )
@@ -463,7 +478,9 @@ class Tmcm6110Board:
                 actual = self._exchange(GAP, AP_ACTUAL_POSITION, MOTORS[axis])
                 self._exchange(SAP, AP_TARGET_POSITION, MOTORS[axis], actual)
             if moving:
-                raise HardwareError(f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST')
+                raise MotionNotCompletedError(
+                    f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST'
+                )
 
     def _refuse_for_lid(self, *, moved: bool) -> NoReturn:
         """The lid is open: stop all three axes and refuse.
@@ -499,7 +516,7 @@ class Tmcm6110Board:
 
     def _motor(self, axis: str) -> int:
         if axis not in MOTORS:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         return MOTORS[axis]
 
     def _index_usteps(self, axis: str) -> int:
@@ -557,8 +574,9 @@ class Tmcm6110Board:
         """
         return self._read_usteps(axis, AP_ACTUAL_POSITION)
 
-    def _usteps_to_um(self, axis: str, usteps: int) -> float:
-        return self._ustep2um(axis, usteps)
+    def steps_to_position(self, axis: str, steps: int) -> float:
+        """The micrometres ``current_pos`` answers for ``steps`` API microsteps."""
+        return self._ustep2um(axis, steps)
 
     def target_pos(self, axis: str) -> float:
         """The board's target in micrometres.
@@ -566,7 +584,7 @@ class Tmcm6110Board:
         Raises:
             HardwareError: the board did not report the position.
         """
-        return self._usteps_to_um(axis, self.target_pos_steps(axis))
+        return self.steps_to_position(axis, self.target_pos_steps(axis))
 
     def current_pos(self, axis: str) -> float:
         """The actual position in micrometres.
@@ -574,7 +592,7 @@ class Tmcm6110Board:
         Raises:
             HardwareError: the board did not report the position.
         """
-        return self._usteps_to_um(axis, self.current_pos_steps(axis))
+        return self.steps_to_position(axis, self.current_pos_steps(axis))
 
     def target_status(self, axis: str) -> bool:
         """True when the axis stands still at the board's target.
@@ -601,15 +619,15 @@ class Tmcm6110Board:
         return self._exchange(RFS, RFS_STATUS, self._motor(axis))
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
-        """``(left, right)``: 1 engaged, 0 clear, -1 each when unread."""
+        """``(left, right)``: 1 engaged, 0 clear.
+
+        Raises:
+            HardwareError: the board did not answer.
+        """
         motor = self._motor(axis)
-        try:
-            with self._lock:
-                left = self._exchange(GAP, AP_LEFT_SWITCH, motor)
-                right = self._exchange(GAP, AP_RIGHT_SWITCH, motor)
-        except HardwareError as e:
-            logger.warning(f'[TMCM-6110 ] limit_switch_status({axis}) failed: {e}')
-            return -1, -1
+        with self._lock:
+            left = self._exchange(GAP, AP_LEFT_SWITCH, motor)
+            right = self._exchange(GAP, AP_RIGHT_SWITCH, motor)
         return int(left != 0), int(right != 0)
 
     # ------------------------------------------------------------------
@@ -676,7 +694,7 @@ class Tmcm6110Board:
         starts an axis after a stop."""
         with self._lock:
             if self._home_abort.is_set():
-                raise HardwareError('the home was stopped')
+                raise MotionNotCompletedError('the home was stopped')
             return self._exchange(command, type_, motor, value)
 
     def _await(self, phase: str, done) -> None:
@@ -692,13 +710,15 @@ class Tmcm6110Board:
             time.sleep(HOME_POLL_S)
             with self._lock:
                 if self._home_abort.is_set():
-                    raise HardwareError(f'the home was stopped during {phase}')
+                    raise MotionNotCompletedError(f'the home was stopped during {phase}')
                 if self._lid_open():
                     self._refuse_for_lid(moved=True)
                 if done():
                     return
             if time.monotonic() >= deadline:
-                raise HardwareError(f'homing {phase} did not complete in {HOME_PHASE_TIMEOUT_S} s')
+                raise MotionNotCompletedError(
+                    f'homing {phase} did not complete in {HOME_PHASE_TIMEOUT_S} s'
+                )
 
     def _end_reference_searches(self, *, raising: bool) -> None:
         """``RFS 1`` to all three axes, on every exit from a home, as Classic's
@@ -807,7 +827,7 @@ class Tmcm6110Board:
         self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
     def thome(self) -> None:
-        raise HardwareError('the TMCM-6110 stage has no turret')
+        raise PartAbsentError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
         """False: the board keeps no record of a home, as ``detect_homed_axes``
@@ -957,7 +977,7 @@ class Tmcm6110Board:
 
     def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         return self.axes_config[axis]['limits']
 
     # ------------------------------------------------------------------
@@ -983,10 +1003,3 @@ class Tmcm6110Board:
 
     def spi_write(self, axis: str, addr: int, payload: int | str) -> str:
         raise RuntimeError('the TMCM-6110 gives no SPI register access')
-
-    def exchange_command(
-        self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> None:
-        """None: the board takes no text commands, so no text has a reply."""
-        logger.warning(f'[TMCM-6110 ] Text command {command!r} not sent: the board speaks TMCL')
-        return None

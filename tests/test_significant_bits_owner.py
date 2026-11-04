@@ -20,15 +20,16 @@ xfail(strict) tests encode behavior that lands with the owner; each flips to
 XPASS when its fix arrives, at which point the marker is removed in that commit.
 """
 
+import datetime
 import numpy as np
 import pytest
 
 from modules import image_utils
 from modules.exceptions import FrameDepthError
-from modules.recording_frames import FrameFact
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+from modules.layer_record import release_color
+from tests.frame_records import recorded_record, write_recorded
+from tests.stock_channels import LED1
 
 
 def _configure_sim(scope, pixel_format, pattern='White'):
@@ -37,7 +38,7 @@ def _configure_sim(scope, pixel_format, pattern='White'):
     cam.set_timing_mode('fast')
     cam.set_pixel_format(pixel_format)
     cam.set_test_pattern(True, pattern)
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     return scope
 
 
@@ -58,7 +59,7 @@ def make_scope():
     yield _make
     for scope in scopes:
         try:
-            scope.imaging.stop_streaming()
+            scope.imaging.disable_streaming()
             scope.disconnect()
         except Exception:
             pass
@@ -147,17 +148,14 @@ def _save_meta(significant_bits=None):
     """Minimal metadata dict that write_tiff / generate_tiff_data accept."""
     meta = {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
-        'objective': '10x',
+        'channel': LED1,
+        'objective': {'id': '10x'},
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-        'datetime': '2026:06:18 12:00:00',
-        'camera_make': 'Test',
-        'microscope': 'TestScope',
-        'well_label': 'A1',
+        'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
         'well_site': '1',
     }
     if significant_bits is not None:
@@ -179,9 +177,10 @@ class TestSavePathNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -238,9 +237,10 @@ class TestNonOmeNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=False,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -279,9 +279,10 @@ class TestLoadPixelsBoundary:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=ome,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='8bit' if arr.dtype == np.uint8 else 'right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -290,7 +291,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=True)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
         assert int(image.max()) == 4095  # raw right-aligned, not left-justified
 
@@ -299,7 +300,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
         assert int(image.max()) == 4095
 
@@ -308,7 +309,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095 * 16, significant_bits=16, ome=True)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 16
         assert int(image.max()) == 65520
 
@@ -317,7 +318,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 255, significant_bits=8, ome=True, dtype=np.uint8)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 8
         assert image.dtype == np.uint8
 
@@ -330,7 +331,7 @@ class TestLoadPixelsBoundary:
         arr = np.full((8, 8), 200, dtype=np.uint8)
         path = tmp_path / 'frame.png'
         cv2.imwrite(str(path), arr)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 8
         assert int(image.max()) == 200
 
@@ -340,15 +341,17 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert int(image_utils.convert_to_8bit(image, sig).max()) == 255
 
     def test_missing_file_raises(self, tmp_path):
-        """A path that does not exist raises rather than returning a bare array."""
+        """A path that does not exist is refused as unreadable, naming it, rather than a bare array."""
         from modules import image_utils
+        from modules.exceptions import InputFramesUnusableError
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InputFramesUnusableError, match='does_not_exist') as refused:
             image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
+        assert refused.value.reason == 'unreadable'
 
     def _write_single_channel_rgb(self, tmp_path):
         import tifffile as tf
@@ -367,7 +370,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
-        image, _ = image_utils.load_pixels(path)
+        image, _, _ = image_utils.load_pixels(path)
         assert image.ndim == 2
 
     def test_collapse_off_preserves_three_channel_shape(self, tmp_path):
@@ -377,7 +380,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
-        image, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
+        image, _, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
         assert image.shape == (8, 8, 3)
 
     @pytest.mark.parametrize('collapse', [True, False])
@@ -404,7 +407,7 @@ class TestLoadPixelsBoundary:
             return real_tifffile(arg, *args, **kwargs)
 
         monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
-        image, sig = image_utils.load_pixels(path, collapse_legacy_false_color=collapse)
+        image, sig, _ = image_utils.load_pixels(path, collapse_legacy_false_color=collapse)
 
         assert len(opens) == 1
         assert sig == expected_sig
@@ -428,7 +431,8 @@ class TestWriteTiffDepthRequired:
                 file_loc=tmp_path / 'frame.tif',
                 metadata=_save_meta(),
                 ome=True,
-                color='Green',
+                color=release_color(LED1),
+                white_bits=None,
             )
 
     def test_stated_depth_is_recorded(self, tmp_path):
@@ -442,9 +446,10 @@ class TestWriteTiffDepthRequired:
             file_loc=path,
             metadata=_save_meta(),
             ome=True,
-            color='Green',
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         assert image_utils.read_tiff_significant_bits(path) == 12
 
@@ -501,49 +506,32 @@ class TestConverterCollapse:
 
 
 class TestVideoFrameCarriesDepth:
-    """A video-frame TIFF carries its payload depth in the private tag. Video
-    metadata is otherwise passed through untouched, so without this tag a
-    right-aligned narrow frame reads back as full container width (~16x dark)."""
+    """A recorded frame's TIFF carries the depth it was delivered at, from its
+    record: without it a right-aligned narrow frame reads back as full
+    container width (~16x dark)."""
 
-    def _write_video_frame(self, tmp_path, value, significant_bits):
-        from modules import image_utils
-        from modules.recording_frames import tiff_frame_metadata
-
-        arr = np.full((8, 8), value, dtype=np.uint16)
+    def _write_video_frame(self, scope, tmp_path, value, significant_bits):
         path = tmp_path / 'frame.tif'
-        # The production builder both recording legs share, so this helper
-        # cannot drift from the metadata shape the writer actually receives.
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1781956800.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=_FACT,
-        )
-        image_utils.write_tiff(
-            data=arr,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color='BF',
-            significant_bits=significant_bits,
+        write_recorded(
+            scope,
+            np.full((8, 8), value, dtype=np.uint16),
+            path,
             save_encoding='right_aligned',
-            video_frame=True,
+            record=recorded_record(frame_significant_bits=significant_bits),
         )
         return path
 
-    def test_12bit_video_frame_records_true_depth(self, tmp_path):
+    def test_12bit_video_frame_records_true_depth(self, sim_scope, tmp_path):
         from modules import image_utils
 
-        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
+        path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
         assert image_utils.read_tiff_significant_bits(path) == 12
 
-    def test_video_frame_roundtrips_through_load_pixels(self, tmp_path):
+    def test_video_frame_roundtrips_through_load_pixels(self, sim_scope, tmp_path):
         from modules import image_utils
 
-        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
-        _, sig = image_utils.load_pixels(path)
+        path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
+        _, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
 
 
@@ -558,7 +546,7 @@ class TestEncodeDisplayJpgDepth:
 
         frame = np.zeros((32, 32), dtype=np.uint16)
         frame[8:24, 8:24] = 60000  # near full 16-bit white
-        jpg = image_utils.encode_display_jpg(frame, 'BF', significant_bits=16)
+        jpg = image_utils.encode_display_jpg(frame, release_color('BF'), significant_bits=16)
         bgr = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
         assert bgr[8:24, 8:24].mean() > 180  # bright, correctly scaled
 
@@ -573,7 +561,7 @@ class TestEncodeDisplayJpgDepth:
         # stated correctly.
         frame = np.full((8, 8), 60000, dtype=np.uint16)
         with pytest.raises(FrameDepthError):
-            image_utils.encode_display_jpg(frame, 'BF', significant_bits=12)
+            image_utils.encode_display_jpg(frame, release_color('BF'), significant_bits=12)
 
 
 class TestCellCountConverterRouting:

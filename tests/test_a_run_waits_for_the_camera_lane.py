@@ -22,11 +22,14 @@ from unittest.mock import patch
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 import modules.sequenced_capture_runner as runner_module
 from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from modules.run_events import RunEvents
+from tests.scope_fakes import channel_reading
 
 RESULT_TIMEOUT_S = 30.0
 STILL_EXPOSURE_MS = 800.0
@@ -103,9 +106,10 @@ def _first_step_observer(session):
 
 
 class TestAStillInFlightFinishesFirst:
+    @pytest.mark.slow
     def test_the_still_saves_and_the_run_starts_after_it(self, lane_session):
         session, runner, tmp_path = lane_session
-        still = session.manual_capture.capture(layer='BF', false_color_on=False)
+        still = session.manual_capture.capture(false_color_on=False)
         assert session.manual_capture.in_flight, 'the still never reached the lane'
         seen, events = _first_step_observer(session)
 
@@ -114,15 +118,16 @@ class TestAStillInFlightFinishesFirst:
         )
 
         paths = still.result(timeout=RESULT_TIMEOUT_S)
-        assert paths and paths[0].exists(), 'the still under a starting run saved nothing'
+        assert paths and paths[0].file.exists(), 'the still under a starting run saved nothing'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
         assert seen['still_in_flight'] is False, (
             "the run's first step ran while the still was still on the lane"
         )
         assert seen['lane_busy'] is False, "the run's first step ran while the lane held work"
 
+    @pytest.mark.slow
     def test_a_still_on_an_idle_lane_is_kept_however_late_the_worker_wakes(self, lane_session):
         """Order decides, never thread timing: a still put on an idle camera
         lane is next, so a run that takes the scope before the worker has
@@ -130,25 +135,27 @@ class TestAStillInFlightFinishesFirst:
         session, runner, tmp_path = lane_session
         late = _LateWorker(session)
         try:
-            still = session.manual_capture.capture(layer='BF', false_color_on=False)
+            still = session.manual_capture.capture(false_color_on=False)
             outcome = runner.start_composite(sequence_name='after_late', parent_dir=str(tmp_path))
         finally:
             late.release()
         paths = still.result(timeout=RESULT_TIMEOUT_S)
-        assert paths and paths[0].exists(), 'the run refused a still put on an idle lane'
+        assert paths and paths[0].file.exists(), 'the run refused a still put on an idle lane'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
 
 class TestAStillQueuedBehindCameraWork:
+    @pytest.mark.slow
     def test_a_run_that_takes_the_scope_refuses_it_and_lets_go_of_it(self, lane_session):
         """A still not yet running when a run takes the scope is refused, as
-        LumascopeSkills documents: its Future says so and the guard is free."""
+        ``ManualCaptureController.capture`` documents: its Future says so and
+        the guard is free."""
         session, runner, tmp_path = lane_session
         hold = _LaneHold(session)
         try:
-            still = session.manual_capture.capture(layer='BF', false_color_on=False)
+            still = session.manual_capture.capture(false_color_on=False)
             assert session.camera_executor.queue_size() == 1, (
                 'the still was not on the lane when capture() returned'
             )
@@ -161,7 +168,7 @@ class TestAStillQueuedBehindCameraWork:
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
 
@@ -173,26 +180,31 @@ class TestAHeldLane:
         # lit, not read the missing snapshot as "nothing was lit" and
         # darken the sample.
         scope.illumination.led_on('BF', 20.0)
-        gain_before = scope.imaging.get_gain_db()
+        gain_before = scope.camera.read_gain_db()
         leds_before = scope.illumination.get_led_states()
-        assert leds_before['BF']['enabled'], 'the fixture could not light a channel'
+        assert channel_reading(scope.illumination, 'BF').state is LedState.LIT, (
+            'the fixture could not light a channel'
+        )
         hold = _LaneHold(session)
         try:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))
-            assert session.is_protocol_running
+            assert session.activity_claim.run_holder is not None
             # The run is waiting on the protocol thread; Stop it there.
-            session.sequenced_capture_runner._reset(outcome)
+            outcome.stop()
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         finally:
             hold.release()
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'aborted', result
         assert result.reason == 'stopped'
-        assert scope.imaging.get_gain_db() == gain_before, 'cleanup wrote the camera'
+        assert scope.camera.read_gain_db() == gain_before, 'cleanup wrote the camera'
         assert scope.illumination.get_led_states() == leds_before, 'cleanup changed an LED'
 
-    def test_a_stuck_lane_ends_the_run_failed_and_names_the_lane(self, lane_session):
+    def test_a_stuck_lane_ends_the_run_failed_at_start_and_leaves_the_leds_be(self, lane_session):
         session, runner, tmp_path = lane_session
+        scope = session.scope
+        scope.illumination.led_on('BF', 20.0)
+        leds_before = scope.illumination.get_led_states()
         completions = []
         hold = _LaneHold(session)
         try:
@@ -209,10 +221,13 @@ class TestAHeldLane:
                 )
         finally:
             hold.release()
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
-        assert result is not None and result.status == 'failed', result
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
+        assert result is not None and result.status == 'failed_at_start', result
         assert result.reason == 'camera_lane_stalled'
         assert len(completions) == 1, completions
+        assert scope.illumination.get_led_states() == leds_before, (
+            'a run that did not begin changed an LED'
+        )
 
 
 class TestARunThatAlreadyEnded:
@@ -228,8 +243,8 @@ class TestARunThatAlreadyEnded:
         runner._state = ProtocolState.IDLE
 
         assert runner._take_camera() is None
-        assert runner._scope.imaging.save_camera_state.call_count == 0
-        assert runner._scope.imaging.set_auto_gain.call_count == 0
+        assert runner._scope.camera.save_camera_state.call_count == 0
+        assert runner._scope.camera.set_auto_gain.call_count == 0
 
 
 class TestATakeoverWriteThatRaises:
@@ -240,15 +255,15 @@ class TestATakeoverWriteThatRaises:
         def _boom(*args, **kwargs):
             raise RuntimeError('camera snapshot failed')
 
-        with patch.object(session.scope.imaging, 'save_camera_state', _boom):
+        with patch.object(session.scope.camera, 'save_camera_state', _boom):
             outcome = runner.start_composite(
                 sequence_name='raises',
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
             )
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'run_loop_crashed'
         assert len(completions) == 1, completions
-        assert not session.is_protocol_running
+        assert session.activity_claim.run_holder is None

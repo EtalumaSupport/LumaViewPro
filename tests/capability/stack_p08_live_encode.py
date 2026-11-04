@@ -25,9 +25,9 @@ SCALES = (1.0, 0.5, 0.25)
 
 
 def _encoder(scale, stats, lock):
-    def handler(image, timestamp, chunks):
+    def handler(delivered):
         t0 = time.perf_counter()
-        frame = image
+        frame = delivered.image
         if frame.dtype != np.uint8:
             frame = (frame >> (frame.dtype.itemsize * 8 - 8)).astype(np.uint8)
         if scale != 1.0:
@@ -44,13 +44,14 @@ def _encoder(scale, stats, lock):
 
 def body(session):
     im = session.scope.imaging
-    im.set_exposure_ms(10.0)
-    figure('S11.camera_frame_rate_reported', im.get_resulting_frame_rate())
-    figure('S11.frame', im.frame_size_cached)
+    im_camera = session.scope.camera
+    im_camera.set_exposure_ms(10.0)
+    figure('S11.camera_frame_rate_reported', im_camera.read_frame_rate_fps())
+    figure('S11.frame', im_camera.frame_size.to_dict())
     counter = {'n': 0}
     lock = threading.Lock()
 
-    def count(image, timestamp, chunks):
+    def count(frame):
         with lock:
             counter['n'] += 1
 

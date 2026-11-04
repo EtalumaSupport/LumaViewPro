@@ -25,6 +25,7 @@ from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -60,17 +61,19 @@ def _bf_steps_at(session, xs_um):
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
-    session.settings['BF']['focus'] = 5000.0
-    session.scope.motion.move_absolute('Y', 40000)
+    session.scope.motion.move_xy(y_um=40000)
+    session.scope.motion.move_z(5000.0)
     protocol = session.create_empty_protocol()
     for x_um in xs_um:
-        session.scope.motion.move_absolute('X', x_um)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
+        session.scope.motion.move_xy(x_um=x_um)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     return protocol
 
 
 def _rows(protocol):
-    return protocol.steps()[['X', 'Y', 'Z', 'Tile', 'Z-Slice']].to_dict('records')
+    # No position is None here, so two reads of one step compare equal (NaN never does).
+    rows = protocol.steps()[['X', 'Y', 'Z', 'Tile', 'Z-Slice']]
+    return rows.astype(object).where(rows.notna(), None).to_dict('records')
 
 
 def _ordered(protocol):
@@ -115,20 +118,20 @@ class TestTiling:
     def test_the_tiles_are_judged_on_the_protocols_plate(self, session, monkeypatch):
         protocol = _bf_steps_at(session, (40000,))
         session.set_protocol_labware(protocol, '6 well microplate')
-        assert session.settings['protocol']['labware'] != protocol.labware()
+        assert session.settings['protocol']['labware'] != protocol.labware_id()
         loader = session.scope.wellplate_loader
         asked = []
         real = loader.get_plate
 
-        def spy(plate_key):
-            asked.append(plate_key)
-            return real(plate_key=plate_key)
+        def spy(labware_id):
+            asked.append(labware_id)
+            return real(labware_id=labware_id)
 
         monkeypatch.setattr(loader, 'get_plate', spy)
 
         session.apply_tiling(protocol, '2x2')
 
-        assert asked == [protocol.labware()]
+        assert asked == [protocol.labware_id()]
 
     def test_a_z_only_scope_is_refused_for_no_x_y_motor(self, z_only_session):
         protocol = _bf_steps_at_center(z_only_session)
@@ -165,9 +168,9 @@ def _bf_steps_at_center(session):
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
-    session.settings['BF']['focus'] = 5000.0
+    session.scope.motion.move_z(5000.0)
     protocol = session.create_empty_protocol()
-    session.add_step(protocol, after_step=-1)
+    session.add_step(protocol, after_step_index=-1)
     return protocol
 
 
@@ -199,7 +202,7 @@ class TestZStacking:
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='middle')
-        assert refused.value.reason == 'zstack_reference_unknown'
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'z_reference')
         assert refused.value.offered == ('top', 'center', 'bottom')
 
         assert _rows(protocol) == before
@@ -220,6 +223,104 @@ class TestZStacking:
         )
 
         assert protocol.num_steps() == 5
+
+
+def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
+    """New with the stack ticked: BF autofocusing, LED 0 not, each at its own saved focus."""
+    for layer in config_helpers.get_layer_configs(session.settings):
+        session.settings[layer]['acquire'] = None
+        session.settings[layer]['autofocus'] = False
+    for layer, focus in (('BF', bf_focus), (LED0, blue_focus)):
+        session.settings[layer]['acquire'] = 'image'
+        session.save_channel_focus(layer, focus)
+    session.settings['BF']['autofocus'] = True
+    session.settings['zstack'] = {
+        'range': range_um,
+        'step_size': 5.0,
+        'position': 'center',
+    }
+    return session.new_protocol(use_zstacking=True)
+
+
+class TestNewStacksAsApplyDoes:
+    """New stacks through apply_zstacking: one group per position, every
+    channel in it, focused once (Eric, 2026-10-14). New's own loop made the
+    same per-position group but flagged autofocus on every slice, so the run
+    anchored the group's focus on its bottom slice."""
+
+    def test_every_channel_at_a_well_is_one_group_focused_at_the_autofocus_channels_focus(
+        self, session
+    ):
+        protocol = _new_bf_and_blue(session, bf_focus=5000.0, blue_focus=5020.0)
+
+        steps = protocol.steps()
+        wells = steps['Well'].nunique()
+        groups = steps.groupby('Z-Stack Group ID')
+        assert groups.ngroups == wells
+        assert all(set(group['Color']) == {'BF', LED0} for _, group in groups)
+        # The autofocus channel is flagged on every slice, and each group is
+        # swept at its BF reference slice, the one built at BF's focus.
+        assert set(steps[steps['Auto_Focus']]['Color']) == {'BF'}
+        assert set(steps[steps['Color'] == 'BF']['Auto_Focus']) == {True}
+        first_slices = [group.index[0] for _, group in groups]
+        swept = [
+            protocol.step_row(step_index=protocol.focus_sweep_step(step_index=idx))
+            for idx in first_slices
+        ]
+        assert [(row['Color'], row['Z-Stack Offset']) for row in swept] == [('BF', 0.0)] * wells
+        assert [row['Z'] for row in swept] == pytest.approx([5000.0] * wells)
+
+    def test_a_stack_past_the_z_travel_is_refused(self, session):
+        z_max = session.scope.motion.get_axis_limits('Z').max_um
+
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _new_bf_and_blue(session, bf_focus=z_max - 1.0, blue_focus=z_max - 1.0)
+
+        assert refused.value.reason == 'zslices_outside_travel'
+
+
+@pytest.fixture
+def wide_field_session():
+    # 4x: the widest field the catalogue's common objectives give, so the
+    # largest grid reaches past the plate's edge wells.
+    built = ScopeSession.create(complete_settings(objective_id='4x Oly'), simulate=True)
+    home_sim_scope(built.scope)
+    yield built
+    built.shutdown()
+
+
+def _new_bf_and_blue_tiled(session, tiling):
+    """New tiled: BF saved at 5000, LED 0 below it at 4990."""
+    for layer in config_helpers.get_layer_configs(session.settings):
+        session.settings[layer]['acquire'] = None
+    for layer, focus in (('BF', 5000.0), (LED0, 4990.0)):
+        session.set_channel_acquire(layer, 'image')
+        session.save_channel_focus(layer, focus)
+    return session.new_protocol(tiling=tiling)
+
+
+class TestNewTilesAsApplyDoes:
+    """New tiles through apply_tiling, the one grid build. New's own tile loop
+    judged no travel: a grid reaching past the stage was built and refused
+    only at the run's start."""
+
+    def test_a_grid_past_the_xy_travel_is_refused_at_the_build(self, wide_field_session):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _new_bf_and_blue_tiled(wide_field_session, '10x10')
+
+        assert refused.value.reason == 'tiles_outside_travel'
+
+    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_z_order(
+        self, wide_field_session
+    ):
+        steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()
+
+        first_tile = steps[(steps['Well'] == 'A1') & (steps['Tile'] == 'A1')]
+        assert first_tile['Color'].tolist() == [LED0, 'BF']
+        assert first_tile['Z'].tolist() == pytest.approx([4990.0, 5000.0])
+        assert not steps['Custom Step'].any()
+        assert steps.groupby('Well')['Tile'].nunique().eq(4).all()
+        assert (steps['Well'] != '').all()
 
 
 def test_the_motion_api_has_one_read_of_the_travel():

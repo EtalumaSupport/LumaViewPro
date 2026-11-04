@@ -15,6 +15,7 @@ that function, so no test here can start the app.
 """
 
 import json
+import re
 import pathlib
 import subprocess
 import sys
@@ -29,7 +30,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _HARNESS = r"""
-import json, logging, os, pathlib, sys
+import json, logging, os, pathlib, sys, time
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
 sys.path.insert(0, sys.argv[1])
@@ -66,9 +67,11 @@ class _Collect(logging.Handler):
 logging.getLogger('LVP.gui_interactions').addHandler(_Collect())
 logging.getLogger('LVP.gui_interactions').setLevel(logging.INFO)
 walk_lines = []
+walk_times = {}
 class _CollectWalk(logging.Handler):
     def emit(self, record):
         walk_lines.append(record.getMessage())
+        walk_times[record.getMessage()] = record.created
 logging.getLogger('LVP.sim_walk').addHandler(_CollectWalk())
 logging.getLogger('LVP.sim_walk').setLevel(logging.INFO)
 
@@ -139,6 +142,18 @@ Builder.load_string('''
                 text: 'deep'
                 size_hint_y: None
                 height: 40
+    ScrollView:
+        id: short
+        size_hint: None, None
+        size: 200, 100
+        pos: 300, 520
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_y: None
+            height: 40
+            Button:
+                id: shallow
+                text: 'shallow'
     RelativeLayout:
         size_hint: None, None
         size: 200, 100
@@ -186,6 +201,30 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 620, 300
+    Button:
+        id: busybtn
+        text: 'busy'
+        size_hint: None, None
+        size: 100, 40
+        pos: 740, 300
+    Button:
+        id: longbtn
+        text: 'long'
+        size_hint: None, None
+        size: 100, 40
+        pos: 740, 200
+    Button:
+        id: progbtn
+        text: 'prog'
+        size_hint: None, None
+        size: 100, 40
+        pos: 500, 200
+    Button:
+        id: handbtn
+        text: 'hand'
+        size_hint: None, None
+        size: 100, 40
+        pos: 20, 200
 ''')
 
 root = FloatLayout()
@@ -205,6 +244,7 @@ def on(name):
 ids = panel.ids
 ids.btn.bind(on_release=on('btn'))
 ids.deep.bind(on_release=on('deep'))
+ids.shallow.bind(on_release=on('shallow'))
 ids.relbtn.bind(on_release=on('rel'))
 layers.ids.a.ids.go.bind(on_release=on('a'))
 layers.ids.b.ids.go.bind(on_release=on('b'))
@@ -217,10 +257,22 @@ def field_focus(field, focused):
         frames['commit'] = Clock.frames
 ids.field.bind(focus=field_focus)
 
+# When a popup leaves the window, its fade run, in wall time: read in the
+# window's own change of children, so in the same call that removes it.
+def record_gone(p, key):
+    shown = []
+    def check(window, children):
+        if p in children:
+            shown.append(True)
+        elif shown and key not in frames:
+            frames[key] = time.time()
+    Window.bind(children=check)
+
 def open_popup(*_):
     ok = Button(text='OK')
     p = Popup(title='Notice', content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
     ok.bind(on_release=lambda *_: (hits.append('ok'), p.dismiss()))
+    record_gone(p, 'notice_gone')
     p.open()
 ids.popbtn.bind(on_release=open_popup)
 
@@ -245,14 +297,75 @@ def open_spinner_popup(*_):
     Popup(title='Settings', content=spinner, size_hint=(0.4, 0.4), auto_dismiss=False).open()
 ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
+# A gesture that waits on a lane, standing in for a turret pick or a build:
+# a real lane, one sleeping task per press, its end recorded in wall time.
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
+lane.start()
+def busy(seconds):
+    time.sleep(seconds)
+    frames['busy_end'] = time.time()
+ids.busybtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(1.5,))))
+ids.longbtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(5.0,))))
+def in_flight():
+    return [f'the IO lane ({lane.describe_running_task()})'] if lane.is_busy() else []
+
+# The app's progress popup, as a build opens it: it closes itself when the
+# work behind it ends, so a wait holds for it; its close recorded in wall time.
+from ui.progress_popup import CustomPopup
+def open_progress(*_):
+    p = CustomPopup(title='Building', auto_dismiss=False)
+    p.bind(on_dismiss=lambda *_: frames.__setitem__('progress_closed', time.time()))
+    p.open()
+    Clock.schedule_once(lambda dt: p.dismiss(), 1.0)
+ids.progbtn.bind(on_release=open_progress)
+
+# A notice that hands over to the next as it closes, as a run's "Saving
+# Hyperstacks" closes when "Hyperstacks Saved" opens: both have an OK. The
+# first's fade is made long, so the walk's answer lands inside it whatever
+# the host's frame rate.
+def notice(title):
+    ok = Button(text='OK')
+    p = Popup(title=title, content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
+    ok.bind(on_release=lambda *_: (hits.append('ok ' + title), p.dismiss()))
+    return p
+def open_handover(*_):
+    saving = notice('Saving')
+    saving._anim_duration = 1.0
+    record_gone(saving, 'saving_gone')
+    saving.open()
+    def hand_over(dt):
+        saving.dismiss()
+        notice('Saved').open()
+    Clock.schedule_once(hand_over, 0.3)
+ids.handbtn.bind(on_release=open_handover)
+
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
 ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     b, native, lambda path: hits.append('file ' + path),
     on_cancel=lambda: hits.append('file cancelled')))
 
+# The scope's simulator, standing in. A stand-in by design: the subject is
+# the driver's call of a fault and its stop at a refusal; the faults
+# themselves are tests/test_scope_simulation.py's, on the simulated scope.
+from modules.exceptions import ArgumentRefusedError
+class _Simulation:
+    def unplug(self, board):
+        if board == 'camera':
+            raise ArgumentRefusedError(
+                'fault_unknown', argument='board', value=board, offered=('motor', 'led')
+            )
+        hits.append('unplug ' + board)
+
+# The clock's own ticks, in wall time: the longest gap between two is how
+# long the UI thread ran nothing.
+ticks = []
+Clock.schedule_interval(lambda dt: ticks.append(time.time()), 0)
+
 def run(steps, shot_dir, bring_up):
-    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear(); stops.clear()
+    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear(); ticks.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
     polls = []
@@ -269,24 +382,33 @@ def run(steps, shot_dir, bring_up):
         # in the frame the walk starts, its expand animation still to run.
         drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
-                   bring_up_owes=bring_up_owes, shot_dir=pathlib.Path(shot_dir))
+                   bring_up_owes=bring_up_owes, in_flight=in_flight, simulation=_Simulation(),
+                   shot_dir=pathlib.Path(shot_dir))
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
         if walk.finished:
             break
+    # A lane task the walk did not wait for still ends, so the result holds
+    # its end time either way and a test compares, never asks whether.
+    deadline = time.time() + 10
+    while lane.is_busy() and time.time() < deadline:
+        time.sleep(0.05)
     for p in [w for w in Window.children if isinstance(w, Popup)]:
         p.dismiss()
     for _ in range(10):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
-            'records': list(records), 'walk_lines': list(walk_lines), 'reads': walk.reads, 'shots': walk.shots,
+            'records': list(records), 'walk_lines': list(walk_lines), 'walk_times': dict(walk_times),
+            'reads': walk.reads, 'shots': walk.shots,
             'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
-            'polls': len(polls)}
+            'polls': len(polls),
+            'longest_tick_gap': max((b - a for a, b in zip(ticks, ticks[1:])), default=0.0)}
 
 steps = json.loads(sys.argv[2])
 bring_up = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
 print('RESULT ' + json.dumps(run(steps, sys.argv[3], bring_up)))
+lane.shutdown(wait=False)
 """
 
 
@@ -353,6 +475,25 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
     assert len(result['shots']) == 1 and pathlib.Path(result['shots'][0]).is_file()
 
 
+def test_a_press_inside_a_view_it_is_already_in_scrolls_nothing(tmp_path):
+    """A person clicks what they can see without scrolling, so a walk's press does too.
+
+    Kivy's ``scroll_to`` moves content shorter than its view to the view's
+    bottom even when the target is already in view, so a press that always
+    scrolled showed a walk's shot a layout no person sees.
+    """
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/shallow'},
+            {'do': 'read', 'path': 'Panel/short', 'props': ['scroll_y']},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['shallow'], result
+    assert result['reads'] == [{'step': 2, 'path': 'Panel/short', 'scroll_y': 1.0}], result
+
+
 def test_an_uncommitted_entry_commits_in_the_frame_of_the_next_press(tmp_path):
     result = _run(
         tmp_path,
@@ -403,6 +544,24 @@ def test_the_popup_on_top_is_the_one_answered(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+
+
+def test_a_popup_closing_as_another_opens_is_not_answered(tmp_path):
+    """A dismissed popup stays on the window while it fades; the answer is
+    the one still open, as a person sees only it."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/handbtn'},
+            # Holds the UI thread past the handover, so the answer's first
+            # look comes with the closed popup still fading.
+            {'do': 'hold', 'seconds': 0.5},
+            {'do': 'answer', 'button': 'OK'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok Saved'], result
 
 
 def test_a_spinner_inside_a_popup_takes_its_pick(tmp_path):
@@ -494,11 +653,61 @@ def test_the_walk_file_parser_names_each_defect():
         ('[{"do": "choose", "path": "a"}]', "step 1: 'choose' needs file or cancel"),
         ('[{"do": "read", "path": "a", "props": "text"}]', 'props'),
         ('[{"do": "quit"}, {"do": "wait"}]', 'step 1: quit ends a walk'),
+        ('[{"do": "hold"}]', "step 1: 'hold' needs seconds"),
+        ('[{"do": "hold", "seconds": -1}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "hold", "seconds": Infinity}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "hold", "seconds": true}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "wait", "timeout_s": Infinity}]', 'timeout_s is a finite number of seconds'),
+        ('[{"do": "press", "path": "a", "settle_s": true}]', 'settle_s is a finite number'),
+        ('[{"do": "inject"}]', "step 1: 'inject' needs fault"),
+        ('[{"do": "inject", "fault": "nosuch"}]', "unknown fault 'nosuch' (one of answer_model, "),
+        # A read, and a member kept off the wire, are not faults a walk injects.
+        ('[{"do": "inject", "fault": "injected"}]', "unknown fault 'injected'"),
+        (
+            '[{"do": "inject", "fault": "hold_axis", "args": {"axis": "X"}}]',
+            "unknown fault 'hold_axis'",
+        ),
+        ('[{"do": "inject", "fault": "unplug", "args": ["led"]}]', 'args is an object'),
+        (
+            '[{"do": "inject", "fault": "remove_camera", "args": {"extra": 1}}]',
+            "unknown argument 'extra' for 'remove_camera'",
+        ),
+        ('[{"do": "inject", "fault": "unplug"}]', "'unplug' needs board"),
     ]:
         with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
             parse_walk(text, source='w.json')
     with pytest.raises(json.JSONDecodeError):
         parse_walk('not json', source='w.json')
+    parse_walk(
+        '[{"do": "hold", "seconds": 0.5}, {"do": "inject", "fault": "remove_camera"},'
+        ' {"do": "inject", "fault": "unplug", "args": {"board": "led"}}]',
+        source='w.json',
+    )
+
+
+def test_a_hold_runs_nothing_on_the_ui_thread_for_its_seconds(tmp_path):
+    # A held thread as a stall makes one: the clock's own ticks stop for the
+    # whole hold, not just the walk's next step.
+    result = _run(tmp_path, [{'do': 'hold', 'seconds': 0.5}])
+    assert result['outcome'] == 'done', result
+    assert result['longest_tick_gap'] >= 0.5, result
+    assert any(line.endswith('hold: held the UI thread 0.5 s') for line in result['walk_lines']), (
+        result['walk_lines']
+    )
+
+
+def test_an_inject_calls_its_fault_and_a_refused_one_stops_the_walk(tmp_path):
+    result = _run(tmp_path, [{'do': 'inject', 'fault': 'unplug', 'args': {'board': 'led'}}])
+    assert (result['outcome'], result['hits']) == ('done', ['unplug led']), result
+    stopped = _run(
+        tmp_path,
+        [
+            {'do': 'inject', 'fault': 'unplug', 'args': {'board': 'camera'}},
+            {'do': 'press', 'path': 'Panel/a'},
+        ],
+    )
+    assert stopped['outcome'].startswith('stopped at step 1 (inject unplug): board '), stopped
+    assert stopped['hits'] == [], stopped
 
 
 def test_a_walk_ending_in_quit_stops_the_app_when_it_stops_early(tmp_path):
@@ -571,6 +780,106 @@ def test_a_bring_up_that_never_finishes_stops_the_walk_before_step_1(tmp_path):
         'still owed: the saved protocol load, a displayed frame'
     ), result
     assert result['hits'] == [], result
+
+
+@pytest.mark.slow
+def test_a_wait_holds_while_a_lane_works_and_names_it_at_the_timeout(tmp_path):
+    """A ``wait`` ends when nothing a gesture started is in flight, so the
+    read after it sees the state after the work (primary, 2026-10-13: a
+    turret pick's 6 s move on the IO lane, the wait back in 0.3 s and the
+    reads showing the slot from before it); a ``wait`` that times out names
+    the lane and its task. The lane is a real one; the task's end is wall
+    time the harness records, and the read's time is its log record's."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/busybtn'},
+            {'do': 'wait'},
+            {'do': 'read', 'path': 'Panel/field', 'props': ['text']},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    read_line = next(line for line in result['walk_lines'] if ' step 3 read ' in line)
+    assert result['walk_times'][read_line] > result['frames']['busy_end'], (
+        'the read ran before the lane task ended',
+        result['walk_times'][read_line] - result['frames']['busy_end'],
+    )
+    stopped = _run(
+        tmp_path, [{'do': 'press', 'path': 'Panel/longbtn'}, {'do': 'wait', 'timeout_s': 1}]
+    )
+    assert re.fullmatch(
+        r'stopped at step 2 \(wait\): still in flight after 1 s: the IO lane \(busy \ds in flight\)',
+        stopped['outcome'],
+    ), stopped['outcome']
+
+
+def test_a_wait_stops_at_once_at_a_popup_that_waits_for_a_person(tmp_path):
+    """A refusal or a question is answered by nobody but a person, so a
+    ``wait`` behind one stops the walk in the next press's words, not at its
+    timeout (Eric, 2026-10-08: "No Steps" held a walk until the app was
+    closed, "Not Enough Channels" held one for its 180 s)."""
+    result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/modalbtn'}, {'do': 'wait'}])
+
+    assert result['outcome'] == (
+        "stopped at step 2 (wait): a popup is open ('Busy'); answer it first"
+    ), result
+    started = next(t for line, t in result['walk_times'].items() if ' step 1 ' in line)
+    stopped = next(t for line, t in result['walk_times'].items() if 'stopped at step 2' in line)
+    assert stopped - started < 5.0, 'the wait held behind the popup'
+
+
+def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
+    """The popup a press inside it dismissed fades before it leaves the
+    window; it asks nothing, so the wait after it runs on, once it is gone."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/popbtn'},
+            {'do': 'press', 'path': 'Popup/Button[text=OK]', 'settle_s': 0},
+            {'do': 'wait'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok'], result
+    waited = next(t for line, t in result['walk_times'].items() if ' step 3 ' in line)
+    assert waited >= result['frames']['notice_gone'], 'the wait ended while the popup faded'
+
+
+def test_a_picture_waits_for_a_closing_popup_to_leave(tmp_path):
+    """A popup fading out is neither its open nor its closed state, so a
+    picture taken while one fades waits until it has left the window."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/handbtn'},
+            {'do': 'hold', 'seconds': 0.5},
+            {'do': 'shot', 'name': 'handover'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    pictured = next(t for line, t in result['walk_times'].items() if ' step 3 picture ' in line)
+    # No time is recorded when the walk ended with the popup still fading.
+    gone = result['frames'].get('saving_gone')
+    assert gone is not None and pictured >= gone, 'the picture caught the fading popup'
+
+
+def test_a_wait_holds_for_a_progress_popup_until_it_closes_itself(tmp_path):
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/progbtn'},
+            {'do': 'wait'},
+            {'do': 'read', 'path': 'Panel/field', 'props': ['text']},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    read_line = next(line for line in result['walk_lines'] if ' step 3 read ' in line)
+    assert result['walk_times'][read_line] > result['frames']['progress_closed'], (
+        'the read ran before the progress popup closed'
+    )
 
 
 def test_a_press_waits_for_the_drawer_it_sits_in_to_settle(tmp_path):

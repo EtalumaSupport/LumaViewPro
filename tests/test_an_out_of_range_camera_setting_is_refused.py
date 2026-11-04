@@ -12,93 +12,88 @@ REST or SDK caller reads the range without parsing words. A limit the camera
 does not declare is not checked.
 """
 
-import threading
-
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected, Refusal
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import set_camera_limits
 
 
-@pytest.fixture
-def sim_imaging():
-    cam = SimulatedCamera()
-    cam.active = True
-    cam.open_and_start()
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    imaging._populate_camera_cache()
-    return imaging, cam
-
-
-def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_imaging, monkeypatch):
-    imaging, cam = sim_imaging
-    imaging.set_gain_db(3.0)
-    maximum = imaging.max_gain_db_cached
-    minimum = imaging.min_gain_db_cached
+def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkeypatch):
+    camera, cam = sim_camera
+    camera.set_gain_db(3.0)
+    limits = camera._scope.capabilities.camera_limits
+    maximum = limits.gain_max_db
+    minimum = limits.gain_min_db
     written = []
     monkeypatch.setattr(cam, 'gain', lambda v: written.append(v) or v)
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
-        imaging.set_gain_db(maximum + 5.0)
+        camera.set_gain_db(maximum + 5.0)
 
     refusal = excinfo.value
     assert isinstance(refusal, Refusal) and isinstance(refusal, ValueError)
     assert not isinstance(refusal, CameraSettingRejected), 'nothing broke: a refusal, not a fault'
     assert refusal.reason == 'gain_db_out_of_range'
-    assert (refusal.requested, refusal.minimum, refusal.maximum) == (
-        maximum + 5.0,
-        minimum,
-        maximum,
-    )
+    assert (refusal.requested, refusal.limits) == (maximum + 5.0, (minimum, maximum))
     assert f'{minimum:g} to {maximum:g} dB' in str(refusal)
     assert written == [], 'nothing reaches the camera'
-    assert imaging.gain_db_cached == 3.0
-    assert imaging.frame_validity.target('gain') == 3.0
+    assert camera.gain_db == 3.0
+    assert camera.frame_validity.target('gain') == 3.0
 
 
-def test_a_gain_below_a_declared_floor_is_refused(sim_imaging):
-    imaging, _cam = sim_imaging
-    imaging._commit_camera_writes({'min_gain_db': 2.0})
-
-    with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
-        imaging.set_gain_db(1.0)
-
-    assert excinfo.value.minimum == 2.0
-
-
-def test_an_exposure_above_the_maximum_is_refused(sim_imaging):
-    imaging, _cam = sim_imaging
-    maximum = imaging.max_exposure_ms_cached
+def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
+    camera, _cam = sim_camera
+    set_camera_limits(monkeypatch, camera._scope, gain_min_db=2.0)
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
-        imaging.set_exposure_ms(maximum + 1.0)
+        camera.set_gain_db(1.0)
+
+    assert excinfo.value.limits[0] == 2.0
+
+
+def test_an_exposure_above_the_maximum_is_refused(sim_camera):
+    camera, _cam = sim_camera
+    limits = camera._scope.capabilities.camera_limits
+    maximum = limits.exposure_max_ms
+
+    with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
+        camera.set_exposure_ms(maximum + 1.0)
 
     assert excinfo.value.reason == 'exposure_ms_out_of_range'
-    minimum = imaging.min_exposure_ms_cached
-    assert excinfo.value.minimum == minimum
+    minimum = limits.exposure_min_ms
+    assert excinfo.value.limits[0] == minimum
     assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
 
-def test_an_undeclared_floor_is_not_checked(sim_imaging):
-    imaging, cam = sim_imaging
-    cam.profile.exposure_min_us = None  # a camera that declares no floor
-    imaging._populate_camera_cache()
-    assert imaging.min_exposure_ms_cached is None
+def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
+    camera, _cam = sim_camera
+    set_camera_limits(monkeypatch, camera._scope, exposure_min_ms=None)
 
-    imaging.set_exposure_ms(0.001)
+    camera.set_exposure_ms(0.001)
 
 
-def test_a_value_in_range_is_applied(sim_imaging):
-    imaging, _cam = sim_imaging
-    assert imaging.set_gain_db(imaging.max_gain_db_cached) == pytest.approx(
-        imaging.max_gain_db_cached
-    )
+def test_a_value_in_range_is_applied(sim_camera):
+    camera, _cam = sim_camera
+    maximum = camera._scope.capabilities.camera_limits.gain_max_db
+    assert camera.set_gain_db(maximum) == pytest.approx(maximum)
+
+
+def test_the_layer_apply_refuses_what_the_single_setters_refuse(sim_scope, monkeypatch):
+    """``apply`` is a public door to the same gain and exposure, so it refuses
+    the same values before anything reaches the camera."""
+    camera = sim_scope.camera
+    limits = sim_scope.capabilities.camera_limits
+    written = []
+    monkeypatch.setattr(sim_scope._camera_driver, 'gain', lambda v: written.append(v) or v)
+    monkeypatch.setattr(sim_scope._camera_driver, 'exposure_t', lambda v: written.append(v) or v)
+
+    for gain_db, exposure_ms, reason in (
+        (limits.gain_max_db + 5.0, 20.0, 'gain_db_out_of_range'),
+        (5.0, limits.exposure_max_ms + 1.0, 'exposure_ms_out_of_range'),
+        (5.0, limits.exposure_min_ms / 2, 'exposure_ms_out_of_range'),
+    ):
+        with pytest.raises(CameraSettingOutOfRangeError) as refused:
+            camera.apply(gain_db, exposure_ms, channel='BF')
+        assert refused.value.reason == reason, (gain_db, exposure_ms)
+
+    assert written == [], 'a refused apply writes neither value'

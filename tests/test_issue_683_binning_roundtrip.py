@@ -20,6 +20,7 @@ binning level is reproducible and the cycle round-trips exactly.
 from typing import ClassVar
 
 import modules.binning as binning
+from drivers import host_clock
 from drivers.camera_profiles import lookup_profile
 from drivers.simulated_camera import SimulatedCamera
 
@@ -120,7 +121,7 @@ class TestBinningRoundTrip:
 # The deliverable frame-size granularity the UI floors to before handing the
 # size to the camera: even (2x2) on every camera, each of which acquires the
 # next window up on its own grid and crops back. The UI sources it from
-# imaging.get_pixel_alignment(), NOT a hardcoded grid.
+# camera.get_pixel_alignment(), NOT a hardcoded grid.
 IDS_DELIVERABLE_ALIGN = {'width': 2, 'height': 2}
 
 
@@ -169,9 +170,9 @@ class TestDeliverableAlignmentFloor:
 
     def test_the_frame_and_binning_members_floor_to_the_drivers_alignment(self, tmp_path):
         # Pin the fix where the displayed size is derived: both frame-size
-        # paths (a frame edit and a binning change, ScopeSession.set_frame_size
-        # / set_binning_size) floor to the ACTIVE driver's deliverable
-        # granularity via imaging.get_pixel_alignment(), not a hardcoded grid
+        # paths (a frame edit and a binning change, CameraAPI.set_frame_size
+        # / set_binning) floor to the ACTIVE driver's deliverable
+        # granularity via camera.get_pixel_alignment(), not a hardcoded grid
         # -- else a non-cropping driver persists an undeliverable size (the
         # reviewed regression). The simulator's own grid is 48x4; the driver
         # here reports the IDS even grid, so a request floored to anything
@@ -181,20 +182,20 @@ class TestDeliverableAlignmentFloor:
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
-            imaging = session.scope.imaging
-            imaging.get_pixel_alignment = lambda: IDS_DELIVERABLE_ALIGN
+            camera = session.scope.camera
+            camera.get_pixel_alignment = lambda: IDS_DELIVERABLE_ALIGN
             requests = []
-            real = imaging.set_frame_size
-            imaging.set_frame_size = lambda w, h: requests.append((w, h)) or real(w, h)
+            real = camera._set_frame_size_impl
+            camera._set_frame_size_impl = lambda w, h: requests.append((w, h)) or real(w, h)
 
-            session.set_frame_size(1150, 802)
-            session.set_binning_size(2)
+            session.scope.camera.set_frame_size(1150, 802)
+            session.scope.camera.set_binning(2)
         finally:
             session.shutdown()
 
         assert requests == [(1150, 802), (574, 400)], (
-            'set_frame_size and set_binning_size must floor to '
-            'imaging.get_pixel_alignment() (per-driver), not a hardcoded alignment; '
+            'set_frame_size and set_binning must floor to '
+            'camera.get_pixel_alignment() (per-driver), not a hardcoded alignment; '
             f'the camera was asked for {requests}'
         )
 
@@ -211,7 +212,9 @@ class TestSimPostBinningContract:
     """
 
     def _grab_shape(self, cam):
-        return cam._generate_image().shape  # (height, width)
+        return cam._generate_image(
+            cam._start_exposure(host_clock.steady_ns())
+        ).shape  # (height, width)
 
     def test_set_frame_size_is_post_binning(self):
         cam = SimulatedCamera()  # native 3840x2160

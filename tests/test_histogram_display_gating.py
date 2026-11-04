@@ -26,6 +26,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import textwrap
+from tests.stock_channels import LED1
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -79,11 +80,11 @@ class _Ctx:
 
 
 class _Self:
-    def __init__(self, layer='Green'):
+    def __init__(self, layer=LED1):
         self.layer = layer
 
 
-def _displayed(layer='Green', **kw):
+def _displayed(layer=LED1, **kw):
     return _is_displayed(_Self(layer), _Ctx(_ImageSettings(**kw)))
 
 
@@ -111,7 +112,7 @@ def test_not_displayed_when_layer_unset():
 
 
 def test_not_displayed_when_image_settings_missing():
-    assert _is_displayed(_Self('Green'), _Ctx(None)) is False
+    assert _is_displayed(_Self(LED1), _Ctx(None)) is False
 
 
 def test_histogram_calls_is_displayed_before_camera_read():

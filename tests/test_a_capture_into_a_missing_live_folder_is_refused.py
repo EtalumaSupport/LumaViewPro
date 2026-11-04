@@ -21,6 +21,7 @@ from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixtur
     capture_ctx,
 )
 from tests.test_manual_recording_controller import make_controller
+from modules.layer_record import release_colors
 
 
 class TestTheLocationOwnerAnswers:
@@ -56,22 +57,30 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
     )
     settings[LAYER].update({'exposure_ms': 100, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=capture_ctx.scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
+        scope=capture_ctx.scope,
+        settings_snapshot=lambda: settings,
+        shown_layer=lambda: LAYER,
+        # No layer is put on this camera, so the still's hold writes nothing.
+        layer_camera_request=lambda layer: None,
+        engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
 
-    future = capture.capture(layer=LAYER, false_color_on=False, bullseye=False, crosshairs=False)
+    future = capture.capture(false_color_on=False, bullseye=False, crosshairs=False)
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         future.result(timeout=10)
 
     assert refused.value.reason == 'capture_location_unusable'
     assert str(gone) in str(refused.value)
     assert not gone.exists()
-    capture_ctx.scope.imaging._capture_and_wait_impl.assert_not_called()
+    capture_ctx.scope.imaging._capture_holding_layer_impl.assert_not_called()
 
 
-def test_a_recording_into_a_missing_folder_is_refused_before_the_disk_probe(tmp_path):
+def test_a_recording_into_a_missing_folder_is_refused_before_the_disk_probe(
+    tmp_path, post_processing
+):
     gone = tmp_path / 'unplugged' / 'capture'
-    controller, scope, _ = make_controller(gone)
+    controller, scope, _ = make_controller(gone, post_processing=post_processing)
 
     with pytest.raises(RecordingRefusedError) as refused:
         controller.start()

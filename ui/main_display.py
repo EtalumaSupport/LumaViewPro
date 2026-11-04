@@ -8,11 +8,11 @@ import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.properties import NumericProperty
+from kivy.properties import BooleanProperty, NumericProperty
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
 from ui.composite_capture import CompositeCapture
 
@@ -23,6 +23,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     # The status line's height, along the bottom of the window: the live view,
     # the panels and the camera buttons all sit on top of it.
     status_line_height = NumericProperty(dp(22))
+    # Whether the scope has a motorised axis, which the red STOP is shown for:
+    # the capability the motion controls are shown by, set with them.
+    stage_has_motors = BooleanProperty(False)
 
     def __init__(self, scope, **kwargs):
         # The scope is the session's, handed in. It goes on the widget
@@ -33,46 +36,32 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # Manual recording lives in the session's ManualRecordingController;
         # this widget keeps only button wiring, the status poll, and titles.
         self._recording_poll = None
-        self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
+        """Freeze the live picture, or unfreeze it.
+
+        A freeze is the display's alone: the LEDs, captures, recordings and
+        runs carry on as they were, and no camera is needed. The display
+        thread's pause is the one store; the button is drawn from it.
+        """
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if not self.scope.imaging.active_cached:
-            gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
-            return
-        gui_logger.toggle('CAM_PLAY', not scope_display.play)
-        run_reported(lambda: self._toggle_play(scope_display), None, 'CAM_PLAY')
-
-    def _toggle_play(self, scope_display):
-        io_executor = _app_ctx.ctx.io_executor
-        illumination = self.scope.illumination
-        if scope_display.play:
-            scope_display.play = False
-            # pause() instead of stop()+start() so the
-            # display thread stays alive across pause-resume; no
-            # Thread spawn/join overhead; generation does NOT bump
-            # so the texture stays on the last rendered frame.
-            scope_display.pause()
-            # None with no LED board: nothing to restore on resume, and the
-            # off is satisfied with nothing lit.
-            self._pause_led_snapshot = illumination.save_led_state('camera_pause')
-            # LED observer handles UI button sync
-            submit_reported(illumination.leds_off, None, 'CAM_PAUSE_LEDS', lane=io_executor)
+        thread = _app_ctx.ctx.scope_display_thread
+        gui_logger.toggle('CAM_PLAY', thread.is_paused)
+        if thread.is_paused:
+            thread.resume()
         else:
-            if self._pause_led_snapshot:
-                snapshot = self._pause_led_snapshot
-                self._pause_led_snapshot = None
-                # LED observer handles UI button sync
-                submit_reported(
-                    lambda: illumination.restore_led_state(snapshot),
-                    None,
-                    'CAM_RESUME_LEDS',
-                    lane=io_executor,
-                )
+            thread.pause()
+        self.draw_live_button()
 
-            scope_display.play = True
-            scope_display.resume()
+    def draw_live_button(self):
+        """Show the live picture's pause as the display thread holds it.
+
+        The only code that sets the Freeze toggle's state: Kivy flips a
+        ToggleButton on touch-down, and a touch ending off the button flips
+        it with no handler run, so the state is redrawn from the store.
+        """
+        paused = _app_ctx.ctx.scope_display_thread.is_paused
+        self.ids['live_btn'].state = 'down' if paused else 'normal'
 
     def record_button(self):
         """Start a manual recording, or stop the one that is recording.
@@ -90,23 +79,15 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             run_reported(controller.stop, self.draw_record_button, 'RECORD')
             return
 
-        # The open layer names the channel; its toggle governs display
-        # only. Reading one without the other is what left a brightfield
-        # recording with no channel name at all. Both are read here, on the
-        # GUI thread, since .ids access is not thread-safe.
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        false_color_on = (
-            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
-            if layer is not None
-            else False
-        )
+        # The shown layer's false-colour toggle governs display only; the
+        # recording names its channel itself. Read here, on the GUI thread,
+        # since .ids access is not thread-safe.
+        layer = ctx.session.shown_channel.channel
+        false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
 
         def _start():
-            controller.start(
-                layer=layer,
-                false_color_on=false_color_on,
-                on_complete=self._on_recording_complete,
-            )
+            recording = controller.start(false_color_on=false_color_on)
+            recording.add_done_callback(self._on_recording_complete)
 
         # On the worker pool: the controller's start opens the encoder and
         # probes disk, which must not stall the GUI thread.
@@ -125,6 +106,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         """
         controller = _app_ctx.ctx.session.manual_recording
         button = self.ids['record_btn']
+        # Greyed by the run lockout (kv: disabled: app.lock.run_lockout).
+        gui_logger.display(
+            'RECORD_BUTTON',
+            f'{"Stop" if controller.is_recording else "Record"} '
+            f'held={_app_ctx.ctx.session.controls_lock.named}',
+        )
         if not controller.is_recording:
             button.state = 'normal'
             return
@@ -151,7 +138,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # Padded so a new digit does not jump the title; the title's own
             # font still draws each digit a little differently wide.
             elapsed = fixed_number(controller.elapsed_s, whole_digits=4, decimals=1)
-            set_title_event_text(f'Recording Manual Video: {elapsed}s')
+            set_title_event_text(
+                f'Recording Manual Video: {elapsed}s', stage='Recording Manual Video'
+            )
             return
         # Selection closed (Stop, duration cap, or budget full); the
         # recording announced that edge itself, so this tick only keeps the
@@ -160,12 +149,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.is_draining:
             set_title_event_text(
                 f'Writing Manual Video: '
-                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining'
+                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining',
+                stage='Writing Manual Video',
             )
 
-    def _on_recording_complete(self):
-        """Finish-thread callback from the controller; dispatch to GUI."""
-        Clock.schedule_once(lambda dt: self._finish_recording_ui(), 0)
+    def _on_recording_complete(self, _recording):
+        """The recording's done-callback, on the callback thread; dispatch to GUI."""
+        schedule_ui(lambda dt: self._finish_recording_ui())
 
     def _finish_recording_ui(self):
         """Main thread: drain + finish done -- clear poll, title, button."""
@@ -181,6 +171,18 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.draw_record_button()
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')
 
+    def stop_the_stage(self):
+        gui_logger.button('STOP')
+        from ui.ui_helpers import stop_the_stage
+
+        stop_the_stage()
+
+    def take_back_control(self):
+        gui_logger.button('TAKE_BACK_CONTROL')
+        from ui.ui_helpers import take_back_control
+
+        take_back_control()
+
     def open_save_folder_button(self):
         gui_logger.button('OPEN_SAVE_FOLDER')
         from ui.post_processing import open_last_save_folder
@@ -190,7 +192,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if not self.scope.imaging.active_cached:
+        if not self.scope.camera.active:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0, self.status_line_height)
@@ -198,13 +200,16 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def one2one_image(self):
         gui_logger.button('ONE_TO_ONE_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-        if not self.scope.imaging.active_cached:
+        frame = self.scope.camera.frame_size
+        if not self.scope.camera.active or frame is None:
             return
-        scope = _app_ctx.ctx.scope
         # The viewer's own size: the status line below it takes a line of the window.
         w, h = self.ids['viewer_id'].size
-        scale_hor = float(scope.imaging.get_width()) / float(w)
-        scale_ver = float(scope.imaging.get_height()) / float(h)
+        # The size the camera delivers, held, not a live read (read above):
+        # a live read waits on the camera, which a grab stop can hold for
+        # seconds.
+        scale_hor = float(frame.width) / float(w)
+        scale_ver = float(frame.height) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (

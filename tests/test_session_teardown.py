@@ -12,6 +12,7 @@ get.
 """
 
 import atexit
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,7 @@ import modules.scope_session as scope_session_module
 from modules.exceptions import ScopeDisconnectError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
@@ -69,8 +70,10 @@ def _drain_before_lane_shutdown(events):
 
 
 @pytest.fixture
-def session_log(monkeypatch):
-    return capture_module_log(monkeypatch, scope_session_module)
+def session_log(caplog):
+    """What the session module has logged so far in the test."""
+    caplog.set_level(logging.DEBUG)
+    return lambda: records_of(caplog, scope_session_module)
 
 
 class TestAFactoryBuiltScopeIsTornDown:
@@ -110,7 +113,9 @@ class TestAFactoryBuiltScopeIsTornDown:
         monkeypatch.setattr(session.io_executor, 'put', lambda *a, **k: None)
         try:
             session.shutdown()
-            assert any('io lane refused the shutdown leds_off' in m for m in messages(session_log))
+            assert any(
+                'io lane refused the shutdown leds_off' in m for m in messages(session_log())
+            )
             assert scope.motor_connected is False
         finally:
             scope.disconnect()
@@ -128,28 +133,12 @@ class TestAFactoryBuiltScopeIsTornDown:
             session.shutdown()
             assert session._shut_down is True
             assert scope.motor_connected is False
-            assert not any('called again' in m for m in messages(session_log))
+            assert not any('called again' in m for m in messages(session_log()))
         finally:
             scope.disconnect()
 
 
 class TestACallersScopeIsLeftAlone:
-    def _caller_session(self, **kwargs):
-        scope = spec_scope()
-        session = ScopeSession.create(settings=complete_settings(), scope=scope, **kwargs)
-        return session, scope
-
-    def test_a_passed_scope_is_untouched(self):
-        session, scope = self._caller_session()
-        session.shutdown()
-        scope.disconnect.assert_not_called()
-        scope.motion._stop.assert_not_called()
-        scope.illumination._leds_off_if_present.assert_not_called()
-        # The lanes are the scope's, and the scope is the caller's: they run on.
-        session.io_executor.put.assert_not_called()
-        session.io_executor.shutdown.assert_not_called()
-        session.camera_executor.shutdown.assert_not_called()
-
     def test_a_directly_constructed_session_is_the_same_row(self):
         scope = spec_scope()
         session = ScopeSession(
@@ -160,13 +149,17 @@ class TestACallersScopeIsLeftAlone:
         scope.motion._stop.assert_not_called()
         session.io_executor.put.assert_not_called()
 
-    def test_a_second_shutdown_logs_and_touches_nothing(self, session_log):
-        session, _scope = self._caller_session()
+
+class TestASecondShutdown:
+    def test_a_second_shutdown_logs_and_touches_nothing(self, session_log, tmp_path):
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
+        )
         session.shutdown()
         session.executor_bundle.shutdown = MagicMock()
         session.shutdown()
         session.executor_bundle.shutdown.assert_not_called()
-        assert any('shutdown() called again' in m for m in messages(session_log)), (
+        assert any('shutdown() called again' in m for m in messages(session_log())), (
             'the second shutdown() must log its no-op'
         )
 
@@ -199,7 +192,7 @@ class TestDisconnectShutsTheLanesFirst:
 
         def turn_on():
             try:
-                outcome['result'] = scope.illumination.led_on(channel=0, illumination_ma=10.0)
+                outcome['result'] = scope.illumination.led_on_by_address(0, 10.0)
             except BaseException as ex:
                 outcome['error'] = ex
 

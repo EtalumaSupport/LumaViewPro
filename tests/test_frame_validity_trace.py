@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import pytest
 
 from lib import profile_trace
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import Counter, FrameValidity
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ def _rows(base):
     path = _run_dir(base) / 'frame_validity_trace.csv'
     if not path.exists():
         return []
-    with open(path, newline='') as fh:
+    with open(path, encoding='utf-8', newline='') as fh:
         return list(csv.DictReader(fh))
 
 
@@ -66,19 +66,19 @@ class _Camera:
 
 class TestTheRetiredQuantityIsGone:
     def test_header_has_no_target_frame(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         header = _rows(tmp_path)[0].keys()
         assert 'target_frame' not in header
         assert {'frame_seq', 'at_seq', 'remaining'} <= set(header)
 
     def test_invalidate_records_the_ordinal_the_write_was_stamped_against(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 7
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         row = _rows(tmp_path)[0]
         assert row['event'] == 'invalidate'
         assert row['source'] == 'gain'
@@ -88,12 +88,12 @@ class TestTheRetiredQuantityIsGone:
 
 class TestAFrameThatCreditsNothingLeavesARow:
     def test_a_frame_older_than_the_write_records_nocredit(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.count_frame(4)  # in flight before the write; must not credit
+        fv.invalidate('gain', began_ns=None)
+        fv.count_frame(4, by=Counter.GRAB)  # in flight before the write; must not credit
         rows = [r for r in _rows(tmp_path) if r['event'] == 'nocredit']
         assert len(rows) == 1
         assert rows[0]['source'] == 'gain'
@@ -102,12 +102,12 @@ class TestAFrameThatCreditsNothingLeavesARow:
         assert rows[0]['remaining'] == str(FrameValidity.SKIP_FRAMES['gain'])
 
     def test_a_frame_after_the_write_records_credit_and_the_new_count(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.count_frame(11)
+        fv.invalidate('gain', began_ns=None)
+        fv.count_frame(11, by=Counter.GRAB)
         row = next(r for r in _rows(tmp_path) if r['event'] == 'credit')
         assert row['frame_seq'] == '11'
         assert row['remaining'] == str(FrameValidity.SKIP_FRAMES['gain'] - 1)
@@ -115,28 +115,28 @@ class TestAFrameThatCreditsNothingLeavesARow:
 
 class TestASettledRowNamesOneSource:
     def test_two_sources_settling_together_emit_two_rows(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
+        fv.invalidate('gain', began_ns=None)
+        fv.invalidate('exposure', began_ns=None)
         seq = 1
         while fv._pending and seq < 50:
             seq += 1
-            fv.count_frame(seq)
+            fv.count_frame(seq, by=Counter.GRAB)
         settled = [r for r in _rows(tmp_path) if r['event'] == 'settled']
         assert {r['source'] for r in settled} == {'gain', 'exposure'}
         assert all('+' not in r['source'] for r in settled), 'a joined row cannot be paired'
 
     def test_every_settled_row_pairs_with_an_invalidate_row(self, tmp_path):
         """The bench pass criterion, run as a test."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         seq = 0
         while fv._pending and seq < 50:
             seq += 1
-            fv.count_frame(seq)
+            fv.count_frame(seq, by=Counter.GRAB)
         rows = _rows(tmp_path)
         invalidated = [r['source'] for r in rows if r['event'] == 'invalidate']
         for row in (r for r in rows if r['event'] == 'settled'):
@@ -146,20 +146,20 @@ class TestASettledRowNamesOneSource:
 
 class TestTheDedupeRowIsBoundedButPresent:
     def test_a_repeat_ordinal_is_recorded_while_a_source_is_pending(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
-        fv.invalidate('gain')
-        fv.count_frame(5)
-        fv.count_frame(5)  # the same frame polled twice
+        fv.invalidate('gain', began_ns=None)
+        fv.count_frame(5, by=Counter.GRAB)
+        fv.count_frame(5, by=Counter.GRAB)  # the same frame polled twice
         assert [r for r in _rows(tmp_path) if r['event'] == 'dedupe']
 
     def test_an_idle_poller_writes_nothing(self, tmp_path):
         """A camera whose ordinal never advances must not fill the file."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
-        fv.count_frame(1)
+        fv.count_frame(1, by=Counter.GRAB)
         for _ in range(200):
-            fv.count_frame(1)
+            fv.count_frame(1, by=Counter.GRAB)
         rows = [r for r in _rows(tmp_path) if r['event'] == 'dedupe']
         assert rows == []
 
@@ -167,17 +167,19 @@ class TestTheDedupeRowIsBoundedButPresent:
 class TestEveryRowMatchesTheHeader:
     def test_no_row_is_misaligned(self, tmp_path):
         """A short row still parses, so the damage is wrong numbers, not an error."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.invalidate('z_move')
-        fv.count_frame(1)
-        fv.count_frame(1)
+        fv.invalidate('gain', began_ns=None)
+        fv.invalidate('z_move', began_ns=None)
+        fv.count_frame(1, by=Counter.GRAB)
+        fv.count_frame(1, by=Counter.GRAB)
         cam.delivered = 5
         for seq in range(2, 20):
-            fv.count_frame(seq)
-        with open(_run_dir(tmp_path) / 'frame_validity_trace.csv', newline='') as fh:
+            fv.count_frame(seq, by=Counter.GRAB)
+        with open(
+            _run_dir(tmp_path) / 'frame_validity_trace.csv', encoding='utf-8', newline=''
+        ) as fh:
             rows = list(csv.reader(fh))
         width = len(rows[0])
         assert width == len(FrameValidity._TRACE_HEADER.split(',')) + 1

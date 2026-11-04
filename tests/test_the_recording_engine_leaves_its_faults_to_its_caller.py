@@ -19,7 +19,8 @@ import pathlib
 
 import modules.manual_recording as manual_recording_module
 import modules.protocol_recording as protocol_recording
-import tests.test_video_writer as video_writer_tests
+from drivers import host_clock
+from tests.video_step_drives import record_first_frame
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
 from modules.notification_center import outcome_of
@@ -35,12 +36,13 @@ def _engine(tmp_path, writer=None):
         write_frame=writer if writer is not None else WriterStub(tmp_path),
         claim=ActivityClaim(),
         clock=clock,
+        steady_clock=host_clock.steady_ns,
     )
     return engine, clock
 
 
 def _record(engine, clock, tmp_path, *, output_dir=None, frames=10):
-    engine.start(lambda: make_config(output_dir or tmp_path, fps=10, duration_s=1))
+    engine.start(lambda: (make_config(output_dir or tmp_path, fps=10, duration_s=1), None))
     feed = FrameFeed()
     for _ in range(frames):
         clock.advance(0.1)
@@ -160,7 +162,7 @@ def test_a_recording_with_nothing_to_describe_is_not_a_lost_details_file(tmp_pat
 
     # A start that failed recorded nothing, so no manifest is written: its
     # absence is the honest answer, not a failure to report.
-    engine.start(lambda: make_config(tmp_path, fps=10, duration_s=1))
+    engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
     engine.stop('start_failed')
     assert engine.wait_for_drain(timeout=5)
     result = engine.result()
@@ -174,15 +176,15 @@ def test_a_recording_with_nothing_to_describe_is_not_a_lost_details_file(tmp_pat
 # ---------------------------------------------------------------------------
 
 
-def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     killer = _LaneKiller('scripted writer death')
 
-    def _dying_write(**kwargs):
+    def _dying_write(*args, **kwargs):
         raise killer
 
-    monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _dying_write)
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _dying_write)
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller.stop()
@@ -191,11 +193,14 @@ def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch):
     ((fault, kw),) = reported
     assert isinstance(fault, VideoWriterFailedError) and fault.protocol_step is False
     assert fault.__cause__ is killer
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
-def test_a_manual_recordings_lost_details_file_is_reported_once_chained(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_manual_recordings_lost_details_file_is_reported_once_chained(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     refused = _fail_manifest_writes(monkeypatch)
 
@@ -215,7 +220,9 @@ def test_a_manual_recordings_lost_details_file_is_reported_once_chained(tmp_path
 # ---------------------------------------------------------------------------
 
 
-def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, monkeypatch):
+def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(
+    sim_scope, tmp_path, monkeypatch
+):
     reported = _record_reports(monkeypatch, protocol_recording)
     killer = _LaneKiller('scripted writer death')
 
@@ -224,9 +231,7 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, 
 
     monkeypatch.setattr(protocol_recording.ProtocolVideoStep, '_write_frame', _dying_write)
 
-    step = video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    step, _written = record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     # Logged once with its cause, never shown by the reporter: the run's
     # fatal funnel shows the one popup, after the light is dark.
@@ -234,18 +239,14 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, 
     assert isinstance(fault, VideoWriterFailedError) and fault.protocol_step is True
     assert fault.__cause__ is killer
     assert kw == {'solicited': False, 'category': 'Recording', 'log_only': True}
-    step._abort_run_fatal.assert_called_once_with(
-        'video_writer_died', 'Recording', fault.title, str(fault)
-    )
+    step._abort_run_fatal.assert_called_once_with('video_writer_died', 'Recording', str(fault))
 
 
-def test_a_video_steps_lost_details_file_is_reported_once_chained(tmp_path, monkeypatch):
+def test_a_video_steps_lost_details_file_is_reported_once_chained(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
     refused = _fail_manifest_writes(monkeypatch)
 
-    step = video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    step, _written = record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingDetailsNotSavedError)

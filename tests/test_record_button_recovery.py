@@ -14,6 +14,7 @@ boundary, and one redraw draws the toggle from the controller. A refusal
 is a warning in the API's words, shown once.
 """
 
+import concurrent.futures
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock
@@ -41,6 +42,7 @@ import modules.app_context as _app_ctx
 import ui.main_display as main_display
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import RecordingRefusedError
+from modules.operation import Operation, join_callback_thread
 from tests.pool_fakes import run_task_now
 
 
@@ -66,11 +68,13 @@ class _Controller:
         self.stop_calls = 0
         self.start_calls = 0
 
-    def start(self, layer=None, false_color_on=False, on_complete=None):
+    def start(self, false_color_on=False):
         self.start_calls += 1
         if self.error is not None:
             raise self.error
         self.is_recording = True
+        self.recording = Operation()
+        return self.recording
 
     def stop(self):
         self.stop_calls += 1
@@ -103,7 +107,7 @@ def _make_display(monkeypatch, controller):
 
     monkeypatch.setattr(main_display, 'Clock', _ImmediateClock)
     monkeypatch.setattr(main_display.gui_logger, 'button', lambda *a, **kw: None)
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     ctx = MagicMock()
     ctx.session.manual_recording = controller
 
@@ -142,7 +146,6 @@ class TestRecordButtonRecovery:
 
         refusal = RecordingRefusedError(
             reason='recording_active',
-            title='Recording Active',
             message='A recording is still finishing.',
         )
         controller = _Controller(error=refusal)
@@ -204,3 +207,20 @@ class TestStartOrStopIsTheApisAnswer:
 
         assert poll is not None
         assert display._recording_poll is poll
+
+    def test_a_finished_recording_stops_the_poll_and_draws_the_button_idle(self, monkeypatch):
+        controller = _Controller()
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
+        titles = []
+        monkeypatch.setattr(ui_helpers, 'set_title_event_text', titles.append)
+        toggle.press()
+        display.record_button()
+        assert display._recording_poll is not None
+
+        controller.is_recording = False
+        concurrent.futures.Future.set_result(controller.recording, 'duration_elapsed')
+        join_callback_thread()
+
+        assert display._recording_poll is None
+        assert titles == [None]
+        assert toggle.state == 'normal'

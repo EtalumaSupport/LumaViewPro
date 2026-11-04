@@ -19,14 +19,12 @@ are pinned with AST guards, matching the other ui/ guards in this suite.
 
 import ast
 import pathlib
-import threading
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.lumascope_api._lumascope import Lumascope
-from modules.lumascope_api.imaging import AppliedCameraSetting, ImagingAPI, cap_stored_value
-from tests.scope_fakes import give_stub_lanes
+from modules.lumascope_api.camera import AppliedGain, cap_stored_value
+from tests.scope_fakes import set_camera_limits
+from tests.stock_channels import LED0
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -43,65 +41,52 @@ def _func(path: pathlib.Path, name: str) -> ast.FunctionDef:
 
 
 @pytest.fixture
-def imaging():
-    """ImagingAPI on a real simulated camera, with known caps."""
-    cam = SimulatedCamera()
-    cam.active = True
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    api = ImagingAPI(scope, cam)
-    scope.imaging = api
-    with api._camera_cache_lock:
-        api._camera_cache['max_gain_db'] = 20.0
-        api._camera_cache['max_exposure_ms'] = 200.0
-    return api
+def camera(sim_scope, monkeypatch):
+    """The simulated scope's camera API, its camera declaring smaller caps."""
+    set_camera_limits(monkeypatch, sim_scope, gain_max_db=20.0, exposure_max_ms=200.0)
+    return sim_scope.camera
 
 
 class TestTheApiDecidesWhatAStoredValueApplies:
-    def test_a_value_over_the_cap_applies_as_the_cap_and_keeps_the_intent(self, imaging):
-        gain = imaging.applied_gain_db_for(48.0)
-        assert (gain.stored, gain.applied, gain.capped) == (48.0, 20.0, True)
+    def test_a_value_over_the_cap_applies_as_the_cap_and_keeps_the_intent(self, camera):
+        gain = camera.applied_gain_db_for(48.0)
+        assert (gain.stored_db, gain.applied_db, gain.capped) == (48.0, 20.0, True)
 
-    def test_a_value_under_the_cap_is_untouched(self, imaging):
-        gain = imaging.applied_gain_db_for(10.0)
-        assert (gain.stored, gain.applied, gain.capped) == (10.0, 10.0, False)
+    def test_a_value_under_the_cap_is_untouched(self, camera):
+        gain = camera.applied_gain_db_for(10.0)
+        assert (gain.stored_db, gain.applied_db, gain.capped) == (10.0, 10.0, False)
 
-    def test_exposure_carries_the_same_contract(self, imaging):
-        exposure = imaging.applied_exposure_ms_for(500.0)
-        assert (exposure.stored, exposure.applied, exposure.capped) == (500.0, 200.0, True)
+    def test_exposure_carries_the_same_contract(self, camera):
+        exposure = camera.applied_exposure_ms_for(500.0)
+        assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (500.0, 200.0, True)
 
     def test_an_unknown_cap_narrows_nothing(self):
         # No camera, or a driver that publishes no maximum: a missing bound is
         # not a bound of zero, and inventing one would apply a limit no
         # hardware asked for.
-        assert cap_stored_value(5.0, None) == AppliedCameraSetting(
-            stored=5.0, applied=5.0, capped=False
-        )
+        assert cap_stored_value(5.0, None) == (5.0, 5.0)
 
     def test_a_triple_that_contradicts_itself_cannot_be_built(self):
         # capped is whether the write differs from the intent, not a caller's
         # opinion: a consumer rendering one while testing the other would
         # report a limit that is not being applied.
         with pytest.raises(ValueError):
-            AppliedCameraSetting(stored=48.0, applied=48.0, capped=True)
+            AppliedGain(stored_db=48.0, applied_db=48.0, capped=True)
         with pytest.raises(ValueError):
-            AppliedCameraSetting(stored=48.0, applied=20.0, capped=False)
+            AppliedGain(stored_db=48.0, applied_db=20.0, capped=False)
 
 
 class TestTheCappedValueIsWhatReachesTheDriver:
-    def test_the_layer_apply_sends_the_cap_not_the_stored_value(self, imaging):
+    def test_the_layer_apply_sends_the_cap_not_the_stored_value(self, camera):
         # Driven against the real driver: a stub obeying the contract would
         # pass while the production path sent 48 dB and the camera refused
         # (pylon) or silently self-clamped while reporting success (IDS, FX2).
         seen = []
-        original_gain, original_exposure = imaging._driver.gain, imaging._driver.exposure_t
-        imaging._driver.gain = lambda v: (seen.append(('gain', v)), original_gain(v))[1]
-        imaging._driver.exposure_t = lambda v: (seen.append(('exp', v)), original_exposure(v))[1]
+        original_gain, original_exposure = camera._driver.gain, camera._driver.exposure_t
+        camera._driver.gain = lambda v: (seen.append(('gain', v)), original_gain(v))[1]
+        camera._driver.exposure_t = lambda v: (seen.append(('exp', v)), original_exposure(v))[1]
 
-        imaging._apply_layer_camera_settings_impl(48.0, 500.0, layer='Blue')
+        camera._apply_settings_impl(48.0, 500.0, layer=LED0)
 
         assert seen == [('gain', 20.0), ('exp', 200.0)]
 
@@ -121,9 +106,8 @@ class TestTheGuiNeverNarrowsTheStore:
         assert written == set(), f'the reconcile must not write the store; found {sorted(written)}'
 
     def test_a_text_box_narrows_nothing_and_commits_no_unedited_value(self):
-        # The kv fires the text handlers on focus LOSS, not on edit, so a
-        # click into a box and out again arrives with the untouched stored
-        # value: the handler returns without committing when the parsed value
+        # An Enter on the shown value, or the value retyped, arrives with the
+        # untouched stored value: the handler returns without committing when the parsed value
         # equals the stored one. And a typed value is written as typed: the
         # handler clips nothing to a slider's range or a widget ceiling; the
         # writer refuses what is out of range and the apply caps what the
@@ -151,10 +135,10 @@ class TestTheGuiNeverNarrowsTheStore:
         )
 
     def test_the_auto_gain_write_back_stores_the_apis_own_answer(self):
-        # ImagingAPI.stored_exposure_after_lock decides this value so that a
+        # stored_exposure_after_lock (modules/lumascope_api/camera.py) decides this value so that a
         # GUI and a REST caller store the same thing; narrowing it again to a
         # slider's range makes the widget a second answerer over the API.
-        fn = _func(SCOPE_SESSION_PATH, 'set_layer_auto_gain')
+        fn = _func(SCOPE_SESSION_PATH, 'set_channel_auto_gain')
         clips = [
             n
             for n in ast.walk(fn)

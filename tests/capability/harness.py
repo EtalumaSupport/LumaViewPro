@@ -16,8 +16,11 @@ the reach proxies. Without the second verb a probe that correctly documents a
 hole can only ever be red, which is why the census that produced these probes
 had to leave them outside the suite.
 
-Probes run as SUBPROCESSES (see `test_capability_probes.py`). That is not a
-style choice: `tests/conftest.py` installs Kivy mocks at import time, and the
+Each probe runs as its own process, by hand: the suite never collects one
+(a probe defines no `test_` function), and only
+`tests/test_a_probe_reaches_hardware_only_through_its_door.py` runs two as
+subprocesses. A process of its own is not a style choice:
+`tests/conftest.py` installs Kivy mocks at import time, and the
 load-bearing assertion here is that Kivy is ABSENT from `sys.modules`.
 
 THE TARGET. A probe asks its question of the simulator unless it is run with
@@ -26,9 +29,21 @@ machine, through `hardware_session()`. That is the only door to hardware. A
 simulated constructor refuses under `--hardware`, so a probe with no hardware
 path can never print a simulator's verdict for a hardware question. The suite
 never passes the flag.
+
+THE RECORD. Every run leaves two files under ``<log folder>/bench_results/``,
+one stamp for both: ``<probe>_<stamp>_console.log``, every line the probe
+printed to stdout and stderr, written as it is printed, so a refusal, a crash
+or a hand-timed step is in it; and ``<probe>_<stamp>_verdict.json``, the checks
+and figures, written by `report()`, or at exit by a run that never reached
+it (a Ctrl-C, a raise, a refusal). The support zip carries the log folder,
+so a bench run reaches the reader with nothing copied off a terminal. The
+suite runs each probe from a folder of links into the checkout, so its runs
+write into that folder and never into the checkout's own logs.
 """
 
+import atexit
 import contextlib
+import datetime
 import json
 import os
 import pathlib
@@ -37,7 +52,10 @@ import tempfile
 import time
 import traceback
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+# Links are not followed, as the app's launch_root does not follow them: a
+# probe run from a scratch folder of links into a clone imports, reads and
+# logs in that folder, not the clone's.
+REPO = pathlib.Path(os.path.abspath(__file__)).parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 # Probes resolve their relative paths (data/, output folders) against the repo root.
@@ -54,6 +72,45 @@ TILING_JSON = REPO / 'data' / 'tiling.json'
 
 HARDWARE = '--hardware' in sys.argv[1:]
 PROBE = pathlib.Path(sys.argv[0]).stem
+
+
+class _Tee:
+    """A console stream that also writes every line to the run's console file."""
+
+    def __init__(self, stream, file):
+        self._stream = stream
+        self._file = file
+
+    def write(self, text):
+        self._file.write(text)
+        return self._stream.write(text)
+
+    def flush(self):
+        self._file.flush()
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _open_record():
+    from tests.bench_results import bench_results_dir
+
+    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
+    stem = bench_results_dir() / f'{PROBE}_{stamp}'
+    console = open(f'{stem}_console.log', 'w', encoding='utf-8', buffering=1)  # noqa: SIM115
+    sys.stdout = _Tee(sys.stdout, console)
+    sys.stderr = _Tee(sys.stderr, console)
+    print(f'CONSOLE FILE: {stem}_console.log', flush=True)
+    return stem
+
+
+# The run's two files share this path stem (THE RECORD).
+RECORD = _open_record()
+
+# Imported once the repo is on the path and the console is recorded, as a
+# probe's own imports are.
+from tests.stock_channels import LED0
 
 # (name, passed, kind) where kind is 'check' or 'void'.
 RESULTS: list[tuple[str, bool, str]] = []
@@ -84,10 +141,20 @@ def void(name, cond, reason):
     return bool(cond)
 
 
+# A figure's printed line stops here; the whole value is in the verdict file.
+_FIGURE_LINE_CHARS = 2000
+
+
 def figure(name, value):
     """A measurement the probe reports without judging it."""
     FIGURES[name] = value
-    print(f'FIGURE {name} = {value}', flush=True)
+    text = str(value)
+    if len(text) > _FIGURE_LINE_CHARS:
+        text = (
+            text[:_FIGURE_LINE_CHARS]
+            + f' ... ({len(text)} chars; the whole value is in the verdict file)'
+        )
+    print(f'FIGURE {name} = {text}', flush=True)
     return value
 
 
@@ -151,33 +218,51 @@ def report():
         print(f'UI LEAK: a probe imported {bad}; a capability probe drives modules/ only.')
     failed = bool(failed_checks or filled_voids or bad)
     print(f'TARGET: {"hardware" if HARDWARE else "simulator"}', flush=True)
-    if HARDWARE:
-        _write_verdict(failed)
+    _write_verdict(failed)
     return 1 if failed else 0
 
 
-def _write_verdict(failed):
-    """Leave the hardware run's verdict where the reader can find it.
+def _write_verdict(failed, ended='reported'):
+    """Leave the run's verdict in the log folder, beside its console file.
 
-    Stamped with the build and the scope it ran on, so the file answers on
-    its own which code asked which instrument.
+    Stamped with the build and the scope it ran on (empty on the simulator),
+    so the file answers on its own which code asked which instrument; the
+    probe's scratch folder is temporary and nobody collects it (THE RECORD).
     """
     import lvp_logger
 
+    global _VERDICT_WRITTEN
+    _VERDICT_WRITTEN = True
     verdict = {
         'probe': PROBE,
-        'target': 'hardware',
+        'target': 'hardware' if HARDWARE else 'simulator',
         'passed': not failed,
+        'ended': ended,
         'lvp_commit': lvp_logger.git_revision(),
         'scope': IDENTITY,
         'checks': [{'name': n, 'passed': p, 'kind': k} for n, p, k in RESULTS],
         'figures': FIGURES,
         'log_folder': lvp_logger.log_dir,
     }
-    path = SCRATCH / f'{PROBE}_verdict.json'
-    path.write_text(json.dumps(verdict, indent=2, default=str))
+    path = pathlib.Path(f'{RECORD}_verdict.json')
+    path.write_text(json.dumps(verdict, indent=2, default=str), encoding='utf-8')
     print(f'VERDICT FILE: {path}', flush=True)
     print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)
+
+
+_VERDICT_WRITTEN = False
+
+
+@atexit.register
+def _verdict_at_exit():
+    """A run that never reached `report()` still leaves what it measured.
+
+    A Ctrl-C, an uncaught raise or a refusal ends a probe before its
+    verdict; the checks and figures recorded until then are written,
+    failed, with how the run ended.
+    """
+    if not _VERDICT_WRITTEN:
+        _write_verdict(True, ended='before report(): interrupted, raised or refused')
 
 
 def _refuse_hardware():
@@ -203,10 +288,13 @@ def probe_dir(name):
     return live_dir(name)
 
 
-def make_session(name='probe', *, home=False, **overrides):
+def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     """A headless simulated session, built the way an L2 caller builds one.
 
-    `home` runs `ScopeSession.start_application_session()`, the one bring-up
+    `settings_file` is the file the session saves its settings to (None
+    saves nothing), as `ScopeSession.create` takes it.
+
+    `home` runs `ScopeSession.run_application_session()`, the one bring-up
     seam, and waits for the queued home to drain. Without it every protocol
     move is refused with `AxisStateUnknownError` and the run dies at
     `consecutive_scan_failures`, so a protocol probe MUST ask for it.
@@ -218,12 +306,16 @@ def make_session(name='probe', *, home=False, **overrides):
     _refuse_hardware()
     live = live_dir(name)
     session = ScopeSession.create(
-        complete_settings(live_folder=str(live), **overrides), simulate=True
+        complete_settings(live_folder=str(live), **overrides),
+        simulate=True,
+        settings_file=settings_file,
     )
     if home:
-        session.start_application_session()
+        session.run_application_session()
         deadline = time.time() + 60
-        while time.time() < deadline and not session.scope.motion.has_homed():
+        while time.time() < deadline and session.scope.motion.axes_without_position().keys() - {
+            'T'
+        }:
             time.sleep(0.25)
     return session, live
 
@@ -251,7 +343,7 @@ def run(body):
 
 
 @contextlib.contextmanager
-def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
+def headless_session(live_folder, acquiring=('BF', LED0), **extra):
     """A homed session with its executors up and a protocol runner attached."""
     import modules.common_utils as common_utils
     from modules.scope_session import ScopeSession
@@ -276,7 +368,7 @@ def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     try:
         yield session, runner
     finally:
@@ -291,7 +383,7 @@ def hardware_session():
     `current.json`, read from the root the app reads: a root without one is
     refused, because the shipped template would configure a scope that is not
     the one on the desk. Bring-up is the one host bring-up,
-    `start_application_session`, which returns once the stage has homed; a
+    `run_application_session`, which returns once the stage has homed; a
     scope with no motor board comes straight up. An objective nobody has
     confirmed stops the probe -- it never tells the scope what is in the
     light path. Nothing here saves settings, and the file is checked
@@ -323,11 +415,11 @@ def hardware_session():
 
     session = ScopeSession.create(ScopeSession.load_user_settings(str(root)), source_path=str(root))
     try:
-        session.start_application_session()
+        session.run_application_session()
         scope = session.scope
         IDENTITY.update(
-            model=scope.layer_identity.model,
-            motor=scope.diagnostics.get_motor_info(),
+            model=scope.channel_identity.model,
+            motor=scope.diagnostics.get_motor_info().to_dict(),
             camera={
                 'model': scope.capabilities.camera_model,
                 'serial': scope.capabilities.camera_serial_number,
@@ -343,7 +435,7 @@ def hardware_session():
                 flush=True,
             )
             sys.exit(2)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         yield session, runner
     finally:
         with contextlib.suppress(BaseException):

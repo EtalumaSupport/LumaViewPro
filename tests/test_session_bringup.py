@@ -18,10 +18,12 @@ import numpy as np
 import pytest
 
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_colors
 
 
 @pytest.fixture
@@ -46,7 +48,7 @@ class TestAFactorySessionIsConfigured:
     def test_a_bare_session_captures_and_saves(self, session, tmp_path):
         from modules.image_save import save_image
 
-        frame = session.scope.imaging.capture_and_wait()
+        frame = session.scope.imaging.capture_still().image
         assert isinstance(frame, np.ndarray)
         path = save_image(
             session.scope,
@@ -63,6 +65,9 @@ class TestAFactorySessionIsConfigured:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
+            white_bits=None,
+            fallback_focus=None,
         )
         assert path is not None
 
@@ -120,10 +125,10 @@ class TestDisableHomingIsNoStartupMotion:
         attempts = []
         session.settings['turret_position'] = 3
 
-        session.start_application_session(
+        session.run_application_session(
             disable_homing=True,
             home_fn=lambda axis: attempts.append(('home', axis)),
-            turret_fn=lambda position: attempts.append(('turret', position)),
+            turret_fn=lambda slot: attempts.append(('turret', slot)),
         )
 
         assert attempts == [], f'homing disabled must issue no motion, got {attempts}'
@@ -140,7 +145,7 @@ class TestDisableHomingIsNoStartupMotion:
         rather than guessing where it is. Skipping the home therefore has
         to skip the placement too, and this pins that they stay together.
         """
-        session.start_application_session(disable_homing=True)
+        session.run_application_session(disable_homing=True)
 
         assert session.scope.motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0), (
             'homing disabled must leave the stage untouched at its unhomed origin'
@@ -159,7 +164,7 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     """
 
     def test_bringup_leaves_z_off_the_floor_and_near_the_sample(self, session):
-        session.start_application_session()
+        session.run_application_session()
 
         z = session.scope.motion.get_current_position('Z')
         assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'
@@ -178,7 +183,9 @@ class TestTheSimulatorStartsWhereItsSampleIs:
 
     def test_a_focal_spread_puts_the_focus_within_it_of_the_stage(self, tmp_path):
         s = ScopeSession.create(
-            complete_settings(live_folder=str(tmp_path)), simulate=True, sim_focal_spread_um=25.0
+            complete_settings(live_folder=str(tmp_path)),
+            simulate=True,
+            simulated=SimulatedScope(focal_spread_um=25.0),
         )
         try:
             camera = s.scope._camera_driver
@@ -190,9 +197,10 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     def test_a_focal_spread_is_refused_on_a_real_scope(self, tmp_path):
         with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(
-                complete_settings(live_folder=str(tmp_path)), sim_focal_spread_um=25.0
+                complete_settings(live_folder=str(tmp_path)),
+                simulated=SimulatedScope(focal_spread_um=25.0),
             )
         assert (refused.value.reason, refused.value.argument) == (
             'needs_simulated_scope',
-            'sim_focal_spread_um',
+            'simulated',
         )

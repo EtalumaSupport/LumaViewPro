@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import datetime
+import enum
 import pathlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -24,55 +24,64 @@ import numpy as np
 
 from modules.api_surface import api_fields, event_metadata
 from modules.kivy_utils import schedule_ui
+from modules.run_outcome import FilesOutcome
 
 if TYPE_CHECKING:
     from modules.protocol import Protocol
     from modules.run_outcome import RunOutcome
 
 
-@api_fields('phase', 'elapsed_s', 'total_s', 'percent')
+class VideoPhase(enum.StrEnum):
+    """Which part of a video step a ``VideoProgress`` reports."""
+
+    RECORDING = 'recording'
+    WRITING = 'writing'
+    ENDED = 'ended'
+
+
+@api_fields('phase', 'elapsed_s', 'total_s', 'progress_pct')
 @dataclasses.dataclass(frozen=True)
 class VideoProgress:
     """Where a video step is, as its ``video_progress`` event says.
 
-    ``phase`` is ``'recording'`` (``elapsed_s`` of ``total_s``), ``'writing'``
-    (``percent`` of the recorded frames written) or ``'ended'``, which follows
+    ``phase`` is ``RECORDING`` (``elapsed_s`` of ``total_s``), ``WRITING``
+    (``progress_pct`` of the recorded frames written) or ``ENDED``, which follows
     once any recording or writing phase on every path that had one; a step
-    that ends before it records sends no phase and no ``'ended'``.
+    that ends before it records sends no phase and no ``ENDED``.
     """
 
-    phase: str
+    phase: VideoPhase
     elapsed_s: float | None = None
     total_s: float | None = None
-    percent: float | None = None
+    progress_pct: float | None = None
 
 
-@api_fields('scan_number', 'scans_remaining', 'interval')
+@api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanStarted:
-    """A ``scan_started`` event: the scan's 1-based number, the scans left with it, the period."""
+    """A ``scan_started`` event: the scan's index from 0, the scans left with it, the period in seconds."""
 
-    scan_number: int
+    scan_index: int
     scans_remaining: int
-    interval: datetime.timedelta
+    period_s: float | None
 
 
-@api_fields('scan_number', 'scans_remaining', 'interval')
+@api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanEnded:
-    """A ``scan_ended`` event: the scan's 1-based number, the scans left after it, the period."""
+    """A ``scan_ended`` event: the scan's index from 0, the scans left after it, the period in seconds."""
 
-    scan_number: int
+    scan_index: int
     scans_remaining: int
-    interval: datetime.timedelta
+    period_s: float | None
 
 
-@api_fields('step_idx')
+@api_fields('step_index')
 @dataclasses.dataclass(frozen=True)
 class StepStarted:
     """A ``step_started`` event: the index of the step beginning."""
 
-    step_idx: int
+    step_index: int
 
 
 @api_fields('image', 'frames_summed', 'frame_significant_bits')
@@ -98,10 +107,10 @@ class RunEnded:
 @api_fields('run_dir', 'files')
 @dataclasses.dataclass(frozen=True)
 class FilesWritten:
-    """A ``files_written`` event: the run's folder, and ``'written'`` or ``'incomplete'``."""
+    """A ``files_written`` event: the run's folder, and what became of its images."""
 
     run_dir: pathlib.Path | None
-    files: str
+    files: FilesOutcome
 
 
 @api_fields(
@@ -112,14 +121,18 @@ class FilesWritten:
     'video_progress',
     'run_ended',
     'files_written',
+    'on_ui_thread',
 )
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RunEvents:
     """The handlers a run calls as it goes, each optional; a misspelt one fails here.
 
-    Every event but ``frame_captured`` arrives through the process's UI
-    dispatcher (``ScopeSession.set_ui_dispatcher``): on a GUI host on its UI
-    thread, and with none set on the thread that sends it. A handler's own
+    Every event but ``frame_captured`` arrives on the thread that sends it,
+    unless ``on_ui_thread`` is set: then through the process's UI dispatcher
+    (``ScopeSession.set_ui_dispatcher``), on a GUI host on its UI thread, and
+    with none set on the thread that sends it. The run carries the choice,
+    so a GUI's handlers run on its UI thread while a REST client's or a
+    script's run in the same process never waits on that thread. A handler's own
     exception is reported once, as the exception it is, under the event's
     name: a refusal stays a refusal and a fault a fault. During an unattended
     run a ``step_started`` or ``frame_captured`` failure is logged, muted by
@@ -127,12 +140,12 @@ class RunEvents:
     shown. No handler needs to guard itself.
 
     Attributes:
-        scan_started: ``(scan_number, scans_remaining, interval)`` as a scan
-            begins: the scan's 1-based number, how many scans remain with
-            this one, and the protocol's period.
-        scan_ended: ``(scan_number, scans_remaining, interval)`` as a scan
+        scan_started: ``(scan_index, scans_remaining, period_s)`` as a scan
+            begins: the scan's index from 0, how many scans remain with
+            this one, and the protocol's period in seconds.
+        scan_ended: ``(scan_index, scans_remaining, period_s)`` as a scan
             ends, a stopped one included: how many remain after it.
-        step_started: ``(step_idx)`` as each step begins, step 0 included,
+        step_started: ``(step_index)`` as each step begins, step 0 included,
             the index read at the step.
         frame_captured: ``(image, frames_summed, frame_significant_bits)``
             for each captured frame whose write was handed to the run's
@@ -147,18 +160,21 @@ class RunEvents:
             before or after its ``files_written``. ``run_dir`` is None for a run that
             saved nothing.
         files_written: ``(run_dir, files)`` once the run's last image write
-            has landed: ``files`` is ``'written'``, or ``'incomplete'`` when
-            some of its images are not on disk.
+            has landed: ``files`` is ``FilesOutcome.WRITTEN``, or
+            ``INCOMPLETE`` when some of its images are not on disk.
+        on_ui_thread: Whether the handlers above but ``frame_captured``
+            run on the UI dispatcher's thread. A GUI sets it for handlers
+            that draw; the default runs each on the sending thread.
 
-    Each field declares its event's record (``ScanStarted``, ...), whose
+    Each handler field declares its event's record (``ScanStarted``, ...), whose
     fields name the handler's arguments in order; a host that carries the
     event elsewhere builds the record from them.
     """
 
-    scan_started: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+    scan_started: Callable[[int, int, float | None], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(ScanStarted)
     )
-    scan_ended: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+    scan_ended: Callable[[int, int, float | None], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(ScanEnded)
     )
     step_started: Callable[[int], object] | None = dataclasses.field(
@@ -173,9 +189,10 @@ class RunEvents:
     run_ended: Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None = (
         dataclasses.field(default=None, metadata=event_metadata(RunEnded))
     )
-    files_written: Callable[[pathlib.Path | None, str], object] | None = dataclasses.field(
+    files_written: Callable[[pathlib.Path | None, FilesOutcome], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(FilesWritten)
     )
+    on_ui_thread: bool = False
 
 
 def _report(event: str, ex: Exception) -> None:
@@ -185,23 +202,25 @@ def _report(event: str, ex: Exception) -> None:
 
 
 def deliver(
-    handler: Callable[..., object] | None,
+    events: RunEvents,
     event: str,
     *args: object,
     delivery: contextlib.AbstractContextManager = contextlib.nullcontext(),
 ) -> None:
-    """Hand ``handler(*args)`` to the UI dispatcher; report its exception once.
+    """Call *events*' ``event`` handler with ``args`` where the run asked; report its exception once.
 
-    The one reporter of a handler's failure, whatever the host: the catch is
-    inside the function the dispatcher runs, around the handler, so it holds
-    on a GUI host too, where the handler runs on a later tick, after this
-    call has returned. ``delivery`` is entered around the handler and its
-    report on the thread that runs them: a run's ``run_ended`` and
+    On the sending thread, or through the UI dispatcher when *events* says
+    ``on_ui_thread``. The one reporter of a handler's failure, whatever the
+    host: the catch is inside the function that runs the handler, so it
+    holds on a GUI host too, where the handler runs on a later tick, after
+    this call has returned. ``delivery`` is entered around the handler and
+    its report on the thread that runs them: a run's ``run_ended`` and
     ``files_written`` are delivered inside their handle's delivery, which
     marks the run told once both are done. With no handler, or when the
     dispatcher cannot take it, the delivery is entered and left at once, so
     a run's waits never wait on a delivery that will not come.
     """
+    handler = getattr(events, event)
     if handler is None:
         with delivery:
             return
@@ -213,8 +232,11 @@ def deliver(
             except Exception as ex:
                 _report(event, ex)
 
+    if not events.on_ui_thread:
+        _deliver(0)
+        return
     try:
-        schedule_ui(_deliver, 0)
+        schedule_ui(_deliver)
     except BaseException:
         with delivery:
             pass

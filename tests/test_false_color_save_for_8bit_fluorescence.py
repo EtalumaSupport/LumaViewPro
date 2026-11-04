@@ -24,11 +24,14 @@ Tests below exercise ``write_tiff`` directly for both bit depths.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 import pytest
 import tifffile as tf
 
 from modules.image_utils import write_tiff
+from modules.layer_record import release_color
+from tests.stock_channels import LED2
 
 
 def _grayscale_image(dtype):
@@ -41,15 +44,15 @@ def _grayscale_image(dtype):
     raise ValueError(dtype)
 
 
-def _minimal_metadata(path, channel='Red'):
+def _minimal_metadata(path, channel=LED2):
     """Minimal metadata dict matching what write_tiff's generate_tiff_data
     expects. The plane metadata is keyed off these fields."""
     return {
         'file_loc': str(path),
-        'datetime': '2026-05-17T11:00:00',
+        'datetime': datetime.datetime(2026, 5, 17, 11, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
-        'objective': 'test',
+        'objective': {'id': 'test'},
         'exposure_time_ms': 1.0,
         'gain_db': 0.0,
         'illumination_ma': 0.0,
@@ -78,9 +81,10 @@ class TestWriteTiffFalseColorAppliesForUint8:
             file_loc=tmp_tiff,
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
-            color='Red',
+            color=release_color(LED2),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (
@@ -97,9 +101,10 @@ class TestWriteTiffFalseColorAppliesForUint8:
             file_loc=tmp_tiff,
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='rgb',
+            white_bits=None,
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (

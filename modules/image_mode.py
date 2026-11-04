@@ -22,32 +22,45 @@ The 8-bit default preserves the shipped behavior: the retiring
 from __future__ import annotations
 
 import dataclasses
+import enum
 from collections.abc import Iterable
 
 import numpy as np
 
 from lvp_logger import logger
+from modules.closed_sets import member_of
 from modules.exceptions import ConfigurationDefectError
 
-IMAGE_MODE_8BIT = '8bit'
-IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
-IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
-IMAGE_MODE_12BIT_FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
-# The sequenced-output formats, spelled as the UI spinner and the settings
-# files hold them verbatim -- none can be renamed without a settings
-# migration. OUTPUT_FORMAT_HYPERSTACK swaps per-step TIFF writes for a
-# post-run per-well stack build.
-OUTPUT_FORMAT_TIFF = 'TIFF'
-OUTPUT_FORMAT_OME_TIFF = 'OME-TIFF'
-OUTPUT_FORMAT_JPG = 'JPG'
-OUTPUT_FORMAT_HYPERSTACK = 'OME-TIFF Hyperstack'
+class ImageMode(enum.StrEnum):
+    """The image mode captures are taken and saved in (the module docstring)."""
+
+    EIGHT_BIT = '8bit'
+    SCIENTIFIC = '12bit_scientific'
+    SCALED = '12bit_scaled'
+    FALSE_COLOR_RGB = '12bit_false_color_rgb'
+
+
+class OutputFormat(enum.StrEnum):
+    """The formats a capture is saved in.
+
+    The values are spelled as the settings files hold them verbatim -- none
+    can be renamed without a settings migration; the selectors show their
+    own labels. ``HYPERSTACK`` swaps per-step TIFF writes for a post-run
+    per-well stack build.
+    """
+
+    TIFF = 'TIFF'
+    OME_TIFF = 'OME-TIFF'
+    JPG = 'JPG'
+    HYPERSTACK = 'OME-TIFF Hyperstack'
+
 
 # The sequenced formats a post-run merge can read its per-channel frames
 # back out of. JPG is lossy and unreadable by the merge's loader; the
 # hyperstack build leaves a per-well stack with no 2D per-channel frame to
 # merge at all. A run whose product is a merge resolves to one of these.
-MERGEABLE_SEQUENCED_FORMATS = frozenset({OUTPUT_FORMAT_TIFF, OUTPUT_FORMAT_OME_TIFF})
+MERGEABLE_SEQUENCED_FORMATS = frozenset({OutputFormat.TIFF, OutputFormat.OME_TIFF})
 
 # Save-encoding tokens -- the derived on-disk shape, independent of the mode label.
 SAVE_ENCODING_8BIT = '8bit'
@@ -68,33 +81,24 @@ VALID_SAVE_ENCODINGS = frozenset(
     }
 )
 
-# Every output format a config may legitimately hold, split by selector because
-# the two selectors do not offer the same set. A value outside these means a
-# stale or hand-edited setting reached a run: the writer has no branch for it,
-# so it falls through to a plain .tiff with ome=False and a run configured for
-# a hyperstack quietly produces per-step files and no stack. The hyperstack is
-# a post-run per-well stack build, so it has no meaning for a single live
-# capture and the live selector never offers it.
-VALID_LIVE_OUTPUT_FORMATS = frozenset(
-    {
-        OUTPUT_FORMAT_TIFF,
-        OUTPUT_FORMAT_OME_TIFF,
-        OUTPUT_FORMAT_JPG,
-    }
-)
+# The formats a live capture is saved in: a sequenced capture takes every
+# OutputFormat, a live one all but the hyperstack, a post-run per-well stack
+# build with no meaning for a single capture. A value outside its set means
+# a stale or hand-edited setting reached a capture: the writer has no branch
+# for it, so it falls through to a plain .tiff with ome=False and a run
+# configured for a hyperstack quietly produces per-step files and no stack.
+LIVE_OUTPUT_FORMATS = (OutputFormat.TIFF, OutputFormat.OME_TIFF, OutputFormat.JPG)
 
-VALID_SEQUENCED_OUTPUT_FORMATS = VALID_LIVE_OUTPUT_FORMATS | {OUTPUT_FORMAT_HYPERSTACK}
+DEFAULT_IMAGE_MODE = ImageMode.EIGHT_BIT
 
-DEFAULT_IMAGE_MODE = IMAGE_MODE_8BIT
-
-_MODE_TABLE: dict[str, dict] = {
-    IMAGE_MODE_8BIT: {'capture_depth': 8, 'save_encoding': SAVE_ENCODING_8BIT},
-    IMAGE_MODE_12BIT_SCIENTIFIC: {
+_MODE_TABLE: dict[ImageMode, dict] = {
+    ImageMode.EIGHT_BIT: {'capture_depth': 8, 'save_encoding': SAVE_ENCODING_8BIT},
+    ImageMode.SCIENTIFIC: {
         'capture_depth': 12,
         'save_encoding': SAVE_ENCODING_RIGHT_ALIGNED,
     },
-    IMAGE_MODE_12BIT_SCALED: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_MSB_ALIGNED},
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_RGB},
+    ImageMode.SCALED: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_MSB_ALIGNED},
+    ImageMode.FALSE_COLOR_RGB: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_RGB},
 }
 
 
@@ -102,7 +106,7 @@ def resolve_image_mode(mode: str) -> dict:
     """Resolve an image_mode value to its derived capture depth and save encoding.
 
     Args:
-        mode: one of the IMAGE_MODE_* values.
+        mode: an ``ImageMode``, or its plain string.
 
     Returns:
         A fresh dict with 'capture_depth' (int) and 'save_encoding' (str).
@@ -126,8 +130,8 @@ class ImageCaptureConfig:
     image_mode: str
     capture_depth: int
     save_encoding: str
-    output_format_live: str = 'TIFF'
-    output_format_sequenced: str = 'TIFF'
+    output_format_live: OutputFormat = OutputFormat.TIFF
+    output_format_sequenced: OutputFormat = OutputFormat.TIFF
     jpg_quality: int = 90
 
     def __post_init__(self) -> None:
@@ -140,29 +144,28 @@ class ImageCaptureConfig:
                 'capture_config_inconsistent',
                 f'ImageCaptureConfig pair (capture_depth={self.capture_depth}, '
                 f'save_encoding={self.save_encoding!r}) does not match '
-                f'image_mode {self.image_mode!r}; build via from_image_mode()',
+                f'image_mode {str(self.image_mode)!r}; build via from_image_mode()',
             )
         # Refused here rather than at the writer, for the same reason the pair
         # above is: the writer's fallback is a silently valid plain .tiff, so
         # the only place the bad value can still be named is where it entered.
         # Raising at construction puts it at the API boundary, which is run
         # start, so a REST caller sees the failure exactly as the GUI does.
-        for field_name, value, allowed in (
-            ('output_format_live', self.output_format_live, VALID_LIVE_OUTPUT_FORMATS),
-            (
-                'output_format_sequenced',
-                self.output_format_sequenced,
-                VALID_SEQUENCED_OUTPUT_FORMATS,
-            ),
+        for field_name, allowed in (
+            ('output_format_live', LIVE_OUTPUT_FORMATS),
+            ('output_format_sequenced', tuple(OutputFormat)),
         ):
-            if value not in allowed:
+            value = getattr(self, field_name)
+            member = member_of(OutputFormat, value)
+            if member not in allowed:
                 raise ConfigurationDefectError(
                     'settings_not_prepared',
                     f'ImageCaptureConfig {field_name}={value!r} is not a format '
-                    f'this build writes; expected one of {sorted(allowed)}. A run '
+                    f'this build writes; expected one of {", ".join(allowed)}. A run '
                     f'started with it would save plain TIFFs and no hyperstack, '
                     f'silently -- check image_output_format in the settings file.',
                 )
+            object.__setattr__(self, field_name, member)
 
         # Coerce here, not in from_image_mode, so a directly-constructed
         # config (JSON/UI text riding in as '85') fails or normalizes at
@@ -174,8 +177,8 @@ class ImageCaptureConfig:
         cls,
         mode: str,
         *,
-        output_format_live: str = 'TIFF',
-        output_format_sequenced: str = 'TIFF',
+        output_format_live: OutputFormat = OutputFormat.TIFF,
+        output_format_sequenced: OutputFormat = OutputFormat.TIFF,
         jpg_quality: int = 90,
     ) -> ImageCaptureConfig:
         """Build a config from one image_mode, deriving its coupled pair.
@@ -220,7 +223,7 @@ def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -
     return resolve_image_mode(image_mode_value)['capture_depth'] == 8
 
 
-def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[str]) -> bool:
+def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[OutputFormat]) -> bool:
     """Whether to warn that a JPG output does not keep the full-depth payload.
 
     A JPG is 8 bits, so in a full-depth mode the payload is kept only in a
@@ -235,7 +238,7 @@ def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[str
         True if the JPG depth warning should be shown.
     """
     keeps_depth = resolve_image_mode(image_mode_value)['save_encoding'] != SAVE_ENCODING_8BIT
-    return keeps_depth and OUTPUT_FORMAT_JPG in output_formats
+    return keeps_depth and OutputFormat.JPG in output_formats
 
 
 def encoding_for_array(array: np.ndarray) -> str:
@@ -273,31 +276,6 @@ def encoding_fills_container(save_encoding: str) -> bool:
     return save_encoding in (SAVE_ENCODING_MSB_ALIGNED, SAVE_ENCODING_RGB)
 
 
-def save_encoding_for_derived_output(array: np.ndarray, image_mode_value: str) -> str:
-    """The save encoding for a derived product, honoring the false-color mode.
-
-    A projection / stitch / composite preserves its inputs' pixel values verbatim
-    -- but the RGB false-color mode is a rendering choice that applies to derived
-    fluorescence products too: under that mode a derived fluorescence image widens
-    to 3-channel false color the same way a freshly captured frame does, so a
-    stitched / projected fluorescence image renders in color in plain viewers
-    instead of silently demoting to mono. The quantitative modes (scientific /
-    scaled / 8bit) keep the verbatim dtype-based encoding -- only the RGB mode
-    changes a derived product's on-disk shape.
-
-    Args:
-        array: The pixels about to be written.
-        image_mode_value: The user's active image_mode (the SSOT value).
-
-    Returns:
-        SAVE_ENCODING_RGB when image_mode_value is the RGB mode, else the
-        verbatim dtype-based encoding from encoding_for_array.
-    """
-    if resolve_image_mode(image_mode_value)['save_encoding'] == SAVE_ENCODING_RGB:
-        return SAVE_ENCODING_RGB
-    return encoding_for_array(array)
-
-
 def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool) -> str:
     """Map the two retiring settings keys onto a single image_mode value.
 
@@ -306,28 +284,11 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
     12bit_scaled -- that mode is new and reachable only by explicit selection.
     """
     if not use_full_pixel_depth:
-        return IMAGE_MODE_8BIT
+        return ImageMode.EIGHT_BIT
     if false_color_16bit:
-        return IMAGE_MODE_12BIT_FALSE_COLOR_RGB
-    return IMAGE_MODE_12BIT_SCIENTIFIC
+        return ImageMode.FALSE_COLOR_RGB
+    return ImageMode.SCIENTIFIC
 
-
-# User-facing labels for the Image mode selector. The selector is the only
-# place these strings appear; storage and the resolver use the enum values.
-# The strings must stay distinct, because LABEL_TO_IMAGE_MODE inverts this map
-# and a collision would silently drop a mode, and must differ in their first
-# words: a spinner shortens text too wide for it from the right, so two
-# labels that share a long opening read the same in the closed selector. The ids keep their 12bit_ names:
-# a full-depth mode keeps the payload at the depth the frame has, 12 bits where
-# the camera delivers 12, and a sum at the bits it can reach.
-IMAGE_MODE_LABELS = {
-    IMAGE_MODE_8BIT: '8-bit',
-    IMAGE_MODE_12BIT_SCIENTIFIC: 'Scientific (full depth)',
-    IMAGE_MODE_12BIT_SCALED: 'Scaled (full depth)',
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: 'RGB (full depth)',
-}
-
-LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 
 # Pixel formats that mean the camera can deliver a 12-bit payload. Match is
 # format-exact: Mono12 / Mono12p (Pylon wire names) and Mono12g24IDS (the IDS
@@ -338,23 +299,13 @@ LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 _TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p', 'Mono12g24IDS')
 
 
-def available_modes() -> list:
-    """The image_mode values, in selector order: every one, on every camera.
+def available_modes() -> list[ImageMode]:
+    """The image modes, in selector order: every one, on every camera.
 
     A mode is a save policy -- reduce to 8 bits, or keep the payload at the
     depth the frame has -- so every camera can honour every mode.
     """
-    return [
-        IMAGE_MODE_8BIT,
-        IMAGE_MODE_12BIT_SCIENTIFIC,
-        IMAGE_MODE_12BIT_SCALED,
-        IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
-    ]
-
-
-def available_mode_labels() -> list:
-    """The user-facing labels for available_modes, in selector order."""
-    return [IMAGE_MODE_LABELS[mode] for mode in available_modes()]
+    return list(ImageMode)
 
 
 def select_capture_pixel_format(

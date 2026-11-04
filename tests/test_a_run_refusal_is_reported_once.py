@@ -17,7 +17,6 @@ from modules.exceptions import (
     RecordingRefusedError,
     Refusal,
     RunCheckFailedError,
-    SettingsSaveRefusedError,
 )
 from modules.notification_center import Severity, notifications
 
@@ -28,7 +27,6 @@ def _refuse_through_the_runner():
     runner = object.__new__(SequencedCaptureRunner)
     runner._refuse(
         reason='already_running',
-        title='Already Running',
         message='A run is using the microscope.',
     )
 
@@ -39,7 +37,6 @@ def _refuse_through_the_protocols_api():
     api = object.__new__(ProtocolsAPI)
     api._refuse(
         reason='objective_not_mounted',
-        title='Objective Not On The Turret',
         message='The protocol names an objective no turret slot holds.',
     )
 
@@ -76,21 +73,11 @@ def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre_posts, ca
 
 
 def test_a_refusals_words_are_its_sentence():
-    run = ProtocolRunRefusedError(reason='already_running', title='T', message='Stop it first.')
-    recording = RecordingRefusedError(reason='camera_inactive', title='T', message='No camera.')
+    run = ProtocolRunRefusedError(reason='already_running', message='Stop it first.')
+    recording = RecordingRefusedError(reason='camera_exposure_unknown', message='No exposure.')
     for refusal in (run, recording):
         assert isinstance(refusal, Refusal)
         assert str(refusal) == refusal.message, 'str() must be the sentence, not reason: message'
-
-
-@pytest.mark.parametrize('reason', ['settings_provisional', 'no_hardware'])
-def test_a_refused_settings_save_says_why_in_a_sentence(reason):
-    refusal = SettingsSaveRefusedError(reason=reason, file='./data/current.json')
-
-    assert isinstance(refusal, Refusal)
-    assert refusal.title == 'Settings Not Saved'
-    assert str(refusal).startswith('The settings were not saved to ./data/current.json:')
-    assert reason not in str(refusal), 'the code is for machines; the sentence is for people'
 
 
 def test_a_crashed_check_is_one_error_with_both_tracebacks(centre_posts, caplog):
@@ -100,7 +87,6 @@ def test_a_crashed_check_is_one_error_with_both_tracebacks(centre_posts, caplog)
         except OSError as crash:
             raise RunCheckFailedError(
                 reason='validation_crashed',
-                title='Cannot validate protocol',
                 message='Pre-run validation could not run.',
             ) from crash
     except RunCheckFailedError as raised:

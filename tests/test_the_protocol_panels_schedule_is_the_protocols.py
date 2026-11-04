@@ -3,7 +3,8 @@
 
 The settings store's period and duration are the default a new protocol
 starts from at start-up, and nothing the panel does writes them. A field
-edit goes to the protocol's own writer, which takes it or refuses it; the
+edit goes to the Session's ``set_protocol_schedule``, which takes it or
+refuses it; the
 field then shows the protocol's value either way. Run and Save take the
 protocol as it is -- they copy nothing into it -- and New starts from the
 schedule on screen.
@@ -25,6 +26,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from tests.protocol_fixtures import protocol_of
 
 
 class _StubWidget:
@@ -54,23 +56,24 @@ for _name, _attr in (
         setattr(_mod, _attr, _StubWidget)
         sys.modules[_name] = _mod
 
-import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
 from modules.notification_center import notifications
+from modules.acquire_mode import AcquireMode
 from modules.protocol import Protocol
 from tests.ast_seams import parse_module
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import home_sim_scope
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PERIOD = datetime.timedelta(minutes=7)
 DURATION = datetime.timedelta(hours=3)
-STORED = {'period': 20, 'duration': 48, 'filepath': 'plate.tsv'}
+SCHEDULE_S = (PERIOD.total_seconds(), DURATION.total_seconds())
+# The shipped template's stored default: 20 minutes, 48 hours.
+STORED = (20, 48)
 
 
 def _protocol() -> Protocol:
-    return Protocol(
-        tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -99,7 +102,7 @@ class _Panel(ps.ProtocolSettings):
         self._runs_started_here = {}
         self.curr_step = 0
 
-    def go_to_step(self, step_idx, protocol=True):
+    def go_to_step(self, step_index, protocol=True):
         pass
 
     def update_step_ui(self):
@@ -113,19 +116,17 @@ class _Panel(ps.ProtocolSettings):
 
 
 @pytest.fixture
-def ctx(monkeypatch):
-    context = SimpleNamespace(
-        session=MagicMock(),
-        scope=spec_scope(),
-        settings={'protocol': dict(STORED)},
-        sequenced_capture_runner=MagicMock(),
-    )
-    context.sequenced_capture_runner.is_live_run.return_value = False
-    monkeypatch.setattr(_app_ctx, 'ctx', context)
+def ctx(gui_ctx, monkeypatch):
+    """The GUI's context over an unhomed simulated session on the shipped template."""
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
-    return context
+    return gui_ctx
+
+
+def _stored(ctx):
+    """The settings store's period and duration."""
+    return (ctx.settings['protocol']['period'], ctx.settings['protocol']['duration'])
 
 
 @pytest.fixture
@@ -147,9 +148,9 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == []
-        assert panel._protocol.period() == datetime.timedelta(minutes=10)
-        assert panel._protocol.duration() == DURATION
-        assert ctx.settings['protocol'] == STORED
+        assert panel._protocol.period_s() == 10 * 60
+        assert panel._protocol.duration_s() == DURATION.total_seconds()
+        assert _stored(ctx) == STORED
         assert float(panel.ids['capture_period'].text) == 10
 
     def test_a_runnable_duration_goes_to_the_protocol_and_not_the_store(self, ctx, reported):
@@ -159,8 +160,8 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == []
-        assert panel._protocol.duration() == datetime.timedelta(hours=5)
-        assert ctx.settings['protocol'] == STORED
+        assert panel._protocol.duration_s() == 5 * 3600
+        assert _stored(ctx) == STORED
 
     @pytest.mark.parametrize('typed', ['0.005', '', '.'])
     def test_a_period_that_cannot_run_is_refused_and_the_field_shows_the_protocols(
@@ -172,9 +173,9 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_PERIOD')]
-        assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
+        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
         assert float(panel.ids['capture_period'].text) == 7
-        assert ctx.settings['protocol'] == STORED
+        assert _stored(ctx) == STORED
 
     def test_a_duration_that_cannot_run_is_refused_and_the_field_shows_the_protocols(
         self, ctx, reported
@@ -185,7 +186,7 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_DURATION')]
-        assert panel._protocol.duration() == DURATION
+        assert panel._protocol.duration_s() == DURATION.total_seconds()
         assert float(panel.ids['capture_dur'].text) == 3
 
 
@@ -199,28 +200,29 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         panel._protocol_start()
 
-        assert (handed[0].period(), handed[0].duration()) == (PERIOD, DURATION)
+        assert (handed[0].period_s(), handed[0].duration_s()) == SCHEDULE_S
         assert handed[0] is not panel._protocol
 
     def test_save_writes_the_protocols_schedule_and_leaves_it_as_it_was(
         self, ctx, monkeypatch, tmp_path
     ):
         panel = _Panel(_protocol())
-        ctx.session.save_protocol.side_effect = lambda protocol, file_path: (
-            protocol.to_file(file_path=f'{file_path}.tsv') or f'{file_path}.tsv'
-        )
 
-        panel.save_protocol(filepath=str(tmp_path / 'saved'))
+        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
 
-        assert ctx.session.save_protocol.call_args.args[0] is panel._protocol
-        assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
+        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
         text = (tmp_path / 'saved.tsv').read_text()
         assert 'Period\t7.0\n' in text and 'Duration\t3.0\n' in text
-        assert ctx.settings['protocol']['period'] == STORED['period']
+        assert _stored(ctx) == STORED
 
-    def test_new_starts_from_the_schedule_on_screen(self, ctx):
-        built = _protocol()
-        ctx.session.new_protocol.return_value = built
+    @pytest.fixture
+    def homed(self, ctx):
+        """Homed, with Brightfield acquiring: a scope the Session builds a protocol on."""
+        home_sim_scope(ctx.scope)
+        ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
+        return ctx
+
+    def test_new_starts_from_the_schedule_on_screen(self, homed, reported):
         on_screen = _protocol()
         on_screen.modify_time_params(
             period=datetime.timedelta(minutes=2), duration=datetime.timedelta(hours=9)
@@ -229,19 +231,17 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         panel.new_protocol()
 
-        kwargs = ctx.session.new_protocol.call_args.kwargs
-        assert (kwargs['period'], kwargs['duration']) == (
-            datetime.timedelta(minutes=2),
-            datetime.timedelta(hours=9),
-        )
+        assert reported == []
+        assert panel._protocol is not on_screen, 'the Session built a new protocol'
+        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == (2 * 60, 9 * 3600)
 
-    def test_a_new_protocol_is_shown_with_its_own_schedule(self, ctx):
-        ctx.session.new_protocol.return_value = _protocol()
+    def test_a_new_protocol_is_shown_with_its_own_schedule(self, homed, reported):
         panel = _Panel(_protocol())
         panel.ids['capture_period'].text = '99'
 
         panel.new_protocol()
 
+        assert reported == []
         assert float(panel.ids['capture_period'].text) == 7
         assert float(panel.ids['capture_dur'].text) == 3
 
@@ -281,9 +281,9 @@ class TestAClickAfterARefusedEdit:
         panel = _Panel(_protocol())
 
         self._refuse_an_edit(panel)
-        panel.save_protocol(filepath=str(tmp_path / 'saved'))
+        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
 
-        assert not ctx.session.save_protocol.called
+        assert not (tmp_path / 'saved.tsv').exists()
 
     def test_a_click_in_a_later_input_acts(self, ctx, reported, monkeypatch):
         panel = _Panel(_protocol())

@@ -7,7 +7,8 @@ saved at the top, the images a run wrote. ``session.live_folder_listing``
 lists one level, each entry by the full name a path parameter, a download
 and a further listing all take, ``/``-separated on every host. A name
 outside the live folder is refused as ``live_folder_path`` refuses it, and
-a name that is not a folder is refused rather than answered empty.
+a name that is not a folder is refused rather than answered empty: as
+``not_a_folder`` for a file, ``not_found`` for nothing.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import os
 import pytest
 
 from modules.exceptions import LiveFolderPathRefusedError
-from modules.scope_session import LiveFolderEntry, ScopeSession
+from modules.scope_session import EntryKind, LiveFolderEntry, ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -38,7 +39,15 @@ def session(live):
     s.shutdown()
 
 
+# 600 ns past a microsecond: the nearest is the next one. A float st_mtime
+# cannot hold this instant and lands on the microsecond below.
+_PLATE_MTIME_NS = 1_793_744_467_348_006_600
+
+
 def test_the_top_level_names_exactly_what_is_on_disk(session, live):
+    """Each entry's name and kind, a file's size, and its modified time to
+    the nearest microsecond as local time with its offset."""
+    os.utime(live / 'plate.tsv', ns=(_PLATE_MTIME_NS, _PLATE_MTIME_NS))
     listing = session.live_folder_listing()
 
     assert [(e.name, e.kind) for e in listing] == [
@@ -46,21 +55,25 @@ def test_the_top_level_names_exactly_what_is_on_disk(session, live):
         ('plate.tsv', 'file'),
     ]
     plate = listing[1]
-    assert plate.size == len('steps')
-    assert (
-        plate.modified
-        == datetime.datetime.fromtimestamp(os.stat(live / 'plate.tsv').st_mtime).astimezone()
-    )
+    assert plate.size_bytes == len('steps')
+    assert plate.modified == datetime.datetime.fromtimestamp(
+        1_793_744_467, datetime.UTC
+    ).astimezone() + datetime.timedelta(microseconds=348_007)
     assert plate.modified.tzinfo is not None
     assert all(isinstance(e, LiveFolderEntry) for e in listing)
 
 
 def test_a_deeper_level_is_named_from_the_top_and_its_names_list_further(session):
     (run,) = session.live_folder_listing('ProtocolData')
-    assert (run.name, run.kind) == ('ProtocolData/run1', 'folder')
+    assert (run.name, run.kind) == ('ProtocolData/run1', EntryKind.FOLDER)
+    assert type(run.kind) is EntryKind
 
     (image,) = session.live_folder_listing(run.name)
-    assert (image.name, image.kind, image.size) == ('ProtocolData/run1/BF_001.tiff', 'file', 7)
+    assert (image.name, image.kind, image.size_bytes) == (
+        'ProtocolData/run1/BF_001.tiff',
+        'file',
+        7,
+    )
     assert session.live_folder_path(image.name).read_bytes() == b'x' * 7
 
 
@@ -81,9 +94,11 @@ def test_a_name_outside_the_live_folder_is_refused(session, name):
     assert refused.value.reason == 'outside_live_folder'
 
 
-@pytest.mark.parametrize('name', ['plate.tsv', 'no_such_folder'])
-def test_a_name_that_is_not_a_folder_is_refused(session, name):
+@pytest.mark.parametrize(
+    ('name', 'reason'), [('plate.tsv', 'not_a_folder'), ('no_such_folder', 'path_not_found')]
+)
+def test_a_name_that_is_not_a_folder_is_refused_by_what_is_there(session, name, reason):
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         session.live_folder_listing(name)
-    assert refused.value.reason == 'not_a_folder'
+    assert refused.value.reason == reason
     assert refused.value.name == name

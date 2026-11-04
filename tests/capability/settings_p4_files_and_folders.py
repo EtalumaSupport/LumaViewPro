@@ -9,7 +9,8 @@ GUI entry points (all in ui/lumaviewpro.kv, dispatched by the four
   apply_stitching_to_folder       kv:1729,1742
   apply_zprojection_to_folder     kv:1766
   apply_composite_gen_to_folder   kv:1820
-  choose_quick_enhance_target     kv:1844 -> file_dialogs.py:546/567
+  load_quick_enhance_input_image  (Quick Enhance, Enhance image...)
+  apply_quick_enhance_to_folder   (Quick Enhance, Enhance folder...)
   load_graphing_data              kv:3648
   save_graph                      kv:3847
   load_cell_count_input_image     kv:3888
@@ -18,7 +19,6 @@ GUI entry points (all in ui/lumaviewpro.kv, dispatched by the four
   apply_cell_count_method_to_folder kv:4195
 """
 
-import pathlib
 import sys
 
 import harness as _common
@@ -43,6 +43,17 @@ try:
         )
     except SettingRefusedError as e:
         _common.ok('a live_folder that is not a path is refused', True, str(e))
+    blocker = _common.SCRATCH / 'a_file'
+    blocker.write_text('')
+    try:
+        s.set_live_folder(str(blocker / 'captures'))
+        _common.ok(
+            'a live_folder under a file is refused',
+            False,
+            repr(s.get_settings_snapshot()['live_folder']),
+        )
+    except SettingRefusedError as e:
+        _common.ok('a live_folder under a file is refused', True, str(e))
     s.set_live_folder(str(live))
 
     # --- protocol load / save --------------------------------------------
@@ -66,7 +77,8 @@ try:
         'load_cell_count_method': ('load_cell_count_method', 'cell_count'),
         'saveas_cell_count_method': ('save_cell_count_method', 'cell_count'),
         'load_cell_count_input_image': ('set_cell_count_source', 'cell_count'),
-        'choose_quick_enhance_target': ('quick_enhance', 'enhance'),
+        'load_quick_enhance_input_image': ('quick_enhance', 'enhance'),
+        'apply_quick_enhance_to_folder': ('quick_enhance', 'enhance'),
         'load_graphing_data': ('load_graphing_data', 'graph'),
         'save_graph': ('save_graph', 'graph'),
     }
@@ -90,7 +102,7 @@ try:
     try:
         res = ZProjector(has_turret=False).load_folder(
             path=empty,
-            tiling_configs_file_loc=pathlib.Path('data/tiling.json'),
+            tiling_grids=s.scope.protocols.tiling_grids(),
             popup=None,
         )
     except Exception as refused:

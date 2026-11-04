@@ -5,14 +5,72 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+import datetime
+import errno
 import pathlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
-from lib.lumascope_error import Fault, LumascopeError
+from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
+from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from drivers.exceptions import (
+    CameraFirmwareMissingError,
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    MotionInterlockError,
+)
 from modules.api_surface import api_fields
+from modules.axes import Axis
+from modules.caller import Caller
+from modules.live_work import SCOPE_HOLDERS
+from modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
+
+if TYPE_CHECKING:
+    from modules.frame_validity import FrameValiditySource
+    from modules.plugins import PluginNotLoaded
+    from modules.tech_support_report import SupportReportKind
+
+# A camera that is connected and not delivering frames: a run refused at its
+# start and a capture refused at its call carry the one heading.
+CAMERA_NOT_STREAMING_TITLE = 'Camera Not Streaming'
+
+# A held control session refuses a lane's task, a take of the scope and a
+# guarded write alike: each carries the one heading.
+UNDER_CONTROL_TITLE = 'Under Remote Control'
+
+# A capture and a build never overlap: a run and a recording refused while a
+# build is on the post-processing lane carry the one heading and sentence.
+POST_PROCESSING_RUNNING_TITLE = 'Post-Processing Running'
+POST_PROCESSING_RUNNING_MESSAGE = (
+    'Post-processing is still running. A capture waits until it has finished, '
+    'so the two do not compete for the computer. Please wait.'
+)
+
+
+# What holds the microscope when a refusal names its holder: the kinds that
+# hold the scope, by their WorkKind words, and an autofocus sweep still in
+# flight after its run ended. Built from SCOPE_HOLDERS, so the claim and the
+# refusal spell the holding kinds once.
+Holder = StrEnum(
+    'Holder',
+    [(kind.name, kind.value) for kind in sorted(SCOPE_HOLDERS)] + [('AUTOFOCUS', 'autofocus')],
+    module=__name__,
+)
+Holder.__doc__ = 'What holds the microscope when a refusal names its holder.'
+
+
+def _holder(kind: str | None) -> Holder | None:
+    """The holder a refusal names, from the claim's kind or a member; None for none."""
+    return None if kind is None else Holder(kind)
+
+
+class RemedyName(StrEnum):
+    """The remedies a refusal can name, each one the Session applies (``ScopeSession.apply_remedy``)."""
+
+    RECOVER_FILE_WRITER = 'recover_file_writer'
+    REPAIR_CAMERA_DRIVER = 'repair_camera_driver'
 
 
 @api_fields('member', 'confirm_text', 'cancel_text')
@@ -28,12 +86,12 @@ class Remedy:
     place.
 
     Attributes:
-        member: The Session member that answers the refusal.
+        member: The remedy that answers the refusal, which the Session applies.
         confirm_text: The words that take the remedy, naming what it costs.
         cancel_text: The words that decline it and leave things as they are.
     """
 
-    member: str
+    member: RemedyName
     confirm_text: str
     cancel_text: str
 
@@ -49,149 +107,88 @@ class Refusal(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     read as a crash -- "Background operation failed" over its message, and a
     traceback in the errors log.
 
+    Every reason a refusal carries maps to its ``RefusalCause`` in
+    ``causes``: whether the same request could succeed later with the
+    caller changing nothing.
+
     Attributes:
         title: The heading the person reads above the message.
         remedy: The action that answers this refusal, when one exists; the
             reporter then shows the refusal as an offer to take it. Set per
             instance: one reason of a refusal type can have a remedy that its
             others do not.
-        cause: Whether the same request could succeed later with the caller
-            changing nothing (``RefusalCause``). Every type states it: as
-            ``cause`` when it has one, or as ``causes``, keyed by every
-            reason it carries, when its reasons differ. A type that states
-            neither is refused at import.
     """
 
     title: str
     remedy: Remedy | None = None
-    causes: ClassVar[dict[str, 'RefusalCause']]
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        _require_a_cause(cls, Refusal, ('cause', 'causes'))
-
-    @property
-    def cause(self) -> 'RefusalCause':
-        """Whether the same request could succeed later, read from this type's ``causes`` by reason.
-
-        A type with one cause states ``cause`` in its body, which shadows
-        this read.
-        """
-        return self.causes[self.reason]
-
-    @classmethod
-    def _declared(cls, reason: str) -> str:
-        """``reason``, once this type's ``causes`` is shown to hold it.
-
-        A type that mixes causes calls it where it sets ``reason``, so a
-        refusal with a reason no cause answers fails where it is raised,
-        never at a later read of ``cause``.
-
-        Raises:
-            TypeError: ``causes`` has no row for ``reason``.
-        """
-        if reason not in cls.causes:
-            raise TypeError(f'{cls.__name__} declares no cause for the reason {reason!r}')
-        return reason
-
-
-class RefusalCause(StrEnum):
-    """Whether a refused request could succeed later with the caller changing nothing.
-
-    Declared on the refusal's type, per reason where one type mixes them, so
-    a server answers from the declaration (REST: 422 for ``REQUEST``, 409 for
-    ``STATE``) and never from the exception's base: a ``ValueError`` can be
-    refused for the scope's state, as a live folder on an unplugged drive is.
-    A string enum, so the value crosses a wire as itself.
-
-    Attributes:
-        REQUEST: As sent, the request cannot succeed on this scope: a bad
-            argument, a value outside a fixed rule or this hardware's range,
-            hardware this scope does not have, a handle that no longer names
-            anything live. The caller changes the request.
-        STATE: The scope's state refused it -- a run is live, an axis is not
-            homed, a drive is unplugged -- and the same request may succeed
-            later.
-    """
-
-    REQUEST = 'request'
-    STATE = 'state'
-
-
-def _require_a_cause(cls: type, mixin: type, names: tuple[str, ...]) -> None:
-    """Refuse, at import, an outcome type that declares no cause.
-
-    A class's own body is read (``vars``), not what it can reach, since the
-    base's ``cause`` read makes every refusal answer ``hasattr``. A cause
-    inherited from a class between ``cls`` and ``mixin`` counts.
-
-    Raises:
-        TypeError: no class from ``cls`` up to ``mixin`` states one of
-            ``names``.
-    """
-    below = cls.__mro__[: cls.__mro__.index(mixin)]
-    if not any(name in vars(c) for c in below for name in names):
-        raise TypeError(
-            f'{cls.__name__} declares no cause: state {" or ".join(names)} in its body '
-            f'(cause = RefusalCause.REQUEST or RefusalCause.STATE)'
-        )
-
-
-class RemedyUnknownError(Refusal, ValueError):
-    """A remedy was asked for by a name the Session does not offer.
-
-    A remedy names a Session member, and a name arrives as data -- from a
-    REST caller, or from a refusal built by another layer -- so only the
-    members the Session lists are reachable through it.
-
-    Attributes:
-        reason: ``'remedy_unknown'``.
-        member: The name that was asked for.
-    """
-
-    cause = RefusalCause.REQUEST
-    title = 'Unknown Remedy'
-
-    def __init__(self, member: str, offered: Iterable[str]):
-        super().__init__(
-            f"'{member}' is not an action the microscope offers as a remedy. "
-            f'The remedies are: {", ".join(sorted(offered))}.'
-        )
-        self.reason = 'remedy_unknown'
-        self.member = member
+    _needs_cause = True
 
 
 class LiveFolderPathRefusedError(Refusal, ValueError):
-    """A wire caller's path was refused: it does not name a place inside the live folder.
+    """A path the caller gave was refused: it cannot be used as the member uses it.
 
-    Raised by ``ScopeSession.live_folder_path``. A REST caller names a file
-    or folder by a name under the live folder, the one folder it may reach;
-    a name that is a path of its own, or that climbs out, reaches the rest
-    of the machine.
+    Raised by ``ScopeSession.live_folder_path`` for a wire caller's name,
+    which may reach only the live folder: a name that is a path of its own,
+    or that climbs out, reaches the rest of the machine. Raised by the
+    ``path_utils`` checks for any caller's path that is missing or of the
+    wrong kind, before the member reads or writes it.
 
     Attributes:
         reason: ``'outside_live_folder'`` -- the name is empty, absolute,
             carries a drive or a network share, or leads outside the live
             folder through ``..`` or a link. ``'capture_location_unusable'``
             -- the live folder itself is missing or not a folder.
-            ``'not_a_folder'`` -- a listing's name is a file or names
-            nothing.
-        name: The name that was given.
+            ``'path_not_found'`` -- nothing is at the path. ``'not_a_file'`` --
+            a folder is where a file is expected. ``'not_a_folder'`` -- a
+            file is where a folder is expected. ``'wrong_extension'`` -- a
+            file to write is named without its kind's extension (a
+            protocol's ``.tsv``); the name given is the name written, so
+            nothing adds it. ``'file_exists'`` -- a file to create is
+            already there; an upload never replaces a file.
+        name: The name or path that was given.
     """
 
     title = 'Path Not Available'
-    # A missing live folder is an unplugged drive, which comes back; a name
-    # that is a file, or names nothing, is listed again unchanged, so a
-    # polling client must not wait on it.
+    # A missing live folder is an unplugged drive, which comes back; a path
+    # that is missing or of the wrong kind is answered again unchanged, so a
+    # polling client must not wait on it. A file already there is answered
+    # again unchanged too: an upload never replaces one, so the caller gives
+    # a new name.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'outside_live_folder': RefusalCause.REQUEST,
         'capture_location_unusable': RefusalCause.STATE,
+        'path_not_found': RefusalCause.REQUEST,
+        'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
+        'wrong_extension': RefusalCause.REQUEST,
+        'file_exists': RefusalCause.REQUEST,
     }
 
     def __init__(self, reason: str, name: str, message: str):
         super().__init__(message)
-        self.reason = self._declared(reason)
+        self.reason = reason
+        self.name = name
+
+
+class LiveFolderFileNotWrittenError(Fault, Exception):
+    """A file put into the live folder could not be written.
+
+    Raised by ``ScopeSession.put_live_folder_file``, chained from the
+    ``OSError`` of the write, so the words name the file and the operating
+    system's own reason -- a read-only or full disk, a denied permission.
+    Nothing is left at the name.
+
+    Attributes:
+        name: The name under the live folder the file was to be written at.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'live_folder_file_not_written': None}
+    words_for_person = True
+    title = 'File Not Written'
+
+    def __init__(self, name: str, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(f'{name} was not written to the live folder ({reason}).')
         self.name = name
 
 
@@ -205,17 +202,11 @@ class Quiet(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     type, never to the code that raises or catches it, so every client reads
     the same answer. A message on a quiet exception is written for the log.
 
-    Attributes:
-        cause: Whether the same request could succeed later, stated on the
-            type as a refusal's is, since a quiet outcome answers a caller's
-            request too.
+    Every reason maps to its ``RefusalCause`` in ``causes``, as a refusal's
+    does, since a quiet outcome answers a caller's request too.
     """
 
-    cause: 'RefusalCause'
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        _require_a_cause(cls, Quiet, ('cause',))
+    _needs_cause = True
 
 
 class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
@@ -230,46 +221,17 @@ class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     words, and logged at NOTICE. Its kind belongs to its type, as a
     refusal's does, so every client that hears it reads the same answer.
 
+    A notice that is raised maps its reason to whether the same request
+    could succeed later, as a refusal's does; one that is only reported maps
+    it to None.
+
     Attributes:
         title: The heading the person reads above the message.
-        reason: The machine-readable code a client branches on, since two
-            notices can share a title.
-        cause: For a notice that is raised, whether the same request could
-            succeed later, stated on the type as a refusal's is; None for
-            one that is only reported.
     """
 
     title: str
-    reason: str
     remedy: Remedy | None = None
-    cause: 'RefusalCause | None' = None
-
-
-class _Umbrella(LumascopeError):  # noqa: N818 -- a mixin on the root, not an error
-    """A subject several outcomes share, caught by name and never raised itself.
-
-    ``except ConfigError`` catches every configuration outcome, whatever its
-    kind; a raise of the subject alone would have no kind, reason or title
-    to answer with, so constructing an umbrella itself is refused. Its
-    children -- each a refusal, a notice, a quiet outcome or a fault -- are
-    constructed as before.
-
-    Refused in ``__init__``, not ``__new__``: a ``__new__`` here would hand a
-    ``TimeoutError`` child's arguments to ``OSError``, which reads two of
-    them as an errno and its words in place of the child's message.
-    """
-
-    def __init__(self, *args, **kwargs):
-        self._refuse_if_bare()
-        super().__init__(*args, **kwargs)
-
-    def _refuse_if_bare(self) -> None:
-        """Refuse the umbrella itself; asked first by an umbrella whose words read a child's table."""
-        if _Umbrella in type(self).__bases__:
-            raise TypeError(
-                f'{type(self).__name__} names a subject and is never raised: raise the child '
-                'that says what happened'
-            )
+    _needs_cause = None
 
 
 class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
@@ -279,7 +241,7 @@ class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not
     """
 
     title = 'Exposure at the maximum'
-    reason = 'exposure_at_maximum'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'exposure_at_maximum': None}
 
     def __init__(self, ceiling_ms: float):
         super().__init__(
@@ -296,7 +258,7 @@ class ExposureAtMinimumNotice(Notice, Exception):  # noqa: N818 -- a notice, not
     """
 
     title = 'Exposure at the minimum'
-    reason = 'exposure_at_minimum'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'exposure_at_minimum': None}
 
     def __init__(self, exposure_ms: float, floor_ms: float):
         super().__init__(
@@ -310,7 +272,7 @@ class CapturePositionNotRecordedNotice(Notice, Exception):  # noqa: N818 -- a no
     """A still was saved, without its well or position, because X or Y is unknown."""
 
     title = 'Position Not Recorded'
-    reason = 'position_not_recorded'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'position_not_recorded': None}
 
     def __init__(self):
         super().__init__(
@@ -330,8 +292,9 @@ class RecordingPositionNotRecordedNotice(Notice, Exception):  # noqa: N818 -- a 
         has_plate: Whether a plate frame exists to record X and Y in.
     """
 
-    title = 'Position Not Recorded'
-    reason = 'position_not_recorded'
+    title = CapturePositionNotRecordedNotice.title
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'position_not_recorded': None}
+    same_fact_as = (CapturePositionNotRecordedNotice,)
 
     def __init__(self, *, unknown_axes: list[str], has_plate: bool):
         sentences = []
@@ -357,7 +320,7 @@ class DuplicateCaptureFilenamesNotice(Notice, Exception):  # noqa: N818 -- a not
     """
 
     title = 'Duplicate filenames in protocol'
-    reason = 'duplicate_capture_filenames'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'duplicate_capture_filenames': None}
 
     def __init__(self, *, colliding_steps: int, shared_names: int):
         super().__init__(
@@ -377,7 +340,7 @@ class ProtocolStepsInvalidNotice(Notice, Exception):  # noqa: N818 -- a notice, 
     """
 
     title = 'Protocol has steps that cannot run'
-    reason = 'protocol_steps_invalid'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'protocol_steps_invalid': None}
 
     def __init__(self, *, errors: list[str]):
         super().__init__(
@@ -390,7 +353,7 @@ class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an
     """A run spent long enough waiting on the save disk to say so at its end."""
 
     title = 'Very Slow File Writes'
-    reason = 'slow_file_writes'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'slow_file_writes': None}
 
     def __init__(self):
         super().__init__(
@@ -399,16 +362,50 @@ class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an
         )
 
 
+class RecordingSavedLateNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A recording kept every frame, and saving them finished long after it ended.
+
+    Told once saving has finished, never during a recording: the notice is a
+    pop-up, which would take the person's next tap, Stop included. The
+    raiser passes the facts; the words are the type's.
+    """
+
+    title = 'Recording Saved Slowly'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_saved_late': None}
+
+    def __init__(self, *, save_wait_s: float, as_frames: bool, protocol_run: bool):
+        waited = (
+            f'The run waited {save_wait_s:.0f} s at its end for its videos to finish saving'
+            if protocol_run
+            else f'Saving finished {save_wait_s:.0f} s after the recording ended'
+        )
+        if as_frames:
+            because = (
+                'this computer saves video frames as files more slowly than the recording '
+                'keeps them. Recording to MP4, or a lower Recording max FPS in Advanced '
+                'Settings, avoids the wait.'
+            )
+        else:
+            because = (
+                'this computer saves video more slowly than the recording keeps it. A lower '
+                'Recording max FPS in Advanced Settings avoids the wait.'
+            )
+        super().__init__(f'Every frame was kept. {waited}, because {because}')
+
+
 class SingleScanNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """A timed run will perform one scan, because of its period and duration."""
 
     title = 'Single Scan'
-    reason = 'single_scan'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'single_scan': None}
 
-    def __init__(self, *, period, duration):
-        if period.total_seconds() == 0:
+    def __init__(self, *, period_s: float, duration_s: float):
+        if period_s == 0:
             because = 'the capture period is 0'
         else:
+            # Shown as H:MM:SS, as a person reads a schedule.
+            duration = datetime.timedelta(seconds=duration_s)
+            period = datetime.timedelta(seconds=period_s)
             because = f'the duration ({duration}) is shorter than the capture period ({period})'
         super().__init__(f'This run performs a single scan because {because}.')
 
@@ -417,7 +414,7 @@ class HyperstacksSavingNotice(Notice, Exception):  # noqa: N818 -- a notice, not
     """A run's hyperstacks are being built, which can take minutes."""
 
     title = 'Saving Hyperstacks'
-    reason = 'hyperstacks_saving'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'hyperstacks_saving': None}
 
     def __init__(self):
         super().__init__(
@@ -430,7 +427,7 @@ class HyperstacksSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
     """A run's hyperstacks were built: how many and where, or what was degraded."""
 
     title = 'Hyperstacks Saved'
-    reason = 'hyperstacks_saved'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'hyperstacks_saved': None}
 
     def __init__(self, result: dict):
         if result.get('degraded'):
@@ -451,7 +448,7 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     """
 
     title = 'No hardware detected'
-    reason = 'no_hardware'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'no_hardware': None}
 
     def __init__(self):
         super().__init__(
@@ -471,7 +468,7 @@ class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice,
     """
 
     title = 'Cell-count scale'
-    reason = 'cell_count_scale_dropped'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'cell_count_scale_dropped': None}
 
     def __init__(self, path):
         super().__init__(
@@ -491,7 +488,7 @@ class ScopeModelDeferredNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     """
 
     title = 'Scope model saved'
-    reason = 'scope_model_deferred'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'scope_model_deferred': None}
 
     def __init__(self, model: str):
         super().__init__(
@@ -511,12 +508,34 @@ class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     """
 
     title = 'Saved binning not supported'
-    reason = 'binning_substituted'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'binning_substituted': None}
 
     def __init__(self, saved: int, used: int):
         super().__init__(
             f'The saved {saved}x{saved} binning is not supported by this camera; it '
             f'runs at {used}x{used}, which is now the saved binning.'
+        )
+
+
+class CameraConfigNotAppliedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The camera came up without some of its connect-time configuration.
+
+    Each step of the configuration is tried whatever an earlier one did, so
+    the camera runs with the rest applied; the ones it did not take are
+    named, the image orientation among them when it is one.
+
+    Attributes:
+        not_applied: The configuration steps the camera did not take, by name.
+    """
+
+    title = 'Camera configuration incomplete'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_config_not_applied': None}
+
+    def __init__(self, not_applied: tuple[str, ...]):
+        self.not_applied = tuple(not_applied)
+        super().__init__(
+            f'The camera came up without {", ".join(self.not_applied)}; the rest of its '
+            f'configuration was applied. Reconnect the camera, then restart LumaViewPro.'
         )
 
 
@@ -528,13 +547,92 @@ class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an 
     """
 
     title = 'Saved frame too large'
-    reason = 'frame_refitted'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'frame_refitted': None}
 
     def __init__(self, saved: tuple[int, int], used: tuple[int, int], binning_size: int):
         super().__init__(
             f'The saved {saved[0]}x{saved[1]} frame is larger than this scope delivers at '
             f'{binning_size}x{binning_size} binning; it runs at {used[0]}x{used[1]}, which is '
             'now the saved frame.'
+        )
+
+
+class CameraFeatureAbsentNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A camera feature saved on that this camera does not have; it is now saved off.
+
+    A camera without high conversion gain or line-noise reduction is at its
+    standard setting, which is known, so that setting is stored in the saved
+    value's place, as a substituted binning is.
+
+    Attributes:
+        feature: The feature, in words (``'high conversion gain'``).
+    """
+
+    title = 'Saved camera feature not available'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_feature_absent': None}
+
+    def __init__(self, feature: str):
+        self.feature = feature
+        super().__init__(
+            f'The saved settings turn on {feature}, which this camera does not have; it '
+            'runs without it, which is now the saved setting.'
+        )
+
+
+class ChannelBlockSupersededNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The motor board carries the old Layers block, which is no longer read.
+
+    The unit's channels and filterset are its model's. A board's own channels
+    are its ``Channels`` block, beside its ``Filterset``.
+    """
+
+    title = 'Board channel block not read'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_block_superseded': None}
+
+    def __init__(self, model: str | None):
+        source = f"the {model} model's" if model else "its model's"
+        super().__init__(
+            "This unit's motor board describes its channels in the old Layers block, which "
+            f'this LumaViewPro no longer reads; the scope uses {source} channels and filterset.'
+        )
+
+
+class ChannelBlockUnusableNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The motor board's Channels block cannot be used, so the scope has no channels.
+
+    The block describes one filter assembly, so a block that contradicts
+    itself is not read in part: no row can be trusted over another.
+    """
+
+    title = 'Board channel block unusable'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_block_unusable': None}
+
+    def __init__(self, why: str):
+        super().__init__(
+            f"This unit's motor board describes its channels in a block LumaViewPro cannot use "
+            f"({why}), so the scope has no channels. Correct the board's motorconfig.json."
+        )
+
+
+class ChannelRowsSkippedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Rows of the motor board's Channels block that could not be read; the rest are the scope's.
+
+    One notice names every skipped row, as one load's replaced settings are
+    one notice.
+
+    Attributes:
+        skipped: Each skipped row's key and why it was not read.
+    """
+
+    title = 'Board channels not read'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_rows_skipped': None}
+
+    def __init__(self, skipped: dict[str, str]):
+        self.skipped = dict(skipped)
+        rows = '; '.join(f'{key}: {why}' for key, why in self.skipped.items())
+        super().__init__(
+            "This unit's motor board names channels LumaViewPro cannot read, so the scope "
+            f'runs without them: {rows}.'
         )
 
 
@@ -553,7 +651,7 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
     """
 
     title = 'Saved settings replaced'
-    reason = 'stored_setting_replaced'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'stored_setting_replaced': None}
 
     def __init__(self, replacements: list[tuple[str, object, object]]):
         listed = '; '.join(f'{path} {saved!r} -> {used!r}' for path, saved, used in replacements)
@@ -579,7 +677,7 @@ class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     """
 
     title = "Saved layer settings above the camera's range"
-    reason = 'layer_setting_capped'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'layer_setting_capped': None}
 
     def __init__(self, capped: list[tuple[str, str, float, float]]):
         listed = '; '.join(
@@ -591,6 +689,45 @@ class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             f"camera's limit; the saved value is kept for a camera that can: {listed}."
         )
         self.capped = capped
+
+
+class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The session's accepted settings writes are kept in memory, not saved.
+
+    Told once per session and reason, at the first save the session
+    withholds: the write itself was accepted and is in effect, so nothing
+    was refused, but a person who expects it at the next start must hear
+    that it will not be there.
+
+    Attributes:
+        reason: ``'settings_provisional'`` -- the app is running on the
+            shipped template because the user's file could not be read, and
+            that file is left as it is until they decide. ``'settings_unmeasured'``
+            -- no hardware came up this session, so the per-channel values
+            are defaults, not values measured on this scope.
+        file: The file the writes would have been saved to.
+    """
+
+    title = 'Settings not saved'
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'settings_provisional': (
+            'Settings changes are kept for this session only, not saved to {file}: '
+            'LumaViewPro is running on its default settings because that file could '
+            'not be read, and it is left as it is until you decide what to do with it.'
+        ),
+        'settings_unmeasured': (
+            'Settings changes are kept for this session only, not saved to {file}: no '
+            'microscope was connected this session, so the per-channel values are '
+            'defaults, not values measured on this scope.'
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES)
+
+    def __init__(self, reason: str, file: str):
+        super().__init__(self._SENTENCES[reason].format(file=file))
+        self.reason = reason
+        self.file = file
 
 
 class ProtocolError(_Umbrella, Exception):
@@ -616,6 +753,8 @@ class ProtocolNotLoadedError(Fault, ProtocolError):
         file: The path that could not be read.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'protocol_not_loaded': None}
+
     title = 'Protocol Not Loaded'
 
     def __init__(self, file, cause: OSError):
@@ -636,6 +775,8 @@ class ProtocolNotSavedError(Fault, ProtocolError):
     Attributes:
         file: The path the protocol was to be written to.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'protocol_not_saved': None}
 
     title = 'Protocol Not Saved'
 
@@ -662,8 +803,7 @@ class FocusNotWrittenError(Refusal, ProtocolError):
         difference: What no longer matches, in the words the person reads.
     """
 
-    cause = RefusalCause.STATE
-    reason = 'focus_not_written'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'focus_not_written': RefusalCause.STATE}
     title = 'Focus Not Saved'
 
     def __init__(self, difference: str):
@@ -695,7 +835,26 @@ class ConfigurationDefectError(Fault, ConfigError):
     the reason's are written for the person.
 
     Attributes:
-        reason: One of ``_TITLES``' keys.
+        reason: ``'settings_not_prepared'`` -- a capture configuration names
+            an output format this build does not write, so the stored image
+            output format was never judged by the settings' preparation.
+            ``'composite_thresholds_missing'`` -- a composite was asked for
+            without a brightness threshold for every fluorescence layer it
+            blends. ``'composite_threshold_out_of_range'`` -- a composite's
+            brightness threshold is not a number from 0 to 100 percent.
+            ``'capture_config_inconsistent'`` -- a capture configuration's
+            capture depth and save encoding do not match its image mode.
+            ``'tail_id_mode_unknown'`` -- a file name was asked for with a
+            tail id mode the namer does not implement.
+            ``'labware_not_given'`` -- an image's record was written with no
+            labware to state. ``'layers_unresolved'`` -- this scope's layers
+            could not be resolved from its model, so no layer can be acted
+            on. ``'scope_not_composed'`` -- a scope that no session has
+            bound was used for work that reads or saves settings.
+            ``'zstack_reference_unchecked'`` -- a Z-stack's position
+            reference is none of top, center and bottom.
+            ``'route_shadowed'`` -- a Session member has the name of one of
+            the REST server's own routes, so a client could not reach it.
     """
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -704,13 +863,13 @@ class ConfigurationDefectError(Fault, ConfigError):
         'composite_threshold_out_of_range': 'Configuration Fault',
         'capture_config_inconsistent': 'Configuration Fault',
         'tail_id_mode_unknown': 'Configuration Fault',
-        'objective_entry_incomplete': 'Configuration Fault',
         'labware_not_given': 'Configuration Fault',
         'layers_unresolved': 'Scope Model Not Known',
         'scope_not_composed': 'Configuration Fault',
-        'scope_not_initialized': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
+        'route_shadowed': 'Configuration Fault',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
     _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'layers_unresolved'})
 
     def __init__(self, reason: str, message: str):
@@ -738,6 +897,8 @@ class InstallationFileError(Fault, Exception):
         file_path: The file that could not be used.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'installation_file_unusable': None}
+
     words_for_person = True
     title = 'Installation File Unusable'
 
@@ -750,16 +911,41 @@ class InstallationFileError(Fault, Exception):
         self.file_path = file_path
 
 
-class BringUpError(Fault, Exception):
+class ScopeInUseError(Refusal, Exception):
+    """A real scope was asked for while another is driving the microscope.
+
+    Raised by a real scope's construction, before any of its hardware is
+    opened, when another process holds the installation's instance lock --
+    a LumaViewPro, a REST server or a script -- or another real scope in
+    this process holds it: a process drives one real scope. Nothing was
+    opened. Unlike ``BringUpError``'s port notices, which report one part
+    that did not come up beside the rest, this refuses the whole scope.
+
+    Attributes:
+        reason: ``'scope_in_use'``.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'scope_in_use': RefusalCause.STATE}
+    title = 'Microscope In Use'
+
+    def __init__(self):
+        super().__init__(
+            'The microscope was not opened, because another LumaViewPro, REST server '
+            'or script is driving it on this computer. Close that one and try again.'
+        )
+
+
+class BringUpError(_Umbrella, Exception):
     """A part of the scope did not come up as it should have; the rest of the scope runs.
 
     Reported, never raised: bring-up goes on without the part, and the
     person is told once what is missing and what to do about it. The record
     of the bring-up (``ScopeSession.bring_up_record``) keeps the fact for a
-    client that asks later.
+    client that asks later. The subject its children share, each a fault
+    naming what did not come up; never built itself.
 
     Attributes:
-        reason: The machine-readable code a client branches on.
+        reason: The machine-readable code a client branches on, the child's.
     """
 
     words_for_person = True
@@ -770,42 +956,362 @@ class BringUpError(Fault, Exception):
         self.reason = reason
 
 
-class CameraNotAvailableError(BringUpError):
+class CameraNotAvailableError(Fault, BringUpError):
     """The camera did not come up; the heading and the advice follow the cause.
 
     Attributes:
-        reason: ``'camera_in_use'`` (another application holds it),
-            ``'camera_port_in_use'``, ``'camera_not_detected'`` or
-            ``'camera_not_initialized'`` (anything else).
+        reason: ``'port_in_use'`` -- the part was found and its port could
+            not be opened, most often because another program holds it.
+            ``'not_detected'`` -- no driver found the part on USB. These two
+            are the hardware registry's own causes, the LED board's too.
+            ``'camera_driver_unavailable'`` -- no camera was found, and a
+            camera driver did not load on this installation.
+            ``'camera_firmware_missing'`` -- the firmware file a Classic's
+            driver uploads to the camera is not installed.
+            ``'camera_driver_unusable'`` -- Windows has a Classic on no
+            driver, or on one LumaViewPro cannot use.
+            ``'camera_not_initialized'`` -- the camera did not come up for any
+            other hardware cause, among them a camera that was found and could
+            not be opened, one another application holds included.
+            ``'camera_bring_up_failed'`` -- LumaViewPro's own code failed while
+            bringing the camera up; nothing says the camera is at fault.
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
-        'camera_in_use': (
-            'Camera in use',
-            'Camera appears to be open in another application (Pylon Viewer, another '
-            'LVP instance, etc.). Close it and restart LVP.',
-        ),
-        'camera_port_in_use': (
+        'port_in_use': (
             'Camera port in use',
             'Camera port is in use by another program. Close the other program and restart LVP.',
         ),
-        'camera_not_detected': (
+        'not_detected': (
             'Camera not detected',
             'Camera not found. Check USB cable and power.',
+        ),
+        'camera_driver_unavailable': (
+            'Camera not detected',
+            'Camera not found, and a camera driver did not load on this installation '
+            '(the log names it and why). Reinstall LumaViewPro if this scope needs that '
+            'driver; otherwise check USB cable and power.',
+        ),
+        'camera_firmware_missing': (
+            'Camera firmware missing',
+            "The camera's firmware file is missing from this installation. Reinstall LumaViewPro.",
+        ),
+        'camera_driver_unusable': (
+            'Camera driver not usable',
+            'Windows has the camera on no driver, or on one LumaViewPro cannot use.',
         ),
         'camera_not_initialized': (
             'Camera not initialized',
             'Could not connect to the camera. Check USB cable, power, and close other '
             'programs that may hold the camera.',
         ),
+        'camera_bring_up_failed': (
+            'Camera not brought up',
+            'LumaViewPro failed while bringing the camera up. The log has the details; '
+            'restart LumaViewPro, and send a support report if it happens again.',
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
+    same_fact_as = (CameraFirmwareMissingError,)
+
+    # What 'camera_driver_unusable' tells the person to do, by whether the
+    # driver can be installed from here.
+    _UNUSABLE_ANSWER: ClassVar[dict[bool, str]] = {
+        True: (
+            ' Install its driver from here: Windows asks an administrator to approve it, then '
+            'whether to install software from Etaluma. Then restart LumaViewPro.'
+        ),
+        False: (
+            ' This LumaViewPro installation cannot install the Lumascope Classic driver: install '
+            'a LumaViewPro build that carries it, then restart LumaViewPro.'
+        ),
+    }
+
+    def __init__(self, reason: str, *, repairable: bool = False):
+        """Build the notice for ``reason``.
+
+        Args:
+            reason: One of the class's reasons.
+            repairable: Offer Repair (``repair()``) as the answer; only for
+                ``'camera_driver_unusable'``.
+        """
+        if repairable and reason != 'camera_driver_unusable':
+            raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
+        self.title, message = self._WORDS[reason]
+        if reason == 'camera_driver_unusable':
+            message += self._UNUSABLE_ANSWER[repairable]
+        super().__init__(message, reason)
+        self.remedy = self.repair() if repairable else None
+
+    @staticmethod
+    def repair() -> Remedy:
+        """The offer of Repair, on 'camera_driver_unusable' where the Session can take it.
+
+        An installed Windows build that carries the Classic driver package
+        (``fx2_driver_step.repair_refusal``). Built when it is offered, not
+        when this module loads: a ``Remedy`` is judged as it is built, and
+        the judge's refusal is defined in this module.
+        """
+        return Remedy(
+            member=RemedyName.REPAIR_CAMERA_DRIVER,
+            confirm_text='Install the driver (needs an administrator)',
+            cancel_text='Not now',
+        )
+
+
+class CameraDriverRepairRefusedError(Refusal, Exception):
+    """Repair of the Lumascope Classic's driver binding was asked for and cannot run.
+
+    Repair runs the installed driver step as an administrator, so it needs
+    Windows, an installed build that carries the signed package, an
+    administrator who approves the prompt, the person's yes to Windows'
+    question whether to install Etaluma's driver, and a binding that needs it.
+
+    Attributes:
+        reason: ``'repair_needs_windows'`` -- the computer is not Windows,
+            which alone binds a USB device to a driver.
+            ``'repair_needs_installed_build'`` -- LumaViewPro is running from
+            source or from a build in ``dist``, not from an installation.
+            ``'repair_needs_driver_package'`` -- the installation was built
+            without the Classic driver package.
+            ``'no_classic_bindings'`` -- the scope reads no Classic USB
+            device, such as a simulated one without an FX2.
+            ``'repair_declined'`` -- the administrator's prompt was not
+            approved. ``'driver_not_accepted'`` -- Windows did not take the
+            package: installing it was declined at its question, or Windows
+            refused it. ``'driver_already_usable'`` -- a camera is up, or
+            every present device is on a driver LumaViewPro can use.
+    """
+
+    title = 'Camera Driver Not Repaired'
+    # Declined and not accepted are the ones a person can answer by asking
+    # again; the others are answered the same until the host, the build or
+    # the binding changes.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'repair_needs_windows': RefusalCause.REQUEST,
+        'repair_needs_installed_build': RefusalCause.REQUEST,
+        'repair_needs_driver_package': RefusalCause.REQUEST,
+        'no_classic_bindings': RefusalCause.REQUEST,
+        'repair_declined': RefusalCause.STATE,
+        'driver_not_accepted': RefusalCause.STATE,
+        'driver_already_usable': RefusalCause.REQUEST,
+    }
+    _WORDS: ClassVar[dict[str, str]] = {
+        'repair_needs_windows': (
+            "Repairing the camera's driver is for Windows, which binds each USB device to a "
+            'driver; this computer binds none.'
+        ),
+        'repair_needs_installed_build': (
+            "LumaViewPro installs the camera's driver only from an installed build, which carries "
+            "the signed driver package. Install LumaViewPro on the scope's PC with its installer, "
+            'and install the driver from there.'
+        ),
+        'repair_needs_driver_package': (
+            'This LumaViewPro installation does not carry the Lumascope Classic driver (it was '
+            'built without a signing certificate). Install a LumaViewPro build that carries it.'
+        ),
+        'no_classic_bindings': (
+            'This scope reads no Lumascope Classic USB device, so there is no driver to install.'
+        ),
+        'repair_declined': (
+            "Windows asked for an administrator's approval to install the camera's driver, and it "
+            'was not given. Try again and approve it (a standard account needs an '
+            "administrator's password)."
+        ),
+        'driver_not_accepted': (
+            "Windows did not take the camera's driver: installing it was declined at Windows' "
+            "question, or Windows refused the package (the driver step's log, in the logs "
+            'folder of the LumaViewPro installation, says which). Try again to be asked again.'
+        ),
+        'driver_already_usable': (
+            'The camera is up, or its USB devices are already on drivers LumaViewPro can use; '
+            'there is nothing to repair.'
+        ),
     }
 
     def __init__(self, reason: str):
-        self.title, message = self._WORDS[reason]
-        super().__init__(message, reason)
+        self.reason = reason
+        super().__init__(self._WORDS[reason])
 
 
-class LedBoardUnavailableError(BringUpError):
+class CameraDriverRepairFailedError(Fault, Exception):
+    """The driver step Repair ran as an administrator did not bind the camera.
+
+    The step logs every action and every Windows answer, so the words name
+    its log folder.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_driver_repair_failed': None}
+    title = 'Camera Driver Repair Failed'
+
+    words_for_person = True
+
+    def __init__(self, what: str, logs: pathlib.Path):
+        super().__init__(
+            f"The camera's driver was not installed: {what}. The driver step's log is in {logs}. "
+            'Try again, or send that log to Etaluma support.'
+        )
+
+
+# A bind's errno for an address that is not this computer's: POSIX's, and
+# Windows' socket error, which Python raises under its own number.
+_ADDRESS_NOT_HERE = frozenset(
+    {errno.EADDRNOTAVAIL, getattr(errno, 'WSAEADDRNOTAVAIL', errno.EADDRNOTAVAIL)}
+)
+
+
+class RestServerNotStartedError(Fault, Exception):
+    """The REST server was not started: a ``rest_api`` setting cannot be used, or its port could not be taken.
+
+    Raised by ``rest.server.build_server``, through which every host serves,
+    before anything is served. A setting that cannot be used is named with
+    why; a port that could not be taken is chained from the ``OSError`` of
+    the bind, so the words name the address and the operating system's own
+    reason -- another program on the port, or an address that is not this
+    computer's (an unplugged cable withdraws its address). The GUI runs on
+    without a server; the headless server exits.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'rest_server_not_started': None}
+    title = 'REST Server Not Started'
+
+    words_for_person = True
+
+    def __init__(
+        self, address: object, port: object, cause: OSError | tuple[tuple[str, str], ...]
+    ) -> None:
+        if isinstance(cause, OSError):
+            reason = cause.strerror or type(cause).__name__
+            if cause.errno in _ADDRESS_NOT_HERE:
+                advice = (
+                    'rest_api.address must be an address of this computer, on a network that is '
+                    'connected: an unplugged cable withdraws its address. Connect it, or correct '
+                    'the address, and restart LumaViewPro.'
+                )
+            else:
+                advice = 'If another program uses that port, set rest_api.port to a free one.'
+            words = f'The REST server was not started on {address}:{port} ({reason}). {advice}'
+        else:
+            # Each refused setting as its path and why.
+            refused = '; '.join(f'{path}: {why}' for path, why in cause)
+            words = (
+                f'The REST server was not started: its settings cannot be used ({refused}). '
+                'Correct rest_api in the settings file while LumaViewPro is closed.'
+            )
+        super().__init__(words)
+
+
+@api_fields('loc', 'msg', 'type')
+class UnfitArgument(NamedTuple):
+    """One argument of a request that does not fit its member, as the request reader found it."""
+
+    # Where the argument is: ``body``, ``query`` or ``path``, then its name
+    # and, inside it, the key or index.
+    loc: tuple[str | int, ...]
+    # Why it does not fit, in the reader's words.
+    msg: str
+    # The reader's code for why.
+    type: str
+
+
+@api_fields('errors')
+class ServerRefusedError(Refusal, Exception):
+    """A request the REST server itself answers: it never reached a member.
+
+    Raised by ``rest/`` for a request it answers itself: from its request
+    reader, its handle and job stores, its idempotency keys, its live view
+    and its close. What the refusal is lives here; how it is sent -- each
+    reason's status, the ``Retry-After`` header -- is ``rest.problems``'s,
+    read from this record.
+
+    Attributes:
+        reason: The machine-readable code. ``'not_found'`` -- the route, the
+            handle or the job asked for is not there.
+            ``'invalid_request'`` -- the request's arguments do not fit its
+            member. ``'method_not_allowed'`` -- the route does not answer the
+            method it was asked with. ``'unsupported_media_type'`` -- the
+            request's body is not JSON. ``'handle_shared'`` -- the handle
+            asked to be forgotten is one every client shares, and it is kept.
+            ``'overloaded'`` -- the server holds as many handles or jobs as
+            it keeps; asking again later may succeed. ``'server_closing'`` --
+            the server is closing: it finishes what is under way, answers
+            nothing new, and exits. ``'no_frame_yet'`` -- the live view has
+            no frame to show, because the camera sent none in time; asking
+            again later may succeed. ``'not_cancellable'`` -- the job is a
+            call held as a job when it outlived its wait, and holds no
+            operation to stop. ``'idempotency_key_reused'`` -- the
+            ``Idempotency-Key`` was sent before with a different request; a
+            key is sent again only to retry the same request.
+            ``'client_not_allowed'`` -- the scope serves only the clients its
+            ``rest_api.allowed_clients`` names, and the request came from
+            another address.
+        title: The heading, the reason's.
+        errors: For ``'invalid_request'`` from the request reader, each
+            argument that does not fit; None otherwise.
+        retry_after_s: Seconds to wait before asking again, for a refusal
+            that waiting may lift (``'overloaded'``, ``'no_frame_yet'``);
+            None when no wait helps.
+    """
+
+    errors: tuple[UnfitArgument, ...] | None
+    retry_after_s: float | None
+
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'not_found': RefusalCause.REQUEST,
+        'invalid_request': RefusalCause.REQUEST,
+        'method_not_allowed': RefusalCause.REQUEST,
+        'unsupported_media_type': RefusalCause.REQUEST,
+        'handle_shared': RefusalCause.REQUEST,
+        'overloaded': RefusalCause.STATE,
+        'server_closing': RefusalCause.RESTART,
+        'no_frame_yet': RefusalCause.STATE,
+        'not_cancellable': RefusalCause.STATE,
+        'idempotency_key_reused': RefusalCause.REQUEST,
+        'client_not_allowed': RefusalCause.REQUEST,
+    }
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'not_found': 'Not Found',
+        'invalid_request': 'Invalid Request',
+        'method_not_allowed': 'Method Not Allowed',
+        'unsupported_media_type': 'Unsupported Media Type',
+        'handle_shared': 'Handle Shared',
+        'overloaded': 'Overloaded',
+        'server_closing': 'Server Closing',
+        'no_frame_yet': 'No Frame Yet',
+        'not_cancellable': 'Not Cancellable',
+        'idempotency_key_reused': 'Idempotency Key Reused',
+        'client_not_allowed': 'Client Not Allowed',
+    }
+
+    def __init__(
+        self,
+        reason: str,
+        detail: str,
+        *,
+        errors: tuple[UnfitArgument, ...] | None = None,
+        retry_after_s: float | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.reason = reason
+        self.title = self._TITLES[reason]
+        self.errors = errors
+        self.retry_after_s = retry_after_s
+
+
+class CameraDriverRepairedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects at the next start."""
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_driver_repaired': None}
+    title = 'Camera Driver Repaired'
+
+    def __init__(self):
+        super().__init__(
+            "The camera is on LumaViewPro's driver now. Restart LumaViewPro so the camera connects."
+        )
+
+
+class LedBoardUnavailableError(Fault, BringUpError):
     """The LED board did not come up on a scope whose other parts did.
 
     Said once at bring-up rather than once per failed illumination command:
@@ -813,9 +1319,12 @@ class LedBoardUnavailableError(BringUpError):
     controls that appear to do nothing. The advice follows the cause.
 
     Attributes:
-        reason: The registry's fallback cause: ``'not_detected'``,
-            ``'port_in_use'``, ``'not_responding'``, ``'connect_failed'`` or
-            ``'no_driver'``.
+        reason: The hardware registry's cause, ``'not_detected'`` and
+            ``'port_in_use'`` as ``CameraNotAvailableError`` explains them,
+            or: ``'not_responding'`` -- the board's port opened and the board
+            answered nothing. ``'connect_failed'`` -- the board's driver
+            raised while connecting. ``'no_driver'`` -- no real LED board
+            driver is registered on this installation.
     """
 
     title = 'LED Board Unavailable'
@@ -846,12 +1355,59 @@ class LedBoardUnavailableError(BringUpError):
             'this session. Reinstall LumaViewPro.'
         ),
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
+    same_fact_as = (CameraNotAvailableError,)
 
     def __init__(self, reason: str):
         super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
 
 
-class LedSafetyOffNotTakenError(BringUpError):
+class MotorBoardUnavailableError(Fault, BringUpError):
+    """The motor controller did not come up on a scope whose model has one.
+
+    Said once at bring-up, with the advice its cause needs: without it the
+    first symptom is a stage that does not move and a home refused.
+
+    Attributes:
+        reason: The hardware registry's cause, as ``LedBoardUnavailableError``
+            explains them.
+    """
+
+    title = 'Motor Controller Unavailable'
+
+    _ADVICE: ClassVar[dict[str, str]] = {
+        'not_detected': (
+            'The motor controller was not found on USB, so the stage cannot move this '
+            'session. Check the USB cable and 24V power, then restart LumaViewPro.'
+        ),
+        'port_in_use': (
+            'The motor controller was found but its port could not be opened, so the '
+            'stage cannot move this session. Close other programs holding the port (a '
+            'serial monitor, Thonny), then restart LumaViewPro.'
+        ),
+        'not_responding': (
+            'The motor controller did not respond, so the stage cannot move this '
+            'session. Power-cycle the microscope and restart LumaViewPro.'
+        ),
+        'connect_failed': (
+            'Could not connect to the motor controller, so the stage cannot move this '
+            'session. Check the USB cable and 24V power, then restart LumaViewPro.'
+        ),
+        'no_driver': (
+            'No motor controller driver is installed, so the stage cannot move this '
+            'session. Reinstall LumaViewPro.'
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
+    # The registry's causes are one fact for every board; the LED board's
+    # notice carries all five.
+    same_fact_as = (LedBoardUnavailableError,)
+
+    def __init__(self, reason: str):
+        super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
+
+
+class LedSafetyOffNotTakenError(Fault, BringUpError):
     """The LED board connected but did not confirm the LEDs-off sent on connect.
 
     Sample safety: firmware before the confirmation existed can leave channels
@@ -862,6 +1418,7 @@ class LedSafetyOffNotTakenError(BringUpError):
     """
 
     title = 'LED Safety Off Not Confirmed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'safety_off_failed': None}
 
     def __init__(self, detail: str):
         super().__init__(
@@ -869,25 +1426,6 @@ class LedSafetyOffNotTakenError(BringUpError):
             f'({detail}). If the LEDs are stuck on, turn off illumination manually '
             'before placing a sample.',
             'safety_off_failed',
-        )
-
-
-class PartialHardwareError(BringUpError):
-    """Parts this scope's model has did not come up; the rest of the scope runs.
-
-    Attributes:
-        reason: ``'partial_hardware'``.
-        missing: Each missing part with its cause, as ``PartStatus.describe``
-            writes it.
-    """
-
-    title = 'Partial Hardware Detected'
-
-    def __init__(self, missing: Iterable[str]):
-        self.missing = tuple(missing)
-        super().__init__(
-            f'Not connected: {", ".join(self.missing)}. Some features will be unavailable.',
-            'partial_hardware',
         )
 
 
@@ -903,8 +1441,7 @@ class FocusNotSavedError(Refusal, ConfigError):
         layer: The channel asked about.
     """
 
-    cause = RefusalCause.STATE
-    reason = 'focus_not_saved'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'focus_not_saved': RefusalCause.STATE}
     title = 'No Focus Saved'
 
     def __init__(self, layer: str):
@@ -926,23 +1463,30 @@ class ObjectiveUnknownError(Refusal, ConfigError):
     wrong scale into every image it names.
 
     On a scope with no turret it is unknown only before any objective was
-    selected. On any scope it is unknown before bring-up has said whether
-    the scope has a turret, since that decides where the objective comes
-    from.
+    selected.
 
     Attributes:
-        reason: ``'slot_unknown'``, ``'slot_unassigned'``,
-            ``'not_in_catalogue'``, ``'none_selected'`` or
-            ``'turret_undecided'``.
+        reason: ``'slot_unknown'`` -- the turret is in no known slot: it has
+            not been homed or moved since its slot was last lost, or a
+            turret command is still under way. The sentence names the two
+            remedies that work in both: wait for the turret, or home the
+            scope. A turret home or move is not one of them, since the
+            motion gate refuses both while any axis has no known position.
+            ``'slot_unassigned'`` -- the slot in the light path has no
+            objective assigned. ``'not_in_catalogue'`` -- the slot in the
+            light path is assigned an objective that is not in the objective
+            catalogue. ``'none_selected'`` -- no objective has been selected,
+            as on a scope with no turret before its first selection.
         slot: The slot in the light path, or None when that is what is
             unknown.
     """
 
-    cause = RefusalCause.STATE
     title = 'Objective Unknown'
 
     _SENTENCES: ClassVar[dict[str, str]] = {
-        'slot_unknown': ('the turret is in no known slot -- home the turret or move it to a slot'),
+        'slot_unknown': (
+            'the turret is in no known slot -- wait for the turret to stop, or home the scope'
+        ),
         'slot_unassigned': (
             'turret slot {slot} has no objective assigned -- assign the objective installed there'
         ),
@@ -951,11 +1495,8 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             ' -- assign the objective installed there'
         ),
         'none_selected': 'no objective has been selected',
-        'turret_undecided': (
-            'the scope has not been configured, so whether it has a turret is not known'
-            ' -- run initialize() (a ScopeSession does this at bring-up)'
-        ),
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 
     def __init__(self, reason: str, slot: int | None = None):
         super().__init__(
@@ -964,6 +1505,12 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         )
         self.reason = reason
         self.slot = slot
+
+
+def _offered_words(offered: Iterable[object]) -> str:
+    # What a refusal offers, in its words. An empty offer is said, as
+    # "nothing": joined, it left a sentence with a hole where the list goes.
+    return ', '.join(str(o) for o in offered) or 'nothing'
 
 
 @api_fields('argument', 'offered')
@@ -981,8 +1528,10 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
     name is refused every time it is sent.
 
     Attributes:
-        reason: ``'labware_unknown'`` or ``'objective_not_in_catalogue'``.
-        argument: The owner's parameter: ``plate_key`` or ``objective_id``.
+        reason: ``'labware_unknown'`` -- the labware name is no plate in the
+            labware catalogue. ``'objective_not_in_catalogue'`` -- the
+            objective name is no key of the objective catalogue.
+        argument: The owner's parameter: ``labware_id`` or ``objective_id``.
         value: What was given, as given.
         offered: The catalogue's keys.
 
@@ -993,7 +1542,6 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
 
     argument: str
     offered: tuple[str, ...]
-    cause = RefusalCause.REQUEST
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'labware_unknown': (
             'Labware Not Known',
@@ -1006,70 +1554,27 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
             '{value!r} is not one.',
         ),
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS, RefusalCause.REQUEST)
 
     def __init__(self, reason: str, *, argument: str, value: object, offered: tuple[str, ...]):
         if reason not in self._WORDS:
             raise TypeError(f'CatalogueNameRefusedError has no words for the reason {reason!r}')
         self.title, words = self._WORDS[reason]
-        super().__init__(words.format(argument=argument, value=value, offered=', '.join(offered)))
+        super().__init__(
+            words.format(argument=argument, value=value, offered=_offered_words(offered))
+        )
         self.reason = reason
         self.argument = argument
         self.value = value
         self.offered = offered
 
 
-class SettingsSaveRefusedError(Refusal, ConfigError):
-    """A settings save was refused: writing now would destroy real data.
-
-    Raised by ``ScopeSession.save_settings`` instead of silently skipping
-    the write -- a caller that cannot tell a refusal from a success reports
-    success on a write that never happened, which is how a whole session's
-    changes get lost with nothing said.
-
-    A refusal like any other: its message is the sentence a person reads
-    and ``title`` its heading, so whichever caller ends up telling someone
-    tells them the same thing.
-
-    Attributes:
-        reason: Machine-readable refusal code for callers that map refusals
-            to responses. ``'settings_provisional'`` -- the app is running
-            on the shipped template because the user's file could not be
-            read, and that file stays untouched until they decide
-            (``force`` does not override). ``'no_hardware'`` -- no hardware
-            was connected this session, so the in-memory per-channel values
-            are slider defaults, not measurements (``force=True``
-            overrides).
-        file: The destination whose write was refused.
-    """
-
-    cause = RefusalCause.STATE
-    title = 'Settings Not Saved'
-
-    _SENTENCES: ClassVar[dict[str, str]] = {
-        'settings_provisional': (
-            'The settings were not saved to {file}: LumaViewPro is running on its '
-            'default settings because that file could not be read, and it is left '
-            'as it is until you decide what to do with it.'
-        ),
-        'no_hardware': (
-            'The settings were not saved to {file}: no microscope was connected '
-            'this session, so the per-channel values are defaults, not values '
-            'measured on this scope.'
-        ),
-    }
-
-    def __init__(self, reason: str, file: str):
-        super().__init__(self._SENTENCES[reason].format(file=file))
-        self.reason = reason
-        self.file = file
-
-
-@api_fields('path', 'member')
+@api_fields('path', 'member', 'limits')
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
     Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
-    the members that own a ranged setting (``set_layer_acquire``,
+    the members that own a ranged setting (``set_channel_acquire``,
     ``set_image_mode``, through ``settings_paths.refuse_outside_range``) and
     for a settings dict handed to a session, at ``create``'s door
     (``settings_init.prepare_loaded``, through
@@ -1078,32 +1583,71 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'has_member'`` -- the setting is changed by its own
-            Session member, named in ``member``. ``'not_a_setting'`` -- no
+            member, named in ``member`` by its path from the session (the
+            camera's as ``scope.camera.<name>``). ``'host_only'`` -- that
+            member is in-process: only the application hosting the scope
+            changes the setting, and a REST client reads it. ``'not_a_setting'`` -- no
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
             ``'installation_only'`` -- the setting is read only from the
-            installation's settings file. ``'wrong_kind'`` -- the value is
-            not the kind the setting holds.
+            installation's settings file. ``'derived'`` -- the setting is
+            derived from the release when the template is read
+            (``step_channel_order``); a handed dict's differing copy is
+            refused for it too. ``'wrong_kind'`` -- the value is not the kind
+            the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
+            ``'not_offered'`` -- the setting holds a closed set (a
+            ``StrEnum``, such as ``image_mode``'s ``ImageMode``) and the
+            value is not one of its values.
         path: The dotted path that was written.
-        member: The member that changes the setting, for ``'has_member'``;
-            otherwise None.
+        detail: Why, as a clause about the value (``'it must be above 0,
+            not 0'``), for a caller that names the setting its own way: a
+            protocol step's column.
+        member: The member that changes the setting, for ``'has_member'``
+            and ``'host_only'``; otherwise None.
+        limits: The lowest and highest value the setting takes, for an
+            ``'out_of_range'`` setting with both ends; otherwise None.
 
-    ``path`` and ``member`` are published, so a REST problem names the
-    setting refused, and the member to call instead, beside the words.
+    ``path``, ``member`` and ``limits`` are published, so a REST problem
+    names the setting refused, the member to call instead and the range,
+    beside the words.
     """
 
     path: str
     member: str | None
-    cause = RefusalCause.REQUEST
+    limits: tuple[float, float] | None
     title = 'Setting Not Changed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        (
+            'out_of_range',
+            'wrong_kind',
+            'not_offered',
+            'not_a_setting',
+            'block',
+            'has_member',
+            'host_only',
+            'installation_only',
+            'derived',
+        ),
+        RefusalCause.REQUEST,
+    )
 
-    def __init__(self, reason: str, path: str, detail: str, *, member: str | None = None):
+    def __init__(
+        self,
+        reason: str,
+        path: str,
+        detail: str,
+        *,
+        member: str | None = None,
+        limits: tuple[float, float] | None = None,
+    ):
         # A detail may be another refusal's whole sentence, its period included.
         super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
         self.reason = reason
         self.path = path
+        self.detail = detail
         self.member = member
+        self.limits = limits
 
 
 class SettingsFileNotReplacedError(Fault, ConfigError):
@@ -1120,6 +1664,8 @@ class SettingsFileNotReplacedError(Fault, ConfigError):
         file: The settings file that is still in place.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'settings_file_not_replaced': None}
+
     title = 'Settings File Not Replaced'
 
     def __init__(self, file: str, cause: OSError):
@@ -1127,6 +1673,31 @@ class SettingsFileNotReplacedError(Fault, ConfigError):
         super().__init__(
             f'{file} could not be moved aside ({reason}). Close any program that has '
             'it open, then choose again.'
+        )
+        self.file = file
+
+
+class SettingsFileNotWrittenError(Fault, ConfigError):
+    """The session's settings could not be written to its settings file.
+
+    Reported by the session's save, chained from the ``OSError`` of the
+    write, so the words name the file and the operating system's own reason.
+    The write goes beside the file first, so the file already there is
+    unchanged; the next accepted write, and the close, save again.
+
+    Attributes:
+        file: The settings file that was to be written.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'settings_file_not_written': None}
+
+    title = 'Settings File Not Written'
+
+    def __init__(self, file: str, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(
+            f'The settings were not saved to {file} ({reason}). The file already there is '
+            'unchanged; the next settings change saves again.'
         )
         self.file = file
 
@@ -1148,8 +1719,7 @@ class ScopeModelUnknownError(Refusal, ValueError):
         model: The model that was refused.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'model_unknown'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'model_unknown': RefusalCause.REQUEST}
     title = 'Unknown Scope Model'
 
     def __init__(self, model: str, known: Iterable[str]):
@@ -1174,46 +1744,171 @@ class CaptureError(_Umbrella, Exception):
     which raises carry a usable code and which carry a placeholder.
 
     ``title`` is the heading the reporter shows above the message, which is
-    written for the person. It is the type's, so every raise site reads the
-    same; a subclass with its own heading sets its own.
+    written for the person. It is each child's, read from its own table; the
+    subject has none, as it has no kind.
     """
 
     words_for_person = True
-    title = 'Capture Failed'
 
     def __init__(self, message: str, reason: str):
         super().__init__(message)
         self.reason = reason
 
 
+@api_fields('source')
 class CaptureFailedError(Fault, CaptureError):
     """A capture or a recording was attempted and produced nothing.
 
+    Raised by ``capture_still`` and ``get_image`` for a capture that got
+    no frame, and by ``capture_still`` for one whose frame's record could
+    not be read; a camera that is not there is refused instead
+    (``HardwareCommandRefusedError``, ``'not_connected'``).
+
     Attributes:
-        reason: ``'no_frame_returned'`` -- the camera returned no image;
-            ``'recording_not_started'`` -- the camera did not take the
-            recording's frame listener; ``'unknown_save_encoding'`` -- a
-            frame was handed an encoding no writer knows, which the
-            program, not the person, got wrong.
+        reason: One of:
+
+            - ``'no_frame'`` -- the camera delivered no new frame within its
+              grab window, whether the capture was draining, grabbing or
+              waiting for a sum's next frame.
+            - ``'deadline_expired'`` -- the scope's state kept changing for
+              longer than the capture's budget.
+            - ``'chunk_rejected'`` -- frames came, but none was exposed at
+              the ``source`` setting asked.
+            - ``'no_fresh_frame'`` -- frames came, but none within the
+              capture's bound counted for the ``source`` change: each was
+              exposed, by its source's rule, before that change reached it.
+            - ``'record_read_failed'`` -- a frame came, but the camera did
+              not answer a read its record needs (the gain, exposure or
+              black level), so it was not kept; chained from the
+              ``CameraReadFailedError``.
+            - ``'unknown_save_encoding'`` -- a frame was handed an encoding
+              no writer knows, which the program, not the person, got wrong.
+        source: The source the capture failed for: for
+            ``'chunk_rejected'`` the setting no frame matched, ``EXPOSURE``
+            or ``GAIN``; for ``'no_fresh_frame'`` the change no frame came
+            after (``Z_MOVE``, ``LED``); None otherwise.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
-        'no_frame_returned': 'Capture Failed',
-        'recording_not_started': 'Recording Not Started',
-        'unknown_save_encoding': 'Capture Failed',
+    source: 'FrameValiditySource | None'
+
+    # Each source's change as a person says it, in the words of a
+    # ``'no_fresh_frame'`` failure. Keyed by each ``FrameValiditySource``'s
+    # value, which its member finds: importing the set here closes an import
+    # cycle through the camera driver.
+    _CHANGE_WORDS: ClassVar[dict[str, str]] = {
+        'led': 'the LED change',
+        'gain': 'the gain change',
+        'exposure': 'the exposure change',
+        'xy_move': 'the stage move',
+        'z_move': 'the focus move',
+        'turret': 'the turret move',
+        'auto_gain': 'auto gain turning on',
+        'pixel_format': 'the pixel format change',
+        'frame_size': 'the frame size change',
+        'binning': 'the binning change',
+        'black_level': 'the black level change',
+        'conversion_gain_mode': 'the conversion gain mode change',
+        'line_noise_reduction': 'the line noise reduction change',
     }
 
-    def __init__(self, message: str, reason: str):
-        if reason not in self._TITLES:
+    _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'no_frame': (
+            'Capture Failed',
+            'The camera delivered no new frame in time, so nothing was captured. '
+            'Check that the live view is moving; if it has stopped, check the '
+            "camera's USB cable.",
+        ),
+        'deadline_expired': (
+            'Capture Failed',
+            "The microscope's state kept changing for longer than the capture could "
+            'wait, so nothing was captured. Try again once the stage and lights '
+            'have settled.',
+        ),
+        'chunk_rejected': (
+            'Capture Failed',
+            'The camera kept delivering frames that were not exposed at the '
+            '{source} asked for, so none was captured. Try again; if it repeats, '
+            'the camera is holding a different {source} than was set.',
+        ),
+        'no_fresh_frame': (
+            'Capture Failed',
+            'No frame the camera delivered in time was exposed after {change}, '
+            'so nothing was captured. Try again; if it repeats, check that the '
+            'live view is moving.',
+        ),
+        'record_read_failed': (
+            'Capture Failed',
+            'The camera did not answer a read of a setting the frame is saved '
+            'with (its gain, exposure or black level), so nothing was captured. '
+            "Try again; if it repeats, check the camera's USB cable.",
+        ),
+        'unknown_save_encoding': (
+            'Capture Failed',
+            'A frame was handed the save encoding {encoding!r}, which no image '
+            'writer knows, so it was not saved.',
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        source: 'FrameValiditySource | None' = None,
+        encoding: str | None = None,
+    ):
+        if reason not in self._WORDS:
             raise TypeError(f'CaptureFailedError has no reason {reason!r}')
-        super().__init__(message, reason)
-        self.title = self._TITLES[reason]
+        if (source is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
+            raise TypeError(
+                f'a {reason!r} capture failure takes source= exactly when '
+                'chunk_rejected or no_fresh_frame'
+            )
+        if source is not None and source not in self._CHANGE_WORDS:
+            raise TypeError(f'CaptureFailedError has no source {source!r}')
+        if (encoding is None) == (reason == 'unknown_save_encoding'):
+            raise TypeError(
+                f'a {reason!r} capture failure takes encoding= exactly when unknown_save_encoding'
+            )
+        self.title, words = self._WORDS[reason]
+        change = self._CHANGE_WORDS.get(source)
+        super().__init__(words.format(source=source, change=change, encoding=encoding), reason)
+        self.source = source
 
     @property
     def words_for_person(self) -> bool:
         return self.reason != 'unknown_save_encoding'
 
 
+class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
+    """A run's waiting form ran out of its ``timeout_s`` with the run still going: nothing failed.
+
+    Raised by ``ProtocolRunner.run_X``. A ``TimeoutError``, as a caller's own
+    wait expiring always is, and quiet: the run goes on, and ``operation``
+    is the caller's hold on it, to wait on again or to stop. ``TimeoutError``
+    is the last base, so its ``OSError`` constructor never reads the words
+    as an errno.
+
+    Attributes:
+        reason: ``'still_running'``.
+        member: The waiting form that was called.
+        operation: The run's ``Operation``, still running when this was raised.
+    """
+
+    title = 'Run Still Going'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'still_running': RefusalCause.STATE}
+
+    def __init__(self, member: str, timeout_s: float, operation):
+        super().__init__(
+            f'{member}: the run was still going when the wait ran out after {timeout_s:g} s; '
+            "it goes on, held by this error's operation"
+        )
+        self.reason = 'still_running'
+        self.member = member
+        self.operation = operation
+
+
+@api_fields('holder', 'holder_trigger')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -1221,10 +1916,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     (already running, files still writing, empty protocol, validation
     errors, hardware not connected), by the protocols API when a protocol
     or a step names something this scope cannot do, and by the protocol
-    builder for a z-stack asked for with no range. Each of those reports it
-    through the one reporter as it raises, so it has been logged and shown
-    once already; any later report of the same exception is a no-op, and a
-    caller reconciles its own state without telling anyone again.
+    builder for a z-stack asked for with no range. Each of those raises it
+    without reporting it: the boundary the caller sits behind reports it
+    once, so a REST caller is answered and a GUI user is shown it.
 
     Its message is the sentence a person reads, so a headless caller that
     prints it prints what the GUI shows.
@@ -1232,22 +1926,102 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
-        title: The heading shown above the sentence.
+            ``'already_running'`` -- a run already holds the scope.
+            ``'exclusive_activity_running'`` -- another exclusive activity,
+            such as a diagnostic, a home or a run, holds the scope, and the
+            work asked for is not made under it.
+            ``'recording_active'`` -- a video recording is in progress, or
+            a previous one is still finishing.
+            ``'files_writing'`` -- the last run is still writing its files.
+            ``'files_writing_stalled'`` -- the last run's file writer has
+            stopped making progress, and has to be recovered before a new
+            run starts. ``'post_processing_running'`` -- a build is on the
+            post-processing lane, and a capture never overlaps one.
+            ``'autofocus_running'`` -- an autofocus sweep from a run that
+            has ended did not stop, and still occupies the autofocus
+            thread. ``'not_connected'`` -- a part the work needs is not
+            connected, and none reconnects during a session.
+            ``'camera_not_streaming'`` -- the camera is connected and
+            delivers no frames. ``'camera_not_delivering'`` -- the run has
+            a video step and no Recording max FPS, and no delivered rate
+            of the camera's was measured within the run start's wait, so
+            the disk the step will write cannot be sized.
+            ``'position_unknown'`` -- an axis this scope has does not know
+            its position, so the scope has to be homed first. ``'lid_open_before_motion'`` -- the stage's lid is
+            open, so the stage refuses to move.
+            ``'no_acquiring_layer'`` -- no channel, or not the step's, is
+            set to acquire, so there is no step to make.
+            ``'channel_already_in_add'`` -- another step added with this one
+            already takes the channel, and steps added together are one
+            composite with one image per channel.
+            ``'composite_two_transmitted_layers'`` -- a composite run has
+            more than one transmitted channel set to capture.
+            ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
+            and its objective is assigned to two or more.
+            ``'turret_slot_reassigned'`` -- the turret slot a step recorded
+            now holds another objective. ``'step_position_unknown'`` -- a
+            step cannot be added or updated while an axis does not know its
+            position. ``'turret_objectives_unassigned'`` -- the protocol
+            uses an objective no turret slot is assigned.
+            ``'objective_not_mounted'`` -- on a scope with no turret, the
+            protocol names an objective other than the selected one.
+            ``'sequence_name_invalid'`` -- the run's name is a path: it
+            holds a separator or a drive, or is ``..``.
+            ``'empty_protocol'`` -- the protocol has no steps.
+            ``'validation_failed'`` -- the protocol's steps fail the
+            pre-run validation; the message names the errors.
+            ``'composite_needs_two_channels'`` -- a composite run has fewer
+            than two channels set to capture. ``'tiling_unknown'`` -- the
+            tile grid asked for is not one this installation offers.
+            ``'tiling_scale_unknown'`` -- the scope cannot report its pixel
+            size, so a tile grid's spacing is unknown.
+            ``'zstack_not_configured'`` -- a z-stack's range or step size is
+            not greater than zero. ``'already_tiled'`` -- the protocol is
+            tiled already, and a second grid cannot be laid over it.
+            ``'tiles_outside_travel'`` -- tiles of the grid fall outside the
+            stage's travel. ``'zslices_outside_travel'`` -- z-slices of the
+            stack fall outside Z's travel.
+            ``'positions_outside_travel'`` -- steps of the protocol fall
+            outside the stage's travel.
+            ``'camera_setting_out_of_range'`` -- a step's gain or exposure is
+            outside this camera's range. ``'positions_unreachable'`` -- the
+            work needs motion on an axis this scope has no motor for.
+            ``'step_position_missing'`` -- steps have no position on an axis
+            this scope moves, having been recorded on a scope without it.
+            ``'layer_not_on_scope'`` -- steps take or stimulate a layer this
+            scope does not have, or this scope's layers could not be
+            resolved. ``'objectives_require_turret'`` -- the protocol
+            changes objective between steps, and this scope has no turret
+            to change it. ``'objective_not_given'`` -- a protocol with a
+            channel set to acquire was built from a configuration that
+            names no objective. ``'focus_not_given'`` -- a layer has no
+            saved focus, and the configuration names no current Z to image
+            it at. ``'overlap_out_of_range'`` -- the tile overlap is outside
+            0 to 50 percent. ``'values_out_of_range'`` -- layer settings the
+            protocol would store hold values no layer setting takes; the
+            message names each.
+        title: The heading shown above the sentence, the reason's.
         message: The sentence; the same text as the exception's message.
-        holder: What holds the microscope at refusal time
-            ('protocol' or 'recording' for the exclusive-activity claim
-            owner; 'autofocus' for a sweep in flight), or None when the
-            refusal is not holder-shaped (validation, hardware, file
-            drain).
-        holder_trigger: Busy-with-what: the trigger of the run that
-            holds the scope -- for a file-drain refusal the just-
-            finished run's, for an autofocus sweep the run that
-            dispatched it. None when no run is behind the holder -- a
-            recording has no trigger; its kind IS the holder.
+        holder: What holds the microscope at refusal time (the
+            exclusive-activity claim's kind, or ``AUTOFOCUS`` for a sweep
+            in flight), or None when the refusal is not holder-shaped
+            (validation, hardware, file drain).
+        holder_trigger: Who started the run that holds the scope --
+            ``'gui'``, ``'rest'`` or ``'api'``
+            (``modules.caller``); for a file-drain refusal the just-finished
+            run's, for an autofocus sweep the run that dispatched it. None
+            when no run is behind the holder -- a recording's kind IS the
+            holder.
         remedy: The action that answers this refusal, or None. A stalled
             file writer has one (recover it); a writer still making
             progress does not, since its files will land.
+
+    ``holder`` and ``holder_trigger`` are published, so a REST problem
+    carries who holds the scope beside the words.
     """
+
+    holder: Holder | None
+    holder_trigger: Caller | None
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -1256,21 +2030,25 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     causes: ClassVar[dict[str, RefusalCause]] = {
         'already_running': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
+        'recording_active': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
         'files_writing_stalled': RefusalCause.STATE,
+        'post_processing_running': RefusalCause.STATE,
         'autofocus_running': RefusalCause.STATE,
-        'hardware_disconnected': RefusalCause.STATE,
+        'not_connected': RefusalCause.RESTART,
         'camera_not_streaming': RefusalCause.STATE,
+        'camera_not_delivering': RefusalCause.STATE,
         'position_unknown': RefusalCause.STATE,
-        'lid_open': RefusalCause.STATE,
+        'lid_open_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
         'no_acquiring_layer': RefusalCause.STATE,
+        'channel_already_in_add': RefusalCause.REQUEST,
+        'composite_two_transmitted_layers': RefusalCause.REQUEST,
+        'turret_slot_ambiguous': RefusalCause.STATE,
+        'turret_slot_reassigned': RefusalCause.STATE,
         'step_position_unknown': RefusalCause.STATE,
-        'turret_objective_unset': RefusalCause.STATE,
         'turret_objectives_unassigned': RefusalCause.STATE,
         'objective_not_mounted': RefusalCause.STATE,
-        'objective_unknown': RefusalCause.STATE,
-        'run_not_live': RefusalCause.REQUEST,
         'sequence_name_invalid': RefusalCause.REQUEST,
         'empty_protocol': RefusalCause.REQUEST,
         'validation_failed': RefusalCause.REQUEST,
@@ -1285,27 +2063,84 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'positions_outside_travel': RefusalCause.REQUEST,
         'camera_setting_out_of_range': RefusalCause.REQUEST,
         'positions_unreachable': RefusalCause.REQUEST,
+        'step_position_missing': RefusalCause.REQUEST,
         'layer_not_on_scope': RefusalCause.REQUEST,
+        'channel_unknown': RefusalCause.REQUEST,
         'objectives_require_turret': RefusalCause.REQUEST,
         'objective_not_given': RefusalCause.REQUEST,
         'focus_not_given': RefusalCause.REQUEST,
         'overlap_out_of_range': RefusalCause.REQUEST,
+        'values_out_of_range': RefusalCause.REQUEST,
+    }
+    same_fact_as = (
+        LiveFolderPathRefusedError,
+        CatalogueNameRefusedError,
+    )
+
+    # Keyed as ``causes`` is. The three step refusals share one heading: the
+    # step was not saved, whether it was being added or updated.
+    _TITLES: ClassVar[dict[str, str]] = {
+        'already_running': 'Already Running',
+        'exclusive_activity_running': 'Another Activity Running',
+        'recording_active': 'Recording Active',
+        'files_writing': 'Files Still Writing',
+        'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
+        'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
+        'autofocus_running': 'Autofocus Running',
+        'not_connected': 'Hardware Disconnected',
+        'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
+        'camera_not_delivering': 'Camera Not Delivering Frames',
+        'position_unknown': 'Scope Not Homed',
+        'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
+        'capture_location_unusable': 'Save Location Unusable',
+        'no_acquiring_layer': 'No Channel Set to Acquire',
+        'channel_already_in_add': 'Step Not Saved',
+        'composite_two_transmitted_layers': 'One Transmitted Channel',
+        'turret_slot_ambiguous': 'Turret Slot Not Chosen',
+        'turret_slot_reassigned': 'Turret Slot Reassigned',
+        'step_position_unknown': 'Step Not Saved',
+        'turret_objectives_unassigned': 'Turret Configuration Required',
+        'objective_not_mounted': 'Objective Not Mounted',
+        'sequence_name_invalid': 'Run Name Not Valid',
+        'empty_protocol': 'No Steps',
+        'validation_failed': 'Validation failed',
+        'composite_needs_two_channels': 'Not Enough Channels',
+        'tiling_unknown': 'Tiling Not Available',
+        'tiling_scale_unknown': 'Tiling Not Available',
+        'zstack_not_configured': 'Z-Stack Not Configured',
+        'already_tiled': 'Protocol Already Tiled',
+        'objective_not_in_catalogue': CatalogueNameRefusedError._WORDS[
+            'objective_not_in_catalogue'
+        ][0],
+        'tiles_outside_travel': 'Tiles Outside Stage Travel',
+        'zslices_outside_travel': 'Z-Stack Outside Z Travel',
+        'positions_outside_travel': 'Positions Outside Stage Travel',
+        'camera_setting_out_of_range': 'Camera Setting Out of Range',
+        'positions_unreachable': 'Position Not Reachable',
+        'step_position_missing': 'Step Has No Position',
+        'layer_not_on_scope': 'Layer Not on This Scope',
+        'channel_unknown': 'Channel Not Known',
+        'objectives_require_turret': 'One Objective At A Time',
+        'objective_not_given': 'No Objective Given',
+        'focus_not_given': 'No Focus Given',
+        'overlap_out_of_range': 'Tile Overlap Out of Range',
+        'values_out_of_range': 'Protocol Values Out of Range',
     }
 
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
-        holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        *,
+        holder: 'Holder | None' = None,
+        holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
     ):
         super().__init__(message)
-        self.reason = self._declared(reason)
-        self.title = title
+        self.reason = reason
+        self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.remedy = remedy
 
@@ -1314,7 +2149,7 @@ class RunCheckFailedError(Fault, ProtocolError):
     """A run could not be checked before it started: a check itself crashed.
 
     Raised by SequencedCaptureRunner.prepare() when validating the protocol,
-    reading whether the hardware is connected, or reading the stage's
+    reading whether the camera is streaming, or reading the stage's
     interlocks, raised instead of answering. Not a refusal: nothing was
     declined -- the question could not be asked, and the crash that stopped
     it is chained as ``__cause__`` so its traceback is logged with this.
@@ -1323,54 +2158,29 @@ class RunCheckFailedError(Fault, ProtocolError):
     it where its flight ends.
 
     Attributes:
-        reason: Machine-readable cause ('validation_crashed',
-            'hardware_state_unknown').
-        title: Short heading for the user.
+        reason: Machine-readable cause. ``'validation_crashed'`` -- the
+            protocol's pre-run validation raised before it produced an
+            answer. ``'hardware_state_unknown'`` -- a hardware read the
+            check needs, whether the camera is streaming or which of the
+            stage's interlocks are open, raised instead of answering.
+        title: Short heading for the user, the reason's.
         message: The sentence a user reads; the same text as the
             exception's message.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    _TITLES: ClassVar[dict[str, str]] = {
+        'validation_crashed': 'Cannot validate protocol',
+        'hardware_state_unknown': 'Cannot verify hardware state',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+
+    def __init__(self, reason: str, message: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'RunCheckFailedError has no reason {reason!r}')
         super().__init__(message)
         self.reason = reason
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
-
-
-class RunAlreadyEndedError(Quiet, ProtocolError):
-    """A stop named a run that has ended, and no run is live.
-
-    Not a refusal: nothing was refused -- the run ended on its own, and a
-    Stop that arrives after that has nothing to act on. Raised so a script
-    learns its handle is stale; logged, never notified, because the person
-    at the instrument pressed Stop on a run that has already stopped.
-
-    Attributes:
-        reason: ``'run_already_ended'``.
-    """
-
-    # An ended run's handle never names a live run again, so the same stop
-    # can never act: the request's, not the scope's.
-    cause = RefusalCause.REQUEST
-    reason = 'run_already_ended'
-    title = 'Run Already Ended'
-
-
-class RunWaitOnUiThreadError(Fault, ProtocolError):
-    """A run's wait was made on the thread that delivers the run's callbacks.
-
-    Under the GUI a run's ``run_ended`` and ``files_written`` are
-    delivered on the UI thread, and a run's waits return only once they
-    have run, so a wait there would wait on itself. Not a refusal: a caller
-    that blocks the UI thread on a run is a defect in the caller, and the
-    GUI displays a run's end from its callbacks, never by waiting on it.
-    """
-
-    def __init__(self):
-        super().__init__(
-            "A run's wait was made on the thread that delivers the run's callbacks, "
-            'where it would wait on itself.'
-        )
 
 
 class RunStartError(Fault, ProtocolError):
@@ -1384,19 +2194,27 @@ class RunStartError(Fault, ProtocolError):
     and the popup.
 
     Attributes:
-        reason: Machine-readable cause.
-        title: Short heading for the user.
+        reason: Machine-readable cause, a run ending's reason, as
+            ``RunFailedError`` explains it.
+        title: Short heading for the user, the run ending's.
         message: The sentence a user reads -- never a raw exception
             string; those belong in the log.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
+    same_fact_as = (CameraReadFailedError,)
+
+    def __init__(self, reason: str, message: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'RunStartError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
 
 
+@api_fields('holder', 'holder_trigger')
 class RecordingRefusedError(Refusal, CaptureError):
     """A video recording start was refused before any state was committed.
 
@@ -1412,30 +2230,69 @@ class RecordingRefusedError(Refusal, CaptureError):
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
-            refusals to responses (REST status codes, UI branches).
-        title: Short user-facing refusal title.
+            refusals to responses (REST status codes, UI branches). A
+            reason it shares with another refusal is explained there: with
+            ``ProtocolRunRefusedError``, and ``'capture_location_unusable'``
+            and ``'names_exhausted'`` with ``CaptureLocationError``. Its
+            own: ``'camera_exposure_unknown'`` -- the camera has not
+            reported its exposure time, from which the recording's
+            dead-feed bound derives. ``'insufficient_disk'`` -- free disk
+            at the save location is below the floor a recording needs to
+            start. ``'falsifying_change_in_flight'`` -- an objective,
+            camera frame or light change is under way, which a recording
+            would capture through. ``'other_led_lit'`` -- an LED other than
+            the shown layer's is lit, and the recording is named for the
+            shown layer. ``'camera_holds_another_layer'`` -- the camera
+            holds another layer's settings than the shown layer's, which
+            the recording is named for. ``'changes_not_in_force'`` -- a
+            change the scope recorded (a setting, the light, a move) did
+            not come into force within a capture's limit, so the first
+            frame would have been made before it.
+        title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
         holder: The exclusive-activity claim owner at refusal time, or
             None when the refusal is not claim-shaped.
-        holder_trigger: The holding run's run_trigger_source when the
-            holder is 'protocol'; a recording holder has no trigger.
+        holder_trigger: Who started the holding run (``'gui'``,
+            ``'rest'``, ``'api'``) when the holder is 'protocol'; None for
+            a recording holder.
+
+    ``holder`` and ``holder_trigger`` are published.
     """
 
-    cause = RefusalCause.STATE
+    holder: Holder | None
+    holder_trigger: Caller | None
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
+        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+        'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
+        'camera_exposure_unknown': 'Camera Exposure Unavailable',
+        'capture_location_unusable': 'Cannot Save Recording',
+        'names_exhausted': 'Cannot Save Recording',
+        'insufficient_disk': 'Insufficient Disk Space',
+        'falsifying_change_in_flight': 'Microscope Changing',
+        'other_led_lit': 'Another Light Is On',
+        'camera_holds_another_layer': 'Camera On Another Layer',
+        'changes_not_in_force': 'Microscope Not Settled',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
+    same_fact_as = (ProtocolRunRefusedError,)
 
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
-        holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        *,
+        holder: 'Holder | None' = None,
+        holder_trigger: Caller | None = None,
     ):
+        if reason not in self._TITLES:
+            raise TypeError(f'RecordingRefusedError has no reason {reason!r}')
         super().__init__(message, reason)
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
 
 
@@ -1443,30 +2300,83 @@ class HyperstackRefusedError(Fault, CaptureError):
     """The hyperstack builder declined to build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
-    status=False, and by the builder itself when a frame it was given cannot
-    be read or cannot share the stack: the frames are on disk as recorded.
+    status=False, or raises ``InputFramesUnusableError`` because a frame
+    cannot be read or cannot share the stack: the frames are on disk as
+    recorded.
     The builder's own sentence rides in ``message`` so the notification the
     user sees says why, in the builder's words, rather than telling them to
     read a log.
 
     Attributes:
         message: The builder's one-paragraph reason, user-facing.
-        reason: ``'hyperstack_refused'`` -- the builder answered status=False;
+        reason: ``'hyperstack_refused'`` -- the builder answered status=False,
+            or the frames are not all one size;
             ``'unreadable_input_frame'`` -- a frame could not be read;
-            ``'mixed_pixel_types'`` -- frames of different pixel types
+            ``'mixed_input_pixel_types'`` -- frames of different pixel types
             cannot share one stack.
     """
 
     title = 'Hyperstack Not Built'
-    _REASONS: ClassVar[frozenset[str]] = frozenset(
-        {'hyperstack_refused', 'unreadable_input_frame', 'mixed_pixel_types'}
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        ('hyperstack_refused', 'unreadable_input_frame', 'mixed_input_pixel_types')
     )
 
     def __init__(self, message: str, reason: str = 'hyperstack_refused'):
-        if reason not in self._REASONS:
-            raise TypeError(f'HyperstackRefusedError has no reason {reason!r}')
         super().__init__(message, reason)
         self.message = message
+
+
+class InputFramesUnusableError(Refusal, CaptureError, ValueError):
+    """Frames handed to an image operation cannot be used, naming each frame.
+
+    Raised by the image reader for a frame that is missing or will not
+    decode, by the canvas check for frames of different sizes, and by the
+    hyperstack builder for frames whose pixel types cannot share one stack.
+    A post-processing build answers it as the one group's failure and goes
+    on with the others, so a damaged frame costs its group, not the run's
+    other outputs. A ``ValueError``, so a caller that skips a frame it
+    cannot read keeps doing so.
+
+    Attributes:
+        reason: ``'unreadable'`` -- a frame is missing or will not decode;
+            ``'geometry'`` -- the frames are not all one size;
+            ``'mixed_pixel_types'`` -- the frames' pixel types cannot share
+            one output.
+    """
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'unreadable': 'Image Not Readable',
+        'geometry': 'Images Not One Size',
+        'mixed_pixel_types': 'Images Not One Pixel Type',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.REQUEST)
+
+    def __init__(self, message: str, reason: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'InputFramesUnusableError has no reason {reason!r}')
+        super().__init__(message, reason)
+        self.title = self._TITLES[reason]
+
+
+class PostProcessingOperation(StrEnum):
+    """Every post-processing operation, by the name a person reads.
+
+    A post-processing outcome's title is keyed by the operation and its
+    reason, so the operations are a closed set: an operation outside it fails
+    where its outcome is built.
+    """
+
+    COMPOSITE = 'Composite'
+    STITCH = 'Stitch'
+    Z_PROJECTION = 'Z-Projection'
+    VIDEO = 'Video'
+    HYPERSTACK = 'Hyperstack'
+    CELL_COUNT = 'Cell Count'
+    GRAPHING = 'Graphing'
+    TRENDLINE = 'Trendline'
+    QUICK_ENHANCE = 'Quick Enhance'
+    # Several builds in one call (PostProcessingAPI.build), for its own refusals.
+    POST_PROCESSING = 'Post-Processing'
 
 
 class PostProcessingRefusedError(Refusal, CaptureError):
@@ -1478,14 +2388,75 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     data that could not be loaded, or outputs the folder's protocol would
     name outside the folder; or the cell-count method it was
     given cannot be used. The message says which, in words written for the
-    person, and what to do.
+    person, and what to do. Or the scope's state refused it: a build
+    started while something holds the scope or a run's files are still
+    being written would share the process's cores, interpreter lock and
+    disk with that work (``'scope_held'``, ``'files_writing'``), and the
+    same request may succeed once it ends.
 
     Attributes:
         operation: The operation's name as a person reads it ("Stitch").
         reason: Machine-readable refusal code.
+            ``'axis_not_plottable'`` -- a graph's X or Y names a column of
+            the results file that axis cannot take. ``'collision'`` -- every
+            image group would write an output under a name another group's
+            output shares, so nothing could be built.
+            ``'excluded_inputs'`` -- the folder holds only derived outputs,
+            which the build does not take as input. ``'fit_impossible'`` --
+            the graphed values cannot give the trendline asked for.
+            ``'graph_incomplete'`` -- a graph was asked for without a results
+            file, an X axis and a Y axis. ``'invalid_path'`` -- no folder
+            was given to process. ``'invalid_setting'`` -- a setting of the
+            build is not one it can use, such as no build chosen, an image
+            shape or scale that is not one, or a playback rate below 1 frame
+            per second. ``'method_invalid'`` -- the cell-count method holds
+            something the count cannot use. ``'method_unreadable'`` -- the
+            cell-count method file cannot be read, is not JSON, or has no
+            metadata naming its type and version. ``'no_data'`` -- the
+            folder holds images, but not the data this operation needs: no
+            Z-stack for a z-projection, no recording frames for a video,
+            nothing a count could count, or a recording where stills are
+            needed. ``'no_images'`` -- the folder holds no image files.
+            ``'no_scale'`` -- the image states no scale, so it is counted in
+            pixels, and the method filters a size in microns.
+            ``'output_outside_folder'`` -- the folder's protocol names a
+            step whose output would be written outside the folder.
+            ``'protocol_data_unreadable'`` -- the folder's protocol data
+            could not be loaded. ``'results_unreadable'`` -- the cell-count
+            results file cannot be read as one LumaViewPro writes.
+            ``'unsupported_source_format'`` -- the source images are not
+            TIFF or OME-TIFF, which the build re-reads. ``'scope_held'`` --
+            something holds the scope, and a build now would share the
+            computer with its work. ``'files_writing'``, as
+            ``ProtocolRunRefusedError`` explains it, and ``'unreadable'``, as
+            ``InputFramesUnusableError`` explains it, are the same facts.
     """
 
-    cause = RefusalCause.REQUEST
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'axis_not_plottable': RefusalCause.REQUEST,
+        'collision': RefusalCause.REQUEST,
+        'excluded_inputs': RefusalCause.REQUEST,
+        'fit_impossible': RefusalCause.REQUEST,
+        'graph_incomplete': RefusalCause.REQUEST,
+        'invalid_path': RefusalCause.REQUEST,
+        'invalid_setting': RefusalCause.REQUEST,
+        'method_invalid': RefusalCause.REQUEST,
+        'method_unreadable': RefusalCause.REQUEST,
+        'no_data': RefusalCause.REQUEST,
+        'no_images': RefusalCause.REQUEST,
+        'no_scale': RefusalCause.REQUEST,
+        'output_outside_folder': RefusalCause.REQUEST,
+        'protocol_data_unreadable': RefusalCause.REQUEST,
+        'results_unreadable': RefusalCause.REQUEST,
+        'unreadable': RefusalCause.REQUEST,
+        'unsupported_source_format': RefusalCause.REQUEST,
+        'scope_held': RefusalCause.STATE,
+        'files_writing': RefusalCause.STATE,
+    }
+    same_fact_as = (
+        InputFramesUnusableError,
+        ProtocolRunRefusedError,
+    )
 
     # Refused for lack of Z-stack data, a z-projection names the thing the
     # folder is missing and where such a folder lives, rather than leaving
@@ -1496,15 +2467,48 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
     )
 
+    # Each operation's heading and the advice its words end with, and the one
+    # reason that names its own: a z-projection refused for want of Z-stack
+    # data says so, and where such a folder lives. A row carries its own
+    # advice, so a heading added for another reason says only what it names.
+    _WORDS: ClassVar[dict[object, tuple[str, str]]] = {
+        **{operation: (f'{operation} Not Possible', '') for operation in PostProcessingOperation},
+        (PostProcessingOperation.Z_PROJECTION, 'no_data'): (
+            'No Z-Stack Data Found',
+            _NO_ZSTACK_ADVICE,
+        ),
+    }
+
     def __init__(self, *, operation: str, reason: str, message: str):
-        zstack_missing = operation == 'Z-Projection' and reason == 'no_data'
-        if zstack_missing:
-            message = f'{message}{self._NO_ZSTACK_ADVICE}'
-        super().__init__(message, reason)
+        self.reason = reason
+        operation = PostProcessingOperation(operation)
+        key = (operation, reason) if (operation, reason) in self._WORDS else operation
+        self.title, advice = self._WORDS[key]
+        super().__init__(f'{message}{advice}', reason)
         self.operation = operation
-        self.title = 'No Z-Stack Data Found' if zstack_missing else f'{operation} Not Possible'
 
 
+@api_fields('kind', 'count')
+@dataclass(frozen=True)
+class ExcludedInput:
+    """Files of one kind a post-processing build found in the folder and did not take.
+
+    A build's own earlier outputs are not among them: those it has already
+    made.
+
+    Attributes:
+        kind: The build that made the files: ``COMPOSITE``, ``STITCH``,
+            ``Z_PROJECTION``, ``VIDEO`` or ``HYPERSTACK``. A recording's
+            frames, which only a video or a hyperstack takes, are never
+            among them.
+        count: How many.
+    """
+
+    kind: PostProcessingOperation
+    count: int
+
+
+@api_fields('excluded_inputs')
 class PostProcessingFailedError(Fault, CaptureError):
     """A post-processing build did not produce everything it was asked for.
 
@@ -1519,7 +2523,29 @@ class PostProcessingFailedError(Fault, CaptureError):
         produced_paths: Every artifact that was written.
         output_root: The folder the artifacts went under, or None.
         errors: Every failed group's error, in order.
+        excluded_inputs: The files of each kind the build did not take, as
+            a complete build's result names them; empty for an operation
+            that reads no protocol folder (Quick Enhance, a cell count).
+        reason: ``'post_processing_failed'`` -- the build produced nothing.
+            ``'post_processing_incomplete'`` -- the build produced part of
+            what it was asked for, named in ``produced_paths``.
     """
+
+    excluded_inputs: tuple[ExcludedInput, ...]
+
+    _TITLES: ClassVar[dict[tuple[PostProcessingOperation, str], str]] = {
+        (operation, reason): f'{operation} {heading}'
+        for operation in PostProcessingOperation
+        for reason, heading in (
+            ('post_processing_failed', 'Failed'),
+            ('post_processing_incomplete', 'Incomplete'),
+        )
+    }
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'post_processing_failed': None,
+        'post_processing_incomplete': None,
+    }
 
     def __init__(
         self,
@@ -1529,21 +2555,22 @@ class PostProcessingFailedError(Fault, CaptureError):
         produced_paths: Iterable[str] = (),
         output_root: 'str | None' = None,
         errors: Iterable[str] = (),
+        excluded_inputs: 'Iterable[ExcludedInput]' = (),
     ):
         produced_paths = tuple(produced_paths)
         if produced_paths:
             saved = f'{len(produced_paths)} output(s) were saved to {output_root}.'
         else:
             saved = 'Nothing was saved.'
-        super().__init__(
-            f'{missing} {saved} Check the log for the cause.',
-            'post_processing_incomplete' if produced_paths else 'post_processing_failed',
-        )
+        operation = PostProcessingOperation(operation)
+        reason = 'post_processing_incomplete' if produced_paths else 'post_processing_failed'
+        super().__init__(f'{missing} {saved} Check the log for the cause.', reason)
         self.operation = operation
         self.produced_paths = produced_paths
         self.output_root = output_root
         self.errors = tuple(errors)
-        self.title = f'{operation} Incomplete' if produced_paths else f'{operation} Failed'
+        self.excluded_inputs = tuple(excluded_inputs)
+        self.title = self._TITLES[(operation, reason)]
 
 
 class RecordingStoppedError(Fault, CaptureError):
@@ -1555,7 +2582,10 @@ class RecordingStoppedError(Fault, CaptureError):
     frames written so far are on disk.
 
     Attributes:
-        reason: ``camera_disconnected``, ``camera_stalled`` or ``disk_floor``.
+        reason: ``'camera_disconnected'`` -- the camera is no longer active.
+            ``'camera_stalled'`` -- the camera stopped delivering frames for
+            longer than the recording's exposure allows.
+            ``'disk_floor'`` -- free disk fell below the safety floor.
     """
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -1563,6 +2593,7 @@ class RecordingStoppedError(Fault, CaptureError):
         'camera_stalled': 'Recording Stopped',
         'disk_floor': 'Recording Stopped -- Disk Almost Full',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
     _WORDS: ClassVar[dict[str, str]] = {
         'camera_disconnected': (
             'The camera stopped delivering frames, so the recording was stopped. '
@@ -1590,9 +2621,19 @@ class RecordingFinalizeError(Fault, CaptureError):
     are on disk.
 
     Attributes:
+        reason: ``'video_step_finalize_failed'`` -- a protocol video step's
+            output could not be fully assembled.
+            ``'recording_finalize_failed'`` -- a manual recording's output
+            could not be fully assembled.
         protocol_step: True for a protocol video step, False for a manual
             recording; each is named in its own words.
     """
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'video_step_finalize_failed': 'Video Finalize Failed',
+        'recording_finalize_failed': 'Recording Finalize Failed',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
 
     def __init__(self, *, protocol_step: bool):
         if protocol_step:
@@ -1601,47 +2642,87 @@ class RecordingFinalizeError(Fault, CaptureError):
                 'Frames already written are on disk; check the log.'
             )
             reason = 'video_step_finalize_failed'
-            self.title = 'Video Finalize Failed'
         else:
             message = (
                 'The recording finished but its output could not be fully assembled. '
                 'Frames already written are on disk; check the log.'
             )
             reason = 'recording_finalize_failed'
-            self.title = 'Recording Finalize Failed'
         super().__init__(message, reason)
+        self.title = self._TITLES[reason]
         self.protocol_step = protocol_step
 
 
 class VideoFramesDroppedError(Fault, CaptureError):
-    """Frames a recording selected could not be written, so its video is short.
+    """Frames a recording was sent were not saved, so its video is short.
 
-    Each dropped frame is a write that failed; the recording's manifest
-    carries the counts too.
+    A frame is dropped when its write failed, or when it came from the
+    camera without its timestamp in a recording whose times are the
+    camera's, so it was never kept; the recording's manifest carries the
+    counts too.
 
     Attributes:
-        dropped: Frames that could not be written.
+        dropped: Selected frames that could not be written.
         selected: Frames the recording selected.
+        unstamped: Frames that came without the camera's timestamp and were
+            left out.
         protocol_step: True for a protocol video step, False for a manual
             recording.
     """
 
     title = 'Video Frames Dropped'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'video_frames_dropped': None}
 
-    def __init__(self, dropped: int, selected: int, *, protocol_step: bool):
+    def __init__(self, dropped: int, selected: int, *, unstamped: int, protocol_step: bool):
         what = 'in a video step ' if protocol_step else ''
         short = (
             'that video is shorter than its'
             if protocol_step
             else 'the saved video is shorter than the'
         )
+        lost = []
+        if dropped:
+            lost.append(f'{dropped} of {selected} frame(s) {what}could not be written')
+        if unstamped:
+            lost.append(
+                f'{unstamped} frame(s) {what}came from the camera without their timestamps '
+                'and were left out'
+            )
         super().__init__(
-            f'{dropped} of {selected} frame(s) {what}could not be written, so {short} '
-            'recording. Check the log for the cause.',
+            f'{" and ".join(lost)}, so {short} recording. Check the log for the cause.',
             'video_frames_dropped',
         )
         self.dropped = dropped
         self.selected = selected
+        self.unstamped = unstamped
+        self.protocol_step = protocol_step
+
+
+class RecordingFramesUnstampedError(Fault, CaptureError):
+    """A recording's frames all came from the camera without their timestamps.
+
+    In a recording whose times are the camera's frame starts, a frame
+    without its tick has no time on that clock and is not kept, so a
+    recording sent only such frames saved none. The camera was delivering:
+    this is not a stalled camera and not an empty feed.
+
+    Attributes:
+        unstamped: Frames the camera sent without their timestamps.
+        protocol_step: True for a protocol video step, False for a manual
+            recording.
+    """
+
+    title = 'Recording Saved No Frames'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'frames_unstamped': None}
+
+    def __init__(self, unstamped: int, *, protocol_step: bool):
+        what = 'the video step' if protocol_step else 'the recording'
+        super().__init__(
+            f'The camera sent {unstamped} frame(s) without their timestamps, so {what} '
+            'saved none. Reconnect the camera before recording again.',
+            'frames_unstamped',
+        )
+        self.unstamped = unstamped
         self.protocol_step = protocol_step
 
 
@@ -1658,7 +2739,9 @@ class VideoWriterFailedError(Fault, CaptureError):
             recording; each is named in its own words.
     """
 
-    title = 'Recording Failed'
+    title = ENDING_TITLES['video_writer_died']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'video_writer_died': None}
+    same_fact_as = (RunStartError,)
 
     def __init__(self, *, protocol_step: bool):
         stopped = (
@@ -1683,6 +2766,7 @@ class RecordingDetailsNotSavedError(Fault, CaptureError):
     """
 
     title = 'Recording details not saved'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_details_not_saved': None}
 
     def __init__(self):
         super().__init__(
@@ -1706,6 +2790,7 @@ class ImageSaveError(Fault, CaptureError):
     """
 
     title = 'Image Save Failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'image_save_failed': None}
 
     def __init__(self, file_loc):
         super().__init__(
@@ -1723,26 +2808,36 @@ class RunFilesNotWrittenError(Fault, CaptureError):
     folder that is still filling or that lost images: the artifact would be
     silently incomplete. Nothing is built.
 
-    Reasons:
-        ``write_batch_timeout``: the run's writes did not finish within the
-            build's bound.
-        ``write_batch_abandoned``: some of the run's writes never ran -- the
-            file writer was recovered, or the app shut down, while they were
-            outstanding.
-        ``write_batch_not_taken``: some of the run's images never reached
-            the file writer -- it was stuck, or had stopped taking work,
-            when they were handed over.
-        ``write_batch_save_failed``: saving some of the run's images failed
-            on disk.
-        ``write_batch_disk_full``: some of the run's images were refused
-            because the save drive was nearly full.
-        ``write_batch_video_unfinished``: a video step's file did not
-            finish.
+    Attributes:
+        reason: ``'write_batch_timeout'`` -- the run's writes did not finish
+            within the build's bound. ``'write_batch_abandoned'`` -- some of
+            the run's writes never ran: the file writer was recovered, or
+            the app shut down, while they were outstanding.
+            ``'write_batch_not_taken'`` -- some of the run's images never
+            reached the file writer: it was stuck, or had stopped taking
+            work, when they were handed over. ``'write_batch_save_failed'``
+            -- saving some of the run's images failed on disk.
+            ``'write_batch_disk_full'`` -- some of the run's images were
+            refused because the save drive was nearly full.
+            ``'write_batch_video_unfinished'`` -- a video step's file did
+            not finish. ``RunImagesNotSavedError`` carries all but the
+            first as the same facts.
     """
 
     title = 'Run Images Not Written'
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        (
+            'write_batch_timeout',
+            'write_batch_abandoned',
+            'write_batch_not_taken',
+            'write_batch_save_failed',
+            'write_batch_disk_full',
+            'write_batch_video_unfinished',
+        )
+    )
 
     def __init__(self, reason: str, *, bound_s: float | None = None):
+        self.reason = reason
         if reason == 'write_batch_timeout':
             message = (
                 f"The run's images did not finish writing within {bound_s:.0f} s, "
@@ -1772,13 +2867,11 @@ class RunFilesNotWrittenError(Fault, CaptureError):
                 'was nearly full, so nothing was built from the incomplete '
                 'folder. Free space on the drive and run again.'
             )
-        elif reason == 'write_batch_video_unfinished':
+        else:
             message = (
                 "A video step's file did not finish, so nothing was built from "
                 'the incomplete folder. Check the log for why the video stopped.'
             )
-        else:
-            raise ValueError(f'unknown reason {reason!r}')
         super().__init__(message, reason)
 
 
@@ -1789,24 +2882,29 @@ class RunImagesNotSavedError(Fault, CaptureError):
     count is known, since a run's images keep landing after it ends.
 
     Attributes:
+        reason: Why images are not on disk, as ``RunFilesNotWrittenError``
+            explains it.
         not_written: Images the run captured that are not on disk.
         written: Images that landed.
     """
 
     title = 'Run Images Not Saved'
+    _WORDS: ClassVar[dict[str, str]] = {
+        'write_batch_abandoned': 'the file writer was recovered or the app shut down',
+        'write_batch_not_taken': 'the file writer was stuck',
+        'write_batch_save_failed': 'saving failed on disk',
+        'write_batch_disk_full': 'the save drive was nearly full',
+        'write_batch_video_unfinished': "a video step's file did not finish",
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
+    same_fact_as = (RunFilesNotWrittenError,)
 
     def __init__(self, *, written: int, not_written: int, reason: str):
-        causes = {
-            'write_batch_abandoned': 'the file writer was recovered or the app shut down',
-            'write_batch_not_taken': 'the file writer was stuck',
-            'write_batch_save_failed': 'saving failed on disk',
-            'write_batch_disk_full': 'the save drive was nearly full',
-            'write_batch_video_unfinished': "a video step's file did not finish",
-        }
+        self.reason = reason
         super().__init__(
             f'{not_written} of the images this run captured '
-            f'{"is" if not_written == 1 else "are"} not on disk ({causes[reason]}); '
-            f'{written} were saved. Check the log for each one.',
+            f'{"is" if not_written == 1 else "are"} not on disk ({self._WORDS[reason]}); '
+            f'{written} were saved.',
             reason,
         )
         self.written = written
@@ -1825,6 +2923,7 @@ class RunCleanupFailedError(Fault, CaptureError):
     """
 
     title = 'Protocol cleanup issues'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'cleanup_failed': None}
 
     def __init__(self, failures: list[tuple[str, str]]):
         lines = '\n'.join(f'  - {step}: {detail}' for step, detail in failures)
@@ -1849,6 +2948,7 @@ class RecordIncompleteError(Fault, CaptureError):
     """
 
     title = 'Protocol Record Incomplete'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'record_incomplete': None}
 
     def __init__(self, *, missing: int, attempted: int, record_name: str):
         super().__init__(
@@ -1861,24 +2961,22 @@ class RecordIncompleteError(Fault, CaptureError):
         self.attempted = attempted
 
 
-class DiskSpaceCriticalError(Fault, CaptureError):
-    """An image was not saved because the save drive is nearly full.
+class RunEndedByStopNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """STOP was pressed while a run was live, so the run ended.
 
-    Raised by the save that refused it, after the run has been stopped and
-    the person told; it is what counts that image as not written.
-
-    Attributes:
-        free_mb: Space left on the drive, in MB.
+    The run's outcome carries it as status ``'aborted'``, reason
+    ``'stage_stopped'``, in these words, and the person is told once when the
+    run ends: the run's owner may not be the one who pressed STOP (a REST
+    client, the GUI's button). The words say what was pressed, which is true
+    whether or not the board took the STOP; a STOP it did not take is
+    reported as that failure, where it was pressed.
     """
 
-    title = 'Disk Space Critical'
+    title = ENDING_TITLES['stage_stopped']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'stage_stopped': None}
 
-    def __init__(self, free_mb: float):
-        super().__init__(
-            f'Only {free_mb:.0f} MB free on the save drive; the image was not saved.',
-            'disk_space_critical',
-        )
-        self.free_mb = free_mb
+    def __init__(self):
+        super().__init__('STOP was pressed, so the run ended.')
 
 
 class RunIncompleteError(Fault, CaptureError):
@@ -1895,7 +2993,9 @@ class RunIncompleteError(Fault, CaptureError):
             order they failed.
     """
 
-    title = 'Run Incomplete'
+    title = ENDING_TITLES['captures_failed']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'captures_failed': None}
+    same_fact_as = (RunStartError,)
     _NAMED_AT_MOST = 5
 
     def __init__(self, *, asked: int, captured: int, failed_steps: list[str]):
@@ -1926,15 +3026,51 @@ class RunFailedError(Fault, CaptureError):
     read the same.
 
     Attributes:
-        title: The ending's heading.
-        reason: The ending's machine-readable cause.
+        title: The ending's heading, its reason's (``ENDING_TITLES``).
+        reason: The ending's machine-readable cause, a run ending's reason;
+            ``RunStartError`` and ``RunFailedToStartError`` carry the same.
+            ``'captures_failed'`` -- the run reached its end without every
+            capture it was asked for. ``'start_failed'`` -- the run's setup
+            raised a fault of no other reason after the run was committed.
+            ``'dispatch_refused'`` -- the run loop was refused when it was
+            dispatched, so it never ran. ``'capture_location_failed'`` --
+            the run's folder could not be made at the capture location.
+            ``'run_dir_init_failed'`` -- the run's folder was made and could
+            not be initialized. ``'camera_lane_stalled'`` -- a camera
+            command did not finish, so the run could not take the camera.
+            ``'camera_read_failed'`` -- the camera's settings could not be
+            read when the run took its snapshot of them.
+            ``'run_loop_crashed'`` -- the run loop raised, or stopped
+            without saying how the run ended.
+            ``'hardware_disconnected'`` -- a part the run needs was found
+            disconnected. ``'consecutive_scan_failures'`` -- the scan failed
+            too many times in a row with the hardware still present.
+            ``'interlock'`` -- the stage's interlock refused a move during a
+            scan. ``'position_lost'`` -- an axis lost its position during a
+            scan, and nothing in a run homes it again.
+            ``'disk_space_critical'`` -- free disk at the save location fell
+            below what the run needs, so the run stopped to save what it
+            has. ``'file_writer_stalled'`` -- saving stopped making progress,
+            so the run stopped before it lost more captures.
+            ``'video_writer_died'`` -- the writer of a video step failed.
+            ``'led_channel_unavailable'`` -- steps of the run take an LED
+            channel this scope does not have, and their captures kept
+            failing. ``'camera_failure'`` -- the camera failed too many steps
+            in a row. ``'autofocus_failed'`` -- a single-autofocus run's
+            autofocus did not find focus. ``'autofocus_not_started'`` -- a
+            single-autofocus run's autofocus was refused before the stage
+            moved, its first window reaching past Z's travel.
     """
 
     fatal = True
 
-    def __init__(self, *, reason: str, title: str, message: str):
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
+    same_fact_as = (RunStartError,)
+
+    def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = title
+        self.title = self._TITLES[reason]
 
 
 class RunFailedToStartError(Fault, CaptureError):
@@ -1944,39 +3080,57 @@ class RunFailedToStartError(Fault, CaptureError):
     unattended mute, so the person who started it sees it.
 
     Attributes:
-        title: The ending's heading.
-        reason: The ending's machine-readable cause.
+        title: The ending's heading, its reason's (``ENDING_TITLES``).
+        reason: The ending's machine-readable cause, as ``RunFailedError``
+            explains it.
     """
 
-    def __init__(self, *, reason: str, title: str, message: str):
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
+    same_fact_as = (RunStartError,)
+
+    def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = title
+        self.title = self._TITLES[reason]
 
 
+@api_fields('run_ending', 'merge_failure')
 class CompositeFailedError(Fault, CaptureError):
     """A run's composite was not merged; the run's own images stand.
 
+    Its reasons are its own: what the run ended with, or what the merge
+    raised, is a field, since each is another vocabulary's string.
+
     Attributes:
-        reason: Why the merge did not happen.
+        reason: ``'run_not_completed'`` -- the run ended before a composite
+            was made. ``'no_run_dir'`` -- the run has no folder to merge
+            from. ``'no_composite_config'`` -- the run carries no composite
+            thresholds. ``'merge_failed'`` -- the merge finished without
+            writing a file. ``'merge_error'`` -- the merge failed.
+        run_ending: The run's ending reason, for ``'run_not_completed'``;
+            otherwise None.
+        merge_failure: The reason of the outcome the merge failed with, for
+            ``'merge_error'`` when it had one; otherwise None.
     """
 
+    run_ending: str | None
+    merge_failure: str | None
     title = 'Composite Failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        ('run_not_completed', 'no_run_dir', 'no_composite_config', 'merge_failed', 'merge_error')
+    )
 
-
-class CompositeWaitExpiredError(CaptureError, Quiet, TimeoutError):
-    """The caller's ``merge_timeout_s`` ran out before the composite settled: nothing failed.
-
-    A ``TimeoutError``, as a caller's own wait expiring always is, and quiet:
-    the run or its merge may still be going. ``TimeoutError`` is the last
-    base, so its ``OSError`` constructor never reads the words and reason as
-    an errno.
-
-    Attributes:
-        reason: ``'merge_timeout'``.
-    """
-
-    title = 'Composite Still Running'
-    cause = RefusalCause.STATE
+    def __init__(
+        self,
+        message: str,
+        reason: str,
+        *,
+        run_ending: str | None = None,
+        merge_failure: str | None = None,
+    ):
+        super().__init__(message, reason)
+        self.run_ending = run_ending
+        self.merge_failure = merge_failure
 
 
 class AutoGainNotSettledError(Fault, CaptureError):
@@ -1987,6 +3141,7 @@ class AutoGainNotSettledError(Fault, CaptureError):
     """
 
     title = 'Auto-gain did not settle'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'auto_gain_not_settled': None}
 
     def __init__(self):
         super().__init__(
@@ -2001,22 +3156,27 @@ class AutofocusFailedError(Fault, CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
-        reason: ``'flat_focus_curve'`` (every score zero or invalid),
-            ``'out_of_travel'`` (a window the sweep reached after it moved
-            the stage reaches past Z's travel; refused before the stage
-            moves there) or
-            ``'unexpected_error'`` (the sweep raised; its cause is chained).
+        reason: ``'flat_focus_curve'`` -- the final pass's curve has no peak:
+            every score zero or invalid, a fit that cannot be made, or a
+            curve with no contrast (every point above half its maximum)
+            whose fit is not concave, peaks outside the measured range, or
+            shifts past twice the step spacing. ``'travel_exhausted'`` -- a
+            window the sweep reached after it moved the stage reaches past
+            Z's travel; refused before the stage moves there.
+            ``'unexpected_error'`` -- the sweep raised; its cause is
+            chained.
     """
 
-    title = 'Autofocus Failed'
+    title = ENDING_TITLES['autofocus_failed']
     _WORDS: ClassVar[dict[str, str]] = {
         'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
-        'out_of_travel': (
+        'travel_exhausted': (
             'Autofocus would search past the end of Z travel -- start it further from the '
             "travel limit, or narrow the objective's autofocus range."
         ),
         'unexpected_error': 'Autofocus stopped on an unexpected error; the log has the details.',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
 
     def __init__(self, reason: str):
         super().__init__(self._WORDS[reason], reason)
@@ -2027,14 +3187,14 @@ class AutofocusOutOfTravelError(Refusal, CaptureError):
 
     The window is centred on where Z stands, so the same autofocus started
     further from the travel limit runs. A window the sweep reaches later,
-    after the stage has moved, is ``AutofocusFailedError('out_of_travel')``.
+    after the stage has moved, is ``AutofocusFailedError('travel_exhausted')``.
 
     Attributes:
         reason: ``'out_of_travel'``.
     """
 
-    cause = RefusalCause.STATE
-    title = 'Autofocus Not Started'
+    title = ENDING_TITLES['autofocus_not_started']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'out_of_travel': RefusalCause.STATE}
 
     def __init__(self):
         super().__init__(
@@ -2045,26 +3205,25 @@ class AutofocusOutOfTravelError(Refusal, CaptureError):
 
 
 class AutofocusZNotRestoredError(Fault, CaptureError):
-    """Autofocus stopped without a result and could not put Z back.
+    """Autofocus stopped without a result and could not put a known Z back.
 
-    What the person must do depends on how the restore failed: a move that
-    faulted has lost Z, and no move is accepted on it until a home; a
-    refused target left Z known, where the sweep parked it.
+    The restore's target was refused, so Z is known, where the sweep parked
+    it. A restore on a lost Z is not this: the fault that lost Z is told
+    where it was found, and the run ends on the lost position.
 
     Attributes:
-        reason: ``'z_position_lost'`` or ``'z_left_at_search_position'``.
+        reason: ``'z_left_at_search_position'``.
     """
 
     title = 'Z Position Not Restored'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'z_left_at_search_position': None}
 
-    def __init__(self, *, z_lost: bool):
-        if z_lost:
-            reason = 'z_position_lost'
-            what = 'The Z position is now unknown -- home the scope before moving it.'
-        else:
-            reason = 'z_left_at_search_position'
-            what = 'Z was left at the last autofocus search position.'
-        super().__init__(f'Could not restore Z position after autofocus stopped. {what}', reason)
+    def __init__(self):
+        super().__init__(
+            'Could not restore Z position after autofocus stopped. '
+            'Z was left at the last autofocus search position.',
+            'z_left_at_search_position',
+        )
 
 
 class RunWriteRefusedError(Refusal, CaptureError):
@@ -2077,19 +3236,22 @@ class RunWriteRefusedError(Refusal, CaptureError):
     says what was not saved. Nothing broke in declining it, and the same
     write into a live run is taken, so its cause is the state.
 
-    Reasons: ``run_ended`` (closed by the run's cleanup),
-    ``writes_abandoned`` (abandoned by a recovery or a shutdown) or
-    ``writer_shut_down`` (the file lane itself no longer takes work).
+    Attributes:
+        reason: ``'run_writes_ended'`` -- the run's cleanup closed its
+            writes. ``'writes_abandoned'`` -- a writer recovery or a
+            shutdown abandoned the run's remaining writes.
+            ``'writer_shut_down'`` -- the file lane itself no longer takes
+            work.
     """
 
-    cause = RefusalCause.STATE
     title = 'Not Saved'
 
     _WHY: ClassVar[dict[str, str]] = {
-        'run_ended': 'the run it belongs to has ended',
+        'run_writes_ended': 'the run it belongs to has ended',
         'writes_abandoned': "the run's remaining writes were given up",
         'writer_shut_down': 'the file writer has shut down',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WHY, RefusalCause.STATE)
 
     def __init__(self, reason: str, what: str):
         super().__init__(f'{what} was not saved: {self._WHY[reason]}.', reason)
@@ -2109,7 +3271,7 @@ class FileWriterNotStuckError(Refusal, Exception):
         pending: The writes still outstanding when asked.
     """
 
-    cause = RefusalCause.STATE
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'file_writer_not_stuck': RefusalCause.STATE}
     title = 'File Writer Not Stuck'
 
     def __init__(self, pending: int):
@@ -2121,30 +3283,33 @@ class FileWriterNotStuckError(Refusal, Exception):
             f'The file writer is not stuck: {state}. Recovery would discard images, '
             'so it is offered only when a write stops making progress.'
         )
-        self.reason = 'file_writer_not_stuck'
         self.pending = pending
 
 
 class CameraStreamStalledError(Fault, CaptureError):
-    """The camera stopped delivering frames while it stayed connected and streaming.
+    """The camera stopped delivering frames while it was not known to be removed.
 
     A camera's link or grab loop can stall without the device being removed:
     it reports itself connected and grabbing, and no frame arrives. Nothing
     is waiting on the stream when that happens, so the imaging API reports it
-    when its stream check sees the frame count stand still for longer than a
-    frame at the current exposure can take.
+    when its stream check sees the frame count stand still for ten times the
+    longest exposure the camera may be using (the sensor's maximum while the
+    exposure is unknown), and never less than 5 s. A pulled cable meets the same
+    check first when its driver reports the removal later than that (the IDS
+    SDK reports it seconds after the pull), so the words never say the camera
+    is still connected.
 
     Attributes:
         seconds: How long no new frame had arrived when the stall was seen.
     """
 
     title = 'Camera Not Delivering Frames'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_stream_stalled': None}
 
     def __init__(self, seconds: float):
         super().__init__(
-            f'The camera has delivered no new frame for {seconds:.0f} s, although it is '
-            'connected and streaming. Check the USB cable and power connections; if '
-            'frames do not resume, restart LumaViewPro.',
+            f'The camera has delivered no new frame for {seconds:.0f} s. Check the USB '
+            'cable and power connections; if frames do not resume, restart LumaViewPro.',
             'camera_stream_stalled',
         )
         self.seconds = seconds
@@ -2162,13 +3327,15 @@ class FileWriterStalledError(Fault, CaptureError):
         remedy: Recovering the file writer, which gives up on the unsaved images.
     """
 
-    title = 'File Writer Stalled'
+    title = ENDING_TITLES['file_writer_stalled']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'file_writer_stalled': None}
+    same_fact_as = (RunStartError,)
 
     def __init__(self, run: str, stuck: str, unsaved: int):
         super().__init__(
             f'{self.stalled_sentence(run, stuck)} Recovering the file writer unlocks '
             f'the app: {self.cost_sentence(unsaved)}',
-            'files_writing_stalled',
+            'file_writer_stalled',
         )
         self.remedy = self.recovery(unsaved)
 
@@ -2189,33 +3356,29 @@ class FileWriterStalledError(Fault, CaptureError):
     def recovery(unsaved: int) -> Remedy:
         """The offer that answers the stall."""
         return Remedy(
-            member='recover_file_writer',
+            member=RemedyName.RECOVER_FILE_WRITER,
             confirm_text=f'Discard {unsaved} unsaved and unlock',
             cancel_text='Keep waiting',
         )
 
 
-class FrameListenerNotRegisteredError(Fault, CaptureError):
-    """The camera driver would not take a frame listener, so it will receive no frames.
+class FileWriterReplacedError(Fault, CaptureError):
+    """The file writer was replaced while this write ran, and nobody waits for it now.
 
-    Raised by ``add_frame_listener`` to whoever registered it -- a plugin, a
-    recording, a script -- because each of them has something to undo or to
-    refuse: a recording that started without its frames records nothing, and
-    a plugin listed as loaded never runs. The driver's error is the cause.
-
-    Attributes:
-        name: The listener's display name.
+    Given to whoever waited on the write that held the file writer when its
+    recovery replaced it. The stuck write may still finish and leave its
+    file; nothing will say when.
     """
 
-    title = 'Frame Listener Not Registered'
+    title = 'File Writer Replaced'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'file_writer_replaced': None}
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, stuck: str):
         super().__init__(
-            f"The camera did not accept the frame listener '{name}', so it will "
-            'receive no frames. Check the log for the camera driver error.',
-            'frame_listener_refused',
+            f'The file writer was replaced while it was writing ({stuck}); that write may '
+            'still finish and leave its file.',
+            'file_writer_replaced',
         )
-        self.name = name
 
 
 class FrameHandlerRemovedError(Refusal, Exception):
@@ -2233,8 +3396,11 @@ class FrameHandlerRemovedError(Refusal, Exception):
             drop count of frames in a row.
     """
 
-    cause = RefusalCause.STATE
     title = 'Plugin Removed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'over_budget': RefusalCause.STATE,
+        'raised': RefusalCause.STATE,
+    }
 
     def __init__(
         self, name: str, reason: str, *, budget_ms: int, drop_k: int, last_ms: float = 0.0
@@ -2257,8 +3423,8 @@ class FrameHandlerRemovedError(Refusal, Exception):
         self.reason = reason
 
 
-class PluginError(Fault, Exception):
-    """A plugin failed: it did not load, or it failed after loading.
+class PluginError(_Umbrella, Exception):
+    """A plugin failed: it did not load, or it failed after loading. The subject, never raised itself.
 
     Nothing raises these: the plugin host catches the plugin's own failure
     and has no caller to raise to, so each is built to be reported, chained
@@ -2267,59 +3433,61 @@ class PluginError(Fault, Exception):
     so its failure is a fault for the person to hear about while the rest
     of the application carries on.
 
-    The title names the plugin, so two plugins failing together are two
-    notices rather than one that hides the other.
-
-    Attributes:
-        plugin_name: The plugin that failed.
+    Each kind's title is its class's; the words name the plugin.
     """
 
     words_for_person = True
 
-    def __init__(self, plugin_name: str, title: str, message: str):
-        super().__init__(message)
-        self.plugin_name = plugin_name
-        self.title = title
 
+class PluginNotLoadedError(Fault, PluginError):
+    """Plugins found at discovery did not load, every one of them in one outcome.
 
-class PluginNotLoadedError(PluginError):
-    """A plugin found in the plugin group did not load.
+    Discovery reports once, when it ends: the reporter merges notices that
+    share a title within its window, so one outcome per plugin would show
+    only the first of several failing together. The host chains every
+    plugin's own exception, as an ``ExceptionGroup``, so the one log record
+    carries each traceback.
 
     Attributes:
-        reason: Why, in words a person can act on.
+        failures: What did not load, each with its name and why, in the
+            order discovery found them.
     """
 
-    def __init__(self, plugin_name: str, reason: str):
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'plugin_not_loaded': None}
+    title = 'Plugin Not Loaded'
+
+    def __init__(self, failures: 'Sequence[PluginNotLoaded]'):
         super().__init__(
-            plugin_name,
-            f'Plugin Not Loaded: {plugin_name}',
-            f'The "{plugin_name}" plugin did not load: {reason}. The rest of '
-            'LumaViewPro is unaffected.',
+            ' '.join(f'The "{f.name}" plugin did not load: {f.reason}.' for f in failures)
+            + ' The rest of LumaViewPro is unaffected.'
         )
-        self.reason = reason
+        self.failures = tuple(failures)
 
 
-class PluginFailedError(PluginError):
+class PluginFailedError(Fault, PluginError):
     """A loaded plugin failed while the host was calling it.
 
     Attributes:
+        plugin_name: The plugin that failed.
         hook: What the host was calling the plugin for.
         detail: The plugin's own account of the failure, when it gave one.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'plugin_failed': None}
+    title = 'Plugin Error'
+
     def __init__(self, plugin_name: str, hook: str, detail: str = ''):
         said = f' It said: {detail}' if detail else ''
         super().__init__(
-            plugin_name,
-            f'Plugin Error: {plugin_name}',
             f'The "{plugin_name}" plugin failed ({hook}), so that action did not '
-            f'complete. The rest of LumaViewPro is unaffected.{said}',
+            f'complete. The rest of LumaViewPro is unaffected.{said}'
         )
+        self.plugin_name = plugin_name
         self.hook = hook
         self.detail = detail
 
 
-class PluginProcessorSkippedError(PluginError):
+class PluginProcessorSkippedError(Fault, PluginError):
     """A run's post-processing by a plugin did not run: the plugin was unloaded first.
 
     The session's close unloads plugins before it waits for the work under
@@ -2333,21 +3501,25 @@ class PluginProcessorSkippedError(PluginError):
         run: The run whose folder was not processed, by its protocol name
             or its folder.
         folder: The run's folder.
+        plugin_name: The plugin whose processing did not run.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'processor_skipped': None}
+    title = 'Post-Processing Skipped'
 
     def __init__(self, plugin_name: str, run: str, folder: str):
         super().__init__(
-            plugin_name,
-            f'Post-Processing Skipped: {plugin_name}',
             f'The "{plugin_name}" plugin did not process the run "{run}": it had been '
             f"unloaded before the run finished, as LumaViewPro's close does first. The "
             f"run's images are all in {folder}; process them with the plugin when it is "
             'next loaded.',
         )
+        self.plugin_name = plugin_name
         self.run = run
         self.folder = folder
 
 
+@api_fields('holder', 'holder_trigger')
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
@@ -2357,20 +3529,26 @@ class HardwareCommandRefusedError(Refusal, Exception):
     raise reaches no hardware and reports success. While a run, a
     diagnostic or a home holds the scope, a lane refuses any task not made under
     the holder's taking with this; so do the run's own executor fences,
-    which cannot say who closed them.
+    which cannot say who closed them. While a control session is held, a
+    lane refuses any task not made for its holder with
+    ``ControlSessionRefusedError``, as a guarded write is refused.
 
     The Session's objective writers (select, slot assign and slot clear)
     raise it too while a run, a diagnostic or a home holds the scope: the run
     stamps the active objective's scale into each capture, so a change
-    mid-run is a command against the run's hardware state.
+    mid-run is a command against the run's hardware state. The Session's
+    scale bar setter (``set_scale_bar``) raises it while a run, a diagnostic,
+    a home or a recording holds the scope, since a run's stills are drawn
+    under the setting it started with.
 
     A motion or LED command for hardware the scope does not have raises it
     too, and ``missing`` names the part: ``'not_connected'`` when the model
     has a motor controller and none is connected, whose remedy is the cable,
     or when no LED controller is connected; ``'axis_absent'`` when the
-    scope does not have the part -- a Z-only scope asked for X, a scope
-    with no turret asked for one, a manual scope asked for any motion, an
-    LS560 asked to light Red, a motor controller without fan control asked
+    scope does not have the motion part -- a Z-only scope asked for X, a
+    scope with no turret asked for one, a manual scope asked for any
+    motion; ``'not_on_this_scope'`` when it does not have another part -- an
+    LS560 asked to light Ex589, a motor controller without fan control asked
     to drive the fan. Nothing was driven. So does a move whose drive needs a
     position the controller did not report (``'position_unread'``): the
     relative base, or Z for the backlash approach. Nothing was driven and
@@ -2378,6 +3556,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
     So does a move or a home the stage's own interlock refused before
     anything moved (``INTERLOCK_REASONS``): the lid is open, or the stage
     has no power; the refused axis is where it was, its position known.
+    A capture asked of a camera that is connected but not streaming is
+    refused ``'camera_not_streaming'``: nothing can deliver its frame.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -2388,68 +3568,127 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
     Attributes:
         reason: Machine-readable refusal code.
+            ``'exclusive_activity_running'``, ``'not_connected'``,
+            ``'camera_not_streaming'`` and ``'lid_open_before_motion'`` are
+            explained by ``ProtocolRunRefusedError``, which carries them as
+            the same fact. ``'capture_in_flight'`` -- an earlier still has
+            not finished. ``'home_in_flight'`` -- another home holds the
+            scope. ``'home_not_stoppable'`` -- a home drives on a motor
+            controller that cannot stop one. ``'scope_disconnected'`` -- the
+            scope's lanes are closed, so it takes no command until the
+            application restarts. ``'monitor_ended'`` -- the motion monitor
+            has ended, so nothing would judge the move.
+            ``'position_unread'`` -- the move's drive needs a position the
+            motor controller did not report: the relative base, or Z for the
+            backlash approach. ``'stage_unpowered_before_motion'`` -- the
+            stage has no power, so its interlock refuses to move it.
+            ``'axis_absent'`` -- the scope does not have the motion part
+            asked for. ``'not_on_this_scope'`` -- the scope does not have
+            another part asked for, such as an LED channel or fan control.
+            ``'activity_ended'`` -- the command was made under an activity
+            that has ended. ``'other_led_lit'`` -- a capture held at a layer
+            would be lit by another LED, which ``RecordingRefusedError``
+            explains as the same fact. ``'channel_not_shown'`` -- a still was
+            asked of a layer other than the shown one.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
+        holder_trigger: The holding run's starter, for a run (``'gui'``,
+            ``'rest'``, ``'api'``); None otherwise.
         missing: The part the command needed and the scope does not have,
-            for ``'not_connected'`` and ``'axis_absent'``; None otherwise.
+            for ``'not_connected'``, ``'axis_absent'`` and
+            ``'not_on_this_scope'``; None otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
+
+    ``holder`` and ``holder_trigger`` are published.
     """
 
+    holder: Holder | None
+    holder_trigger: Caller | None
+
     # A part the scope does not have is never found by asking again, and a
-    # task made under a taking that has ended is never sent under it.
+    # task made under a taking that has ended is never sent under it. A
+    # scope whose lanes are shut, or whose motion monitor has ended, takes
+    # no command again until the application restarts, and nor does a part
+    # that is not connected: nothing reconnects one during a session.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'exclusive_activity_running': RefusalCause.STATE,
         'capture_in_flight': RefusalCause.STATE,
         'home_in_flight': RefusalCause.STATE,
-        'scope_disconnected': RefusalCause.STATE,
+        'home_not_stoppable': RefusalCause.STATE,
+        'scope_disconnected': RefusalCause.RESTART,
+        'monitor_ended': RefusalCause.RESTART,
         'position_unread': RefusalCause.STATE,
-        'lid_open': RefusalCause.STATE,
-        'stage_unpowered': RefusalCause.STATE,
-        'not_connected': RefusalCause.STATE,
+        'lid_open_before_motion': RefusalCause.STATE,
+        'stage_unpowered_before_motion': RefusalCause.STATE,
+        'not_connected': RefusalCause.RESTART,
+        'camera_not_streaming': RefusalCause.STATE,
         'axis_absent': RefusalCause.REQUEST,
+        'not_on_this_scope': RefusalCause.REQUEST,
         'activity_ended': RefusalCause.REQUEST,
+        'other_led_lit': RefusalCause.STATE,
+        'channel_not_shown': RefusalCause.STATE,
+    }
+    same_fact_as = (ProtocolRunRefusedError, RecordingRefusedError)
+
+    # Keyed as ``causes`` is: a refusal for who holds the scope reads as the
+    # microscope being busy; one for the hardware's state names that state.
+    _TITLES: ClassVar[dict[str, str]] = {
+        'activity_ended': 'Microscope Busy',
+        'capture_in_flight': 'Microscope Busy',
+        'exclusive_activity_running': 'Microscope Busy',
+        'home_in_flight': 'Microscope Busy',
+        'home_not_stoppable': 'Microscope Busy',
+        'not_connected': 'Not Connected',
+        'scope_disconnected': 'Not Connected',
+        'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
+        'monitor_ended': 'Motion Monitor Stopped',
+        'axis_absent': 'Not on This Microscope',
+        'not_on_this_scope': 'Not on This Microscope',
+        'position_unread': 'Motor Controller Not Responding',
+        'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
+        'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
+        'other_led_lit': RecordingRefusedError._TITLES['other_led_lit'],
+        'channel_not_shown': 'Another Layer Is Shown',
     }
 
     def __init__(
         self,
         reason: str,
         member: str,
-        holder: str | None = None,
+        holder: Holder | None = None,
         *,
         missing: 'MissingPart | None' = None,
+        holder_trigger: Caller | None = None,
     ):
         if (missing is None) != (reason not in _MISSING_PART_REASONS):
             raise TypeError(f'a {reason!r} refusal takes missing= exactly when it names a part')
         if missing is not None and missing.reason != reason:
             raise TypeError(f'{missing} is refused as {missing.reason!r}, not {reason!r}')
-        super().__init__(
-            missing.sentence if missing is not None else _command_refused_sentence(reason, holder)
-        )
-        self.reason = self._declared(reason)
+        if missing is not None:
+            sentence = missing.sentence
+        else:
+            sentence = _command_refused_sentence(reason, holder)
+        super().__init__(sentence)
+        self.reason = reason
         self.member = member
-        self.holder = holder
+        self.holder = _holder(holder)
+        self.holder_trigger = holder_trigger
         self.missing = missing
-        self.title = _COMMAND_REFUSED_TITLES.get(reason, 'Microscope Busy')
+        self.title = self._TITLES[reason]
 
 
 # The refusals a stage's own interlock raises: the hardware is in a state
-# that does not let it move, and the person's remedy is at the scope.
-INTERLOCK_REASONS = frozenset({'lid_open', 'stage_unpowered'})
+# that does not let it move, and the person's remedy is at the scope. The
+# interlocks' one list names them.
+INTERLOCK_REASONS = frozenset(REFUSED_BEFORE_MOTION.values())
 
 # The refusals that describe the hardware's state rather than who holds the
-# scope. A home refused for one of them is reported where it was asked for,
-# as a missing board is; any other refusal of a home is a caller's defect.
-HARDWARE_STATE_REASONS = frozenset({'not_connected'}) | INTERLOCK_REASONS
-
-_COMMAND_REFUSED_TITLES = {
-    'not_connected': 'Not Connected',
-    'scope_disconnected': 'Not Connected',
-    'axis_absent': 'Not on This Microscope',
-    'position_unread': 'Motor Controller Not Responding',
-    'lid_open': 'Lid Open',
-    'stage_unpowered': 'No Stage Power',
-}
+# scope: no board, a board that did not report a position (the turret home's
+# Z park), an interlock. A home refused for one of them is reported where it
+# was asked for, as a missing board is; any other refusal of a home is a
+# caller's defect.
+HARDWARE_STATE_REASONS = frozenset({'not_connected', 'position_unread'}) | INTERLOCK_REASONS
 
 
 @dataclass(frozen=True)
@@ -2460,13 +3699,16 @@ class MissingPart:
     its own: a controller the model has is not connected, and every other
     part -- a motor, the turret, an LED -- is not on this scope. The motion
     parts, the LED controller and the camera are the class's constants; an LED is named
-    when it is refused (``MissingPart.led``), by layer or by channel number,
-    as the command named it, and a layer by name (``MissingPart.layer``).
+    when it is refused, by the channel's name (``MissingPart.led``) or by its
+    board address (``MissingPart.led_address``) as the command named it, and
+    a layer by name (``MissingPart.layer``).
 
     Attributes:
         name: The part, for the log.
         reason: ``'not_connected'`` for a controller, ``'axis_absent'``
-            otherwise.
+            for a motion part (the motors, an axis, the turret, the XY
+            stage), ``'not_on_this_scope'`` for any other part (a layer, an LED,
+            fan control, LED engineering mode, a controller's text commands).
         sentence: What the person at the scope is told.
     """
 
@@ -2480,10 +3722,12 @@ class MissingPart:
     Y: ClassVar['MissingPart']
     Z: ClassVar['MissingPart']
     TURRET: ClassVar['MissingPart']
+    XY_STAGE: ClassVar['MissingPart']
     LED_CONTROLLER: ClassVar['MissingPart']
     CAMERA: ClassVar['MissingPart']
     FAN_CONTROL: ClassVar['MissingPart']
     LED_ENGINEERING_MODE: ClassVar['MissingPart']
+    TEXT_COMMANDS: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
@@ -2505,46 +3749,68 @@ class MissingPart:
         layer's settings, its focus, a still named for it. Lumi has no LED,
         so "no Lumi LED" would be true and beside the point.
         """
-        return cls(f'{layer} layer', 'axis_absent', f'This microscope has no {layer} layer.')
+        return cls(f'{layer} layer', 'not_on_this_scope', f'This microscope has no {layer} layer.')
 
     @classmethod
-    def led(cls, led: 'str | int') -> 'MissingPart':
-        """The part for an LED this scope's model does not have.
+    def led(cls, channel: str) -> 'MissingPart':
+        """The part for a channel's LED that this scope's model does not have."""
+        return cls(f'{channel} LED', 'not_on_this_scope', f'This microscope has no {channel} LED.')
 
-        Args:
-            led: The layer name the command gave, or the channel number.
-        """
-        if isinstance(led, str):
-            return cls(f'{led} LED', 'axis_absent', f'This microscope has no {led} LED.')
+    @classmethod
+    def led_address(cls, address: int) -> 'MissingPart':
+        """The part for an LED board address no channel of this scope's model drives."""
         return cls(
-            f'LED channel {led}', 'axis_absent', f'This microscope has no LED on channel {led}.'
+            f'LED address {address}',
+            'not_on_this_scope',
+            f'This microscope has no LED at address {address}.',
         )
 
 
+# A part that is not connected stays so until LumaViewPro restarts: nothing
+# reconnects a board or a camera during a session, so each sentence names the
+# restart, as the bring-up words for the same parts do.
 MissingPart.MOTOR_CONTROLLER = MissingPart(
     'motor controller',
     'not_connected',
     'The motor controller is not connected. Check the USB cable and that '
-    'no other program is holding the port.',
+    'no other program is holding the port, then restart LumaViewPro.',
 )
 MissingPart.MOTORS = MissingPart('motors', 'axis_absent', 'This microscope has no motors.')
 MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.')
 MissingPart.Y = MissingPart('Y', 'axis_absent', 'This microscope has no Y motor.')
 MissingPart.Z = MissingPart('Z', 'axis_absent', 'This microscope has no Z motor.')
 MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no turret.')
-MissingPart.LED_CONTROLLER = MissingPart(
-    'LED controller', 'not_connected', 'The LED controller is not connected.'
+MissingPart.XY_STAGE = MissingPart(
+    'XY stage',
+    'axis_absent',
+    'This microscope has no XY stage, so it has one field and no wells to move '
+    'between: its plate is Center Plate.',
 )
-MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
+MissingPart.LED_CONTROLLER = MissingPart(
+    'LED controller',
+    'not_connected',
+    'The LED controller is not connected. Check the USB cable and 24V power, '
+    'then restart LumaViewPro.',
+)
+MissingPart.CAMERA = MissingPart(
+    'camera',
+    'not_connected',
+    'The camera is not connected. Check its cable, then restart LumaViewPro.',
+)
 MissingPart.FAN_CONTROL = MissingPart(
     'fan control',
-    'axis_absent',
+    'not_on_this_scope',
     "This microscope's motor controller does not support fan control.",
 )
 MissingPart.LED_ENGINEERING_MODE = MissingPart(
     'LED engineering mode',
-    'axis_absent',
+    'not_on_this_scope',
     "This microscope's LED controller has no engineering mode.",
+)
+MissingPart.TEXT_COMMANDS = MissingPart(
+    'text commands',
+    'not_on_this_scope',
+    "This microscope's controller takes no text commands.",
 )
 _AXIS_PARTS = {
     'X': MissingPart.X,
@@ -2554,7 +3820,7 @@ _AXIS_PARTS = {
 }
 
 
-_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})
+_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent', 'not_on_this_scope'})
 
 
 _HOLDER_NOUNS = {
@@ -2562,6 +3828,7 @@ _HOLDER_NOUNS = {
     'diagnostic': 'A diagnostic',
     'recording': 'A recording',
     'home': 'A home',
+    'control': 'Remote control',
 }
 
 
@@ -2575,66 +3842,101 @@ def the_activity_named(kind: str | None) -> str:
     return _HOLDER_NOUNS.get(kind, 'Another activity')
 
 
-def _command_refused_sentence(reason: str, holder: str | None) -> str:
+def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
     if reason == 'home_in_flight':
         return 'The microscope is already homing. Wait for the home to finish.'
+    if reason == 'home_not_stoppable':
+        return 'This microscope cannot stop a home; the home runs to its end.'
     if reason == 'activity_ended':
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
+    if reason == 'monitor_ended':
+        return (
+            'The software that watches moves has stopped, so nothing was moved. '
+            'Restart the application.'
+        )
     if reason == 'position_unread':
         return (
             'The motor controller did not report the stage position, so the move '
             'was not sent. Try again; if it repeats, check the USB cable.'
         )
-    if reason == 'lid_open':
+    if reason == 'lid_open_before_motion':
         return "The microscope's lid is open. Close it to move or home the stage."
-    if reason == 'stage_unpowered':
+    if reason == 'stage_unpowered_before_motion':
         return "The stage has no power. Check the stage's power supply, then home."
+    if reason == 'other_led_lit':
+        return (
+            "An LED other than the shown layer's is lit, so nothing was captured. "
+            'Turn it off, or show its layer, then capture.'
+        )
+    if reason == 'channel_not_shown':
+        return 'A still is taken of the shown layer. Show the layer, then capture.'
+    if reason == 'camera_not_streaming':
+        return (
+            'The camera is connected but is not delivering frames, so nothing was '
+            'captured. Start its live feed and try again.'
+        )
     return f'{the_activity_named(holder)} is using the microscope. Try again when it ends.'
 
 
+@api_fields('holder', 'holder_trigger')
 class DiagnosticRefusedError(Refusal, Exception):
     """A diagnostic could not take the scope: another activity holds it.
 
     Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording, a
-    home or another diagnostic already holds the session's activity claim. A
-    diagnostic drives the hardware directly (homes, LED modes, forced
-    grabs), so it runs only on a scope nothing else is using, and a caller
-    told why can wait for the holder or stop it. Nothing was committed.
+    home or another diagnostic already holds the session's activity claim;
+    a control session held by someone else refuses it with
+    ``ControlSessionRefusedError``, as it does every lane. A diagnostic drives the
+    hardware directly (homes, LED modes, forced grabs), so it runs only on a
+    scope nothing else is using, and a caller told why can wait for the
+    holder or stop it. Nothing was committed.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
-            to responses (REST status codes, SDK branches).
-        title: Short user-facing refusal title.
+            to responses (REST status codes, SDK branches):
+            ``'exclusive_activity_running'``, as ``ProtocolRunRefusedError``
+            explains it.
+        title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body.
         holder: The activity kind holding the claim at refusal time.
-        holder_trigger: The holding run's run_trigger_source when the
-            holder is a run; None otherwise.
+        holder_trigger: Who started the holding run (``'gui'``, ``'rest'``,
+            ``'api'``) when the holder is a run; None otherwise.
+
+    ``holder`` and ``holder_trigger`` are published.
     """
 
-    cause = RefusalCause.STATE
+    holder: Holder | None
+    holder_trigger: Caller | None
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
+    same_fact_as = (HardwareCommandRefusedError,)
 
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
-        holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        *,
+        holder: 'Holder | None' = None,
+        holder_trigger: Caller | None = None,
     ):
+        if reason not in self._TITLES:
+            raise TypeError(f'DiagnosticRefusedError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
 
 
 class SessionClosingError(Refusal, Exception):
-    """An activity was asked to take the scope while the session is closing.
+    """Something was asked of the session while it is closing, and was not done.
 
     Raised by the activity claim for a run, a recording, a home or a
     diagnostic while ``ScopeSession.shutdown`` runs: the close finishes the
@@ -2646,24 +3948,143 @@ class SessionClosingError(Refusal, Exception):
     finished. Work inside an activity already under way -- a run's video
     step under its run -- is not refused. Nothing was taken.
 
+    Raised too for work on one of the session's own executors (the file
+    writer, post-processing, the worker pool, diagnostics) that had not
+    started when the executor closed, and for work put on one after it
+    closed: that work was not done.
+
     Attributes:
         reason: ``'session_closing'``.
-        activity: The kind of activity that was refused.
+        activity: The kind of activity that was refused; None for work an
+            executor did not do.
+        work: The work an executor did not do, for the log; None for an
+            activity.
     """
 
-    cause = RefusalCause.STATE
+    # A closing session never takes the scope again.
     title = 'Closing'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'session_closing': RefusalCause.RESTART}
 
-    def __init__(self, activity: str):
-        super().__init__(
-            f'{the_activity_named(activity)} was not started: LumaViewPro is closing, and finishes '
-            'what is already under way before it lets go of the microscope.'
-        )
+    def __init__(self, activity: str | None, *, work: str | None = None):
+        if (activity is None) == (work is None):
+            raise TypeError('a SessionClosingError names an activity or a piece of work, not both')
+        if activity is not None:
+            sentence = (
+                f'{the_activity_named(activity)} was not started: LumaViewPro is closing, and '
+                'finishes what is already under way before it lets go of the microscope.'
+            )
+        else:
+            sentence = 'The work was not done: LumaViewPro is closing.'
+        super().__init__(sentence)
         self.reason = 'session_closing'
         self.activity = activity
+        self.work = work
 
 
-@api_fields('argument', 'limits', 'offered')
+@api_fields('holder', 'holder_trigger', 'control_session')
+class ControlSessionRefusedError(Refusal, Exception):
+    """Control of the scope was not taken or used: someone else's work holds it.
+
+    Raised by the activity claim when a control session is asked for while
+    another one is held, while an activity holds the scope, while a setting
+    or file write is still under way, or while work that has let the scope
+    go is still finishing -- so a client never takes the scope over the
+    operator's work, or over a write half done. While a session is held,
+    it is the one refusal of anything asked for by anyone but the
+    holder (``'control_session_held'``): a guarded write (a setting, a
+    file), a command on a hardware lane, and the start of a run, a
+    recording, a diagnostic or a home. Raised too for a request naming a control
+    session that is not the live one: it was ended, or never was. Nothing
+    was taken or written.
+
+    Attributes:
+        reason: ``'control_session_held'`` -- a control session is held, and
+            the request is not its holder's. ``'write_in_flight'`` -- a
+            setting or a file is still being written, so control is not
+            taken over it half done. ``'work_finishing'`` -- a run or a
+            recording that has ended is still finishing.
+            ``'control_session_ended'`` -- the request names a control
+            session that is not the live one: it has ended, or was never
+            issued. ``'exclusive_activity_running'``, an activity holding
+            the scope, is ``ProtocolRunRefusedError``'s to explain.
+        title: The heading the person reads, the reason's.
+        holder: The kind of activity holding the scope, for
+            ``'exclusive_activity_running'``; None otherwise.
+        holder_trigger: Who holds the scope: the control session's taker,
+            or the holding run's starter (``'gui'``, ``'rest'``, ``'api'``);
+            None when neither is known.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
+
+    ``holder``, ``holder_trigger`` and ``control_session`` are published.
+    """
+
+    holder: Holder | None
+    holder_trigger: Caller | None
+    control_session: str | None
+
+    # An id that is not the live session's never becomes it again: the
+    # caller takes control anew.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'control_session_held': RefusalCause.STATE,
+        'exclusive_activity_running': RefusalCause.STATE,
+        'write_in_flight': RefusalCause.STATE,
+        'work_finishing': RefusalCause.STATE,
+        'control_session_ended': RefusalCause.REQUEST,
+    }
+    same_fact_as = (HardwareCommandRefusedError,)
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'control_session_held': UNDER_CONTROL_TITLE,
+        'exclusive_activity_running': 'Microscope Busy',
+        'write_in_flight': 'Microscope Busy',
+        'work_finishing': 'Microscope Busy',
+        'control_session_ended': 'Control Session Ended',
+    }
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        holder: Holder | None = None,
+        holder_trigger: Caller | None = None,
+        control_session: str | None = None,
+    ):
+        self.reason = reason
+        super().__init__(_control_refused_sentence(reason, holder, holder_trigger, control_session))
+        self.title = self._TITLES[reason]
+        self.holder = _holder(holder)
+        self.holder_trigger = holder_trigger
+        self.control_session = control_session
+
+
+def _control_refused_sentence(
+    reason: str, holder: Holder | None, holder_trigger: Caller | None, control_session: str | None
+) -> str:
+    if reason == 'control_session_held':
+        return under_control_sentence(holder_trigger, control_session)
+    if reason == 'exclusive_activity_running':
+        return f'{the_activity_named(holder)} is using the microscope. Take control when it ends.'
+    if reason == 'write_in_flight':
+        return 'A setting or a file is being written. Take control when it finishes.'
+    if reason == 'work_finishing':
+        return (
+            'A run or a recording that has ended is still finishing. Take control when it is done.'
+        )
+    return (
+        'No live control session has that id: it has ended, or was never issued. '
+        'Take control again to go on.'
+    )
+
+
+def under_control_sentence(holder_trigger: Caller | None, control_session: str | None) -> str:
+    """The one sentence for every refusal a held control session makes: who holds, and the way out."""
+    who = f'"{control_session}"' if control_session else 'A client'
+    through = f' ({holder_trigger.words})' if holder_trigger is not None else ''
+    return f'{who}{through} has control of the microscope. Ask it to end, or take back control.'
+
+
+@api_fields('argument', 'board', 'limits', 'member', 'offered', 'plate', 'takes')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -2675,128 +4096,152 @@ class ArgumentRefusedError(Refusal, ValueError):
     Attributes:
         reason: One of:
 
+            - ``'not_offered'`` -- a value of a closed set (a ``StrEnum``)
+              that is not one of ``offered``: not a member, nor a member's
+              plain string, or a member the taker does not take. Values
+              are exact: ``'off'`` is not ``'Off'``.
             - ``'not_a_number'`` -- a number was needed and the value is
               not a finite one: NaN, an infinity, a ``bool`` or not a
               number at all. Every comparison with NaN is False, so a
               range check alone passes it.
-            - ``'axis_unknown'`` -- the name is not one of the axis names
-              the member takes (``offered``). Names are exact: ``'x'`` is
-              not ``'X'``. An axis this model lacks is a name, and is
-              refused as absent hardware, not here.
-            - ``'turret_moves_by_slot'`` -- the turret was given to a
-              generic mover; it moves only by slot, through
-              ``move_turret``.
-            - ``'frame_unknown'`` -- a position frame that is not one of
-              ``offered``.
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
+            - ``'well_unknown'`` -- a well label the selected plate
+              (``plate``) does not have.
+            - ``'out_of_range'`` -- a number outside the ``limits`` its
+              member takes.
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
               percent.
-            - ``'layer_unknown'`` -- the name is not one of this release's
-              layers (``offered``, the catalogue). Names are exact:
-              ``'bf'`` is not ``'BF'``. A layer this model lacks is a
+            - ``'channel_unknown'`` -- the name is not one of this release's
+              channels (``offered``, the catalogue). Names are exact:
+              ``'bf'`` is not ``'BF'``. A channel this model lacks is a
               name, and is refused as absent hardware, not here.
-            - ``'no_layer_selected'`` -- the member needs a layer and was
+            - ``'no_channel_selected'`` -- the member needs a channel and was
               given None (``offered``, the catalogue).
-            - ``'led_channel_unknown'`` -- a number that is not one of the
-              attached LED board's channels (``offered``). A ``bool`` is
-              not a channel number.
+            - ``'led_address_unknown'`` -- an LED address that is not one of
+              the attached LED board's addresses (``offered``). A ``bool`` is
+              not an address.
             - ``'illumination_out_of_range'`` -- an LED current outside
               ``limits``, 0 to the attached LED board's maximum, in mA.
             - ``'missing_key'`` -- a dictionary argument lacks a key its
               member reads; ``argument`` names the key's path.
-            - ``'wrong_kind'`` -- a value in a dictionary argument is not
-              of the kind its member reads (``kind``, in words).
+            - ``'wrong_kind'`` -- an argument, or a value in a dictionary
+              argument, is not of the kind its member reads (``takes``, in
+              words).
             - ``'protocol_source_ambiguous'`` -- not exactly one of the
               protocol sources ``offered`` was given.
-            - ``'zstack_reference_unknown'`` -- a z-stack reference that is
-              not one of ``offered``.
-            - ``'acquire_mode_unknown'`` -- a layer's acquire mode that is
-              neither None nor one of ``offered``.
             - ``'not_a_setting'`` -- a dotted path that names no setting.
               The same fact a write is refused for as
               ``SettingRefusedError('not_a_setting')``; this type says a
               read asked it.
-            - ``'refused_beside_scope'`` -- an argument that applies only
-              to a scope a session's factory builds, given with a scope
-              already built.
+            - ``'has_member'`` -- a dotted path to a setting that has a read
+              of its own, named in ``member`` by its path from the session,
+              so one setting has one read.
             - ``'needs_simulated_scope'`` -- an argument that exists only
               on a simulated scope, given for a real one.
             - ``'needs_simulated_camera'`` -- an argument that exists only
               on the simulated camera, given for a model simulated with
               an FX2.
+            - ``'exposure_not_recorded'`` -- a frame the simulated camera
+              holds no exposure record for: one it did not deliver, or one
+              older than the records it keeps.
             - ``'not_an_installation'`` -- a folder that holds neither
               settings file, so it is not an LVP installation root.
-            - ``'part_unknown'`` -- a part name that is not one of
-              ``offered``, the parts the record holds.
             - ``'binning_size_invalid'`` -- a binning label that is not a
               positive square ``NxN``.
-            - ``'fault_unknown'`` -- a simulated fault's board, home fault,
-              camera node or answer that is not one of ``offered``.
+            - ``'fault_unknown'`` -- a simulated fault's board, or a
+              device's hardware ID, that is not one of ``offered``: sets
+              this scope's boards and this machine's devices decide.
             - ``'fault_bound'`` -- a simulated fault's count, fraction or
-              time outside what it takes (``kind``, in words).
+              time outside what it takes (``takes``, in words).
             - ``'not_injectable_on_board'`` -- a simulated fault the board
               that would present it cannot produce; ``argument`` names the
-              ``scope.simulation`` member, ``kind`` the board.
+              ``scope.simulation`` member, ``board`` the board.
             - ``'argument_not_on_board'`` -- an argument of a simulated
-              fault the board cannot take; ``kind`` names the board.
+              fault the board cannot take; ``board`` names the board,
+              ``takes`` what it takes for that argument.
+            - ``'slot_not_holding_objective'`` -- a turret slot given for
+              steps naming an objective the slot does not hold now
+              (``offered``: the slots that hold it).
+            - ``'objective_in_several_slots'`` -- an objective to turn
+              the turret to that two or more slots hold (``offered``: the
+              slots), so no one slot is meant.
+            - ``'objective_not_on_turret'`` -- an objective to turn the
+              turret to that no slot holds (``offered``: the objectives
+              the slots hold, in slot order).
+            - ``'slot_required'`` -- an objective confirmed on
+              a turret scope with no slot named; the confirmation records
+              the glass in a slot.
+            - ``'gain_range_inverted'`` -- an auto-gain settings dictionary
+              whose ``min_gain_db`` is above its ``max_gain_db``; ``value``
+              holds the two.
+            - ``'key_unknown'`` -- a key a dictionary argument does not
+              take (``offered``: the keys it takes).
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
             None otherwise.
         limits: The lowest and highest value the argument takes, where it
             takes a range that depends on the scope; None otherwise.
-        kind: The kind of value the argument takes, in words, for
-            ``'wrong_kind'`` and ``'fault_bound'``; the simulated board,
-            in words, for ``'not_injectable_on_board'`` and
+        takes: The value the argument takes, in words, for
+            ``'wrong_kind'``, ``'fault_bound'`` and
             ``'argument_not_on_board'``; None otherwise.
+        board: The simulated board, in words, for
+            ``'not_injectable_on_board'`` and ``'argument_not_on_board'``;
+            None otherwise.
+        plate: The name of the plate looked on, for ``'well_unknown'``;
+            None otherwise.
+        member: The member to read instead, for ``'has_member'``; None
+            otherwise.
 
-    ``argument``, ``offered`` and ``limits`` are published, so a REST
-    problem carries them beside the words; the client already holds the
-    value it sent.
+    ``argument``, ``offered``, ``limits``, ``takes``, ``board``, ``plate``
+    and ``member`` are published, so a REST problem carries them beside the
+    words; the client already holds the value it sent.
     """
 
     argument: str
     offered: tuple[str | int, ...] | None
     limits: tuple[float, float] | None
-    cause = RefusalCause.REQUEST
+    takes: str | None
+    board: str | None
+    plate: str | None
+    member: str | None
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'not_offered': (
+            'Not One of the Values Offered',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
         'not_a_number': (
             'Not a Number',
             '{argument} must be a finite number; {value!r} is not one.',
-        ),
-        'axis_unknown': (
-            'Not an Axis',
-            '{argument} must be one of {offered}; {value!r} is not one.',
-        ),
-        'turret_moves_by_slot': (
-            'Turret Moves by Slot',
-            'The turret moves only through move_turret(slot), which parks Z first '
-            'and records the slot in the light path; {argument} {value!r} is not taken here.',
-        ),
-        'frame_unknown': (
-            'Not a Position Frame',
-            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'plate_frame_axis': (
             'Not a Plate Axis',
             'Plate coordinates are defined for {offered} only; {argument} {value!r} is not one of them.',
         ),
+        'well_unknown': (
+            'Not a Well',
+            '{plate} has no well {value!r}.',
+        ),
+        'out_of_range': (
+            'Value Out of Range',
+            '{argument} must be from {low:g} to {high:g}; {value!r} is outside it.',
+        ),
         'fan_duty_out_of_range': (
             'Fan Duty Not Changed',
             '{argument} is a percentage from 0 to 100; {value!r} is outside it.',
         ),
-        'layer_unknown': (
-            'Not a Layer',
+        'channel_unknown': (
+            'Not a Channel',
             '{argument} must be one of {offered}; {value!r} is not one.',
         ),
-        'no_layer_selected': (
-            'No Layer Selected',
-            'No layer is selected; {argument} must be one of {offered}.',
+        'no_channel_selected': (
+            'No Channel Selected',
+            'No channel is selected; {argument} must be one of {offered}.',
         ),
-        'led_channel_unknown': (
-            'Not an LED Channel',
-            "{argument} must be one of the LED board's channels, {offered}; {value!r} is not one.",
+        'led_address_unknown': (
+            'Not an LED Address',
+            "{argument} must be one of the LED board's addresses, {offered}; {value!r} is not one.",
         ),
         'illumination_out_of_range': (
             'LED Current Not Set',
@@ -2808,7 +4253,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'wrong_kind': (
             'Wrong Kind of Value',
-            '{argument} must be {kind}; {value!r} is not.',
+            '{argument} must be {takes}; {value!r} is not.',
         ),
         'protocol_source_ambiguous': (
             'Protocol Source Ambiguous',
@@ -2819,22 +4264,14 @@ class ArgumentRefusedError(Refusal, ValueError):
             '{argument} must be NxN, with N a whole number of at least 1, such as 2x2; '
             '{value!r} is not.',
         ),
-        'zstack_reference_unknown': (
-            'Not a Z-Stack Reference',
-            '{argument} must be one of {offered}; {value!r} is not one.',
-        ),
-        'acquire_mode_unknown': (
-            'Not an Acquire Mode',
-            '{argument} must be None or one of {offered}; {value!r} is neither.',
-        ),
         'not_a_setting': (
             'Not a Setting',
             '{argument} names no setting; {value!r} is not a dotted path to one.',
         ),
-        'refused_beside_scope': (
-            'Not Taken Beside a Scope',
-            '{argument} is refused beside a scope you built: it applies only to a scope '
-            'this factory builds.',
+        'has_member': (
+            'Setting Has Its Own Read',
+            "{value!r} is read by {member}, the setting's own read; {argument} reads a "
+            'setting that has none.',
         ),
         'needs_simulated_scope': (
             'Needs a Simulated Scope',
@@ -2844,14 +4281,15 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Needs the Simulated Camera',
             '{argument} needs the simulated camera; this model is simulated with an FX2.',
         ),
+        'exposure_not_recorded': (
+            'No Exposure Record',
+            '{argument} is not a frame the simulated camera holds a record for: one it did '
+            'not deliver, or one older than the records it keeps.',
+        ),
         'not_an_installation': (
             'Not an Installation',
             '{argument} is not an LVP installation root: {value!r} holds neither '
             'data/current.json nor data/settings.json.',
-        ),
-        'part_unknown': (
-            'Not a Part',
-            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'fault_unknown': (
             'Not a Simulated Fault',
@@ -2859,17 +4297,48 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'fault_bound': (
             'Not a Simulated Fault',
-            '{argument} must be {kind}; {value!r} is not.',
+            '{argument} must be {takes}; {value!r} is not.',
         ),
         'not_injectable_on_board': (
             'Fault Not Injectable',
-            'On {kind}, {argument} is not a fault that can be injected.',
+            'On {board}, {argument} is not a fault that can be injected.',
         ),
         'argument_not_on_board': (
             'Fault Not Injectable',
-            '{argument} {value!r} is not taken by {kind}.',
+            '{argument} {value!r} is not taken by {board}; it takes {takes}.',
+        ),
+        'slot_not_holding_objective': (
+            'Slot Does Not Hold That Objective',
+            '{argument} must be a slot holding the objective, one of {offered}; {value!r} is not.',
+        ),
+        'objective_in_several_slots': (
+            'Objective in Several Slots',
+            '{value!r} is in turret slots {offered}; turn the turret to the slot to use.',
+        ),
+        'objective_not_on_turret': (
+            'Objective Not on the Turret',
+            '{value!r} is in no turret slot; the turret holds {offered}. Assign it to the '
+            'slot it is installed in.',
+        ),
+        'gain_range_inverted': (
+            'Auto-Gain Range Inverted',
+            '{argument} sets a minimum gain above its maximum: {value!r}.',
+        ),
+        'key_unknown': (
+            'Not a Key Taken Here',
+            '{argument} takes only the keys {offered}; {value!r} is not one.',
+        ),
+        'slot_required': (
+            'Turret Slot Not Named',
+            '{argument} is needed on a scope with a turret: the confirmation records the '
+            'objective in a slot.',
         ),
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS, RefusalCause.REQUEST)
+    same_fact_as = (
+        SettingRefusedError,
+        ProtocolRunRefusedError,
+    )
 
     def __init__(
         self,
@@ -2879,7 +4348,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         value: object,
         offered: tuple[str | int, ...] | None = None,
         limits: tuple[float, float] | None = None,
-        kind: str | None = None,
+        takes: str | None = None,
+        board: str | None = None,
+        plate: str | None = None,
+        member: str | None = None,
     ):
         if reason not in self._WORDS:
             raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
@@ -2892,19 +4364,29 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes limits exactly when its words name them'
             )
-        if ('{kind}' in words) != (kind is not None):
+        for name, given in (('takes', takes), ('board', board), ('plate', plate)):
+            if ('{' + name + '}' in words) != (given is not None):
+                raise TypeError(
+                    f'ArgumentRefusedError({reason!r}) takes {name} exactly when its words name it'
+                )
+        if ('{member}' in words) != (member is not None):
             raise TypeError(
-                f'ArgumentRefusedError({reason!r}) takes a kind exactly when its words name it'
+                f'ArgumentRefusedError({reason!r}) takes a member exactly when its words name it'
             )
         low, high = limits or (None, None)
         super().__init__(
             words.format(
                 argument=argument,
-                value=value,
-                offered=', '.join(str(o) for o in offered or ()),
+                # A member of a closed set is named by its word, as a caller
+                # writes it; its repr is the class's, not the caller's.
+                value=str(value) if isinstance(value, StrEnum) else value,
+                offered=_offered_words(offered or ()),
                 low=low,
                 high=high,
-                kind=kind,
+                takes=takes,
+                board=board,
+                plate=plate,
+                member=member,
             )
         )
         self.reason = reason
@@ -2912,7 +4394,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.value = value
         self.offered = offered
         self.limits = limits
-        self.kind = kind
+        self.takes = takes
+        self.board = board
+        self.plate = plate
+        self.member = member
 
 
 @api_fields('member', 'argument', 'declared')
@@ -2920,7 +4405,7 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
     """An argument whose type its member does not take, refused before the member runs.
 
     Raised by the ``@api`` door for every caller alike -- the GUI, a
-    script, the engineering plugin, a member calling another -- from the
+    script, a plugin, a member calling another -- from the
     member's own annotation, so the body never meets a value of another
     type. A ``TypeError``, as Python raises for a call it cannot take. The
     door judges the type only: a number's range and finiteness, a name's
@@ -2937,8 +4422,7 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
     member: str
     argument: str
     declared: str
-    cause = RefusalCause.REQUEST
-    reason = 'wrong_argument_type'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'wrong_argument_type': RefusalCause.REQUEST}
     title = 'Wrong Type of Argument'
 
     def __init__(self, *, member: str, argument: str, declared: str, value: object):
@@ -2954,6 +4438,7 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
         self.value = value
 
 
+@api_fields('limits')
 class AccelerationLimitRefusedError(Refusal, ValueError):
     """An acceleration limit no board may be given was refused; nothing was commanded or stored.
 
@@ -2966,19 +4451,28 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
     Attributes:
         reason: ``'acceleration_out_of_range'``.
         value: What was given, as given.
+        limits: The lowest and highest limit a board takes, in percent.
+
+    ``limits`` is published, so a client corrects the value without reading
+    the words.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'acceleration_out_of_range'
+    limits: tuple[int, int]
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'acceleration_out_of_range': RefusalCause.REQUEST
+    }
     title = 'Acceleration Limit Not Changed'
 
     def __init__(self, value: object, low: int, high: int):
         super().__init__(
-            f'An acceleration limit of {value!r}% cannot be set: it is a number from {low} to {high}.'
+            f'An acceleration limit of {value!r}% cannot be set: it is a whole number from {low} to {high}.'
         )
         self.value = value
+        self.limits = (low, high)
 
 
+@api_fields('axis', 'limits')
 class PositionOutOfRangeError(Refusal, ValueError):
     """An absolute move was commanded beyond the axis's travel.
 
@@ -3004,12 +4498,27 @@ class PositionOutOfRangeError(Refusal, ValueError):
     likewise distinguishes a position from a relative distance. One
     optional argument each rather than a second exception class: the
     refusal is the same event, and only the sentence differs.
+
+    Attributes:
+        axis: The axis whose position or distance was refused.
+        position: What was asked for.
+        limits: The lowest and highest value ``bound`` allows, in the
+            quantity's own unit.
+        bound: Which limit refused it.
+        quantity: What was refused: a position, a distance, a plate position.
+
+    ``axis`` and ``limits`` are published, so a client corrects the move
+    without reading the words.
     """
+
+    axis: Axis
+    limits: tuple[float, float]
 
     # The travel is the model's, fixed for the scope's life, so a target
     # outside it is refused every time it is sent.
-    cause = RefusalCause.REQUEST
-    reason = 'position_out_of_range'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'position_out_of_range': RefusalCause.REQUEST
+    }
     title = 'Position Out of Range'
 
     def __init__(
@@ -3022,10 +4531,9 @@ class PositionOutOfRangeError(Refusal, ValueError):
         quantity: str = 'position',
     ):
         super().__init__(f'{axis} {quantity} {position} is outside the {bound} {low} to {high}.')
-        self.axis = axis
+        self.axis = Axis(axis)
         self.position = position
-        self.low = low
-        self.high = high
+        self.limits = (low, high)
         self.bound = bound
         self.quantity = quantity
 
@@ -3034,6 +4542,11 @@ class PositionOutOfRangeError(Refusal, ValueError):
 # rather than imported: AxisState lives in the lumascope_api package, whose
 # import pulls in modules that import this one.
 _AXIS_HOMING = 'homing'
+
+
+def _names(names: list[str]) -> str:
+    """Axis names as a person lists them: "Z", "X and Y", "X, Y and Z"."""
+    return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
 
 
 def describe_unknown_positions(axes: dict[str, str]) -> str:
@@ -3054,9 +4567,6 @@ def describe_unknown_positions(axes: dict[str, str]) -> str:
             are unknown", with no leading capital or closing full stop, so
             each caller ends it with the action its own situation needs.
     """
-
-    def _names(names: list[str]) -> str:
-        return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
 
     homing = [axis for axis, state in axes.items() if state == _AXIS_HOMING]
     lost = [axis for axis, state in axes.items() if state != _AXIS_HOMING]
@@ -3094,20 +4604,19 @@ def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
 class AxisStateUnknownError(Refusal, Exception):
     """An axis whose position is not known was asked to move, or to be recorded.
 
-    Raised by the motion pre-drive gate when the target axis is UNKNOWN:
-    a home failed, the board vanished mid-move, or a move stalled out.
-    An absolute move against an unknown reference frame is never a valid
-    request -- there is no frame for it to be absolute in -- so refusing
-    it discards nothing legitimate and makes the failure loud instead of
-    letting the stage travel somewhere nobody asked for. Also raised when
+    Raised by the motion pre-drive gate while any axis of the scope is
+    UNKNOWN, whichever axis was asked to move: a home failed, the board
+    vanished mid-move, or a move stalled out. A move against a reference
+    frame the scope knows is partly gone is never a valid request, so
+    refusing it discards nothing legitimate and makes the failure loud
+    instead of letting the stage travel somewhere nobody asked for. Also raised when
     a position is about to be saved (a step, a focus, a bookmark) while
     an axis does not know where it is: the cached number is the last one
     the axis reported, real-looking and no longer true.
 
-    The recovery paths that must move a still-unknown axis (lowering Z
-    for turret safety, a deliberate re-home jog) pass ``force=True``
-    rather than pre-checking state, so the gate can never deadlock the
-    operation that would clear the state it guards.
+    Nothing moves past it: the operations that clear the state it guards,
+    the whole-scope home and the Z home, drive without passing the gate.
+    The turret home parks Z, which is a move, so it is refused too.
 
     The message is written for the person at the scope, because the
     GUI's background lane shows a typed error's message as the popup
@@ -3122,9 +4631,9 @@ class AxisStateUnknownError(Refusal, Exception):
             response by a single axis (REST status codes, SDK branches).
     """
 
-    cause = RefusalCause.STATE
-    reason = 'position_unknown'
-    title = 'Scope Not Homed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'position_unknown': RefusalCause.STATE}
+    same_fact_as = (ProtocolRunRefusedError,)
+    title = ProtocolRunRefusedError._TITLES['position_unknown']
 
     def __init__(self, axes: dict[str, str], then: str = 'move it'):
         """Build the refusal for ``axes``.
@@ -3141,6 +4650,47 @@ class AxisStateUnknownError(Refusal, Exception):
         self.axis = next(iter(axes))
 
 
+class AxisMovingError(Refusal, Exception):
+    """A position was asked for to be kept while an axis it records is moving.
+
+    While an axis moves, the number it answers is the motion monitor's
+    last poll, behind the board by up to a poll, so a focus, a bookmark or
+    a step saved then records a place the axis was passing through, real-
+    looking and never where it stopped. The state and the number are read
+    in one snapshot, so a move that ends between the two cannot pass a
+    number taken while it ran.
+
+    Distinct from ``AxisStateUnknownError``: a moving axis knows its frame
+    and needs only to stop; the user waits, never homes.
+
+    Attributes:
+        reason: ``'axis_moving'``.
+        axes: Every moving axis asked for, in the order asked.
+        axis: The first of them, for callers that map a refusal to a
+            response by a single axis (REST status codes, SDK branches).
+    """
+
+    title = 'Axis Moving'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'axis_moving': RefusalCause.STATE}
+
+    def __init__(self, axes: Iterable[str]):
+        """Build the refusal for ``axes``.
+
+        Args:
+            axes: Every moving axis. Must not be empty.
+        """
+        axes = list(axes)
+        moving = 'is' if len(axes) == 1 else 'are'
+        them = 'it' if len(axes) == 1 else 'them'
+        super().__init__(
+            f'{_names(axes)} {moving} still moving, so there is no position to keep. '
+            f'Wait for {them} to stop, then try again.'
+        )
+        self.reason = 'axis_moving'
+        self.axes = axes
+        self.axis = axes[0]
+
+
 class MoveNotCompletedError(_Umbrella, Exception):
     """A move ended without its axis arriving at the target: the subject, never raised itself.
 
@@ -3152,7 +4702,7 @@ class MoveNotCompletedError(_Umbrella, Exception):
     command ended it.
 
     Distinct from ``AxisStateUnknownError``, which refuses a move before
-    anything is driven and offers ``force=True`` -- advice that is wrong
+    anything is driven and says to home the scope -- advice that is wrong
     for a move that already happened.
 
     Attributes:
@@ -3178,15 +4728,20 @@ class MoveFaultError(Fault, MoveNotCompletedError):
     Attributes:
         reason: ``'driver_failed'`` -- the motor board did not take the
             command (chained from the driver's error). ``'stalled'`` --
-            the motion monitor gave the axis up: it did not reach its
-            target within the motion bound. ``'board_lost'`` -- the
-            monitor lost the motor board while the axis moved.
+            the motion monitor gave the axis up: its position stopped
+            changing short of its target, and the stage was halted.
+            ``'monitor_ended_mid_move'`` -- the motion monitor ended while the
+            axis moved, so nothing could judge the move. ``'board_lost'`` -- the
+            motor board was lost while the axis moved: found by the drive's
+            own command or by the motion monitor.
             ``'faulted'`` -- something else set the axis UNKNOWN during
-            the wait (a disconnect, a home). ``'position_unread'`` -- the
-            board reported the axis arrived but not where, within the
-            motion bound. ``'status_unread'`` -- the board did not report
-            whether the axis arrived, within the motion bound. Each leaves
-            the axis UNKNOWN.
+            the move, carrying no fault of its own, with no stop before it.
+            ``'position_unread_after_move'`` -- the board did not report
+            where the axis is: within the stall window after it reported the
+            axis arrived, or when a home read every axis's position.
+            ``'status_unread'`` -- the board did not report whether the
+            axis arrived, within the stall window. Each leaves the axis
+            UNKNOWN.
         title: The heading shown with the sentence, which follows the reason.
     """
 
@@ -3197,18 +4752,22 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             'unknown -- home the scope before moving it again.'
         ),
         'stalled': (
-            'it did not reach its target within the motion time limit and was '
-            'abandoned. Check for an obstruction, then home the axis and retry.'
+            'it stopped moving before it reached its target, and the stage was '
+            'halted. Check for an obstruction, then home the axis and retry.'
+        ),
+        'monitor_ended_mid_move': (
+            'the software that watches moves stopped while it moved. The {axis} '
+            'position is now unknown -- restart the application before moving it again.'
         ),
         'board_lost': (
             'the motor board was lost while it moved, so the move was aborted. '
-            'Reconnect the board and retry.'
+            'Check the USB cable, then restart LumaViewPro.'
         ),
         'faulted': (
             'it stalled or the board was lost during the move. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
-        'position_unread': (
+        'position_unread_after_move': (
             'it stopped, but the motor board did not report where. The {axis} '
             'position is now unknown -- home the scope before moving it again.'
         ),
@@ -3219,15 +4778,19 @@ class MoveFaultError(Fault, MoveNotCompletedError):
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
+        'driver_failed': 'Move Did Not Complete',
+        'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
+        'monitor_ended_mid_move': 'Motion Monitor Stopped',
         'board_lost': 'Motor Board Disconnected',
-        'position_unread': 'Motor Position Unknown',
+        'position_unread_after_move': 'Motor Position Unknown',
         'status_unread': 'Motor Position Unknown',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
 
     def __init__(self, axis: str, reason: str):
         super().__init__(axis, reason)
-        self.title = self._TITLES.get(reason, 'Move Did Not Complete')
+        self.title = self._TITLES[reason]
 
 
 class MoveStoppedError(Notice, MoveNotCompletedError):
@@ -3235,22 +4798,25 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
 
     A notice: the person whose move someone else stopped is told so, as
     information, and a REST caller is answered 409. The axis is where the
-    stop or the later command left it, which its position reports.
+    stop or the later command left it, which its position reports; after
+    the scope is closed its position is unknown.
 
     Attributes:
-        reason: ``'stopped'`` -- a stop the board took while it moved
-            halted it, ``stop_motion`` or the stage's own stop in refusing
-            a move; a turret is then in no known slot. ``'superseded'`` --
-            another move or a home took the axis before this one arrived;
-            that command's own outcome says where the axis went.
+        reason: ``'stopped'`` -- a stop sent while it moved ended it:
+            ``stop_motion``, the stage's own stop in refusing a move, or
+            the close's, even one the board did not take (that failure is
+            reported once, as itself); a turret is then in no known slot.
+            ``'superseded'`` -- another move or a home took the axis before
+            this one arrived; that command's own outcome says where the axis
+            went.
     """
 
     title = 'Move Stopped'
-    cause = RefusalCause.STATE
     _SENTENCES: ClassVar[dict[str, str]] = {
         'stopped': 'the motors were stopped before it arrived.',
         'superseded': 'another command on the {axis} axis was given before it arrived.',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 
 
 class MoveWaitExpiredError(MoveNotCompletedError, Quiet, TimeoutError):
@@ -3266,35 +4832,43 @@ class MoveWaitExpiredError(MoveNotCompletedError, Quiet, TimeoutError):
     """
 
     title = 'Still Moving'
-    cause = RefusalCause.STATE
     _SENTENCES: ClassVar[dict[str, str]] = {
         'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 
 
 class LaneCallStillRunningError(Fault, Exception):
-    """The API's own bound on a call ran out before the call finished.
+    """The caller is no longer waiting for a call that has not finished.
 
-    The hardware has stopped answering or is slower than the bound allows,
-    and the call may still finish: nothing says it failed, nor that it
-    will not change the scope after this. A fault, never a ``TimeoutError``,
-    which means only that the caller's own wait ran out.
+    The call may still finish: nothing says it failed, nor that it will not
+    change the scope after this. A fault, never a ``TimeoutError``, which
+    means only that the caller's own wait ran out.
 
     Attributes:
-        reason: ``'still_running'``.
+        reason: ``'call_overran'`` -- the API's own bound on the call ran
+            out: the hardware has stopped answering or is slower than the
+            bound allows. ``'lane_closed'`` -- the lane carrying the call
+            closed while the call ran: the scope disconnected, or
+            LumaViewPro closed.
         member: The API member whose call is still running.
-        timeout_s: The bound that ran out.
+        timeout_s: The bound that ran out, for ``'call_overran'``; None
+            otherwise.
     """
 
     words_for_person = True
     title = 'Still Running'
-    reason = 'still_running'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'call_overran': None, 'lane_closed': None}
 
-    def __init__(self, member: str, timeout_s: float):
-        super().__init__(
-            f'{member} did not finish within {timeout_s:g} s and may still finish. '
-            'Check the scope before asking again.'
-        )
+    def __init__(self, reason: str, member: str, timeout_s: float | None = None):
+        if (timeout_s is None) != (reason == 'lane_closed'):
+            raise TypeError(f'{reason!r} takes timeout_s exactly when a bound ran out')
+        if reason == 'call_overran':
+            sentence = f'{member} did not finish within {timeout_s:g} s and may still finish.'
+        else:
+            sentence = f'{member} was still running when its lane closed, and may still finish.'
+        super().__init__(f'{sentence} Check the scope before asking again.')
+        self.reason = reason
         self.member = member
         self.timeout_s = timeout_s
 
@@ -3308,6 +4882,8 @@ class MotorStopFailedError(Fault, Exception):
     moved, so no waited move reads itself as arrived.
     """
 
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'motor_stop_failed': None}
+
     words_for_person = True
     title = 'Motor Stop Failed'
 
@@ -3318,46 +4894,70 @@ class MotorStopFailedError(Fault, Exception):
         )
 
 
+class DisconnectPart(StrEnum):
+    """A part of the microscope ``Lumascope.disconnect`` shuts down, in teardown order."""
+
+    LEDS_OFF = 'LEDs off'
+    MOTOR_STOP = 'motor stop'
+    LED_BOARD = 'LED board'
+    MOTOR_BOARD = 'motor board'
+    CAMERA = 'camera'
+
+
+@api_fields('parts', 'part_reasons')
 class ScopeDisconnectError(Fault, Exception):
     """One or more parts of the microscope did not shut down cleanly.
 
     Raised by ``Lumascope.disconnect`` only after every teardown step has
     run, so one part's failure never leaves the others connected. Names
     each part that failed, in the order the teardown reached it, and is
-    chained from the first part's error; ``causes`` holds every part's
-    error. A failure, not a refusal.
+    chained from the first part's error. Each part's error is kept private
+    and logged where it was caught: an exception has no wire form, so what
+    a client reads is each part's reason. A failure, not a refusal.
 
     Attributes:
+        reason: ``'disconnect_failed'``.
         parts: The parts that failed, in teardown order.
-        causes: Each failed part's error, keyed by part.
+        part_reasons: Each failed part's reason, keyed by part; None for an
+            error that carries none.
     """
 
+    parts: tuple[DisconnectPart, ...]
+    part_reasons: dict[DisconnectPart, str | None]
     words_for_person = True
     title = 'Disconnect Failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'disconnect_failed': None}
 
-    _WORDS: ClassVar[dict[str, str]] = {
-        'motor stop': (
+    _PART_WORDS: ClassVar[dict[DisconnectPart, str]] = {
+        DisconnectPart.LEDS_OFF: (
+            'The LEDs were not confirmed off, so the sample may still be lit; '
+            'power-cycle the microscope to turn them off.'
+        ),
+        DisconnectPart.MOTOR_STOP: (
             'The motor STOP command failed; if the stage is still moving, '
             'power-cycle the microscope.'
         ),
-        'LED board': (
+        DisconnectPart.LED_BOARD: (
             'The LED board did not shut down cleanly; its serial port may be '
             'left open, and reconnecting may require a restart.'
         ),
-        'motor board': (
+        DisconnectPart.MOTOR_BOARD: (
             'The motor board did not shut down cleanly; its serial port may be '
             'left open, and reconnecting may require a restart.'
         ),
-        'camera': (
+        DisconnectPart.CAMERA: (
             'The camera did not shut down cleanly; its USB resources may not be '
             'released until the app restarts.'
         ),
     }
 
-    def __init__(self, causes: dict[str, BaseException]):
-        self.causes = dict(causes)
-        self.parts = tuple(self.causes)
-        super().__init__(' '.join(self._WORDS[part] for part in self.parts))
+    def __init__(self, errors: dict[DisconnectPart, BaseException]):
+        self._part_errors = {DisconnectPart(part): error for part, error in errors.items()}
+        self.parts = tuple(self._part_errors)
+        self.part_reasons = {
+            part: getattr(error, 'reason', None) for part, error in self._part_errors.items()
+        }
+        super().__init__(' '.join(self._PART_WORDS[part] for part in self.parts))
 
 
 class HomingFailedError(_Umbrella, Exception):
@@ -3398,13 +4998,18 @@ class HomingFaultError(Fault, HomingFailedError):
     driver's exception when there is one.
 
     Attributes:
-        reason: ``'error'`` -- the home raised; ``'unread'`` -- homed, but
-            ``axes`` could not be read; ``'lid_open'`` -- the lid was
-            opened while the home was moving.
+        reason: ``'error'`` -- the home raised; ``'board_lost'`` -- the
+            home raised and the motor board is no longer connected;
+            ``'unread'`` -- homed, but ``axes`` could not be read;
+            ``'lid_open'`` -- the lid was opened while the home was moving.
     """
 
     words_for_person = True
     title = 'Homing Failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        ('error', 'board_lost', 'unread', *INTERLOCK_TITLES)
+    )
+    same_fact_as = (MotionInterlockError, MoveFaultError)
 
     def _sentence(self, subject: str) -> str:
         if self.reason == 'unread':
@@ -3414,6 +5019,11 @@ class HomingFaultError(Fault, HomingFailedError):
             )
         if self.reason == 'lid_open':
             return f"{subject} stopped: the microscope's lid was opened. Position is unknown."
+        if self.reason == 'board_lost':
+            return (
+                f'{subject} stopped: the motor board is not connected. '
+                'Check the USB cable, then restart LumaViewPro. Position is unknown.'
+            )
         return f'{subject} encountered an error. Position is unknown.'
 
 
@@ -3432,7 +5042,8 @@ class HomingStoppedError(Notice, HomingFailedError):
     """
 
     title = 'Homing Stopped'
-    cause = RefusalCause.STATE
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'stopped': RefusalCause.STATE}
+    same_fact_as = (MoveStoppedError,)
 
     def _sentence(self, subject: str) -> str:
         if not self.axes:
@@ -3454,14 +5065,15 @@ class AutofocusStopped(Quiet, AutofocusAborted):
     Recorded, never shown: the run's own end is the report.
 
     Attributes:
-        reason: ``'stopped'``.
+        reason: ``'sweep_stopped'``.
     """
 
-    cause = RefusalCause.STATE
+    title = 'Autofocus Stopped'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'sweep_stopped': RefusalCause.STATE}
 
     def __init__(self):
         super().__init__('Autofocus was stopped before it chose a focus.')
-        self.reason = 'stopped'
+        self.reason = 'sweep_stopped'
 
 
 class AutofocusRunEnded(Quiet, AutofocusAborted):
@@ -3471,14 +5083,15 @@ class AutofocusRunEnded(Quiet, AutofocusAborted):
     the run's own end is the report.
 
     Attributes:
-        reason: ``'run_ended'``.
+        reason: ``'sweep_run_ended'``.
     """
 
-    cause = RefusalCause.STATE
+    title = 'Autofocus Not Started'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'sweep_run_ended': RefusalCause.STATE}
 
     def __init__(self):
         super().__init__('Autofocus did not start: the run it belongs to had ended.')
-        self.reason = 'run_ended'
+        self.reason = 'sweep_run_ended'
 
 
 class AutofocusLedsHeldError(Refusal, AutofocusAborted):
@@ -3492,8 +5105,8 @@ class AutofocusLedsHeldError(Refusal, AutofocusAborted):
         holder: The purpose of the lease that holds the LEDs.
     """
 
-    cause = RefusalCause.STATE
     title = 'LEDs In Use'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'leds_held': RefusalCause.STATE}
 
     def __init__(self, holder: str):
         super().__init__(
@@ -3507,10 +5120,10 @@ class AutofocusLedsHeldError(Refusal, AutofocusAborted):
 class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
     """The camera driver rejected a state-changing setting apply.
 
-    Raised by ImagingAPI setters (frame size, binning, pixel format, gain,
-    exposure) when a LIVE driver refuses the apply -- distinct from the
-    camera-absent no-op, which stays a quiet sentinel per the
-    missing-hardware contract. Success is observed by receiving the
+    Raised by CameraAPI setters (frame size, binning, image mode, gain,
+    exposure) when a LIVE driver refuses the apply -- distinct from a
+    camera that is not there, before or during the write, which is refused
+    as ``HardwareCommandRefusedError('not_connected')``. Success is observed by receiving the
     applied/delivered value, failure by this raise, so a caller cannot
     record a rejected apply as applied by forgetting to check a return code.
 
@@ -3520,18 +5133,30 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     notifies it.
 
     Attributes:
+        reason: ``'camera_rejected'`` -- the camera refused the write, or
+            its driver raised from it. ``'camera_no_answer'`` -- the camera
+            did not answer the write, sent twice, so whether it took it is
+            not known. The setting is in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
-        title: The notification title the reporter shows.
     """
 
     words_for_person = True
+    _TITLES: ClassVar[dict[str, str]] = {
+        'camera_rejected': 'Camera Setting Not Applied',
+        'camera_no_answer': 'Camera Did Not Answer',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    same_fact_as = (CameraNoAnswerError,)
 
-    def __init__(self, setting: str, requested, *, title: str, message: str):
+    def __init__(self, setting: str, requested, *, message: str, reason: str = 'camera_rejected'):
+        if reason not in self._TITLES:
+            raise TypeError(f'CameraSettingRejected has no reason {reason!r}')
         super().__init__(message)
+        self.reason = reason
+        self.title = self._TITLES[reason]
         self.setting = setting
         self.requested = requested
-        self.title = title
 
 
 class CameraSettingUnsupportedError(Refusal, ValueError):
@@ -3544,6 +5169,16 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_unsupported'``.
+            ``'auto_gain_unsupported'`` -- this camera has no automatic
+            gain to turn on. ``'auto_exposure_unsupported'`` -- this camera
+            has no automatic exposure to turn on.
+            ``'binning_unsupported'`` -- the binning size is not one this
+            camera reports. ``'black_level_unsupported'`` -- this camera has
+            no black level setting. ``'conversion_gain_mode_unsupported'``
+            -- this camera has no high conversion gain, or the mode asked
+            for is neither High nor Low.
+            ``'line_noise_reduction_unsupported'`` -- this camera has no
+            line noise reduction to turn on.
         setting: Machine-readable setting name (e.g. 'binning').
         requested: The value asked for.
         offered: The values the camera reports it supports.
@@ -3551,17 +5186,28 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
 
     # Hardware this camera does not have is the request's: asking again,
     # unchanged, never finds it.
-    cause = RefusalCause.REQUEST
+    title = 'Not Available on This Camera'
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        (
+            'auto_gain_unsupported',
+            'auto_exposure_unsupported',
+            'binning_unsupported',
+            'black_level_unsupported',
+            'conversion_gain_mode_unsupported',
+            'line_noise_reduction_unsupported',
+        ),
+        RefusalCause.REQUEST,
+    )
 
-    def __init__(self, setting: str, requested, offered, *, title: str, message: str):
+    def __init__(self, setting: str, requested, offered, *, message: str):
         super().__init__(message)
         self.reason = f'{setting}_unsupported'
         self.setting = setting
         self.requested = requested
         self.offered = offered
-        self.title = title
 
 
+@api_fields('limits')
 class CameraSettingOutOfRangeError(Refusal, ValueError):
     """A camera setting outside the range this camera declares was asked for.
 
@@ -3574,18 +5220,40 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
+            ``'gain_db_out_of_range'`` -- the gain is outside the camera's
+            declared range. ``'exposure_ms_out_of_range'`` -- the exposure
+            is outside the camera's declared range.
+            ``'frame_width_out_of_range'`` -- the frame width is outside the
+            widths the camera declares. ``'frame_height_out_of_range'`` --
+            the frame height is outside the heights the camera declares.
+            ``'black_level_out_of_range'`` -- the black level is outside the
+            camera's declared range.
         setting: Machine-readable setting name ('gain_db', 'exposure_ms',
-            'frame_width', 'frame_height').
+            'frame_width', 'frame_height', 'black_level').
         requested: The value asked for.
-        minimum: The camera's declared floor, or None when it declares none
-            (an undeclared floor is not checked).
-        maximum: The camera's declared ceiling, or None when it declares none.
-        title: The notification title the reporter shows.
+        limits: The camera's declared floor and ceiling, in the setting's
+            unit; either is None when the camera declares none, and is not
+            checked.
+
+    ``limits`` is published, so a client corrects the value without reading
+    the words.
     """
+
+    limits: tuple[float | None, float | None]
 
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
-    cause = RefusalCause.REQUEST
+    title = ProtocolRunRefusedError._TITLES['camera_setting_out_of_range']
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
+        (
+            'gain_db_out_of_range',
+            'exposure_ms_out_of_range',
+            'frame_width_out_of_range',
+            'frame_height_out_of_range',
+            'black_level_out_of_range',
+        ),
+        RefusalCause.REQUEST,
+    )
 
     def __init__(
         self,
@@ -3594,16 +5262,13 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         minimum: float | None,
         maximum: float | None,
         *,
-        title: str,
         message: str,
     ):
         super().__init__(message)
         self.reason = f'{setting}_out_of_range'
         self.setting = setting
         self.requested = requested
-        self.minimum = minimum
-        self.maximum = maximum
-        self.title = title
+        self.limits = (minimum, maximum)
 
 
 class FrameDepthError(Fault, Exception):
@@ -3621,6 +5286,9 @@ class FrameDepthError(Fault, Exception):
         value: The offending pixel value.
         significant_bits: The declared depth it exceeded.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'frame_depth_exceeded': None}
+    title = 'Frame Depth Exceeded'
 
     def __init__(self, value: int, significant_bits: int):
         super().__init__(
@@ -3645,15 +5313,149 @@ class SupportReportNotSavedError(Fault, Exception):
     report.
 
     Attributes:
-        report: ``'support report'`` or ``'logs zip'``.
+        report: Which ZIP was not saved.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'support_report_not_saved': None}
 
     words_for_person = True
     title = 'Support Report Not Saved'
 
-    def __init__(self, report: str, cause: BaseException):
+    def __init__(self, report: 'SupportReportKind', cause: BaseException):
         words = str(cause) or type(cause).__name__
         super().__init__(
             f'The {report} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'
         )
         self.report = report
+
+
+class AlreadyStartedError(Refusal, RuntimeError):
+    """A start a session makes once was asked of a session that has made it.
+
+    A host's lifecycle call, refused before anything is started twice: a
+    second plugin load would register every plugin again, and a second
+    metrics start would orphan the first schedule as untracked,
+    forever-ticking events. Still a ``RuntimeError``, as it was documented.
+
+    Attributes:
+        reason: ``'plugins_loaded'`` -- this session already loaded its
+            plugins; it never loads them again. ``'metrics_running'`` --
+            metrics are already running; ``disable_metrics`` lets them start
+            again.
+    """
+
+    title = 'Already Started'
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'plugins_loaded': RefusalCause.REQUEST,
+        'metrics_running': RefusalCause.STATE,
+    }
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class OperationSettleRefusedError(Refusal, RuntimeError):
+    """An operation's ``set_result`` or ``set_exception`` was called by code holding it.
+
+    Only its producer settles an operation: a holder's settle would forge
+    the outcome every other holder reads, and make the producer's own settle
+    fail where it is made -- on a run's delivery, a recording's finish, a
+    move's monitor. It refuses the accident and the casual forge, not a
+    determined caller: code in the same process can settle through the base
+    class, as the producers do. Still a ``RuntimeError``, as a Future's own
+    refusal of a second settle is.
+
+    Attributes:
+        reason: ``'settled_by_its_producer'``.
+        member: The member that was called.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'settled_by_its_producer': RefusalCause.REQUEST
+    }
+    title = 'Operation Settle Refused'
+
+    def __init__(self, member: str):
+        super().__init__(
+            f'{member}: an operation is settled by the work that produced it, not by its holder'
+        )
+        self.member = member
+
+
+class BlockingCallRefusedError(Refusal, RuntimeError):
+    """A blocking call was made on a thread it could end up waiting on.
+
+    Refused before any wait is made, by where the call was made: its
+    non-blocking form is the one that thread uses. Still a ``RuntimeError``,
+    as it was documented.
+
+    Attributes:
+        reason: ``'blocking_on_worker'`` -- made on an executor's worker,
+            whose own work it may queue behind. ``'wait_on_ui_thread'`` --
+            a wait on the UI thread for an operation not yet done, which
+            would hold the window until the operation ends; a done-callback
+            is the UI thread's form. ``'blocking_inline'`` -- made inside
+            the GUI's inline boundary, whose thread draws the window;
+            ``submit_reported`` is that call's form. ``'swap_in_delivery'`` --
+            a UI dispatcher swap from a callback that dispatcher is
+            delivering, which the swap would wait on.
+        member: The member that was called.
+    """
+
+    title = 'Blocking Call Refused'
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'blocking_on_worker': RefusalCause.REQUEST,
+        'wait_on_ui_thread': RefusalCause.REQUEST,
+        'blocking_inline': RefusalCause.REQUEST,
+        'swap_in_delivery': RefusalCause.REQUEST,
+    }
+
+    def __init__(self, reason: str, member: str, *, worker: str | None = None):
+        self.reason = reason
+        if reason == 'blocking_on_worker':
+            words = (
+                f'a blocking call from the {worker} worker, which its own work may queue '
+                'behind; use the non-blocking form'
+            )
+        elif reason == 'wait_on_ui_thread':
+            words = (
+                'a wait on the UI thread for an operation that has not ended, which would '
+                'hold the window until it does; add a done-callback instead'
+            )
+        elif reason == 'swap_in_delivery':
+            words = (
+                'a UI dispatcher swap from a callback it is delivering, which would wait '
+                'on that delivery; swap it from outside its deliveries'
+            )
+        else:
+            words = 'a blocking dispatch from the inline run_reported; use submit_reported'
+        super().__init__(f'{member}: {words}')
+        self.reason = reason
+        self.member = member
+
+
+class ClaimStillLentError(Fault, RuntimeError):
+    """A diagnostic's block ended with a run it lent its claim to still live.
+
+    The diagnostic's end waited for the run and the run outlived the wait,
+    so the claim stays with the run and is released when the run ends: the
+    scope is not free yet. Raised at the block's end when the block ended
+    cleanly; reported once when the block raised, so the block's own
+    exception is the one its caller receives. Still a ``RuntimeError``, as
+    it was documented.
+
+    Attributes:
+        timeout_s: How long the end waited for the run.
+    """
+
+    words_for_person = True
+    title = 'Run Still Holds the Microscope'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'claim_still_lent': None}
+
+    def __init__(self, timeout_s: float):
+        super().__init__(
+            f'A run the diagnostic started was still running {timeout_s:g} s after the '
+            'diagnostic ended. The microscope is released when that run ends.'
+        )
+        self.timeout_s = timeout_s

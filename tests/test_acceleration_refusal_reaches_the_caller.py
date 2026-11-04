@@ -36,7 +36,7 @@ def test_a_driver_refusal_is_raised_to_the_caller(scope, monkeypatch):
     monkeypatch.setattr(scope._motion_driver, 'set_acceleration_limits', refuse)
 
     with pytest.raises(ValueError):
-        scope.motion.set_acceleration_limit(val_pct=500)
+        scope.motion.set_acceleration_limit(limit_pct=500)
 
 
 def test_firmware_without_the_command_still_completes(scope, monkeypatch):
@@ -50,6 +50,6 @@ def test_firmware_without_the_command_still_completes(scope, monkeypatch):
         scope._motion_driver, 'set_acceleration_limits', lambda val_pct: calls.append(val_pct)
     )
 
-    scope.motion.set_acceleration_limit(val_pct=50)
+    scope.motion.set_acceleration_limit(limit_pct=50)
 
     assert calls == [50]

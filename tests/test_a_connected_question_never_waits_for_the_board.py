@@ -10,7 +10,6 @@ for the exchange in flight here; the question must be answered before it is
 released.
 """
 
-import sys
 import threading
 
 import pytest
@@ -55,10 +54,7 @@ def test_a_serial_board_answers_while_an_exchange_holds_its_lock(connected):
     assert _answer_while_the_lock_is_held(board._lock, board.is_connected) is connected
 
 
-@pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
+@pytest.mark.firmware_tier
 @pytest.mark.parametrize(
     ('driver', 'question'),
     [('_motion_driver', 'motor_connected'), ('_led_driver', 'led_connected')],

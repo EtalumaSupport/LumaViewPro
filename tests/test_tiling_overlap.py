@@ -1,18 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import pathlib
 import datetime
 from types import SimpleNamespace
 
 import pytest
 
+from modules.coord_transformations import StageOffset
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
-from modules.tiling_config import TilingConfig
-
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from modules.tiling_config import TilingGrids
+from tests.test_zstack_group_identity import _WIDE_XY
+from tests.installation_fixtures import shipped_grids
 
 
 def _tile_spacing(tiles):
@@ -21,7 +20,8 @@ def _tile_spacing(tiles):
     return x_spacing, y_spacing
 
 
-def _make_protocol_from_config(overlap_percent, capabilities):
+def _make_tiled_protocol(overlap_percent, capabilities):
+    """One BF step at A1, built flat and tiled 2x2 as the protocols API builds New."""
     input_config = {
         'positions': [
             {
@@ -61,13 +61,25 @@ def _make_protocol_from_config(overlap_percent, capabilities):
         'binning_size': 1,
         'stim_config': {},
     }
-    return Protocol.from_config(
+    protocol = Protocol.from_config(
         input_config=input_config,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         capabilities=capabilities,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )
+    protocol.apply_tiling(
+        tiling=input_config['tiling'],
+        frame_dimensions=input_config['frame_dimensions'],
+        binning_size=input_config['binning_size'],
+        axis_limits=_WIDE_XY,
+        labware=WellPlateLoader().get_plate(input_config['labware_id']),
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
+        overlap_percent=overlap_percent,
+        capabilities=capabilities,
+        objective_helper=ObjectiveLoader(),
+    )
+    return protocol
 
 
 def _protocol_tile_spacing(protocol):
@@ -78,20 +90,20 @@ def _protocol_tile_spacing(protocol):
 
 
 def test_overlap_percent_to_fill_factor():
-    assert TilingConfig.fill_factor_from_overlap_percent(0) == pytest.approx(1.0)
-    assert TilingConfig.fill_factor_from_overlap_percent(10) == pytest.approx(0.9)
-    assert TilingConfig.fill_factor_from_overlap_percent(15) == pytest.approx(0.85)
-    assert TilingConfig.fill_factor_from_overlap_percent(20) == pytest.approx(0.8)
+    assert TilingGrids.fill_factor_from_overlap_percent(0) == pytest.approx(1.0)
+    assert TilingGrids.fill_factor_from_overlap_percent(10) == pytest.approx(0.9)
+    assert TilingGrids.fill_factor_from_overlap_percent(15) == pytest.approx(0.85)
+    assert TilingGrids.fill_factor_from_overlap_percent(20) == pytest.approx(0.8)
 
 
 @pytest.mark.parametrize('overlap_percent', [-1, 51, 'abc', None])
 def test_invalid_overlap_percent_rejected(overlap_percent):
     with pytest.raises(ValueError):
-        TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
+        TilingGrids.fill_factor_from_overlap_percent(overlap_percent)
 
 
 def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_capabilities):
-    tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+    tiling_config = shipped_grids()
 
     common_kwargs = {
         'config_label': '2x2',
@@ -102,12 +114,12 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_capabilit
 
     tiles_no_overlap = tiling_config.get_tile_centers(
         **common_kwargs,
-        fill_factor=TilingConfig.fill_factor_from_overlap_percent(0),
+        fill_factor=TilingGrids.fill_factor_from_overlap_percent(0),
         capabilities=scale_capabilities,
     )
     tiles_ten_percent_overlap = tiling_config.get_tile_centers(
         **common_kwargs,
-        fill_factor=TilingConfig.fill_factor_from_overlap_percent(10),
+        fill_factor=TilingGrids.fill_factor_from_overlap_percent(10),
         capabilities=scale_capabilities,
     )
 
@@ -118,11 +130,9 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_capabilit
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.02)
 
 
-def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale_capabilities):
-    protocol_no_overlap = _make_protocol_from_config(
-        overlap_percent=0, capabilities=scale_capabilities
-    )
-    protocol_ten_percent_overlap = _make_protocol_from_config(
+def test_a_tiled_protocols_overlap_keeps_tile_count_and_reduces_spacing(scale_capabilities):
+    protocol_no_overlap = _make_tiled_protocol(overlap_percent=0, capabilities=scale_capabilities)
+    protocol_ten_percent_overlap = _make_tiled_protocol(
         overlap_percent=10, capabilities=scale_capabilities
     )
 
@@ -141,7 +151,7 @@ def test_overlap_never_adds_tiles(scale_capabilities):
     what runs, at every allowed overlap. Overlap shrinks the step (and
     the total covered area) instead of growing the grid -- an earlier
     coverage-preserving design silently turned a 2x2 into a 3x3."""
-    tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+    tiling_config = shipped_grids()
 
     common_kwargs = {
         'config_label': '2x2',
@@ -153,7 +163,7 @@ def test_overlap_never_adds_tiles(scale_capabilities):
     for overlap_percent in (0, 10, 15, 20, 50):
         tiles = tiling_config.get_tile_centers(
             **common_kwargs,
-            fill_factor=TilingConfig.fill_factor_from_overlap_percent(overlap_percent),
+            fill_factor=TilingGrids.fill_factor_from_overlap_percent(overlap_percent),
             capabilities=scale_capabilities,
         )
         assert len(tiles) == 4, (
@@ -174,7 +184,7 @@ class TestTileCentersWithoutScale:
     _NO_OPTICS = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
 
     def test_1x1_layout_needs_no_field_of_view(self):
-        tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+        tiling_config = shipped_grids()
         tiles = tiling_config.get_tile_centers(
             config_label='1x1',
             focal_length=9.0,
@@ -188,7 +198,7 @@ class TestTileCentersWithoutScale:
     def test_real_grid_still_refuses_without_field_of_view(self):
         from modules.exceptions import ProtocolRunRefusedError
 
-        tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+        tiling_config = shipped_grids()
         with pytest.raises(ProtocolRunRefusedError, match='pixel size') as refused:
             tiling_config.get_tile_centers(
                 config_label='2x2',

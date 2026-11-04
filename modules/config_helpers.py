@@ -7,9 +7,8 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
-import datetime
-import os
 import pathlib
+import time
 import typing
 
 import psutil
@@ -17,20 +16,25 @@ import psutil
 import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
+import modules.wall_time as wall_time
 from lvp_logger import logger, metrics_logger
+from modules.acquire_mode import AcquireMode
+from modules.api_surface import api
+from modules.coord_transformations import PlateLocation
+from modules.layer_record import ChannelSliderMaxima, Modality, release_layer
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.tiling_config import TilingConfig
+from modules.tiling_config import TilingGrids
+from modules.zstack_config import ZStackReference
 
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
-    from modules.coord_transformations import CoordinateTransformer
+    from modules.executor_registry import ExecutorBundle
     from modules.lumascope_api._lumascope import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
-    from modules.scope_capabilities import ScopeCapabilities
+    from modules.scope_capabilities import CameraLimits, ScopeCapabilities
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -38,12 +42,18 @@ if typing.TYPE_CHECKING:
 
 
 def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
-    """Given a position, find the nearest step index in the protocol."""
+    """Given a position, find the nearest step index in the protocol.
+
+    A step with no X/Y is at no place on the plate, so it is never the
+    nearest; -1 when no step has one.
+    """
     if protocol is None or protocol.num_steps() <= 0:
         return -1
 
-    steps_df = protocol.steps()
-    idx = (steps_df[['X', 'Y']].sub([x, y]).pow(2).sum(axis=1)).idxmin()
+    placed = protocol.steps()[['X', 'Y']].dropna()
+    if placed.empty:
+        return -1
+    idx = (placed.sub([x, y]).pow(2).sum(axis=1)).idxmin()
     # int(), not the bare idxmin: it returns np.int64, and this index is
     # handed on as a step number to callers that store and display it.
     # The annotation above promises a Python int.
@@ -119,20 +129,9 @@ def get_stim_configs(settings: dict) -> dict:
     return stim_configs
 
 
-def get_enabled_stim_configs(settings: dict) -> dict:
-    """Return only stim configs where enabled is True."""
-    stim_configs = get_stim_configs(settings)
-    return {layer: cfg for layer, cfg in stim_configs.items() if cfg['enabled']}
-
-
 def get_auto_gain_settings(settings: dict) -> dict:
-    """Extract auto gain settings, converting max_duration_seconds to timedelta."""
-    autogain_settings = settings['protocol']['autogain'].copy()
-    autogain_settings['max_duration'] = datetime.timedelta(
-        seconds=autogain_settings['max_duration_seconds']
-    )
-    del autogain_settings['max_duration_seconds']
-    return autogain_settings
+    """A copy of the stored auto-gain settings, the dictionary the camera's auto-gain takes."""
+    return settings['protocol']['autogain'].copy()
 
 
 def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunMode) -> dict:
@@ -180,19 +179,18 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'separate_folder_per_channel': (
             False if autofocus_scan else settings['separate_folder_per_channel']
         ),
-        'bf_af_for_fluorescence': settings['protocol']['bf_af_for_fluorescence'],
         'timestamp_overlay': settings['video']['timestamp_overlay'],
         'video_max_fps': settings['video']['max_fps'],
     }
 
 
 def get_manual_video_max_duration(settings: dict) -> float:
-    """Return the max recording duration in seconds (video.max_duration_seconds).
+    """Return the max recording duration in seconds (video.max_duration_s).
 
     Manual recording is stop-when-I-say bounded by this cap. The store is
     prepared, so the key is read; its shipped value is the template's.
     """
-    return settings['video']['max_duration_seconds']
+    return settings['video']['max_duration_s']
 
 
 def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
@@ -217,7 +215,7 @@ def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
 def log_resolved_optics(
     objective_id: str,
     focal_length: float,
-    binning_size: int,
+    binning_size: int | None,
     *,
     capabilities: 'ScopeCapabilities | None',
 ) -> None:
@@ -258,6 +256,7 @@ def log_resolved_optics(
                 ('active scope', capabilities),
                 ('tube lens focal length', tube_focal_length),
                 ('sensor pixel size', pixel_width),
+                ('camera binning', binning_size),
             )
             if value is None
         ]
@@ -291,33 +290,12 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
     return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]
 
 
-def _ag_ae_channel_class(layer: str) -> str:
+def _ag_ae_channel_class(layer: str) -> Modality:
     if layer in common_utils.get_transmitted_layers():
-        return 'transmitted'
+        return Modality.TRANSMITTED
     if layer in common_utils.get_luminescence_layers():
-        return 'luminescence'
-    return 'fluorescence'
-
-
-def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, dict]:
-    """Return (objective_id, objective_info_dict) from current settings."""
-    objective_id = settings['objective_id']
-    objective = objective_helper.get_objective_info(objective_id=objective_id)
-    return objective_id, objective
-
-
-def model_has_turret(scopes: dict, model: str | None) -> bool:
-    """Does the DECLARED microscope model have a turret?
-
-    Declared -- the model the scope runs as, looked up in the scopes
-    catalogue -- rather than live capability, deliberately: a dead
-    motorboard reports no axes, and that is exactly when a stale stored
-    objective must not survive startup adoption. The caller passes the
-    running scope's model, not the stored selection, which may name a
-    model saved for the next start.
-    """
-    scope_config = scopes.get(model)
-    return bool(scope_config and scope_config.get('Turret'))
+        return Modality.LUMINESCENCE
+    return Modality.FLUORESCENCE
 
 
 # ---------------------------------------------------------------------------
@@ -326,12 +304,8 @@ def model_has_turret(scopes: dict, model: str | None) -> bool:
 
 
 def get_current_plate_position(
-    scope: 'Lumascope',
-    settings: dict,
-    coordinate_transformer: 'CoordinateTransformer',
-    wellplate_loader: WellPlateLoader,
-    labware_id: str,
-) -> dict:
+    scope: 'Lumascope', labware_id: str, axes: 'typing.Iterable[str]' = ('X', 'Y', 'Z')
+) -> PlateLocation:
     """Get current plate position in plate coordinates.
 
     Args:
@@ -339,47 +313,93 @@ def get_current_plate_position(
             on its protocol's plate, which need not be the scope's
             selection; converting through another plate puts it in a frame
             the run will not drive it in.
+        axes: The stage axes the caller keeps; an axis not named is None and
+            is not read, so a move on it refuses nothing. X and Y are one
+            conversion to the plate, so naming either reads both.
 
     Returns:
-        dict with keys 'x', 'y', 'z' in plate coordinates: x and y in mm,
-        z in um.
+        The position on the plate: X and Y in mm, Z in um. An axis this
+        scope has no motor for is None: there is nothing to read there, and
+        a number in its place (the origin, or the stage origin converted to
+        the plate) would be saved as a place the scope never measured.
 
     Raises:
         HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
             model has a motor controller and none is connected, so there is
             no position to read. A step or a run recorded at a made-up
             position would image the wrong place under the right name.
+        AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
+            its number is a place it is passing through.
         CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
             is not a plate the catalogue has. Converting through a different
             plate would put every position
             in the wrong frame.
     """
     scope.motion.refuse_controller_not_connected('get_current_plate_position')
-    if not scope.motor_connected:
-        # A manual scope has no motor controller by design. What its steps
-        # record in place of a position is not decided here; until it is,
-        # the origin stands in, and is logged as the stand-in it is.
-        logger.error('Cannot retrieve current plate position')
-        return {'x': 0, 'y': 0, 'z': 0}
+    labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
+    pos = scope.motion.settled_positions(_plate_axes(scope, axes))
+    return _on_plate(scope, labware_id, pos)
 
-    pos = scope.motion.get_current_position(axis=None)
-    labware = wellplate_loader.get_plate(plate_key=wellplate_loader.resolve_plate_key(labware_id))
 
-    # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
-    # missing axes so adding/modifying a step (and z-stack capture) does not
-    # raise on them.
-    px, py = coordinate_transformer.stage_to_plate(
-        labware=labware,
-        stage_offset=settings['stage_offset'],
-        sx=pos.get('X', 0),
-        sy=pos.get('Y', 0),
-    )
+def kept_plate_position(
+    scope: 'Lumascope', labware_id: str, axes: 'typing.Iterable[str]', *, then: str
+) -> PlateLocation:
+    """The current plate position, as a position to keep: every axis read at rest and known.
 
-    return {
-        'x': round(px, common_utils.max_decimal_precision('x')),
-        'y': round(py, common_utils.max_decimal_precision('y')),
-        'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
-    }
+    ``get_current_plate_position`` for a caller that keeps the position
+    itself and has no owner to refuse an unknown axis after the read: the
+    states and the numbers are one snapshot (``positions_to_keep``), so a
+    home that starts between a separate state question and the read cannot
+    pass the number it left behind.
+
+    Args:
+        labware_id: The plate the position is stated on.
+        axes: The stage axes the caller keeps, as ``get_current_plate_position``
+            takes them.
+        then: What the user does once the scope knows its position, ending
+            the refusal (e.g. ``'save the bookmark'``).
+
+    Returns:
+        The position on the plate, as ``get_current_plate_position`` answers.
+
+    Raises:
+        HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
+            model has a motor controller and none is connected.
+        AxisMovingError: ``'axis_moving'``, an axis it reads is moving.
+        AxisStateUnknownError: ``'position_unknown'``, an axis it reads is
+            homing or lost its reference.
+        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            is not a plate the catalogue has.
+    """
+    # The cable before the reference: with the controller gone every axis
+    # is unknown, and the remedy is the cable, not a home.
+    scope.motion.refuse_controller_not_connected('get_current_plate_position')
+    labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
+    pos = scope.motion.positions_to_keep(_plate_axes(scope, axes), then=then)
+    return _on_plate(scope, labware_id, pos)
+
+
+def _plate_axes(scope: 'Lumascope', axes: 'typing.Iterable[str]') -> tuple[str, ...]:
+    """The axes a plate read reads: those asked that the scope has, X and Y together."""
+    wanted = set(axes)
+    if wanted & {'X', 'Y'}:
+        wanted |= {'X', 'Y'}
+    present = scope.capabilities.axes
+    return tuple(axis for axis in ('X', 'Y', 'Z') if axis in wanted and axis in present)
+
+
+def _on_plate(
+    scope: 'Lumascope', labware_id: str, pos: 'typing.Mapping[str, float]'
+) -> PlateLocation:
+    """Stage positions, as a position on the plate ``labware_id`` names; an axis not read is None."""
+    x_mm = y_mm = z_um = None
+    if 'X' in pos and 'Y' in pos:
+        plate = scope.runtime_state.stage_to_plate(pos['X'], pos['Y'], labware_id=labware_id)
+        x_mm = round(plate.x_mm, common_utils.max_decimal_precision('x'))
+        y_mm = round(plate.y_mm, common_utils.max_decimal_precision('y'))
+    if 'Z' in pos:
+        z_um = round(pos['Z'], common_utils.max_decimal_precision('z'))
+    return PlateLocation(x_mm=x_mm, y_mm=y_mm, z_um=z_um)
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +407,7 @@ def get_current_plate_position(
 # ---------------------------------------------------------------------------
 
 
-def log_environment_once():
+def log_environment_once() -> None:
     """Log fixed environment fingerprint -- system boot time, uptime, OS build,
     Pylon SDK version, Defender state. Once-per-startup pairs with the
     per-tick log_system_metrics surface so post-mortem can correlate a
@@ -398,13 +418,12 @@ def log_environment_once():
     exhaustion at 632h that contaminated one perf-investigation run); without recording boot time, that contamination is
     invisible in post-hoc log analysis.
     """
-    import datetime as _dt
     import platform as _platform
 
     try:
         boot_ts = psutil.boot_time()
-        boot_dt = _dt.datetime.fromtimestamp(boot_ts).isoformat(timespec='seconds')
-        uptime_hr = (_dt.datetime.now().timestamp() - boot_ts) / 3600.0
+        boot_dt = wall_time.local_time(round(boot_ts * 1e9)).isoformat(timespec='seconds')
+        uptime_hr = (time.time() - boot_ts) / 3600.0
     except Exception:
         boot_dt = 'NA'
         uptime_hr = -1
@@ -460,8 +479,44 @@ def log_environment_once():
     )
 
 
-def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
-    """Log CPU, RAM, and disk metrics, and the scope's camera delivery."""
+@typing.runtime_checkable
+class DisplayRates(typing.Protocol):
+    """A live display's own rates, which only a host with a display has.
+
+    The GUI hands its display down through ``ScopeSession.enable_metrics``;
+    a module never reaches up to it.
+    """
+
+    @api(in_process=True)
+    def display_fps(self) -> float:
+        """The frames drawn in the last second.
+
+        Raises:
+            Nothing.
+        """
+        ...
+
+    @api(in_process=True)
+    def frame_interval_percentiles_ms(self) -> dict[str, float]:
+        """``p50``, ``p95``, ``p99`` and ``max`` intervals between drawn
+        frames, in ms, and ``n`` the samples; empty before the first.
+
+        Raises:
+            Nothing.
+        """
+        ...
+
+
+def log_system_metrics(
+    settings: dict,
+    *,
+    scope: 'Lumascope',
+    executors: 'ExecutorBundle',
+    display: DisplayRates | None = None,
+) -> None:
+    """Log CPU, RAM, and disk metrics, the scope's camera delivery, the
+    session's executor queues and futures, and the display's rates when
+    the host has a display."""
     path = settings['live_folder']
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
@@ -521,9 +576,9 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
 
     # --- Long-run stability metrics ---
     # Each block is grep-able and routed through metrics_logger to
-    # metrics.log so errors.log stays signal-only. See
-    # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" for healthy vs
-    # unhealthy patterns.
+    # metrics.log so errors.log stays signal-only. Each count levels off
+    # in the first minutes of a run (threads within 30 s); a leak is a
+    # steady climb across successive hourly blocks.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
     # slow after 24 hours" -- process limit is 10k, desktop degrades at ~5k.
@@ -596,11 +651,11 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
             f'dedicated_mem={gpu.get("gpu_dedicated_mem_mb", 0.0):.0f} MB',
         )
 
-    # Python GC objects. Steady growth = closures or observers holding refs.
-    gc_objects = metrics.get('gc_objects', -1)
-    if gc_objects >= 0:
+    # Python heap blocks. Steady growth = closures or observers holding refs.
+    allocated_blocks = metrics.get('allocated_blocks', -1)
+    if allocated_blocks >= 0:
         metrics_logger.info(
-            f'[GC METRICS] objects={gc_objects} | '
+            f'[GC METRICS] blocks={allocated_blocks} | '
             f'gen0={metrics.get("gc_gen0_collections", -1)} '
             f'gen1={metrics.get("gc_gen1_collections", -1)} '
             f'gen2={metrics.get("gc_gen2_collections", -1)}',
@@ -695,37 +750,30 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
     # roughly. The display's rate is the GUI's, logged only where one exists.
     delivered = scope.imaging.get_delivered_rate()
     wire_frame_bytes = (
-        delivered.bytes_per_s / delivered.frames_per_s if delivered.frames_per_s else 0.0
+        delivered.bytes_per_s / delivered.frame_rate_fps if delivered.frame_rate_fps else 0.0
     )
-    from modules import app_context as _app_ctx
-
-    sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
-    display_field = f'display_fps={sd.display_fps():.1f} | ' if sd is not None else ''
+    display_field = f'display_fps={display.display_fps():.1f} | ' if display is not None else ''
     metrics_logger.info(
-        f'[BUFFER METRICS] capture_fps={delivered.frames_per_s:.1f} | '
+        f'[BUFFER METRICS] capture_fps={delivered.frame_rate_fps:.1f} | '
         f'{display_field}'
         f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
         f'frame_size={wire_frame_bytes / 1000:.0f} KB',
     )
-    if sd is not None:
+    if display is not None:
         # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock
         # contention and IO scheduling issues.
-        try:
-            if hasattr(sd, 'frame_interval_percentiles_ms'):
-                pcts = sd.frame_interval_percentiles_ms()
-                if pcts:
-                    metrics_logger.info(
-                        f'[FRAME INTERVAL] '
-                        f'p50={pcts["p50"]:.1f} ms | '
-                        f'p95={pcts["p95"]:.1f} ms | '
-                        f'p99={pcts["p99"]:.1f} ms | '
-                        f'max={pcts["max"]:.1f} ms | '
-                        f'n={pcts["n"]}',
-                    )
-        except Exception as e:
-            logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
+        pcts = display.frame_interval_percentiles_ms()
+        if pcts:
+            metrics_logger.info(
+                f'[FRAME INTERVAL] '
+                f'p50={pcts["p50"]:.1f} ms | '
+                f'p95={pcts["p95"]:.1f} ms | '
+                f'p99={pcts["p99"]:.1f} ms | '
+                f'max={pcts["max"]:.1f} ms | '
+                f'n={pcts["n"]}',
+            )
 
     # --- Defender (MsMpEng.exe) metrics ---
     # Direct signal for the "Defender memory-maps every TIFF write"
@@ -758,77 +806,28 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
         )
 
     # --- Queue depth ---
-    # protocol_queue is unbounded with advisory-only depth warning.
     # Monotonic queue growth = save can't keep up, frames pile up
     # retaining 16-48 MB each. Direct mechanism for slow-onset
-    # multi-hour memory growth on the save path.
-    try:
-        ctx = _app_ctx.ctx if _app_ctx.ctx is not None else None
-    except Exception:
-        ctx = None
-    if ctx is not None:
-        queue_parts = []
-        # Walk known executors. Each may use a queue.Queue (qsize) or a
-        # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in (
-            'sequenced_capture_runner',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'post_processing_executor',
-            'worker_pool',
-        ):
-            # protocol_thread, scope_display_thread, autofocus_thread,
-            # autofocus_runner excluded: they are bare Threads (or a
-            # plain algorithm runner) with no queue and no
-            # caller_futures.
-            try:
-                exe = getattr(ctx, name, None)
-                if exe is None:
-                    continue
-                wq = getattr(exe, '_work_queue', None) or getattr(exe, 'queue', None)
-                if wq is None and hasattr(exe, 'qsize'):
-                    wq = exe
-                if wq is not None and hasattr(wq, 'qsize'):
-                    queue_parts.append(f'{name}={wq.qsize()}')
-            except Exception:
-                continue
-        if queue_parts:
-            metrics_logger.info(
-                f'[QUEUE METRICS] {" | ".join(queue_parts)}',
-            )
+    # multi-hour memory growth on the save path. The session's own
+    # executors, so every host logs it.
+    states = {**executors.snapshot(), **executors.thread_states()}
+    metrics_logger.info(
+        f'[QUEUE METRICS] {" | ".join(f"{name}={value}" for name, value in states.items())}',
+    )
 
-        # Per-executor caller_futures alloc/pop/live counters. Sustained
-        # drift between allocs and pops means Future entries are
-        # accumulating in caller_futures; on Windows each orphan Future
-        # leaves a Lock/Semaphore kernel handle open. Steady-state
-        # invariant: alloc == pop within a few per cadence (each
-        # in-flight task is one of the few "live" entries).
-        futures_parts = []
-        for name in (
-            'sequenced_capture_runner',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'post_processing_executor',
-            'worker_pool',
-        ):
-            # protocol_thread, scope_display_thread, autofocus_thread,
-            # autofocus_runner excluded: they are bare Threads (or a
-            # plain algorithm runner) with no queue and no
-            # caller_futures.
-            try:
-                exe = getattr(ctx, name, None)
-                if exe is None or not hasattr(exe, 'caller_futures_stats'):
-                    continue
-                allocs, pops, live = exe.caller_futures_stats()
-                futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
-            except Exception:
-                continue
-        if futures_parts:
-            metrics_logger.info(
-                f'[FUTURES METRICS] {" | ".join(futures_parts)}',
-            )
+    # Per-executor caller_futures alloc/pop/live counters. Sustained
+    # drift between allocs and pops means Future entries are
+    # accumulating in caller_futures; on Windows each orphan Future
+    # leaves a Lock/Semaphore kernel handle open. Steady-state
+    # invariant: alloc == pop within a few per cadence (each
+    # in-flight task is one of the few "live" entries).
+    futures_parts = []
+    for name, executor in executors.queued_executors():
+        allocs, pops, live = executor.caller_futures_stats()
+        futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
+    metrics_logger.info(
+        f'[FUTURES METRICS] {" | ".join(futures_parts)}',
+    )
 
     # --- tracemalloc top-N (settings-gated) ---
     # Off by default. Enable with tracemalloc_enabled: true in
@@ -856,76 +855,34 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
         )
 
 
-def focus_log(positions, values, focus_round: int, source_path: str) -> int:
-    """Log autofocus positions and scores to file. Returns incremented focus_round."""
-    if False:  # disabled -- kept for future use
-        log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
-        try:
-            file = open(log_file, 'a')  # noqa: SIM115 -- inside an unreachable block and closed explicitly; context manager not applicable
-        except Exception as e:
-            if not os.path.isdir(os.path.join(source_path, 'logs')):
-                raise FileNotFoundError("Couldn't find 'logs' directory.") from e
-            else:
-                raise
-        for i, p in enumerate(positions):
-            mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
-            file.write(mssg)
-        file.close()
-    return focus_round + 1
-
-
 # ---------------------------------------------------------------------------
-# Headless config getters -- GUI-free equivalents of config_ui_getters.py
+# Headless config getters
 #
-# These read from the settings dict (or scope object) instead of Kivy widgets.
-# Used by the REST API and any non-GUI context.
+# These read from the settings dict (or scope object), never from Kivy
+# widgets, so the REST API, the GUI and any non-GUI context share them.
 # ---------------------------------------------------------------------------
-
-# Fallback exposure slider upper bound used when no camera is connected.
-# Lumascope.max_exposure_ms_cached returns None in that case; callers pattern
-# is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
-DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # The usable exposure FLOOR per channel class (ms): see
 # get_ag_ae_min_exposure_ms. Transmitted light can legitimately run at a
 # tenth of a millisecond; sub-millisecond fluorescence or luminescence is
 # never realistic and its sliders start at 1 ms.
 DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
-    'transmitted': 0.1,
-    'fluorescence': 1.0,
-    'luminescence': 1.0,
+    Modality.TRANSMITTED: 0.1,
+    Modality.FLUORESCENCE: 1.0,
+    Modality.LUMINESCENCE: 1.0,
 }
 
 # Fallback gain slider upper bound used when no camera is connected.
 # Matches the legacy kv default (48 dB); the actual per-camera cap is
 # derived from profile.gain.total_max_db and flows through
-# Lumascope.max_gain_db_cached at connect time.
+# capabilities.camera_limits at connect time.
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
-def _camera_cap_for_ui(value: float | None, default: float) -> float:
-    """A live camera cap, or the no-camera default.
-
-    camera_max_* return None by design when no camera is connected (so callers
-    can tell "missing" from a real value; #616); this applies the documented
-    UI fallback in one place for both the exposure and gain resolvers.
-    """
-    if value is not None:
-        return value
-    return default
-
-
-def camera_max_exposure_for_ui(imaging) -> float:
-    """The exposure-slider upper bound from the live camera, or the no-camera
-    default. The single UI-facing resolver, so the connect (load_settings) and
-    reconnect paths can't apply the fallback differently.
-    """
-    return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
-
-
-def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
-    """The gain-slider upper bound from the live camera, or the no-camera
-    default. Parallel to camera_max_exposure_for_ui.
+def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
+    """The gain-slider upper bound from the camera's limits, or the no-camera
+    default (``DEFAULT_MAX_GAIN_DB``; the limits are None by design when no
+    camera is connected, so a caller can tell "missing" from a real value).
 
     Normalised to the same precision every other gain number in the app
     carries. A GenICam float node reports its maximum in continuous units and
@@ -945,62 +902,63 @@ def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = (
+        limits.gain_max_db
+        if limits is not None and limits.gain_max_db is not None
+        else DEFAULT_MAX_GAIN_DB
+    )
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 
-# Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
-# are far brighter per mA than the fluorescence channels, so the slider
-# stops well under the board's ceiling; the text entry reaches past it for
-# the rare sample that needs it (Eric, 2026-09-12: "slider at 50, but you can
-# type up to 500 still"), up to what the connected board can be asked for,
-# which the settings writer refuses to exceed.
-TRANSMITTED_MAX_ILLUMINATION_MA = 50
-
-
-def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
-    """The illumination-slider upper bound for one layer: the connected LED
-    driver's cap, narrowed to the transmitted-layer policy for BF / PC / DF.
-    """
-    cap = int(capabilities.led_max_ma)
-    if layer in common_utils.get_transmitted_layers():
-        return min(TRANSMITTED_MAX_ILLUMINATION_MA, cap)
-    return cap
-
-
-# Manual exposure ceilings for the transmitted layers, in ms. Their light is
-# bright enough that the useful manual range sits far under the sensor's
-# maximum, so the slider stops here rather than at the camera's cap.
+# The manual ceilings are each layer's catalogue record's
+# (`manual_max_exposure_ms`, `manual_max_illumination_ma` in scopes.json).
+#
+# Illumination: the transmitted LEDs (BF / PC / DF) are far brighter per mA
+# than the fluorescence channels, so their slider stops well under the
+# board's ceiling; the text entry reaches past it for the rare sample that
+# needs it (Eric, 2026-09-12: "slider at 50, but you can type up to 500
+# still"), up to what the connected board can be asked for, which the
+# settings writer refuses to exceed.
+#
+# Exposure: transmitted light is bright enough that the useful manual range
+# sits far under the sensor's maximum, BF's lowest of all. Fluorescence
+# exposures past a second stop being a usable manual range: the Pylon sensors
+# reach ten seconds, which would put every useful slider position in the
+# first tenth of the track. Luminescence has no ceiling -- integrating as long
+# as the sensor allows is that channel's purpose, so its slider goes to the
+# camera's own cap (Eric, 2026-09-12).
 #
 # Deliberately NOT settings['ag_ae_max_exposure_ms']: that bounds what the AUTO
 # loop may drive to and is set per install, so reusing it would let auto-exposure
-# tuning silently resize the manual slider. It is also keyed by channel class,
-# where the manual ceiling differs between BF and the other transmitted layers.
-BF_MAX_MANUAL_EXPOSURE_MS = 50.0
-TRANSMITTED_MAX_MANUAL_EXPOSURE_MS = 200.0
-
-# Fluorescence exposures past a second stop being a usable manual range: the
-# Pylon sensors reach ten seconds, which puts every useful slider position in
-# the first tenth of the track. Luminescence is deliberately absent from this
-# policy -- integrating as long as the sensor allows is that channel's purpose,
-# so its slider goes to the camera's own cap (Eric, 2026-09-12).
-FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS = 1000.0
+# tuning silently resize the manual slider.
 
 
-def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
-    """The exposure-slider upper bound for one layer: the camera's own cap,
-    narrowed to the manual policy for its channel class.
+def _narrowed(cap: float | None, ceiling: float | None) -> float | None:
+    """A connected part's cap narrowed to a layer's manual ceiling: None with
+    no part to cap it, the cap where the layer has no ceiling."""
+    if cap is None or ceiling is None:
+        return cap
+    return min(ceiling, cap)
 
-    Luminescence takes the cap unnarrowed; every other class has a manual
-    ceiling that is usually far below what the sensor can do.
+
+def layer_slider_maxima(
+    layer: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
+) -> ChannelSliderMaxima:
+    """One layer's manual slider maxima: the connected camera's exposure cap
+    and the current cap of the layer's LED, each narrowed to the layer's
+    manual ceiling where it has one; None where there is no cap (no camera;
+    no LED board, or no LED for the layer).
+
+    Raises:
+        ArgumentRefusedError: ``layer`` is not a layer of this release.
     """
-    if layer in common_utils.get_transmitted_layers():
-        ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
-    elif layer in common_utils.get_fluorescence_layers():
-        ceiling = FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
-    else:
-        return camera_max_ms
-    return min(ceiling, camera_max_ms)
+    catalogue = release_layer(layer)
+    return ChannelSliderMaxima(
+        slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalogue.manual_max_exposure_ms),
+        slider_max_illumination_ma=_narrowed(
+            illumination_cap_ma, catalogue.manual_max_illumination_ma
+        ),
+    )
 
 
 def get_binning_from_settings(settings: dict) -> int:
@@ -1080,30 +1038,28 @@ def get_selected_labware_from_settings(
             reader still refuses one in settings no bring-up has read.
     """
     labware_id = wellplate_loader.resolve_plate_key(settings['protocol']['labware'])
-    return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
+    return labware_id, wellplate_loader.get_plate(labware_id=labware_id)
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
     """Read z-stack params from the settings store.
 
     The store keeps the stack in a TOP-LEVEL ``zstack`` container -- not under
-    ``protocol`` -- and keeps its reference in ``position``, holding the
-    spinner's display LABEL. Both are written by the z-stack UI. Reading a
-    ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
-    answered with invented values instead of failing.
+    ``protocol`` -- and keeps its reference in ``position``. Both are written
+    by the z-stack UI. Reading a ``protocol.zstack`` container and a
+    ``z_reference`` leaf found neither and answered with invented values
+    instead of failing.
 
     The store is prepared, so every key is read, and each holds what its
     writer and the load allow: ``range`` and ``step_size`` a finite number,
-    ``position`` one of the z-stack labels. The shipped ``step_size`` is 0,
+    ``position`` a ``ZStackReference`` value. The shipped ``step_size`` is 0,
     so an unconfigured store reports no stack.
     """
     zstack = settings['zstack']
     return {
         'range': float(zstack['range']),
         'step_size': float(zstack['step_size']),
-        'z_reference': common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=zstack['position']
-        ),
+        'z_reference': ZStackReference(zstack['position']),
     }
 
 
@@ -1170,7 +1126,7 @@ def get_composite_channels(settings: dict) -> list:
     transmitted = [
         layer
         for layer in common_utils.get_transmitted_layers()
-        if settings[layer]['acquire'] == 'image'
+        if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
     others = [
         layer
@@ -1178,7 +1134,7 @@ def get_composite_channels(settings: dict) -> list:
             *common_utils.get_fluorescence_layers(),
             *common_utils.get_luminescence_layers(),
         )
-        if settings[layer]['acquire'] == 'image'
+        if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
     return transmitted[:1] + others
 
@@ -1219,14 +1175,14 @@ def get_composite_image_capture_config_from_settings(
     if requested in image_mode.MERGEABLE_SEQUENCED_FORMATS:
         resolved = requested
     else:
-        resolved = image_mode.OUTPUT_FORMAT_OME_TIFF
+        resolved = image_mode.OutputFormat.OME_TIFF
         logger.info(
             f'[Composite] Sequenced output format {requested!r} cannot be merged; '
             f'this run saves {resolved!r} instead.'
         )
 
     return image_mode.ImageCaptureConfig.from_image_mode(
-        image_mode.IMAGE_MODE_8BIT,
+        image_mode.ImageMode.EIGHT_BIT,
         output_format_live=output_format['live'],
         output_format_sequenced=resolved,
         jpg_quality=settings['jpg_quality'],
@@ -1236,7 +1192,7 @@ def get_composite_image_capture_config_from_settings(
 def get_composite_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,
-    position: dict,
+    position: PlateLocation,
 ) -> dict:
     """Build the input_config for a composite run at *position*.
 
@@ -1254,11 +1210,12 @@ def get_composite_capture_config_from_settings(
 
     """
     channels = get_composite_channels(settings)
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
 
     composite_position = {
-        'x': position['x'],
-        'y': position['y'],
+        'x': position.x_mm,
+        'y': position.y_mm,
         'z': None,
         'name': COMPOSITE_POSITION_NAME,
     }
@@ -1272,7 +1229,7 @@ def get_composite_capture_config_from_settings(
             'objective_id': objective_id,
             'zstack_params': {},
             'use_zstacking': False,
-            'tiling': TilingConfig.no_tiling_label(),
+            'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
             'layer_configs': get_layer_configs(settings, specific_layers=channels),
             'period': None,
@@ -1284,7 +1241,7 @@ def get_composite_capture_config_from_settings(
             # hardware at the sample during a composite -- which capturing a
             # multi-channel image has never done and nobody asked it to.
             'stim_config': {},
-            'current_z': position['z'],
+            'current_z': position.z_um,
             'positions': [composite_position],
         }
     )
@@ -1296,7 +1253,7 @@ def get_standalone_capture_config_from_settings(
     wellplate_loader: WellPlateLoader,
     *,
     layer: str,
-    position: dict,
+    position: PlateLocation,
     position_name: str,
     autofocus: bool,
     use_zstacking: bool,
@@ -1338,13 +1295,14 @@ def get_standalone_capture_config_from_settings(
             empty dict keeps the run stim-free.
 
     *layer* is a layer of this release: the members that build this
-    (``ProtocolRunner.run_autofocus``, ``run_zstack``) judge it at their
+    (``ProtocolRunner.start_autofocus``, ``start_zstack``) judge it at their
     door, before they read the scope. Unjudged, an unknown name would not
     fail here -- the layer selector below skips what the catalogue lacks
     -- and the run would be refused several steps later as "Protocol has
     no steps", naming a cause that has nothing to do with the mistake.
     """
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 
     layer_configs = get_layer_configs(settings, specific_layers=[layer])
@@ -1353,11 +1311,15 @@ def get_standalone_capture_config_from_settings(
     # caller's intent decides autofocus rather than the layer's stored
     # flag. Assembling a config is not the place to honour a leftover
     # switch the caller said nothing about.
-    layer_config['acquire'] = 'image'
+    layer_config['acquire'] = AcquireMode.IMAGE
     layer_config['autofocus'] = autofocus
 
-    step_position = dict(position)
-    step_position['name'] = position_name
+    step_position = {
+        'x': position.x_mm,
+        'y': position.y_mm,
+        'z': position.z_um,
+        'name': position_name,
+    }
 
     return build_sequenced_capture_config(
         {
@@ -1365,7 +1327,7 @@ def get_standalone_capture_config_from_settings(
             'objective_id': objective_id,
             'zstack_params': get_zstack_params_from_settings(settings) if use_zstacking else {},
             'use_zstacking': use_zstacking,
-            'tiling': TilingConfig.no_tiling_label(),
+            'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
             'layer_configs': {layer: layer_config},
             'period': None,
@@ -1373,7 +1335,7 @@ def get_standalone_capture_config_from_settings(
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
             'stim_config': stim_config,
-            'current_z': position['z'],
+            'current_z': position.z_um,
             'positions': [step_position],
         }
     )
@@ -1428,7 +1390,8 @@ def get_sequenced_capture_config_from_settings(
     GUI's resolve a missing or unloadable plate the same way instead of
     handing a bare '' to the protocol.
     """
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
     time_params = get_protocol_time_params_from_settings(settings)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 

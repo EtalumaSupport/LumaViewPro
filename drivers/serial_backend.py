@@ -40,7 +40,17 @@ class PyserialBackend:
         return list_ports.comports(include_links=True)
 
     def open(self, **kwargs) -> serial.SerialBase:
-        return serial.Serial(**kwargs)
+        """Open the port for this process alone.
+
+        macOS and Linux let any number of processes open one tty, and each
+        read then takes whichever bytes arrive first, so two readers garble
+        both sides' replies. Exclusive access refuses a second opener that
+        asks for it (another LumaViewPro, a probe, a test suite) with a
+        ``SerialException``; the lock is advisory, so a program that opens
+        the tty without asking is not refused. Windows already opens every
+        port exclusively.
+        """
+        return serial.Serial(**kwargs, exclusive=True)
 
 
 PYSERIAL = PyserialBackend()

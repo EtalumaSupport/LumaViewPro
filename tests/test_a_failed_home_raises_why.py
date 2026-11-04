@@ -20,12 +20,11 @@ import threading
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
-    LaneCallStillRunningError,
 )
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
@@ -63,7 +62,7 @@ def test_no_motor_controller_is_a_refusal_in_the_cables_words(scope, monkeypatch
 
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route):
-    cause = HardwareError('no response from motor board')
+    cause = BoardNoReplyError('no response from motor board')
 
     def _raise():
         raise cause
@@ -77,6 +76,26 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
     assert str(raised.value) == f'{SUBJECT[route]} encountered an error. Position is unknown.'
     assert raised.value.__cause__ is cause
     assert raised.value.axes == _axes_of(scope, route)
+    assert scope.posts == []
+
+
+@pytest.mark.parametrize('route', ROUTES)
+def test_a_defect_in_the_home_leaves_as_itself_with_its_axes_unknown(scope, monkeypatch, route):
+    """Only the board's hardware fault is a homing fault; our own defect is never named one."""
+
+    def defect():
+        # a stand-in by design: our own defect inside the driver's home,
+        # which no simulated board fault produces (a board fault is a
+        # HardwareError)
+        raise TypeError('scripted defect')
+
+    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], defect)
+
+    with pytest.raises(TypeError, match='scripted defect'):
+        scope.motion.home(route)
+
+    for axis in _axes_of(scope, route):
+        assert scope.motion.get_axis_state(axis) == AxisState.UNKNOWN, axis
     assert scope.posts == []
 
 
@@ -99,7 +118,7 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
 @pytest.mark.parametrize('route', ROUTES)
 def test_the_done_line_is_logged_however_the_home_ends(scope, monkeypatch, caplog, route):
     def _raise():
-        raise HardwareError('no response from motor board')
+        raise BoardNoReplyError('no response from motor board')
 
     monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 
@@ -128,30 +147,25 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
         scope.motion.home('T')
 
     assert caught.value.reason == 'axis_absent'
-    assert scope.motion.get_turret_slot() is None
+    assert scope.motion.turret_status() is None
 
 
-def test_a_home_past_the_api_s_bound_is_a_fault_that_says_it_may_still_finish(scope, monkeypatch):
-    """The API's own bound on the home ran out with the home still running:
-    a fault naming the home, never a TimeoutError a caller reads as its own
-    wait; the home goes on, and ends as homes do."""
+def test_a_home_ends_when_its_board_ends_it_however_long_it_takes(scope, monkeypatch):
+    """The API puts no bound of its own on a home: the board's or the
+    driver's ends it. Before, the API's wait ran out while the home still
+    drove and raised ``call_overran``, so a home that went on to succeed
+    was told to its caller as given up."""
     release = threading.Event()
     zhome = scope._motion_driver.zhome
 
-    def held():
+    def slow():
         release.wait(30)
         zhome()
 
-    monkeypatch.setattr(scope._motion_driver, 'zhome', held)
+    monkeypatch.setattr(scope._motion_driver, 'zhome', slow)
+    # The bound the API's waits used to derive from is zero; a home still waits.
     monkeypatch.setattr(scope.motion, '_MOTION_WAIT_BASE_S', 0.0)
-    monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.0)
+    threading.Timer(0.5, release.set).start()
 
-    with pytest.raises(LaneCallStillRunningError) as raised:
-        scope.motion.home('Z')
-    monkeypatch.undo()
-    release.set()
-    scope.motion.wait_until_finished_moving(timeout_s=30)
-
-    assert not isinstance(raised.value, TimeoutError)
-    assert (raised.value.reason, raised.value.member) == ('still_running', 'home')
+    assert scope.motion.home('Z') is None
     assert scope.motion.axes_without_position() == {}

@@ -43,7 +43,7 @@ def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(
     reported arrived, approaching from the wrong side."""
     motion = scope.motion
     driver = scope._motion_driver
-    motion.move_absolute('Z', 3000.0)
+    motion.move_z(3000.0)
     sent = []
     real = driver.exchange_command
 
@@ -55,7 +55,7 @@ def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(
     scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        motion.move_absolute('Z', 1000.0, overshoot_enabled=True)
+        motion.move_z(1000.0, overshoot_enabled=True)
 
     assert exc.value.reason == 'position_unread'
     assert not [c for c in sent if c.startswith('TARGET_W')]
@@ -82,7 +82,7 @@ def _move_x_and_lose_its_position(scope):
     motion = scope.motion
     driver = scope._motion_driver
     driver.set_timing_mode('realistic')
-    handle = motion.start_move_absolute('X', 20000.0)
+    handle = motion.start_move_xy(x_um=20000.0)
     scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RX')
     deadline = time.monotonic() + 5.0
     while not driver.target_status('X'):
@@ -101,22 +101,20 @@ def test_an_arrival_whose_position_was_not_read_is_not_written(scope):
     assert motion.get_axis_state('X') == AxisState.MOVING
 
     scope.simulation.clear()
-    handle.wait()
+    handle.result()
     assert motion.get_axis_state('X') == AxisState.IDLE
     assert motion.get_current_position('X') == pytest.approx(20000.0, abs=0.1)
 
 
 def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
     motion = scope.motion
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 1.0)
-    real_wait = motion._wait_for_move
-    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 5.0))
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 1.0)
     handle = _move_x_and_lose_its_position(scope)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        handle.wait()
+        handle.result()
 
-    assert exc.value.reason == 'position_unread'
+    assert exc.value.reason == 'position_unread_after_move'
     assert exc.value.title == 'Motor Position Unknown'
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     scope.simulation.clear()

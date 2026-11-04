@@ -1,7 +1,8 @@
 """The protocol capture line logs the exposure and gain the saved file records.
 
-The line read only the camera's chunk values, which only Pylon stamps, so on
-the FX2, IDS and the simulator it said ``exp_ms=na gain_db=na`` while the
+The line read only the camera's chunk values, which only a Basler body (and
+the simulated camera, which stamps as one) carries, so on the FX2 and IDS it
+said ``exp_ms=na gain_db=na`` while the
 saved file carried the applied values from the frame record. It now reads the
 frame record, and marks a value that is not the frame's own chunk
 ``(applied)``.
@@ -10,70 +11,74 @@ frame record, and marks a value that is not the frame's own chunk
 from __future__ import annotations
 
 import datetime
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from modules.lumascope_api.frame_record import FrameRecord
-from modules.protocol_image_writer import ProtocolImageWriter
+from modules.lumascope_api.frame_record import SettingSource
+from modules.protocol_image_writer import _capture_evidence
+from tests.frame_records import frame_record
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
-
-
-def _writer_over(scope_like):
-    writer = ProtocolImageWriter.__new__(ProtocolImageWriter)
-    writer._scope = scope_like
-    return writer
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 @pytest.fixture
 def live_scope():
-    scope = build_scope(simulate=True)
+    # A Classic scope: its FX2 camera stamps no chunks.
+    scope = build_scope(simulate=True, sim_model='LS620')
     bind_settings_like_a_session(scope)
-    scope._led_driver.set_timing_mode('fast')
-    scope._motion_driver.set_timing_mode('fast')
-    scope._camera_driver.set_timing_mode('fast')
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     yield scope
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
     scope.disconnect()
 
 
 def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_scope):
-    applied_exp = live_scope.imaging.set_exposure_ms(50.0)
-    applied_gain = live_scope.imaging.set_gain_db(6.0)
-    image = live_scope.imaging._capture_and_wait_impl(accept_dark=True, timeout_s=1.0)
-    assert image is not None
-    info = live_scope.imaging.last_capture_info
-    assert info['chunk_exposure_us'] is None, 'the simulator stamps no chunks'
+    applied_exp = live_scope.camera.set_exposure_ms(50.0)
+    applied_gain = live_scope.camera.set_gain_db(6.0)
+    still = live_scope.imaging.capture_still(accept_dark=True, all_ones_check=True, timeout_s=1.0)
+    # The FX2 stamps no chunks, so the record states the settings read beside the grab.
+    assert still.record.exposure_source == SettingSource.READ
+    assert still.record.gain_source == SettingSource.READ
 
-    evidence = _writer_over(live_scope)._capture_evidence(image, 255)
+    evidence = _capture_evidence(still, live_scope.imaging.last_capture_info)
 
     assert f'exp_ms={applied_exp:.2f}(applied)' in evidence
     assert f'gain_db={applied_gain:.2f}(applied)' in evidence
     assert '=na' not in evidence
 
 
-def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
-    record = FrameRecord(
-        captured_at=datetime.datetime.now(),
-        exposure_ms=62.003,
-        gain_db=3.5,
-        black_level=None,
-        illumination_ma={},
-        frames_summed=1,
-        frame_significant_bits=12,
-        camera_timestamp_ticks=None,
-        camera_tick_hz=None,
-        frame_id=None,
-        binning_size=1,
-        camera_model='a camera that stamps chunks',
+def _record(**fields):
+    return frame_record(
+        **{
+            'captured_at': datetime.datetime.now().astimezone(),
+            'exposure_ms': 62.003,
+            'gain_db': 3.5,
+            'frame_significant_bits': 12,
+            'camera_model': 'a camera that stamps chunks',
+            'saturated_fraction': 0.0,
+            **fields,
+        }
     )
-    info = {'chunk_exposure_us': 62003.0, 'chunk_gain_db': 3.5, 'frame_record': record}
-    writer = _writer_over(SimpleNamespace(imaging=SimpleNamespace(last_capture_info=info)))
 
-    evidence = writer._capture_evidence(np.zeros((8, 8), dtype=np.uint8), 255)
+
+def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
+    still = CapturedStill(image=np.zeros((8, 8), dtype=np.uint8), record=_record())
+
+    evidence = _capture_evidence(still, {})
 
     assert 'exp_ms=62.00 ' in evidence
     assert 'gain_db=3.50' in evidence
     assert '(applied)' not in evidence
+
+
+def test_the_line_states_the_frames_saturation_and_the_images_mean():
+    """The saturation is the frame record's, measured by the capture at each
+    frame's own depth; the mean is the still's statistics."""
+    still = CapturedStill(
+        image=np.full((8, 8), 4095, dtype=np.uint16), record=_record(saturated_fraction=0.25)
+    )
+
+    evidence = _capture_evidence(still, {})
+
+    assert evidence.startswith('mean=4095.0 sat=25.0% ')

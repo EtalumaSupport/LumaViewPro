@@ -1,12 +1,24 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Logger composition helpers.
+"""The loggers the drivers and lib/ write to, by name, and their composition helpers.
 
-Pure functions with no Kivy / platformdirs / config dependencies, so
-they can be imported (and tested) without dragging in the heavy
-``lvp_logger`` module's startup. The ``log_to`` helper is the shared
-dual / multi-write primitive that subsystem-mirroring callers use
-(camera.log today; motor.log / led.log / ids.log when those land).
+No Kivy / platformdirs / config dependencies, so the lower layers import
+their loggers from here without importing ``lvp_logger``, which reads the
+settings layer to set itself up. A logger is a process-wide object found by
+its name: ``lvp_logger`` takes these same objects and attaches the handlers,
+levels and files to them, so a line written here lands where it always has.
+The ``log_to`` helper is the shared dual / multi-write primitive that
+subsystem-mirroring callers use (camera.log today; motor.log / led.log /
+ids.log when those land).
 """
+
+import logging
+
+# The names are literal, never ``__name__``: lvp_logger's main-log floor passes
+# a record below INFO only from a logger named 'lvp_logger' or under 'LVP', and
+# the session sets the main log's level by those names, so a logger named for
+# this module would drop every driver's DEBUG line from lumaviewpro.log.
+logger = logging.getLogger('lvp_logger')
+camera_logger = logging.getLogger('LVP.camera')
 
 
 def log_to(*loggers, level: str, message: str) -> None:

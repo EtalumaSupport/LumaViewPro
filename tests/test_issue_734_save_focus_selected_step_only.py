@@ -26,6 +26,7 @@ from __future__ import annotations
 import pathlib
 
 import pandas as pd
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -43,8 +44,11 @@ def _make_protocol_with_steps(rows: list[dict]):
     from modules.protocol import Protocol
 
     proto = Protocol.__new__(Protocol)
+    # Each step is in no z-stack, so it takes the focus itself.
     proto._config = {
-        'steps': pd.DataFrame(rows),
+        'steps': pd.DataFrame(
+            [{'Z-Stack Group ID': -1, 'Z-Stack Offset': 0.0, **row} for row in rows]
+        ),
         'version': 1,
         'custom_step_count': 0,
     }
@@ -60,7 +64,7 @@ class TestApplyFocusAllLayerSteps:
             [
                 {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
                 {'Name': 'B1_BF', 'Color': 'BF', 'Z': 6500.0, 'X': 1, 'Y': 1},
-                {'Name': 'A1_Blue', 'Color': 'Blue', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': f'A1_{LED0}', 'Color': LED0, 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
         count = proto.apply_focus_all_layer_steps(layer='BF', z=5000.0)

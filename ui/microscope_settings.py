@@ -1,30 +1,33 @@
 # Copyright Etaluma, Inc.
-import datetime
 import logging
 import os
 import threading
+from typing import TYPE_CHECKING
 
-from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
-import modules.config_ui_getters as config_ui_getters
+import modules.layer_record as layer_record
 from modules import gui_logger, path_utils
-from modules.config_helpers import (
-    camera_max_exposure_for_ui,
-    camera_max_gain_for_ui,
-)
-from modules.config_ui_getters import (
-    firmware_stim_supported,
-)
+from modules.config_helpers import camera_max_gain_for_ui
 from modules.memory_profiler import MemoryLeakProfiler
+from modules.kivy_utils import schedule_ui_latest
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
-from modules.zstack_config import ZStackConfig
-from ui.ui_helpers import run_reported, submit_reported
+from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
+from ui.ui_helpers import (
+    refused_in_this_input,
+    run_reported,
+    show_on_slider,
+    submit_reported,
+    typed_number,
+)
+
+if TYPE_CHECKING:
+    from ui.advanced_settings import AdvancedSettings
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
@@ -37,6 +40,38 @@ _FRAME_BOXES = {
     'frame_width_id': ('FRAME_WIDTH', 'width'),
     'frame_height_id': ('FRAME_HEIGHT', 'height'),
 }
+
+# The Image mode selector's labels. A label is display: storage, the API and
+# the resolver use the ImageMode values, so a label is renamed with no
+# migration. The strings must stay distinct, because LABEL_TO_IMAGE_MODE
+# inverts this map and a collision would silently drop a mode, and must
+# differ in their first words: a spinner shortens text too wide for it from
+# the right, so two labels that share a long opening read the same in the
+# closed selector. The values keep their 12bit_ names: a full-depth mode
+# keeps the payload at the depth the frame has, 12 bits where the camera
+# delivers 12, and a sum at the bits it can reach.
+IMAGE_MODE_LABELS = {
+    ImageMode.EIGHT_BIT: '8-bit',
+    ImageMode.SCIENTIFIC: 'Scientific (full depth)',
+    ImageMode.SCALED: 'Scaled (full depth)',
+    ImageMode.FALSE_COLOR_RGB: 'RGB (full depth)',
+}
+
+LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
+
+# The output-format selectors' labels, in selector order. A label is display:
+# the settings, the run and REST keep the OutputFormat values, so a label is
+# renamed with no migration. The hyperstack's stored spelling is too wide for
+# the closed selector, which would shorten it mid-word. The labels must stay
+# distinct, because LABEL_TO_OUTPUT_FORMAT inverts this map.
+OUTPUT_FORMAT_LABELS = {
+    OutputFormat.TIFF: 'TIFF',
+    OutputFormat.OME_TIFF: 'OME-TIFF',
+    OutputFormat.HYPERSTACK: 'Hyperstack',
+    OutputFormat.JPG: 'JPG',
+}
+
+LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
 
 
 class _CoalescingApplier:
@@ -145,22 +180,19 @@ class MicroscopeSettings(BoxLayout):
         # Settings are imported at the very beginning of file
 
         if settings['profiling']['enabled']:
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
             # Joined to the data directory, never CWD-relative: an
             # installed build cannot write beside its executable.
             profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')
             MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
             logger.info('[LVP Main  ] Memory Profiler started.')
 
-        # Handle / object-type leak diagnostic. Same opt-in pattern as
+        # Handle leak diagnostic. Same opt-in pattern as
         # the memory profiler above; settings-driven so customers and
         # bench operators can enable without rebuilding.
         if settings['profiling']['handle_trace_enabled']:
             from lib import handle_trace as _handle_trace
 
-            _handle_trace.enable(
-                obj_sample_every=int(settings['profiling']['handle_trace_obj_sample_every'])
-            )
+            _handle_trace.enable()
 
         # update GUI values from JSON data:
 
@@ -175,34 +207,16 @@ class MicroscopeSettings(BoxLayout):
         # caches the mode and applies the pixel format.
         self.load_image_modes()
         mode = settings['image_mode']
-        self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
+        self.ids['image_mode_spinner'].text = IMAGE_MODE_LABELS[mode]
 
-        self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
-        # JPG quality slider reflects the saved preference; its row shows
-        # and enables with the live format declaratively in the kv.
-        jpg_quality = int(settings['jpg_quality'])
-        self.ids['jpg_quality_slider'].value = jpg_quality
-        self.ids['jpg_quality_value_label'].text = str(jpg_quality)
+        self.show_capture_settings()
 
-        self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format'][
-            'sequenced'
-        ]
-
-        # The exposure/gain slider caps from the live camera (the resolver
-        # applies the documented no-camera fallback; #616). The gain cap
-        # keeps the slider honest per-camera -- a universal 48 dB let LS620
-        # users overdrive past the usable range and black out the image.
-        max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
-        ctx.max_exposure = max_exposure
-        max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        # The gain slider cap from the live camera (the resolver applies the
+        # documented no-camera fallback). The gain cap keeps the slider
+        # honest per-camera -- a universal 48 dB let LS620 users overdrive
+        # past the usable range and black out the image.
+        max_gain = camera_max_gain_for_ui(lumaview.scope.capabilities.camera_limits)
         ctx.max_gain = max_gain
-
-        if not settings['video_as_frames']:
-            self.ids['video_recording_format_spinner'].text = 'mp4'
-        else:
-            self.ids['video_recording_format_spinner'].text = 'Frames'
-
-        self.select_video_recording_format()
 
         ctx.live_view_fps = settings['live_view_fps']
 
@@ -221,18 +235,10 @@ class MicroscopeSettings(BoxLayout):
         # the size the camera delivers.
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
-        # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
-        # was applied by the Session's bring-up
-        # The twin of the labware restore below: writing the spinner
-        # dispatches its text event, and the explicit call emits again, so
-        # cold start recorded two binning selections nobody made. Declared
-        # twice because only one declaration is pending per name -- whichever
-        # emission happens consumes one, and the second replaces any the
-        # first left unconsumed.
-        gui_logger.note_write_back('BINNING', binning_size_str)
+        # Pixel Binning -- UI recalculation only, scope.camera.set_binning()
+        # was applied by the Session's bring-up. Writing the spinner runs its
+        # handler, once; the kv starts it on 'Select', so the write always does.
         self.ids['binning_spinner'].text = binning_size_str
-        gui_logger.note_write_back('BINNING', binning_size_str)
-        self.select_binning_size()
 
         # The settings-to-scope bring-up ran in the Session before this
         # widget existed: the labware selected, scope.initialize()
@@ -243,52 +249,13 @@ class MicroscopeSettings(BoxLayout):
         # nothing.
         ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
-        if settings['scale_bar']['enabled']:
-            self.ids['enable_scale_bar_btn'].state = 'down'
-        else:
-            self.ids['enable_scale_bar_btn'].state = 'normal'
-
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        # Restoring the stored labware dispatches the spinner's event, and
-        # the explicit call below emits again -- neither is a user pick.
-        # Declared twice because only one declaration is pending per name:
-        # whichever of the two emissions happens consumes one, and the
-        # second declaration replaces any the first left unconsumed.
-        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
         protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
-        protocol_settings.select_labware()
         # Apply the persisted step-location view at startup; the toggle
         # that edits this now lives in Advanced Settings.
         ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
-        zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
-        # Restoring the stored position dispatches the spinner's event, which
-        # would read as the user choosing it during startup.
-        gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
-        zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
-        zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
-        zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
-
-        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=settings['zstack']['position']
-        )
-
-        zstack_config = ZStackConfig(
-            range=settings['zstack']['range'],
-            step_size=settings['zstack']['step_size'],
-            current_z_reference=z_reference,
-            current_z_value=None,
-        )
-
-        zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
-
-        if settings['show_tooltips']:
-            self.ids['show_tooltips_btn'].state = 'down'
-            ctx.show_tooltips = True
-        else:
-            self.ids['show_tooltips_btn'].state = 'normal'
-            ctx.show_tooltips = False
+        ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].show_settings()
 
         # Stimulation is firmware-gated. The enable toggle lives in
         # Advanced Settings now; startup just establishes the setting and
@@ -296,15 +263,13 @@ class MicroscopeSettings(BoxLayout):
         # owner (which forces it off on unsupported firmware).
         self.apply_stimulation_support()
 
+        # Size the sliders to the camera caps BEFORE the values land (the
+        # Kivy slider clamps the displayed value to its max). A stored value
+        # above the cap stays in the store and is pinned on the slider; the
+        # box keeps the real number.
         for layer in common_utils.get_layers():
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-
-            # Size the sliders to the camera caps BEFORE the values land
-            # (the Kivy slider clamps the displayed value to its max). A
-            # stored value above the cap stays in the store and is pinned
-            # on the slider; the box keeps the real number.
-            layer_obj.ids['gain_slider'].max = max_gain
-            layer_obj.ids['exp_slider'].max = max_exposure
+            ctx.image_settings.layer_lookup(layer=layer).ids['gain_slider'].max = max_gain
+        ctx.image_settings.set_layer_exposure_ranges()
 
         # Render and re-apply any layer the camera cannot fully reach --
         # the single owner, shared with the capability resync. Ordering:
@@ -320,23 +285,62 @@ class MicroscopeSettings(BoxLayout):
 
         self.set_ui_features_for_scope()
 
+    def show_capture_settings(self) -> None:
+        """Show the stored capture formats, JPG quality, video format, scale bar and tooltips.
+
+        Set from the store, each control's handler takes the stored value as
+        no pick and writes nothing.
+        """
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        self.ids['live_image_output_format_spinner'].values = [
+            label for fmt, label in OUTPUT_FORMAT_LABELS.items() if fmt in LIVE_OUTPUT_FORMATS
+        ]
+        self.ids['sequenced_image_output_format_spinner'].values = list(
+            OUTPUT_FORMAT_LABELS.values()
+        )
+        self.ids['live_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
+            settings['image_output_format']['live']
+        ]
+        # JPG quality slider reflects the saved preference; its row shows
+        # and enables with the live format declaratively in the kv.
+        jpg_quality = int(settings['jpg_quality'])
+        show_on_slider(self.ids['jpg_quality_slider'], jpg_quality)
+        self.ids['jpg_quality_value_label'].text = str(jpg_quality)
+        self.ids['sequenced_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
+            settings['image_output_format']['sequenced']
+        ]
+        self.ids['video_recording_format_spinner'].text = (
+            'Frames' if settings['video_as_frames'] else 'mp4'
+        )
+        # A toggle's state is not a press: these run their handlers on release only.
+        self.ids['enable_scale_bar_btn'].state = (
+            'down' if settings['scale_bar']['enabled'] else 'normal'
+        )
+        self.ids['show_tooltips_btn'].state = 'down' if settings['show_tooltips'] else 'normal'
+        ctx.show_tooltips = settings['show_tooltips']
+        self._refresh_jpg_depth_hint()
+
+    def advanced_settings_shown(self) -> 'AdvancedSettings | None':
+        """The Advanced Settings popup while it is open, else None: closed, it fills on open."""
+        popup = getattr(self, '_advanced_settings_popup', None)
+        return popup if popup is not None and popup.shown else None
+
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
-            _app_ctx.ctx.viewer.update_shader(false_color='BF')
+            _app_ctx.ctx.viewer.update_shader(layer_record.GREY)
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
-            layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
-            if layer is not None:
-                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
-                if layer_obj.ids['false_color'].active:
-                    _app_ctx.ctx.viewer.update_shader(false_color=layer)
-
+            layer = _app_ctx.ctx.session.shown_channel.channel
+            _app_ctx.ctx.image_settings.layer_lookup(layer=layer).update_shader(dt=0)
             _app_ctx.ctx.scope_display.use_bullseye = False
 
     def load_image_modes(self):
         """Populate the image-mode spinner: every mode, on every camera."""
-        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels()
+        self.ids['image_mode_spinner'].values = [
+            IMAGE_MODE_LABELS[mode] for mode in image_mode.available_modes()
+        ]
 
     # Drives the 8-bit binning depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -359,6 +363,7 @@ class MicroscopeSettings(BoxLayout):
         self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
             binning_size, scope_display.image_mode
         )
+        gui_logger.display('BINNING_DEPTH_HINT', self.binning_depth_hint_active)
 
     # Drives the JPG depth hint row: the API's predicate, rendered.
     jpg_depth_hint_active = BooleanProperty(False)
@@ -373,15 +378,15 @@ class MicroscopeSettings(BoxLayout):
                 settings['image_output_format']['sequenced'],
             ),
         )
+        gui_logger.display('JPG_DEPTH_HINT', self.jpg_depth_hint_active)
 
     def select_image_mode(self):
         ctx = _app_ctx.ctx
 
         label = self.ids['image_mode_spinner'].text
-        mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
+        mode = LABEL_TO_IMAGE_MODE.get(label)
         if mode is None:
             return  # 'Select' placeholder or an unknown label -- ignore
-        gui_logger.select('IMAGE_MODE', mode)
 
         # During app init, bring-up applies the stored format while the
         # camera start gate is still closed, and the spinner is only being
@@ -389,10 +394,14 @@ class MicroscopeSettings(BoxLayout):
         if ctx.initializing:
             self._redraw_image_mode()
             return
+        # Set from the store by a redraw: not a pick, and the camera is
+        # already in that mode.
+        if mode == ctx.settings['image_mode']:
+            return
 
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.set_image_mode(mode),
+            lambda: camera.set_image_mode(mode),
             self._redraw_image_mode,
             'IMAGE_MODE',
             lane=ctx.camera_executor,
@@ -403,25 +412,21 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         mode = ctx.settings['image_mode']
         ctx.scope_display.image_mode = mode
-        label = image_mode.IMAGE_MODE_LABELS[mode]
+        label = IMAGE_MODE_LABELS[mode]
         if self.ids['image_mode_spinner'].text != label:
-            # The selector going back to the stored mode is the app's write,
-            # not a pick.
-            gui_logger.note_write_back('IMAGE_MODE', mode)
             self.ids['image_mode_spinner'].text = label
         self._refresh_binning_depth_hint()
         self._refresh_jpg_depth_hint()
 
     def select_live_image_output_format(self):
-        fmt = self.ids['live_image_output_format_spinner'].text
+        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['live_image_output_format_spinner'].text]
         # The settings load sets the spinner from the store, which fires this
-        # too; that is not a pick, so nothing is logged or written.
+        # too; that is not a pick, so nothing is written.
         if fmt == _app_ctx.ctx.settings['image_output_format']['live']:
             return
-        gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
-            None,
+            self.show_capture_settings,
             'LIVE_IMAGE_OUTPUT_FORMAT',
         )
         self._refresh_jpg_depth_hint()
@@ -431,34 +436,58 @@ class MicroscopeSettings(BoxLayout):
 
     def update_jpg_quality(self, value):
         quality = int(value)
-        _app_ctx.ctx.update_settings('jpg_quality', quality)
+        # The label follows the slider first, so a refused value's redraw
+        # puts both back to the stored quality.
         if 'jpg_quality_value_label' in self.ids:
             self.ids['jpg_quality_value_label'].text = str(quality)
-        gui_logger.slider('JPG_QUALITY', quality)
+        # The slider set from the store fires this too; that is not a pick.
+        if quality != _app_ctx.ctx.settings['jpg_quality']:
+            run_reported(
+                lambda: _app_ctx.ctx.update_settings('jpg_quality', quality),
+                self.show_capture_settings,
+                'JPG_QUALITY',
+            )
+
+    def record_jpg_quality(self, value):
+        """Record the quality a person set, on the slider's release.
+
+        The value change also fires when the settings load sets the slider,
+        so the record is written from the release, which only a person makes.
+        The quality drives no hardware, so recording it once the value has
+        landed loses nothing.
+        """
+        gui_logger.slider('JPG_QUALITY', int(value))
 
     def select_sequenced_image_output_format(self):
-        fmt = self.ids['sequenced_image_output_format_spinner'].text
-        # As the live format: a spinner set from the store is not a pick.
+        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['sequenced_image_output_format_spinner'].text]
+        # As the live format: a spinner set from the store writes nothing.
         if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
             return
-        gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
-            None,
+            self.show_capture_settings,
             'SEQUENCED_IMAGE_OUTPUT_FORMAT',
         )
         self._refresh_jpg_depth_hint()
 
     def select_video_recording_format(self) -> None:
-        gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)
         as_frames = self.ids['video_recording_format_spinner'].text != 'mp4'
-        _app_ctx.ctx.update_settings('video_as_frames', as_frames)
+        # The spinner set from the store fires this too; that is not a pick.
+        if as_frames == _app_ctx.ctx.settings['video_as_frames']:
+            return
+        run_reported(
+            lambda: _app_ctx.ctx.update_settings('video_as_frames', as_frames),
+            self.show_capture_settings,
+            'VIDEO_RECORDING_FORMAT',
+        )
 
     def update_scale_bar_state(self):
         enabled = self.ids['enable_scale_bar_btn'].state == 'down'
         gui_logger.toggle('SCALE_BAR', enabled)
         session = _app_ctx.ctx.session
-        run_reported(lambda: session.set_scale_bar(enabled), None, 'SCALE_BAR')
+        run_reported(
+            lambda: session.set_scale_bar(enabled), self.show_capture_settings, 'SCALE_BAR'
+        )
 
     def update_crosshairs_state(self):
         enabled = self.ids['enable_crosshairs_btn'].state == 'down'
@@ -486,18 +515,19 @@ class MicroscopeSettings(BoxLayout):
         ctx.update_settings('show_tooltips', enabled)
 
     def apply_stimulation_support(self):
-        """Push the persisted global stimulation enable to every channel.
+        """Show or hide every channel's stimulation controls.
 
-        Single owner of the per-layer stimulation sync. Reads
-        ``settings['stimulation_enabled']`` (the source of truth, populated
-        by the settings load) rather than a widget, so the startup load and
-        the Advanced Settings toggle both drive the same path. Firmware
-        without stim support can never enable it, even if a stale setting
-        says otherwise.
+        Single owner of the per-layer stimulation display. Reads
+        ``settings['stimulation_enabled']`` (populated by the settings load)
+        rather than a widget, so the startup load and the Advanced Settings
+        toggle both drive the same path. Firmware without stim support never
+        shows them, whatever the setting says; the stored settings are
+        display input here and are never written.
         """
         settings = _app_ctx.ctx.settings
-        stimulation_enabled = firmware_stim_supported() and settings['stimulation_enabled']
-        settings['stimulation_enabled'] = stimulation_enabled
+        stimulation_enabled = (
+            _app_ctx.ctx.scope.capabilities.has_firmware_stim and settings['stimulation_enabled']
+        )
 
         # Update all layer controls
         for layer in common_utils.get_layers():
@@ -516,9 +546,6 @@ class MicroscopeSettings(BoxLayout):
                         # Set stim to disabled
                         if 'stim_disable_btn' in layer_obj.ids:
                             layer_obj.ids['stim_disable_btn'].active = True
-                        # Disable stim_config
-                        if 'stim_config' in settings[layer]:
-                            settings[layer]['stim_config']['enabled'] = False
 
     def load_binning_sizes(self):
         sizes = _app_ctx.ctx.lumaview.scope.capabilities.camera_binning_sizes
@@ -532,23 +559,35 @@ class MicroscopeSettings(BoxLayout):
     def select_binning_size(self):
         ctx = _app_ctx.ctx
         label = self.ids['binning_spinner'].text
-        gui_logger.select('BINNING', label)
 
         # During app init, bring-up applies the stored binning and frame;
         # the spinner is only being set from the store.
         if ctx.initializing:
             self._redraw_framing()
             return
+        # Set from the store by a redraw: not a pick, and the camera is
+        # already at that binning.
+        if label == ctx.settings['binning']['size']:
+            return
 
         size = binning.binning_size_str_to_int(label)
-        session = ctx.session
+        camera = ctx.scope.camera
         # The boxes show the frame the new binning will give while the apply
         # runs, so an edit typed meanwhile is read against the binning the
         # spinner shows; the redraw then shows what the camera delivered.
-        preview = session.frame_at_binning(size)
-        self._write_frame_text(preview['width'], preview['height'])
+        run_reported(
+            lambda: self._write_frame_text(**camera.frame_at_binning(size)),
+            None,
+            'BINNING',
+        )
+        # A binning this camera does not offer is refused by the preview as
+        # the apply would refuse it; the apply is not sent to be refused
+        # again, and the panel goes back to the stored binning and frame.
+        if refused_in_this_input():
+            self._redraw_framing()
+            return
         submit_reported(
-            lambda: session.set_binning_size(size),
+            lambda: camera.set_binning(size),
             self._framing_applied,
             'BINNING',
             lane=ctx.camera_executor,
@@ -567,9 +606,6 @@ class MicroscopeSettings(BoxLayout):
         settings = _app_ctx.ctx.settings
         label = settings['binning']['size']
         if self.ids['binning_spinner'].text != label:
-            # The selector going back to the stored binning is the app's
-            # write, not a pick.
-            gui_logger.note_write_back('BINNING', label)
             self.ids['binning_spinner'].text = label
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
         self._refresh_binning_depth_hint()
@@ -590,7 +626,7 @@ class MicroscopeSettings(BoxLayout):
     def show_scope_model(self) -> None:
         """Show the model the scope runs as, and one saved for the next start."""
         ctx = _app_ctx.ctx
-        self.current_scope_model = ctx.lumaview.scope.layer_identity.model or ''
+        self.current_scope_model = ctx.lumaview.scope.channel_identity.model or ''
         self.next_start_model = ctx.session.model_at_next_start or ''
 
     def set_ui_features_for_scope(self) -> None:
@@ -613,24 +649,14 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_focus_control_visibility(visible=caps.has_focus)
+        ctx.lumaview.stage_has_motors = caps.has_xy_stage or caps.has_focus or caps.has_turret
 
         image_settings = ctx.image_settings
         # Which layers exist comes from the scope's resolved identity --
         # the one path that also serves headless callers -- refreshed by
-        # reconfigure_for_scope before this runs. Visibility and titles
-        # are per-layer from the record, so a filterset carrying only
-        # some channels (a Green-only unit) shows exactly what the unit
-        # has, with each drawer titled by what its layer IS on this unit.
-        identity = ctx.lumaview.scope.layer_identity
-        present = {layer.key_name for layer in identity.layers}
-        image_settings.set_df_layer_control_visibility(visible='DF' in present)
-        image_settings.set_lumi_layer_control_visibility(visible='Lumi' in present)
-        for color in common_utils.get_fluorescence_layers():
-            image_settings.set_fluorescence_layer_control_visibility(
-                color, visible=color in present
-            )
-        image_settings.set_phasecontrast_layer_control_visibility(visible='PC' in present)
-        image_settings.apply_layer_titles(identity.layers)
+        # reconfigure_for_scope before this runs.
+        identity = ctx.lumaview.scope.channel_identity
+        image_settings.show_drawers(identity)
         image_settings.set_layer_focus_visibility(visible=caps.has_focus)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -640,21 +666,21 @@ class MicroscopeSettings(BoxLayout):
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
         ].set_button_enabled_state(state=caps.has_xy_stage)
+        gui_logger.display(
+            'SCOPE_FEATURES',
+            f'model={microscope_settings.current_scope_model} '
+            f'next_start={microscope_settings.next_start_model or None} '
+            f'turret={caps.has_turret} xy_stage={caps.has_xy_stage} focus={caps.has_focus} '
+            f'channels={",".join(layer.key_name for layer in identity.channels)}',
+        )
 
         if not caps.has_xy_stage:
             # Stage-less scopes (Lumi, LS820) keep a single-plate
             # ("Center Plate") graphic in the protocol tab so the crosshair
             # position is visible; bring-up has already put the scope on it.
-            # Only the XY motion capability is disabled (set below). Stitch
-            # is hidden -- it needs tiling.
+            # Only XY motion is withheld, read from the capability at each
+            # gesture. Stitch is hidden -- it needs tiling.
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
-
-        # Nothing to write: session.motion_enabled and the stage crosshair
-        # each ask the drivers for the XY fact at read time, so there is no
-        # copy here to keep in step. Run state is still republished -- the
-        # derivation's consumers are edge-driven, and a scope change can
-        # move motion_enabled.
-        ctx.session.notify_run_state()
 
         # Size the protocol-tab stage holder to its width-based aspect for
         # every scope. The plate graphic now renders on XYStage=False scopes
@@ -683,45 +709,30 @@ class MicroscopeSettings(BoxLayout):
         image_settings._resort_accordion()
 
     def _typed_frame_dimensions(self) -> dict:
-        """The size currently TYPED into the frame fields.
+        """The text currently TYPED into the frame fields, unparsed.
 
         Only the handler applying the edit wants this. Every other
         consumer wants the size the camera delivered, which lives in
         settings['frame'] -- the fields are an editor, and until the
         apply lands they can hold a size no camera is at.
-
-        Raises:
-            ValueError: the fields do not hold a pair of integers.
         """
         return {
-            'width': int(self.ids['frame_width_id'].text),
-            'height': int(self.ids['frame_height_id'].text),
+            'width': self.ids['frame_width_id'].text,
+            'height': self.ids['frame_height_id'].text,
         }
 
     def _write_frame_text(self, width, height) -> None:
-        """Write a frame read-back into the boxes, unless the user is typing.
+        """Write a frame read-back into the boxes.
 
-        The boxes commit on focus loss (`on_focus: if not self.focus:
-        root.frame_size(...)`), so a size written underneath a part-typed
-        entry is not merely displayed -- it is committed as a framing change
-        when the user clicks away. Each box is guarded on its OWN focus: they
-        are edited one at a time, and skipping both because one is focused
-        would leave the other showing a size no camera is at.
-
-        Every writer of these boxes goes through here so the guard cannot be
-        present at three sites and missing at the fourth.
+        A box the user is typing in holds the write until it is left
+        (``CommitInput``), each box on its own: they are edited one at a
+        time, and the other box still shows the size the camera is at.
         """
         for widget_id, value in (
             ('frame_width_id', width),
             ('frame_height_id', height),
         ):
-            box = self.ids[widget_id]
-            if box.focus:
-                continue
-            new_text = str(value)
-            # Rewriting the same string churns the enclosing ScrollView.
-            if box.text != new_text:
-                box.text = new_text
+            self.ids[widget_id].text = str(value)
 
     def frame_size(self, committed_id: str):
         """Apply a user edit of the frame width/height fields.
@@ -744,48 +755,38 @@ class MicroscopeSettings(BoxLayout):
         # hear about it.
         gui_logger.text_input(record, self.ids[committed_id].text)
 
-        try:
-            typed = self._typed_frame_dimensions()
-        except ValueError:
+        def put_back():
+            frame = ctx.settings['frame']
+            self._write_frame_text(frame['width'], frame['height'])
+
+        typed = self._typed_frame_dimensions()
+        width = typed_number(typed['width'], int, put_back)
+        height = None if width is None else typed_number(typed['height'], int, put_back)
+        if width is None or height is None:
             # An entry that is not a pair of integers is a CORRECTION, not a
             # request. Substituting the stored size and applying it reported a
             # framing the user never asked for -- emptying a box logged the
             # size already in force, so the bundle claimed an edit that never
-            # happened while the box sat blank. Put both boxes back and stop.
-            frame = ctx.settings['frame']
-            gui_logger.text_input(f'{record}_APPLIED', frame[axis])
-            self._write_frame_text(frame['width'], frame['height'])
+            # happened while the box sat blank. Both boxes are back; stop.
+            gui_logger.text_input(f'{record}_APPLIED', ctx.settings['frame'][axis])
             return
 
         # Rapid edits (width, then height, each committing on focus loss)
         # fold into one apply while one is in flight -- see _CoalescingApplier.
-        if self._frame_size_applier.submit((typed['width'], typed['height'])):
-            session = ctx.session
+        if self._frame_size_applier.submit((width, height)):
+            camera = ctx.scope.camera
             applier = self._frame_size_applier
             submit_reported(
-                lambda: applier.apply_pending(lambda wh: session.set_frame_size(*wh)),
+                lambda: applier.apply_pending(lambda wh: camera.set_frame_size(*wh)),
                 self._framing_applied,
                 'FRAME_SIZE',
                 lane=ctx.camera_executor,
             )
 
     def refresh_fov_labels(self) -> None:
-        """Recompute the FOV readout from the current delivered-sourced
-        frame settings and the UI binning. With no known objective there is
-        no field of view to show, so the readout is blank."""
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        objective = ctx.scope.runtime_state.get_current_objective()
-        if objective is None:
-            self.ids['field_of_view_width_id'].text = ''
-            self.ids['field_of_view_height_id'].text = ''
-            return
-        fov_size = config_ui_getters.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=settings['frame'],
-            binning_size=ctx.session.get_binning_size(),
-        )
-        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+        """Show the scope's field of view; 'unknown' when it cannot say one."""
+        fov = _app_ctx.ctx.scope.runtime_state.get_field_of_view()
+        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov)
         self.ids['field_of_view_width_id'].text = fov_w_text
         self.ids['field_of_view_height_id'].text = fov_h_text
 
@@ -864,7 +865,7 @@ class MicroscopeSettings(BoxLayout):
                 popup.progress = pct
                 popup.text = msg
 
-            Clock.schedule_once(_show_progress, 0)
+            schedule_ui_latest((popup, 'progress'), _show_progress)
 
         def _make():
             produced['saved'] = make(_progress)

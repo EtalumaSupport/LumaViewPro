@@ -18,6 +18,7 @@ import traceback
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report
 from lib import profile_trace
+from lvp_logger import git_revision
 
 
 def _serial_rows():
@@ -33,7 +34,7 @@ def _serial_rows():
     f = pathlib.Path(base) / 'serial_trace.csv'
     if not f.is_file():
         return out
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             out[row['board']] += 1
     return out
@@ -71,10 +72,10 @@ def _timed(fn, n=N):
 def body(session):
     m = session.scope.motion
     il = session.scope.illumination
-    z0 = m.get_target_position('Z')
+    z0 = m.get_target_positions()['Z']
     zl = m.get_axis_limits('Z')
     step = 100.0
-    lo, hi = z0, min(zl['max'], z0 + step)
+    lo, hi = z0, min(zl.max_um, z0 + step)
     targets = [hi, lo]
 
     # S1a: Z moves at rest, alternating +100 um / back.
@@ -82,7 +83,7 @@ def body(session):
 
     def z_move():
         nonlocal i
-        m.move_absolute('Z', targets[i % 2])
+        m.move_z(targets[i % 2])
         i += 1
 
     b = _serial_rows()
@@ -95,15 +96,15 @@ def body(session):
     during = None
     if has_x:
         xl = m.get_axis_limits('X')
-        x0 = m.get_target_position('X')
-        far = xl['max'] if (xl['max'] - x0) > (x0 - xl['min']) else xl['min']
+        x0 = m.get_target_positions()['X']
+        far = xl.max_um if (xl.max_um - x0) > (x0 - xl.min_um) else xl.min_um
         t = time.perf_counter()
-        m.move_absolute('X', far)
+        m.move_xy(x_um=far)
         figure('S1.x_full_travel_s', round(time.perf_counter() - t, 2))
         # S1b: Z moves while X travels back (the monitor polls X at 50 Hz meanwhile).
-        handle = m.start_move_absolute('X', x0)
+        handle = m.start_move_xy(x_um=x0)
         during = _timed(z_move, n=min(N, 10))
-        handle.wait()
+        handle.result()
         figure('S1.z_move_100um_during_x_travel', _ms(during))
 
     # S2a: LED alone.
@@ -122,7 +123,7 @@ def body(session):
     def hammer():
         j = 0
         while not stop.is_set():
-            m.move_absolute('Z', targets[j % 2])
+            m.move_z(targets[j % 2])
             j += 1
 
     th = threading.Thread(target=hammer, name='probe-z-hammer', daemon=True)
@@ -140,14 +141,16 @@ def body(session):
 
 def main():
     if HARDWARE:
-        profile_trace.enable(output_dir=str(harness.live_dir('stack_p01') / 'profile'))
+        profile_trace.enable(
+            output_dir=str(harness.live_dir('stack_p01') / 'profile'), commit=git_revision()
+        )
         with hardware_session() as (session, _runner):
             body(session)
         sys.exit(report())
     session, _live = harness.make_session(
         'stack_p01', home=True, microscope='LS850T', simulator_tier='firmware'
     )
-    profile_trace.enable(output_dir=str(_live / 'profile'))
+    profile_trace.enable(output_dir=str(_live / 'profile'), commit=git_revision())
     try:
         body(session)
     except BaseException:

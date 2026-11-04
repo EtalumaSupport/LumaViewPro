@@ -7,8 +7,9 @@ Probe shape (per `drivers/ledboard.py::LEDBoard.supports_firmware_stim`):
 - v3.0.8+ firmware replies with `STIM: mA must be > 0` (parser recognized)
 - Pre-v3.0.8 firmware echoes the command + returns `Command not recognized`
 
-Result is cached on the LEDBoard instance via `_supports_stim_cached` so
-subsequent calls return without re-probing the bus.
+Only an answer the board gave is cached on the LEDBoard instance (via
+`_supports_stim_cached`), so subsequent calls return without re-probing the
+bus; a probe the board did not answer raises and is asked again.
 
 The capability flag lands on `ScopeCapabilities` as `has_firmware_stim`
 (immutable per-Lumascope-instance fact, sourced at Lumascope.__init__
@@ -16,12 +17,30 @@ from LEDBoard.supports_firmware_stim()). Caller gate is
 `scope.capabilities.has_firmware_stim`.
 """
 
+import logging
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
+from drivers.ledboard import LEDBoard
+from drivers.sim_wire.backend import SimWireBackend
+from tests.scope_fakes import capabilities_of
+from tests.wire_boards import led_on_the_wire
+
+
+def _stim_probes(caplog):
+    return [
+        r for r in caplog.records if r.name == 'LVP.serial' and 'STIM 0 0 1 2 1' in r.getMessage()
+    ]
+
 
 class TestSupportsFirmwareStimProbe:
-    """Probe-detection logic on LEDBoard."""
+    """Probe-detection logic on LEDBoard.
+
+    The field LED firmware's answers run on the firmware-backed simulator;
+    a v3.0.8+ reply has no emulated firmware yet (an LED image built from the
+    STIM branch is a stage 12 gap), so those cases script the port."""
 
     def _make_led(self, readline_responses):
         """Build a real LEDBoard with the driver attribute mocked.
@@ -50,9 +69,11 @@ class TestSupportsFirmwareStimProbe:
         led = self._make_led([b'STIM: mA must be > 0\r\n'])
         assert led.supports_firmware_stim() is True
 
+    @pytest.mark.firmware_tier
     def test_pre_v308_firmware_returns_false(self):
-        """Legacy firmware reply (`Command not recognized`) -> probe False."""
-        led = self._make_led([b'Command not recognized\r\n'])
+        """Legacy firmware reply (`Command not recognized`) -> probe False:
+        the field LED firmware's own answer."""
+        led, _sim = led_on_the_wire()
         assert led.supports_firmware_stim() is False
 
     def test_stim_diag_response_also_recognized(self):
@@ -71,33 +92,70 @@ class TestSupportsFirmwareStimProbe:
         )
         assert led.supports_firmware_stim() is True
 
-    def test_no_response_returns_false(self):
-        """Disconnected / silent firmware -> probe deadline expires -> False."""
-        led = self._make_led([])  # all readlines return b''
-        # Force the readline mock to always return empty bytes (no responses)
-        led.driver.readline = MagicMock(return_value=b'')
-        assert led.supports_firmware_stim() is False
+    @pytest.mark.firmware_tier
+    def test_no_reply_by_the_deadline_raises_and_the_next_call_asks_again(self, caplog):
+        """The reply is held past the probe's 2.5 s deadline (a dropped reply
+        on this board takes the echo line, and the answer behind it still
+        arrives): not an answer, so nothing is cached and the next call asks
+        the firmware again, which answers it has no STIM."""
+        from drivers.exceptions import BoardNoReplyError
 
-    def test_result_is_cached_after_first_call(self):
+        led, sim = led_on_the_wire()
+        sim.delay_next_reply(3.0)
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            with pytest.raises(
+                BoardNoReplyError, match=r'^STIM 0 0 1 2 1: no reply from the board$'
+            ):
+                led.supports_firmware_stim()
+            assert led.supports_firmware_stim() is False
+        assert len(_stim_probes(caplog)) == 2, 'nothing was cached, so the firmware was asked again'
+
+    def test_lines_that_are_neither_answer_are_unreadable_and_not_cached(self):
+        """A board that talks but never says STIM or not-recognized gave no answer."""
+        from drivers.exceptions import BoardReplyUnreadableError
+
+        led = self._make_led([b'>>> \r\n', b'Traceback (most recent call last):\r\n'])
+        with pytest.raises(BoardReplyUnreadableError, match=r'^STIM 0 0 1 2 1: the board answered'):
+            led.supports_firmware_stim()
+        assert not hasattr(led, '_supports_stim_cached')
+
+    def test_a_port_that_fails_after_the_probe_is_sent_is_no_reply_and_closes_it(self):
+        # a stand-in by design: the simulated wire has no member that fails
+        # the port between the probe's write and its read
+        import serial
+
+        from drivers.exceptions import BoardNoReplyError
+
+        led = self._make_led([])
+        led.driver.readline = MagicMock(side_effect=serial.SerialException('device gone'))
+        with pytest.raises(BoardNoReplyError, match=r'after the probe was sent: device gone$'):
+            led.supports_firmware_stim()
+        assert led.driver is None, 'a failed port is closed, as the wire closes it'
+
+    @pytest.mark.firmware_tier
+    def test_result_is_cached_after_first_call(self, caplog):
         """Second call should return cached value without re-probing."""
-        led = self._make_led([b'STIM: mA must be > 0\r\n'])
-        first = led.supports_firmware_stim()
-        write_count_after_first = led.driver.write.call_count
-        second = led.supports_firmware_stim()
-        assert first is True
-        assert second is True
-        # Cached: no new probe-write happened on the second call
-        assert led.driver.write.call_count == write_count_after_first
+        led, _sim = led_on_the_wire()
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            first = led.supports_firmware_stim()
+            second = led.supports_firmware_stim()
+        assert first is second is False
+        assert len(_stim_probes(caplog)) == 1, 'the cached answer went to the wire'
 
-    def test_driver_none_returns_false_without_probing(self):
-        """No serial driver attached -> probe short-circuits to False."""
-        from drivers.ledboard import LEDBoard
+    def test_a_closed_port_is_the_port_failure_not_no_stim(self, caplog):
+        """No LED board on the bus -> no driver -> the port's failure, never
+        asked of the wire and nothing cached."""
+        from drivers.exceptions import BoardPortFailedError
 
-        led = LEDBoard.__new__(LEDBoard)
-        led._lock = threading.RLock()
-        led._label = '[LED Class ]'
-        led.driver = None
-        assert led.supports_firmware_stim() is False
+        led = LEDBoard(backend=SimWireBackend(None, None))
+        assert led.driver is None
+        with (
+            caplog.at_level(logging.INFO, logger='LVP.serial'),
+            pytest.raises(BoardPortFailedError, match=r'^STIM 0 0 1 2 1: the port is closed$'),
+        ):
+            led.supports_firmware_stim()
+        assert _stim_probes(caplog) == []
+        assert not hasattr(led, '_supports_stim_cached')
 
 
 class TestSimulatedLEDBoardParityStub:
@@ -136,38 +194,24 @@ class TestScopeCapabilitiesPlumbing:
     """ScopeCapabilities.from_drivers probes led.supports_firmware_stim
     and exposes the result via .has_firmware_stim."""
 
-    def _build_caps(self, led_stub):
-        """Build a ScopeCapabilities snapshot with a stub LED driver."""
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
-
-        return ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(),
-            led=led_stub,
-            camera=None,
-            layer_identity=UNRESOLVED,
-            scope_models={},
-        )
-
     def test_has_firmware_stim_true_when_driver_reports_true(self):
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
-        caps = self._build_caps(SimulatedLEDBoard(supports_firmware_stim=True))
+        caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=True))
         assert caps.has_firmware_stim is True
         assert caps.has_firmware_stim is True
 
     def test_has_firmware_stim_false_when_driver_reports_false(self):
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
-        caps = self._build_caps(SimulatedLEDBoard(supports_firmware_stim=False))
+        caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=False))
         assert caps.has_firmware_stim is False
         assert caps.has_firmware_stim is False
 
     def test_has_firmware_stim_false_for_null_led_board(self):
         from drivers.null_ledboard import NullLEDBoard
 
-        caps = self._build_caps(NullLEDBoard())
+        caps = capabilities_of(led=NullLEDBoard())
         assert caps.has_firmware_stim is False
         assert caps.has_firmware_stim is False
 
@@ -175,20 +219,9 @@ class TestScopeCapabilitiesPlumbing:
         """Driver without supports_firmware_stim() -- the realistic
         AttributeError pre-rollout scenario -- gets False via _probe's
         AttributeError fallback (per the Rule 8 capability-probe corollary)."""
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
-
-        old_led = MagicMock(spec=['available_channels', 'available_colors'])
+        old_led = MagicMock(spec=['available_channels'])
         # spec= restricts attrs: supports_firmware_stim raises AttributeError
         old_led.available_channels = MagicMock(return_value=())
-        old_led.available_colors = MagicMock(return_value=())
 
-        caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(),
-            led=old_led,
-            camera=None,
-            layer_identity=UNRESOLVED,
-            scope_models={},
-        )
+        caps = capabilities_of(led=old_led)
         assert caps.has_firmware_stim is False

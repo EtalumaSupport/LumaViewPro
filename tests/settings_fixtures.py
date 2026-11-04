@@ -9,17 +9,20 @@ fast simulator tier the suite runs on. Its live folder is a fresh
 temporary one unless the test names its own: the template's is relative
 to the installation, and the door would create it under the checkout.
 
-The template is read through ``settings_init._load_template``, the one
+The template is read through ``settings_init.load_template``, the one
 read of it, so what the application sees of the template the fixtures
 see too.
 """
 
 import copy
+import json
 import logging
 import pathlib
+import shutil
 import tempfile
 
 from modules import settings_init, settings_paths
+from modules.python_values import python_values
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _TEMPLATE = _REPO_ROOT / 'data' / 'settings.json'
@@ -32,7 +35,25 @@ LIVE_FOLDER_ROOT: pathlib.Path | None = None
 
 def shipped_template() -> dict:
     """The shipped template as the application reads it."""
-    return settings_init._load_template(_LOGGER, str(_TEMPLATE))
+    return settings_init.load_template(_LOGGER, str(_TEMPLATE))
+
+
+def installation_of_its_own() -> pathlib.Path:
+    """A folder holding a copy of the repo's ``data/``, for a real scope a test builds.
+
+    A real scope takes its installation's instance lock (``lvp_lock_port``),
+    so one built on the repo's own folder meets a LumaViewPro running on
+    this machine, and another worker's real scope. The copy's
+    ``current.json`` names port 0, which binds an ephemeral port of its own:
+    it meets neither, and leaves no gap between finding a free port and
+    binding it. A developer's own ``current.json`` is left out of the copy.
+    """
+    root = pathlib.Path(tempfile.mkdtemp(prefix='installation_', dir=LIVE_FOLDER_ROOT))
+    shutil.copytree(
+        _REPO_ROOT / 'data', root / 'data', ignore=shutil.ignore_patterns('current.json')
+    )
+    (root / 'data' / 'current.json').write_text(json.dumps({'lvp_lock_port': 0}))
+    return root
 
 
 def _fresh_live_folder() -> str:
@@ -75,6 +96,8 @@ def settings_writer(settings: dict):
     template = shipped_template()
 
     def update_settings(path: str, value: object) -> None:
+        # As the Session's: a closed set's member is written as its plain string.
+        value = python_values(value)
         settings_paths.check_write(template, path, value)
         *blocks, leaf = path.split('.')
         holder = settings

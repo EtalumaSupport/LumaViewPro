@@ -73,6 +73,7 @@ References
 from __future__ import annotations
 
 import atexit
+import contextlib
 import ctypes
 import logging
 import math
@@ -81,25 +82,44 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, ClassVar, NamedTuple, NoReturn
 from collections import deque
-from collections.abc import Callable
-from datetime import datetime
+from collections.abc import Callable, Iterable, Iterator
 
 import numpy as np
 
-from lib.lumascope_error import Fault
-from lvp_logger import logger
+from lib.lumascope_error import Fault, RefusalCause
+from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import logger
 
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    # Fall back to the main logger so every _cam_log call site stays
-    # safe -- the dedicated camera log is an enhancement, not a
-    # dependency, and dozens of call sites use _cam_log unguarded.
-    _cam_log = logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
-from drivers.exceptions import HardwareError
+from drivers.camera import (
+    Camera,
+    Frame,
+    FrameGrid,
+    HandOver,
+    ImageHandlerBase,
+    link_info,
+    no_hardware_auto_mode,
+)
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    CameraFirmwareMissingError,
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraStreamStartFailedError,
+    CameraUsbNotFoundError,
+    CameraUsbOpenFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
+from drivers.usb_driver_binding import (
+    DEVICE_NAMES,
+    FX2_BOOTLOADER,
+    FX2_FIRMWARE,
+    DeviceBinding,
+    refuse_unusable,
+)
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -208,8 +228,10 @@ except ImportError:
     _HAS_USB1 = False
 
 
-def _load_bundled_libusb():
+def _load_bundled_libusb(usb1_module):
     """Bind pyusb and python-libusb1 to libusb-package's library.
+
+    ``usb1_module`` is python-libusb1, or None where it is not installed.
 
     Returns ``(path, None)`` when both bindings run on the bundled file, or
     ``(None, reason)`` when they cannot. Which libusb a host happens to have
@@ -249,59 +271,116 @@ def _load_bundled_libusb():
     # on the functions of the handle it holds, so one shared handle leaves
     # pyusb calling with python-libusb1's declarations and every descriptor
     # read fails. The OS loader still maps the file once.
-    if _HAS_USB1:
+    if usb1_module is not None:
         try:
             usb1_handle = ctypes.CDLL(path)
         except OSError as ex:
             return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
-        if not usb1.loadLibrary(usb1_handle):
+        if not usb1_module.loadLibrary(usb1_handle):
             return None, 'python-libusb1 had already loaded another libusb'
     return path, None
+
+
+class _Fx2Gate(NamedTuple):
+    """Whether this install can reach FX2 hardware, and why not.
+
+    FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
+    native backend on every platform, plus libusb1 on macOS / Linux for ISO
+    streaming. On systems missing those, FX2 hardware fundamentally cannot
+    be reached -- registering the drivers anyway causes the registry to
+    attempt instantiation on every auto-detect run, raise NoBackendError /
+    ImportError, and dump a confusing traceback on systems that simply
+    don't have LVC hardware. Skip-with-INFO-log is the right
+    classification: this driver class isn't applicable to this install.
+
+    Attributes:
+        has_usb: pyusb imports.
+        has_usb1: python-libusb1 imports.
+        library_path: The bundled libusb both bindings run on; None when it
+            is not in use.
+        library_refusal: Why the bundled libusb is not in use; None when it is.
+        library_version: The bundled libusb's version as python-libusb1
+            reads it; None where it is not in use or there is no libusb1.
+        available: The FX2 drivers register.
+        unavailable_reason: Why not, in a few words, for the registry to
+            carry beside the drivers it declines: an LS560 / LS620 / LS720
+            whose camera is not found then says which driver did not load.
+    """
+
+    has_usb: bool
+    has_usb1: bool
+    library_path: str | None
+    library_refusal: str | None
+    library_version: str | None
+    available: bool
+    unavailable_reason: str | None
+
+
+def _fx2_gate(has_usb: bool, usb1_module, platform: str) -> _Fx2Gate:
+    """Decide the gate from what imported: pyusb (``has_usb``), python-libusb1
+    (``usb1_module``, None when absent) and the host ``platform``.
+
+    Binds the bundled libusb when pyusb is present (``_load_bundled_libusb``,
+    with its ordering invariant), so it runs once, at import.
+    """
+    has_usb1 = usb1_module is not None
+    library_path, library_refusal = None, 'pyusb is not installed'
+    if has_usb:
+        library_path, library_refusal = _load_bundled_libusb(usb1_module)
+    has_backend = library_path is not None
+    available = has_usb and has_backend and (platform == 'win32' or has_usb1)
+    if available:
+        reason = None
+    elif not has_usb:
+        reason = 'pyusb is not installed'
+    elif not has_backend:
+        reason = f'bundled libusb not in use: {library_refusal}'
+    else:
+        reason = 'libusb1 is not installed'
+    return _Fx2Gate(
+        has_usb=has_usb,
+        has_usb1=has_usb1,
+        library_path=library_path,
+        library_refusal=library_refusal,
+        library_version=usb1_module.getVersion() if has_backend and has_usb1 else None,
+        available=available,
+        unavailable_reason=reason,
+    )
+
+
+def _log_fx2_gate(gate: _Fx2Gate) -> None:
+    """Say at INFO which prerequisite kept the FX2 drivers out, and which libusb is loaded."""
+    if not gate.available:
+        if not gate.has_usb:
+            logger.info(
+                '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
+                'drivers will not be registered. Install pyusb to enable '
+                'LVC hardware support: pip install pyusb'
+            )
+        elif gate.library_path is None:
+            logger.info(
+                f'[FX2 Driver] bundled libusb not in use: {gate.library_refusal} -- '
+                'FX2 (LumaviewClassic) drivers will not be registered.'
+            )
+        elif not gate.has_usb1:
+            logger.info(
+                '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
+                'drivers will not be registered on macOS/Linux. Install '
+                'libusb1 (pip install -r requirements.txt) to enable LVC '
+                'hardware support.'
+            )
+    if gate.library_path is not None:
+        logger.info(
+            f'[FX2 Driver] libusb {gate.library_version or "(version unread)"} '
+            f'loaded from {gate.library_path}'
+        )
 
 
 # Resolved at import so a host without a usable libusb is classified as
 # "FX2 not applicable to this install" here, instead of the first
 # usb.core.find() raising NoBackendError mid-connect on every startup.
-_LIBUSB_PATH = None
-_LIBUSB_REFUSAL = 'pyusb is not installed'
-if _HAS_USB:
-    _LIBUSB_PATH, _LIBUSB_REFUSAL = _load_bundled_libusb()
-_HAS_USB_BACKEND = _LIBUSB_PATH is not None
-
-
-# FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
-# native backend on every platform, plus libusb1 on macOS / Linux for ISO
-# streaming. On systems missing those, FX2 hardware fundamentally cannot
-# be reached -- registering the drivers anyway causes the registry to
-# attempt instantiation on every auto-detect run, raise NoBackendError /
-# ImportError, and dump a confusing traceback on systems that simply
-# don't have LVC hardware. Skip-with-INFO-log is the right
-# classification: this driver class isn't applicable to this install.
-_FX2_AVAILABLE = _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
-if not _FX2_AVAILABLE:
-    if not _HAS_USB:
-        logger.info(
-            '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
-            'drivers will not be registered. Install pyusb to enable '
-            'LVC hardware support: pip install pyusb'
-        )
-    elif not _HAS_USB_BACKEND:
-        logger.info(
-            f'[FX2 Driver] bundled libusb not in use: {_LIBUSB_REFUSAL} -- '
-            'FX2 (LumaviewClassic) drivers will not be registered.'
-        )
-    elif not _HAS_USB1:
-        logger.info(
-            '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
-            'drivers will not be registered on macOS/Linux. Install '
-            'libusb1 (pip install -r requirements.txt) to enable LVC '
-            'hardware support.'
-        )
-if _HAS_USB_BACKEND:
-    logger.info(
-        f'[FX2 Driver] libusb {usb1.getVersion() if _HAS_USB1 else "(version unread)"} '
-        f'loaded from {_LIBUSB_PATH}'
-    )
+_FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None, sys.platform)
+_log_fx2_gate(_FX2_GATE)
 
 
 def fx2_readiness() -> dict[str, bool | None]:
@@ -314,9 +393,9 @@ def fx2_readiness() -> dict[str, bool | None]:
     probing on its own, so what it prints is what the driver will do.
     """
     return {
-        'pyusb': _HAS_USB,
-        'libusb-package': _HAS_USB_BACKEND,
-        'libusb1': None if sys.platform == 'win32' else _HAS_USB1,
+        'pyusb': _FX2_GATE.has_usb,
+        'libusb-package': _FX2_GATE.library_path is not None,
+        'libusb1': None if sys.platform == 'win32' else _FX2_GATE.has_usb1,
     }
 
 
@@ -326,22 +405,23 @@ def fx2_readiness_line() -> str:
         f'{name} {"not needed" if present is None else "present" if present else "missing"}'
         for name, present in fx2_readiness().items()
     )
-    verdict = 'ready' if _FX2_AVAILABLE else 'NOT ready'
+    verdict = 'ready' if _FX2_GATE.available else 'NOT ready'
     line = f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
-    if _HAS_USB and not _HAS_USB_BACKEND:
-        line += f' ({_LIBUSB_REFUSAL})'
+    if _FX2_GATE.has_usb and _FX2_GATE.library_path is None:
+        line += f' ({_FX2_GATE.library_refusal})'
     return line
 
 
 def _register_if_fx2_available(registry, name, **kwargs):
     """Register the decorated class only if FX2 prerequisites are met.
 
-    No-op (returns identity decorator) when pyusb/libusb1 unavailable so
-    the registry never sees FX2 as a candidate on non-LVC installs.
+    Declined, with the reason, when pyusb/libusb1 is unavailable: the
+    registry never tries the FX2 on such an install, and a part it does not
+    find is told beside the driver that did not load.
     """
-    if _FX2_AVAILABLE:
+    if _FX2_GATE.available:
         return registry.register(name, **kwargs)
-    return lambda cls: cls
+    return registry.decline(name, _FX2_GATE.unavailable_reason)
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +451,11 @@ VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
 VR_STOP_STREAMING = 0xBE
+
+# How long a vendor control write may take before it is a timeout, in ms.
+# Every control write passes it: libusb1's own default, 0, waits forever,
+# and the stream's stop runs at close and in the exit hook.
+CONTROL_TIMEOUT_MS = 5000
 
 # Populate _VR_NAMES once constants are defined (used by serial.log
 # emission below for human-readable trace lines).
@@ -626,16 +711,13 @@ def frame_time_s(column_size: int, row_size: int, shutter_width: int) -> float:
 # ---------------------------------------------------------------------------
 # LVP convention uses integer channels. The FX2 peripheral controller at
 # I2C 0x2A takes ASCII bytes A-D. This mapping lives INSIDE the driver by
-# design (see project memory `project_lvc_product_line.md`): the ASCII
-# byte format must never leak above the driver layer.
+# design: the ASCII byte format must never leak above the driver layer.
 
-_COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-_CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 _CH_TO_I2C = {
-    0: 0x43,  # Blue  -> 'C'
-    1: 0x42,  # Green -> 'B'
-    2: 0x41,  # Red   -> 'A'
-    3: 0x44,  # BF    -> 'D'
+    0: 0x43,  # 'C', the Classic's Blue
+    1: 0x42,  # 'B', Green
+    2: 0x41,  # 'A', Red
+    3: 0x44,  # 'D', BF
 }
 
 
@@ -677,7 +759,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
         buf[i] = 0xFF
     end_addr = 0
 
-    with open(hex_path) as f:
+    with open(hex_path, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line or line[0] != ':':
@@ -909,6 +991,12 @@ class _ByteStream:
     The grab loop takes the frames ended since it last asked, all of them,
     and flushes at a window change. Every access goes through these methods,
     so a reader can never be left feeding a buffer the parser no longer reads.
+
+    A frame is numbered where it ends, by the handler the stream was started
+    for (``restart``): that is where the driver first has it, so a frame
+    still waiting for the grab loop when a write goes out is placed before
+    the write. The count is the handler's, so this stream, which outlives
+    every handler, never resets it.
     """
 
     def __init__(self):
@@ -918,7 +1006,10 @@ class _ByteStream:
         self._longest = frame_layout(IMG_WIDTH, IMG_HEIGHT).frame_bytes
         self._frame = bytearray()
         self._damaged = False
-        self._ended: list[tuple[bytearray, bool]] = []
+        self._ended: list[tuple[bytearray, bool, HandOver]] = []
+        # The handler's hand_over, set by each restart; no packet arrives
+        # before the first, since the transport is fed only once started.
+        self._hand_over: Callable[[], HandOver] | None = None
         # Whether the last packet ended a frame, so the next one is due to
         # be the delimiter.
         self._delimiter_due = False
@@ -962,12 +1053,12 @@ class _ByteStream:
             self._damaged = True
 
     def _end_frame(self) -> None:
-        self._ended.append((self._frame, self._damaged))
+        self._ended.append((self._frame, self._damaged, self._hand_over()))
         self._frame = bytearray()
         self._damaged = False
 
-    def take_frames(self) -> list[tuple[bytearray, bool]]:
-        """The frames ended since the last call, oldest first, each with whether it is damaged."""
+    def take_frames(self) -> list[tuple[bytearray, bool, HandOver]]:
+        """The frames ended since the last call, oldest first, each with whether it is damaged and its hand-over."""
         with self._lock:
             ended, self._ended = self._ended, []
             return ended
@@ -1000,13 +1091,17 @@ class _ByteStream:
         with self._lock:
             self._clear()
 
-    def restart(self) -> None:
+    def restart(self, hand_over: Callable[[], HandOver]) -> None:
         """A new stream: nothing assembled and nothing counted from the last one.
 
-        The silence is timed from here, so a stream is not heard as silent
-        before its first bytes have had time to come.
+        ``hand_over`` numbers each frame as it ends: the handler the stream
+        now feeds (``ImageHandlerBase.hand_over``), so the ordinal lives and
+        dies with the handler, never with this stream. The silence is timed
+        from here, so a stream is not heard as silent before its first bytes
+        have had time to come.
         """
         with self._lock:
+            self._hand_over = hand_over
             self._clear()
             self._zero_counts()
             self._last_arrival = time.monotonic()
@@ -1015,6 +1110,100 @@ class _ByteStream:
 # ---------------------------------------------------------------------------
 # Transports -- every USB library call the driver makes
 # ---------------------------------------------------------------------------
+
+
+def _is_usb_timeout(error: BaseException) -> bool:
+    """Whether ``error`` is a control transfer the device did not answer in time.
+
+    A transfer runs through one of three libraries, each with its own
+    timeout: pyusb's ``USBTimeoutError``, python-libusb1's
+    ``USBErrorTimeout``, and WinUSB's ERROR_SEM_TIMEOUT, which
+    ``drivers/winusb_iso.py`` raises as the builtin ``TimeoutError``. A
+    device gone from the bus is none of them: pyusb reports it as a plain
+    ``USBError``, python-libusb1 as ``USBErrorNoDevice`` or
+    ``USBErrorNotFound``, siblings of its timeout. The library classes are
+    read here, at the failure, rather than captured at import.
+    """
+    timeouts: list[type[BaseException]] = [TimeoutError]
+    if _HAS_USB:
+        timeouts.append(usb.core.USBTimeoutError)
+    if _HAS_USB1:
+        timeouts.append(usb1.USBErrorTimeout)
+    return isinstance(error, tuple(timeouts))
+
+
+def _usb_errors() -> tuple[type[BaseException], ...]:
+    """What the USB libraries raise for a call the device or the host did not complete.
+
+    pyusb's ``USBError`` is an ``OSError``, as is what ``drivers/winusb_iso.py``
+    raises for a failed WinUSB call, its timeout included; python-libusb1's
+    ``USBError`` is its own. Anything else a call raises is the driver's own
+    defect, and a handler around a USB call catches only these. Read at the
+    failure, as ``_is_usb_timeout`` reads its classes.
+    """
+    errors: list[type[BaseException]] = [OSError]
+    if _HAS_USB1:
+        errors.append(usb1.USBError)
+    return tuple(errors)
+
+
+def _camera_write_failed(request: int, error: BaseException) -> Exception:
+    """The fault for a camera vendor write ``request`` the transport raised ``error`` on.
+
+    A timeout is the camera not answering: it is still on the bus and may
+    take the same write sent again, which a refusal or a removal would not.
+    Anything else is a write the camera did not take. Both name the request
+    and carry the library's own words.
+    """
+    words = f'{_vr_name(request)} write: {type(error).__name__}: {error}'
+    if _is_usb_timeout(error):
+        return CameraNoAnswerError(f'The camera did not answer the {words}')
+    return CameraWriteFailedError(f'The camera did not take the {words}')
+
+
+def _led_write_failed(request: int, error: BaseException) -> Exception:
+    """The fault for an LED vendor write ``request`` the transport raised ``error`` on.
+
+    The LED shares the camera's USB path, and its failures are the faults
+    every LED board raises: a timeout is the board not answering, anything
+    else a write that did not reach it.
+    """
+    words = f'{_vr_name(request)} write: {type(error).__name__}: {error}'
+    if _is_usb_timeout(error):
+        return BoardNoReplyError(f'The LED board did not answer the {words}')
+    return BoardPortFailedError(f'The LED board did not take the {words}')
+
+
+def _raise_if_no_answer(setting: str, error: BaseException) -> None:
+    """Raise ``CameraNoAnswerError`` naming ``setting`` for a write that was not answered.
+
+    Any other failure returns, for the caller's own handling.
+
+    Raises:
+        CameraNoAnswerError: ``error`` is the funnel's no-answer
+            (``_camera_write_failed``).
+    """
+    if isinstance(error, CameraNoAnswerError):
+        raise CameraNoAnswerError(
+            f'The camera did not answer the {setting} write: {error}'
+        ) from error
+
+
+@contextlib.contextmanager
+def _usb_call_failed(what: str) -> Iterator[None]:
+    """Raise a USB library failure inside the block as the camera's open failure, ``what`` naming the step.
+
+    For the connect's calls: the device was looked for, found or written
+    to, and the library did not complete the call. Anything else leaves as
+    itself.
+
+    Raises:
+        CameraUsbOpenFailedError: A USB call in the block failed.
+    """
+    try:
+        yield
+    except _usb_errors() as e:
+        raise CameraUsbOpenFailedError(f'The FX2 failed {what}: {type(e).__name__}: {e}') from e
 
 
 class _PyusbTransport:
@@ -1028,6 +1217,15 @@ class _PyusbTransport:
 
     def __init__(self):
         self._dev = None
+
+    @staticmethod
+    def bindings(identity: str) -> list[DeviceBinding] | None:
+        """Each device of ``identity`` and the driver the host has bound to it.
+
+        None on macOS and Linux: libusb reaches any USB device there, and
+        the host binds no driver to one.
+        """
+        return None
 
     def find(self, pid: int) -> Any:
         """The FX2 enumerated under ``pid``, or None."""
@@ -1080,7 +1278,7 @@ class _PyusbTransport:
             dev = self.find(PID_APP)
             if dev is not None:
                 self.open(dev)
-        except Exception as e:
+        except _usb_errors() as e:
             logger.warning('[FX2 Conn  ] pyusb handle reopen failed: %s', e)
 
     def link_speed_mbps(self) -> float | None:
@@ -1133,7 +1331,13 @@ class _LibusbTransport(_PyusbTransport):
         self._ctx = usb1.USBContext().open()
         handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
         if handle is None:
-            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
+            raise CameraUsbNotFoundError(
+                'The FX2 left the bus before its stream could start',
+            )
+        # Held as soon as it is opened, so a step below that raises leaves
+        # it where stop_stream closes it. Control goes through this handle
+        # while streaming -- the pyusb handle is released.
+        self._handle = handle
         try:
             if handle.kernelDriverActive(0):
                 handle.detachKernelDriver(0)
@@ -1142,9 +1346,6 @@ class _LibusbTransport(_PyusbTransport):
         handle.claimInterface(0)
         handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
 
-        # Control goes through this handle while streaming -- the pyusb
-        # handle is released.
-        self._handle = handle
         self._stream = stream
         self._on_gone = on_gone
         self._streaming = True
@@ -1171,7 +1372,7 @@ class _LibusbTransport(_PyusbTransport):
         self._event_thread.start()
 
         # Now start streaming -- transfers are ready to receive data.
-        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
+        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS)
 
         logger.info(
             '[FX2 Conn  ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
@@ -1184,7 +1385,8 @@ class _LibusbTransport(_PyusbTransport):
         """Stop the ISO stream and give control back to a reopened pyusb handle.
 
         Matches the LVC reference: cancel transfers, drain events for ~2s,
-        join the event thread, send STOP, close the handle.
+        join the event thread, send STOP, close the handle. Also undoes a
+        start that raised part way, so each step runs only on what was opened.
         """
         self._streaming = False
         for xfer in self._transfers:
@@ -1194,32 +1396,44 @@ class _LibusbTransport(_PyusbTransport):
                 pass
 
         # Drain cancelled transfers.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                self._ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                break
+        if self._ctx is not None:
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    self._ctx.handleEventsTimeout(tv=0.1)
+                except Exception:
+                    break
 
         if self._event_thread is not None:
             self._event_thread.join(timeout=3.0)
             self._event_thread = None
 
-        try:
-            self._handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
-        except Exception:
-            pass
-        try:
-            self._handle.releaseInterface(0)
-            self._handle.close()
-        except Exception:
-            pass
+        if self._handle is not None:
+            try:
+                self._handle.controlWrite(
+                    0x40, VR_STOP_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS
+                )
+            except Exception as e:
+                # The handle is closed below whatever the camera answered; the
+                # camera may still be streaming until it is reopened.
+                logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
+            # Released and closed apart: an interface whose claim failed
+            # refuses the release, and its handle is closed all the same.
+            try:
+                self._handle.releaseInterface(0)
+            except Exception:
+                pass
+            try:
+                self._handle.close()
+            except Exception:
+                pass
         self._transfers = []
         # Paired with the explicit open() at stream start: dropping the
         # reference without close() leaks the libusb context until GC. The
         # transfers are cancelled and the handle closed above, so close()
         # is safe here.
-        self._ctx.close()
+        if self._ctx is not None:
+            self._ctx.close()
         self._ctx = None
         self._handle = None
         self._stream = None
@@ -1274,14 +1488,26 @@ class _LibusbTransport(_PyusbTransport):
 
         handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
         when the device dies and every call raises, this loop degrades to
-        a ~10 Hz idle poll -- it does not hot-spin.
+        a ~10 Hz idle poll -- it does not hot-spin. The first failure of each
+        run of them is logged, so a stream that stalls has its cause beside
+        the stall.
         """
+        failing = False
         while self._streaming:
             try:
                 self._ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
+                failing = False
+            except usb1.USBError as e:
                 if not self._streaming:
                     break
+                if not failing:
+                    failing = True
+                    logger.error(
+                        '[FX2 Conn  ] libusb event handling failed; the stream gets '
+                        'no transfers while it does: %s: %s',
+                        type(e).__name__,
+                        e,
+                    )
 
 
 class _WinUsbTransport(_PyusbTransport):
@@ -1290,6 +1516,17 @@ class _WinUsbTransport(_PyusbTransport):
     def __init__(self):
         super().__init__()
         self._reader = None
+
+    @staticmethod
+    def bindings(identity: str) -> list[DeviceBinding]:
+        """Each device of ``identity``, present or seen before, and its driver, through SetupAPI.
+
+        Raises:
+            CameraUsbLookupFailedError: A SetupAPI call failed.
+        """
+        from drivers.winusb_iso import device_bindings
+
+        return device_bindings(identity)
 
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         if self._reader is not None:
@@ -1342,15 +1579,22 @@ class _WinUsbTransport(_PyusbTransport):
         if self._reader is not None:
             try:
                 self._reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
-            except Exception:
-                pass
+            except Exception as e:
+                # The reader is stopped below whatever the camera answered; the
+                # camera may still be streaming until it is reopened.
+                logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
             self._reader.stop()
             self._reader = None
         self._reopen_idle()
 
 
+def _platform_transport_class() -> type[_PyusbTransport]:
+    """The transport class for this host. The platform is decided here and nowhere else."""
+    return _WinUsbTransport if sys.platform == 'win32' else _LibusbTransport
+
+
 def _platform_transport() -> _PyusbTransport:
-    """The transport for this host. The platform is decided here and nowhere else.
+    """The transport for this host, with the USB libraries it needs.
 
     Raises:
         ImportError: pyusb, or python-libusb1 off Windows, is not installed.
@@ -1359,7 +1603,7 @@ def _platform_transport() -> _PyusbTransport:
         raise ImportError(
             'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
         )
-    if sys.platform == 'win32':
+    if _platform_transport_class() is _WinUsbTransport:
         return _WinUsbTransport()
     # libusb1 is needed for ISO streaming on macOS/Linux. Fail fast so an
     # LS620 user on macOS without libusb1 gets a clear install hint, not a
@@ -1370,6 +1614,19 @@ def _platform_transport() -> _PyusbTransport:
             'on macOS / Linux. Install with: pip install -r requirements.txt'
         )
     return _LibusbTransport()
+
+
+def host_bindings(identity: str) -> list[DeviceBinding] | None:
+    """Each device of ``identity`` and the driver this host has bound to it.
+
+    Read through the host's transport class, so it answers whether or not
+    an FX2 came up, and needs no USB library: None where the host binds no
+    driver to a device (macOS, Linux).
+
+    Raises:
+        CameraUsbLookupFailedError: The bindings could not be read.
+    """
+    return _platform_transport_class().bindings(identity)
 
 
 # ---------------------------------------------------------------------------
@@ -1387,6 +1644,9 @@ class _FX2AbsentError(Fault, RuntimeError):
     present and fails (a firmware upload that does not re-enumerate) still
     raises with its own message.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'fx2_absent': None}
+    title = 'Camera Not Found'
 
 
 class _FX2Connection:
@@ -1414,6 +1674,9 @@ class _FX2Connection:
 
     FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
     FIRMWARE_CHUNK_SIZE = 0x800  # vendor req 0xA0 upload chunk
+    # The gap between the two bus probes that call the device unplugged: one
+    # enumeration can miss a device that is there.
+    CONFIRM_GAP_S = 0.5
 
     @classmethod
     def get(cls) -> _FX2Connection:
@@ -1429,8 +1692,15 @@ class _FX2Connection:
         Raises:
             ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
             _FX2AbsentError: No Lumascope FX2 device is on the bus.
-            RuntimeError: Firmware upload did not re-enumerate within the
-                timeout window.
+            CameraUsbNotFoundError: The firmware was uploaded and the device
+                did not re-enumerate within the timeout window.
+            CameraUsbOpenFailedError: A USB call finding, opening or
+                uploading to the device failed.
+            CameraUsbDriverUnusableError: A device is bound to a driver that
+                cannot serve it.
+            CameraUsbLookupFailedError: The bindings could not be read.
+            CameraFirmwareMissingError: The firmware file is not in the
+                installation.
         """
         if cls._instance is not None:
             return cls._instance
@@ -1467,10 +1737,14 @@ class _FX2Connection:
         # teardown and the application's own shutdown can both stop it, and
         # a transport stopped twice fails on state its first stop released.
         self._streaming = False
-        # The device has left the bus. Written once, by the camera's grab
-        # loop when it concludes an unplug; read by the LED, which shares
-        # the device. Never cleared: a replugged scope is a new process.
+        # The device has left the bus. Written once, by report_removed();
+        # read by the LED, which shares the device. Never cleared: a
+        # replugged scope is a new process.
         self.removed = False
+        self._removed_lock = threading.Lock()
+        # Told the reason once when the device is found gone; the camera
+        # sets it, so its own removal follows the connection's.
+        self.on_removed: Callable[[str], None] | None = None
         # Set from the transport's event thread when a transfer finds the
         # device gone; taken by the grab loop, which confirms it on the bus.
         self._gone_reported = threading.Event()
@@ -1484,19 +1758,29 @@ class _FX2Connection:
     # -- connection ---------------------------------------------------------
 
     def _connect(self):
-        """Find the device, upload firmware if needed, open it."""
-        transport = self._transport
-        dev = transport.find(PID_APP)
-        if dev is not None:
-            logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
-            transport.open(dev)
-            logger.info(
-                '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
-                PID_APP,
-            )
-            return
+        """Find the device, upload firmware if needed, open it.
 
-        dev = transport.find(PID_BOOT)
+        Each identity's binding is checked before that identity is used,
+        never the other's: the bootloader's identity is every EEPROM-less
+        Cypress FX2's, so another vendor's board unbound there says nothing
+        about a Lumascope already running its firmware.
+        """
+        transport = self._transport
+        self._check_bindings(FX2_FIRMWARE)
+        with _usb_call_failed('opening the running firmware'):
+            dev = transport.find(PID_APP)
+            if dev is not None:
+                logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+                transport.open(dev)
+                logger.info(
+                    '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
+                    PID_APP,
+                )
+                return
+
+        self._check_bindings(FX2_BOOTLOADER)
+        with _usb_call_failed('finding the bootloader'):
+            dev = transport.find(PID_BOOT)
         if dev is None:
             raise _FX2AbsentError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
@@ -1506,26 +1790,55 @@ class _FX2Connection:
             '[FX2 Conn  ] bootloader found (PID 0x%04X), uploading firmware...',
             PID_BOOT,
         )
-        self._upload_firmware(dev, _FX2Connection.find_firmware_path())
+        # The file is read outside the USB calls: a file that cannot be read
+        # is the installation's, not the device's.
+        hex_path = _FX2Connection.find_firmware_path()
+        data, end_addr = parse_intel_hex(hex_path)
+        with _usb_call_failed('uploading the firmware'):
+            self._upload_firmware(dev, hex_path, data, end_addr)
 
         # Wait for re-enumeration under the new application PID.
         deadline = time.monotonic() + self.FIRMWARE_RE_ENUM_TIMEOUT
         while time.monotonic() < deadline:
             time.sleep(0.5)
-            dev = transport.find(PID_APP)
+            with _usb_call_failed('finding the uploaded firmware'):
+                dev = transport.find(PID_APP)
             if dev is not None:
                 logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
-                transport.open(dev)
+                # The running firmware is a new device, bound on its own.
+                self._check_bindings(FX2_FIRMWARE)
+                with _usb_call_failed('opening the uploaded firmware'):
+                    transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
                     PID_APP,
                 )
                 return
 
-        raise RuntimeError(
-            f'FX2 did not re-enumerate after firmware upload '
-            f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
+        raise CameraUsbNotFoundError(
+            f'The FX2 did not re-enumerate as PID 0x{PID_APP:04X} after its firmware '
+            f'upload (waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
+
+    def _check_bindings(self, identity: str) -> None:
+        """Log which driver each device of ``identity`` is bound to; refuse
+        one that cannot work.
+
+        Windows binds each identity on its own, and pyusb sees a device only
+        through a driver libusb can drive, so a device on no driver or the
+        wrong one would otherwise read as no camera at all.
+
+        Raises:
+            CameraUsbDriverUnusableError: A present device's driver cannot
+                serve what LumaViewPro does with it, naming each such device.
+            CameraUsbLookupFailedError: The bindings could not be read.
+        """
+        devices = self._transport.bindings(identity)
+        if devices is None:
+            return
+        for binding in devices:
+            logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
+        refuse_unusable({identity: devices})
 
     @staticmethod
     def find_firmware_path() -> str:
@@ -1575,13 +1888,10 @@ class _FX2Connection:
             if os.path.isfile(path):
                 return path
 
-        raise FileNotFoundError(
-            f'FX2 firmware hex file not found. Searched: {", ".join(candidates)}'
-        )
+        raise CameraFirmwareMissingError(candidates)
 
-    def _upload_firmware(self, dev, hex_path: str):
-        """Upload Intel HEX firmware to FX2 via vendor request 0xA0."""
-        data, end_addr = parse_intel_hex(hex_path)
+    def _upload_firmware(self, dev, hex_path: str, data: bytes, end_addr: int):
+        """Upload the firmware image read from ``hex_path`` to the FX2 via vendor request 0xA0."""
         logger.info('[FX2 Conn  ] firmware: %s (%d bytes)', hex_path, end_addr)
 
         write_to = self._transport.write_to
@@ -1610,7 +1920,9 @@ class _FX2Connection:
         value: int = 0,
         index: int = 0,
         data: bytes = b'',
-        timeout: int = 5000,
+        timeout: int = CONTROL_TIMEOUT_MS,
+        *,
+        fault_for: Callable[[int, BaseException], Exception],
     ) -> int:
         """Thread-safe vendor OUT control transfer.
 
@@ -1626,15 +1938,24 @@ class _FX2Connection:
             index: 16-bit ``wIndex`` field.
             data: Payload bytes.
             timeout: Timeout in milliseconds.
+            fault_for: The fault of the part that wrote, for a write the
+                transport raised on (``_camera_write_failed``,
+                ``_led_write_failed``): the camera and the LED share this
+                path, and a failure names the one whose write it was.
 
         Returns:
             int: Bytes written, as reported by the underlying USB layer.
+
+        Raises:
+            Exception: What ``fault_for`` gives for a write the USB library
+                did not complete (``_usb_errors``); anything else the
+                transport raises is the driver's own and leaves as itself.
         """
         t_start = time.monotonic()
         try:
             with self._lock:
                 result = self._transport.control_out(request, value, index, data, timeout)
-        except Exception as e:
+        except _usb_errors() as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             if request not in _I2C_VR_REQUESTS:
                 _serial_log.error(
@@ -1642,7 +1963,7 @@ class _FX2Connection:
                     f'index=0x{index:04X} len={len(data)} -> EXCEPTION: '
                     f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            raise
+            self._raise_failed(fault_for(request, e), e, f'{_vr_name(request)} write')
         elapsed_ms = (time.monotonic() - t_start) * 1000
         # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
@@ -1654,8 +1975,12 @@ class _FX2Connection:
             )
         return result
 
-    def i2c_write(self, addr: int, data) -> int:
-        """Write bytes to the I2C bus via vendor request 0xB3.
+    def i2c_write(self, addr: int, data: Iterable[int] | bytes) -> int:
+        """Write the LED's bytes to the I2C bus via vendor request 0xB3.
+
+        The LED's write: a failure raises the LED board's fault
+        (``_led_write_failed``). The sensor writes through
+        ``sensor_reg_write``, with the camera's.
 
         Returns the result of the underlying control transfer (number of
         bytes written from pyusb / libusb1). Callers that want to detect
@@ -1672,7 +1997,9 @@ class _FX2Connection:
         """
         t_start = time.monotonic()
         try:
-            result = self.control_transfer_out(VR_I2C_WRITE, value=0, index=addr, data=bytes(data))
+            result = self.control_transfer_out(
+                VR_I2C_WRITE, value=0, index=addr, data=bytes(data), fault_for=_led_write_failed
+            )
         except Exception as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             _serial_log.error(
@@ -1715,19 +2042,40 @@ class _FX2Connection:
         high = (value >> 8) & 0xFF
         low = value & 0xFF
         data = bytes([reg, high, low])
-        self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
+        self.control_transfer_out(
+            VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data, fault_for=_camera_write_failed
+        )
 
     # -- the stream ---------------------------------------------------------
 
-    def start_stream(self) -> None:
-        """Start the device streaming into ``stream``, emptied first."""
+    def start_stream(self, hand_over: Callable[[], HandOver]) -> None:
+        """Start the device streaming into ``stream``, emptied first, its frames numbered by ``hand_over``."""
         with self._lock:
-            self.stream.restart()
+            self.stream.restart(hand_over)
             self._gone_reported.clear()
-            # Marked before the transport starts: a start that raises part
-            # way leaves what it opened for stop_stream to release.
+            try:
+                self._transport.start_stream(self.stream, self._gone_reported.set)
+            except BaseException as error:
+                # A start that raised part way is undone here, by the one
+                # that began it: the camera stops only a stream it started,
+                # so a reader left running would be reached by no stop, and
+                # the next start would open a second beside it.
+                self._transport.stop_stream()
+                # A transport's own typed fault, and anything that is not
+                # the USB library's, leaves as itself.
+                if not isinstance(error, _usb_errors()):
+                    raise
+                words = f'{type(error).__name__}: {error}'
+                if _is_usb_timeout(error):
+                    fault = CameraNoAnswerError(
+                        f'The camera did not answer the stream start: {words}'
+                    )
+                else:
+                    fault = CameraStreamStartFailedError(
+                        f'The camera stream did not start: {words}'
+                    )
+                self._raise_failed(fault, error, 'stream start')
             self._streaming = True
-            self._transport.start_stream(self.stream, self._gone_reported.set)
 
     def stop_stream(self) -> None:
         """Stop the stream; control returns to the idle handle. Does nothing when stopped."""
@@ -1760,6 +2108,40 @@ class _FX2Connection:
         except Exception as e:
             logger.warning('[FX2 Conn  ] bus enumeration failed: %s: %s', type(e).__name__, e)
             return None
+
+    def off_the_bus(self) -> bool:
+        """Whether the device is absent on two bus probes ``CONFIRM_GAP_S`` apart.
+
+        The one test of an unplug, for the grab loop's silence and for a
+        transfer that failed. A device found present, or a bus that could not
+        be read, on the first probe answers False at once.
+        """
+        if self.device_present() is not False:
+            return False
+        time.sleep(self.CONFIRM_GAP_S)
+        return self.device_present() is False
+
+    def report_removed(self, reason: str) -> None:
+        """Record that the device has left the bus, and tell ``on_removed`` once."""
+        with self._removed_lock:
+            if self.removed:
+                return
+            self.removed = True
+        if self.on_removed is not None:
+            self.on_removed(reason)
+
+    def _raise_failed(self, fault: Exception, cause: BaseException, what: str) -> NoReturn:
+        """Raise ``fault`` from ``cause``, a transfer the device did not take.
+
+        The libraries say a gone device in words of their own, and the
+        simulated FX2 in none of theirs, so the bus is asked instead: a
+        device no longer on it is reported removed before the fault is
+        raised, and its caller finds the camera removed rather than a
+        refusal. Without a stream nothing else would notice.
+        """
+        if self.off_the_bus():
+            self.report_removed(f'off the bus on two probes after a failed {what}')
+        raise fault from cause
 
     # -- teardown ----------------------------------------------------------
 
@@ -1806,16 +2188,29 @@ class _FX2ImageHandler(ImageHandlerBase):
 # ---------------------------------------------------------------------------
 
 
+class _StreamEnd(NamedTuple):
+    """Why the grab loop ends the stream.
+
+    Attributes:
+        gone: Whether the bus says the device left it: an unplug. False for a
+            stream silent past the ceiling with the device still listed.
+        reason: The evidence, in words, for the log.
+    """
+
+    gone: bool
+    reason: str
+
+
 class _UnplugWatch:
-    """Decides, from the grab loop, when the FX2 has been unplugged.
+    """Decides, from the grab loop, when the FX2's stream has ended.
 
     An unplug sends the driver no error: the bytes stop. Two things raise a
     suspicion -- no byte for ``SILENCE_S``, or a transfer that found the
-    device gone -- and the bus decides it: absent on two probes
-    ``CONFIRM_GAP_S`` apart is an unplug. A device still enumerated is
-    probed at most every ``PROBE_INTERVAL_S`` while the silence lasts, and a
-    stream silent for ``CEILING_S`` is dead whatever the bus says, since an
-    enumeration can keep listing a device that has gone.
+    device gone -- and the bus decides it (``_FX2Connection.off_the_bus``).
+    A device still enumerated is probed at most every ``PROBE_INTERVAL_S``
+    while the silence lasts, and a stream silent for ``CEILING_S`` is dead
+    whatever the bus says, since an enumeration can keep listing a device
+    that has gone; it is not called unplugged, since the bus did not say so.
 
     Silence, not missing frames: a device whose frames all misalign stores
     none but keeps sending bytes, and it is not unplugged.
@@ -1825,18 +2220,16 @@ class _UnplugWatch:
     # arrives 0.3-0.5 s after a start, and a window change drops buffered
     # bytes without stopping their arrival.
     SILENCE_S = 2.0
-    CONFIRM_GAP_S = 0.5
     PROBE_INTERVAL_S = 1.0
     CEILING_S = 30.0
 
     def __init__(self, connection: _FX2Connection):
         self._connection = connection
         self._suspected = False
-        self._absences = 0
         self._last_probe: float | None = None
 
-    def verdict(self, now: float) -> str | None:
-        """Why the device is judged unplugged at ``now``, or None."""
+    def verdict(self, now: float) -> _StreamEnd | None:
+        """Why the stream is judged ended at ``now``, or None."""
         silent_s = self._connection.stream.seconds_since_arrival(now)
         if self._connection.take_gone_report():
             self._suspected = True
@@ -1845,19 +2238,18 @@ class _UnplugWatch:
         if not self._suspected:
             return None
         if silent_s >= self.CEILING_S:
-            return f'no byte for {silent_s:.0f} s'
-        wait_s = self.CONFIRM_GAP_S if self._absences else self.PROBE_INTERVAL_S
-        if self._last_probe is not None and now - self._last_probe < wait_s:
+            return _StreamEnd(
+                gone=False, reason=f'no byte for {silent_s:.0f} s, still listed on the bus'
+            )
+        if self._last_probe is not None and now - self._last_probe < self.PROBE_INTERVAL_S:
             return None
         self._last_probe = now
-        present = self._connection.device_present()
-        if present is False:
-            self._absences += 1
-            if self._absences >= 2:
-                return f'off the bus on two probes, {silent_s:.1f} s after the last byte'
-        elif present is True:
-            self._absences = 0
-            self._suspected = silent_s >= self.SILENCE_S
+        if self._connection.off_the_bus():
+            return _StreamEnd(
+                gone=True,
+                reason=f'off the bus on two probes, {silent_s:.1f} s after the last byte',
+            )
+        self._suspected = silent_s >= self.SILENCE_S
         return None
 
 
@@ -1886,7 +2278,6 @@ class FX2Camera(Camera):
     # default so capability consumers (buffer sizing, save-format selection)
     # treat FX2 frames as 8-bit from the start, matching IDSCamera.
     native_bit_depth = 8
-    significant_bits = 8
 
     def significant_bits_for_format(self, pixel_format: str | None) -> int:
         """FX2 delivers 8-bit payloads regardless of any format string."""
@@ -2009,7 +2400,7 @@ class FX2Camera(Camera):
         once via ``open_and_start()`` (the start gate). ScopeDisplay polls
         assuming the camera is grabbing, so the live view stays blank until
         the gate is released; the bring-up sites release it via
-        ``scope.imaging.start_streaming()`` after configuration (the
+        ``scope.imaging.enable_streaming()`` after configuration (the
         blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
         if self._fx2 is None:
@@ -2025,6 +2416,11 @@ class FX2Camera(Camera):
             except _FX2AbsentError as e:
                 logger.debug('[FX2 Cam   ] %s', e)
                 return False
+        # Before the first transfer, so a device gone during bring-up is
+        # this camera's removal too.
+        self._fx2.on_removed = lambda reason: self._on_stream_ended(
+            _StreamEnd(gone=True, reason=reason)
+        )
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler(self)
@@ -2038,7 +2434,7 @@ class FX2Camera(Camera):
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         self.stop_grabbing()
         self._active = None
         # Clear the start gate + last-frame buffer so a same-instance reconnect
@@ -2059,33 +2455,30 @@ class FX2Camera(Camera):
         ``camera.profile.gain.total_max_db`` and get real numbers
         instead of the ``None`` defaults.
         """
-        try:
-            self.profile.gain.total_min_db = GAIN_MIN_DB
-            self.profile.gain.total_max_db = GAIN_MAX_DB
-            # One shutter row at the full window: the shortest exposure
-            # every window the driver allows can give (a narrower window's
-            # row is shorter, so it reaches this to within its own row).
-            self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
-            # One second, deliberately: as long as these units need, and no
-            # longer. The stream stays clean far past it (an LS620 ran to the
-            # register's 65535 rows), but the API's fixed 5 s wait for a new
-            # capture and the stream check's bound after a long-to-short
-            # exposure change both misfire above a few seconds, and 65535
-            # rows is only 2.8 s at the narrowest window. Past the readout
-            # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
-            # sensor adds blanking rows and the frame stretches to the
-            # exposure (frame_time_s), which the stream handles.
-            SAFE_EXPOSURE_MAX_MS = 1000
-            self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
-            logger.debug(
-                '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
-                self.profile.gain.total_min_db,
-                self.profile.gain.total_max_db,
-                self.profile.exposure_min_us / 1000,
-                self.profile.exposure_max_us / 1000,
-            )
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] _query_dynamic_capabilities failed: %s', e)
+        self.profile.gain.total_min_db = GAIN_MIN_DB
+        self.profile.gain.total_max_db = GAIN_MAX_DB
+        # One shutter row at the full window: the shortest exposure
+        # every window the driver allows can give (a narrower window's
+        # row is shorter, so it reaches this to within its own row).
+        self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
+        # One second, deliberately: as long as these units need, and no
+        # longer. The stream stays clean far past it (an LS620 ran to the
+        # register's 65535 rows), but the API's fixed 5 s wait for a new
+        # capture and the stream check's bound after a long-to-short
+        # exposure change both misfire above a few seconds, and 65535
+        # rows is only 2.8 s at the narrowest window. Past the readout
+        # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
+        # sensor adds blanking rows and the frame stretches to the
+        # exposure (frame_time_s), which the stream handles.
+        SAFE_EXPOSURE_MAX_MS = 1000
+        self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
+        logger.debug(
+            '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
+            self.profile.gain.total_min_db,
+            self.profile.gain.total_max_db,
+            self.profile.exposure_min_us / 1000,
+            self.profile.exposure_max_us / 1000,
+        )
 
     # -- Sensor init -------------------------------------------------------
 
@@ -2142,7 +2535,9 @@ class FX2Camera(Camera):
             # here, connect() would report success with the sensor still at
             # its power-on window and the ISO frame parser desynced on the
             # mismatched byte count -- garbage live view with no error.
-            raise RuntimeError('MT9P031 initial window apply failed during sensor init')
+            raise CameraWriteFailedError(
+                'The camera did not take its initial window during sensor init'
+            )
 
         logger.info('[FX2 Cam   ] MT9P031 sensor initialized (reset, PLL, window)')
 
@@ -2182,26 +2577,25 @@ class FX2Camera(Camera):
 
     # -- Streaming start / stop --------------------------------------------
 
-    def start_grabbing(self) -> None:
+    def _start_grabbing(self) -> None:
         if self._grabbing:
-            if _cam_log is not None:
-                _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
+            _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
             return
-        if _cam_log is not None:
-            _cam_log.info('fx2 start_grabbing')
+        _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
-        self._grabbing = True  # set BEFORE starting threads that check it
-        self._fx2.start_stream()
+        self._fx2.start_stream(self.cam_image_handler.hand_over)
+        # After the stream started, so a start that raised leaves the camera
+        # not grabbing and the next start tries again; before the grab thread
+        # that checks it.
+        self._grabbing = True
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 
-    def stop_grabbing(self) -> None:
+    def _stop_grabbing(self) -> None:
         if not self._grabbing:
-            if _cam_log is not None:
-                _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
+            _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
             return
-        if _cam_log is not None:
-            _cam_log.info('fx2 stop_grabbing')
+        _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
         self._fx2.stop_stream()
 
@@ -2247,9 +2641,12 @@ class FX2Camera(Camera):
         framing_reported = False
 
         while self._grabbing:
-            unplugged = watch.verdict(time.monotonic())
-            if unplugged is not None:
-                self._on_unplugged(unplugged)
+            ended = watch.verdict(time.monotonic())
+            if ended is not None:
+                if ended.gone:
+                    self._fx2.report_removed(ended.reason)
+                else:
+                    self._on_stream_ended(ended)
                 return
 
             # Re-read dimensions every iteration -- the UI can call
@@ -2265,7 +2662,7 @@ class FX2Camera(Camera):
                 continue
             stats.record_counts(counts)
 
-            for frame_data, damaged in frames:
+            for frame_data, damaged, handed_over in frames:
                 # Only a frame of exactly its window's length, with nothing
                 # lost on USB, is stored: the length is fixed for a window,
                 # and anything else would be reshaped from a misaligned
@@ -2289,7 +2686,7 @@ class FX2Camera(Camera):
                     # the parser skips included, plus the delimiter before it.
                     self.cam_image_handler._store_frame(
                         image,
-                        datetime.now(),
+                        handed_over=handed_over,
                         significant_bits=image.dtype.itemsize * 8,
                         wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )
@@ -2346,36 +2743,45 @@ class FX2Camera(Camera):
                     s['delimiters_wrong'],
                 )
 
-    def _on_unplugged(self, reason: str) -> None:
-        """The device has left the bus: record it where it is read, then tear down.
+    def _on_stream_ended(self, ended: _StreamEnd) -> None:
+        """The stream has ended: mark the camera removed, then tear down.
 
-        Runs on the grab loop, which returns right after. The teardown runs
-        on the base Camera's thread, because stopping the stream joins this
-        one; the connection's record is what the LED, on the same device,
-        reads.
+        Run by the grab loop for a stream silent past the ceiling, and, for
+        an unplug, as the connection's ``on_removed`` by whichever thread
+        found the device gone: the grab loop, which returns right after, or
+        the caller of a transfer that failed. The teardown runs on the base
+        Camera's thread, because stopping the stream joins the grab loop.
+        Only an unplug is recorded on the connection, which the LED, on the
+        same device, reads: a device the bus still lists is not gone. The
+        connection records it before it calls here, so whoever waits on the
+        camera finds the LED's answer already given.
         """
-        self._fx2.removed = True
         self._mark_disconnected()
-        logger.warning(
-            '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
-            reason,
-        )
+        if ended.gone:
+            logger.warning(
+                '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
+                ended.reason,
+            )
+        else:
+            logger.warning(
+                '[FX2 Cam   ] the FX2 stopped streaming and did not recover (%s); '
+                'restart LumaViewPro',
+                ended.reason,
+            )
         self._schedule_async_teardown()
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
-    def grab_new_capture(self, timeout_s: float = 5.0) -> tuple:
+    def grab_new_capture(self, timeout_s: float = 5.0) -> Frame | None:
         """Block until a NEW frame arrives. Used by autofocus / protocols."""
         self.cam_image_handler.reset()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            ok, img, ts, _significant_bits, seq = self.cam_image_handler.get_last_image()
-            if ok:
-                with self._array_lock:
-                    self.array = img
-                return True, ts, seq
+            frame = self.cam_image_handler.get_last_image()
+            if frame is not None:
+                return frame
             time.sleep(0.01)
-        return False, None, None
+        return None
 
     # -- Frame size --------------------------------------------------------
 
@@ -2407,6 +2813,11 @@ class FX2Camera(Camera):
         implement, so the camera-write authority upstream sees one rejection
         signal from every driver.
 
+        Raises:
+            CameraNoAnswerError: A register write timed out. Nothing is read
+                back, so each of the five writes decides whether the window
+                was applied.
+
         The row time follows the window's width, so the same shutter width
         integrates a different time at each window. The shutter width is
         written again after the window, from the exposure asked for, so the
@@ -2433,7 +2844,7 @@ class FX2Camera(Camera):
             self._fx2.sensor_reg_write(
                 REG_EXPOSURE, shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
             )
-        except Exception as e:
+        except HardwareError as e:
             # Translate a USB write failure into the base contract's explicit
             # False -- the rejection signal the pylon and IDS set_frame_size
             # already return, which the camera-write authority upstream turns
@@ -2454,6 +2865,7 @@ class FX2Camera(Camera):
             # known geometry and would desync the frame parser, so drop it on
             # the failure path too.
             self._fx2.stream.flush()
+            _raise_if_no_answer('frame size', e)
             return False
 
         self._width = w
@@ -2517,6 +2929,10 @@ class FX2Camera(Camera):
         exposure in output frames. Callers that depend on exact timing
         (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
+
+        Raises:
+            CameraNoAnswerError: The register write timed out; the exposure
+                recorded stays the one before.
         """
         # Refused while disconnected, as the other drivers do: no register
         # write is attempted and nothing is recorded. connect() sets the
@@ -2525,11 +2941,14 @@ class FX2Camera(Camera):
             return False
         target_ms = float(exposure_ms)
         rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
-        if _cam_log is not None:
-            _cam_log.info(
-                f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
-            )
-        self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        _cam_log.info(
+            f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
+        )
+        try:
+            self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        except Exception as e:
+            _raise_if_no_answer('exposure', e)
+            raise
         self._exposure_ms = target_ms
         return self.get_exposure_t() * 1000.0
 
@@ -2572,23 +2991,31 @@ class FX2Camera(Camera):
         returning, so this never answers refused. It answers with the gain the
         register now encodes, which differs from the request by the
         quantization step, or is 0 dB or 128x (42.144 dB) for a request
-        outside them.
+        outside them. The register value is recorded only once the write has
+        gone out, so after a failed write ``get_gain`` still reports the gain
+        the camera last took.
 
         Returns:
             float | bool | None: See ``Camera.gain``. False while disconnected:
             refused, nothing written, as ``exposure_t`` answers -- a None there
             reads to the API as applied, and it would record a gain the camera
             never received.
+
+        Raises:
+            CameraNoAnswerError: The register write timed out.
         """
         if not self.is_connected():
             return False
         reg = _gain_db_to_register(g)
+        _cam_log.info(
+            f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
+        )
+        try:
+            self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        except Exception as e:
+            _raise_if_no_answer('gain', e)
+            raise
         self._gain_reg = reg
-        if _cam_log is not None:
-            _cam_log.info(
-                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
-            )
-        self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
         return _register_to_gain_db(reg)[1]
 
     def get_gain(self):
@@ -2613,9 +3040,10 @@ class FX2Camera(Camera):
             return None
         try:
             speed = self._fx2.link_speed_mbps()
-        except Exception as e:
-            raise HardwareError(f'Link speed read failed: {type(e).__name__}: {e}') from e
-        return link_info(transport='USB2', link_speed=speed, link_speed_unit='Mbps')
+        except _usb_errors() as e:
+            raise CameraReadFailedError(f'Link speed read failed: {type(e).__name__}: {e}') from e
+        # libusb answers no speed while it does not know one.
+        return link_info(transport='USB2', link_speed=None if speed is None else (speed, 'Mbps'))
 
     def auto_gain(
         self,
@@ -2680,7 +3108,7 @@ class FX2LEDController:
     **Thin command translator.** The LVC reference carried a ``led_ma``
     dict and client-side state tracking read back from it. That existed
     because the pre-4.1 GUI owned LED state. In 4.1 the API owns state via
-    ``IlluminationAPI._led_state`` / ``save_led_state`` / ``restore_led_state``,
+    ``IlluminationAPI._led_state`` / ``get_led_states`` / ``restore_led_state``,
     so this driver keeps no LED state and answers no state queries.
 
     **LED channel -> I2C ASCII byte mapping** lives in this class only:
@@ -2696,12 +3124,13 @@ class FX2LEDController:
     same as "normal".
     """
 
-    # Channel count is fixed at 4 by the hardware. Per project memory,
-    # per-model LED presence (e.g. LS560 having only BF + Green) is
-    # handled via scopes.json Layers filtering, NOT by hiding channels
-    # here. The driver reports what the FX2 protocol supports.
-    _COLOR_TO_CH = _COLOR_TO_CH  # module-level dict
-    _CH_TO_COLOR = _CH_TO_COLOR
+    # The LEDs are driven over I2C, not text: the diagnostic door sends nothing.
+    takes_text_commands: ClassVar[bool] = False
+
+    # Channel count is fixed at 4 by the hardware. Which layer each
+    # address lights, and per-model LED presence (e.g. LS560 having only
+    # BF + Ex488), is the unit's layer identity's (scopes.json Layers),
+    # NOT hidden here. The driver reports what the FX2 protocol supports.
 
     # Full-scale drive current of the Classic LED peripheral, shared by
     # all four channels; the brightness byte is linear in current up to
@@ -2750,8 +3179,10 @@ class FX2LEDController:
         # ``port`` is a human-readable tag for the settings UI.
         self.driver = True
         self.port = 'FX2-USB'
-        self.firmware_version = 'FX2-Classic'
-        # The FX2's LED peripheral has no INFO command, so no date and no answer.
+        # The FX2's LED peripheral has no firmware of its own and no INFO
+        # command, so no version, no date and no answer. The scope's model
+        # says it is an FX2 scope.
+        self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
         self.is_v2 = False
@@ -2786,9 +3217,9 @@ class FX2LEDController:
         instead.
 
         NOTE: the 3x 10 ms delays (30 ms total per LED command) are
-        the known root cause of the slider-corruption effect documented
-        in project memory. During streaming, each LED command holds
-        the FX2 USB connection for 30 ms, during which ISO data keeps
+        the known root cause of the slider-corruption effect, a frame
+        corrupted while an LED slider is dragged. During streaming, each
+        LED command holds the FX2 USB connection for 30 ms, during which ISO data keeps
         arriving but cannot be drained. If the UI sends dozens of LED
         writes per second (Kivy slider drags), the ISO buffer can
         desync the frame parser. Stage 3.5 will verify and fix --
@@ -2868,23 +3299,14 @@ class FX2LEDController:
 
     # -- Channel discovery (B3) --------------------------------------------
 
-    def available_channels(self) -> tuple:
-        return tuple(self._COLOR_TO_CH.values())  # (0, 1, 2, 3)
+    def available_channels(self) -> tuple[int, ...]:
+        return tuple(_CH_TO_I2C)  # (0, 1, 2, 3)
 
     def max_ma(self) -> int:
         return self._MAX_MA
 
     def commanded_ma(self, mA: float) -> float:
         return self._ma_to_brightness(mA) * self._MAX_MA / 255.0
-
-    def available_colors(self) -> tuple:
-        return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
-
-    def color2ch(self, color: str) -> int | None:
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel: int) -> str | None:
-        return self._CH_TO_COLOR.get(channel)
 
     # -- Core LED control --------------------------------------------------
 
@@ -2954,10 +3376,3 @@ class FX2LEDController:
 
     def read_led_current(self, channel: int):
         return None  # no ADC feedback on FX2 LED peripheral
-
-    def exchange_command(self, command: str, **kwargs):
-        # LEDBoardProtocol requires this method for drivers that speak
-        # a serial command protocol. FX2 uses I2C, not ASCII commands,
-        # so there's nothing to exchange. Return None to match the
-        # NullLEDBoard sentinel pattern.
-        return None

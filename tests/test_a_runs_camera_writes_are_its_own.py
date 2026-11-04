@@ -36,17 +36,17 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
     session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
     try:
         home_sim_scope(session.scope)
-        step = {**_make_single_step_protocol().step(idx=0), 'Auto_Gain': True}
-        runner = session.create_protocol_runner()
+        step = {**_make_single_step_protocol().step_row(step_index=0), 'Auto_Gain': True}
+        runner = session.protocol_runner()
         files_written = threading.Event()
-        run = runner.run_single_scan(
+        run = runner.start_single_scan(
             protocol=_build_real_protocol([step]),
             sequence_name='auto_gain',
             parent_dir=str(tmp_path),
             events=RunEvents(files_written=lambda *written: files_written.set()),
         )
         assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-        outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+        outcome = run.result(timeout=COMPLETION_TIMEOUT)
         assert outcome.status == 'completed', outcome
         images = [p for p in tmp_path.rglob('*') if p.suffix.lower() in ('.tif', '.tiff')]
         assert len(images) == 1, (
@@ -64,7 +64,7 @@ def _arm_call_kwargs(func: ast.FunctionDef) -> dict:
         if not (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'apply_layer_camera_settings'
+            and node.func.attr == 'apply'
         ):
             continue
         kws = {kw.arg: kw.value for kw in node.keywords}

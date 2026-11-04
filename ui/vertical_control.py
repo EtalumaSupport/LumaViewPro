@@ -6,18 +6,18 @@ from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.debounce import debounce
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    move_absolute,
+    go_to_bookmark,
+    jog,
     move_home,
-    move_relative,
+    move_z,
     run_reported,
     run_unasked,
     show_captured_frame,
@@ -26,8 +26,6 @@ from ui.ui_helpers import (
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
-
-AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-reset
 
 
 # ============================================================================
@@ -52,63 +50,44 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.record_autofocus_to_file = False
         self._next_pos = None
-        self._af_safety_event = None
-        # The handle this button's last start returned: what its Stop and
-        # its stuck-AF bound name. The engine answers whether it is live.
-        self._autofocus_run: RunHandle | None = None
-        # The run the stuck-AF bound was last armed for: one bound per run.
-        self._af_safety_run: RunHandle | None = None
+        # The handle this button's last start returned: what its Stop
+        # names. The engine answers whether it is live.
+        self._autofocus_run: Operation | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
         )
 
-    def update_gui(self, vertical_control=False):
-        if not vertical_control:
-            # The target is a cache read -- no lane, no serial I/O -- shown on
-            # the GUI thread because a move's completion reaches this from
-            # the lane that made the move.
-            Clock.schedule_once(lambda dt: run_reported(None, self._show_z_target, 'Z_TARGET'), 0)
-        else:
-            Clock.schedule_once(lambda dt: self.update_text_only(), 0)
+    def update_gui(self):
+        # The reads are cache reads -- no lane, no serial I/O. Every caller
+        # is on the UI thread; the draw is deferred to its next frame.
+        Clock.schedule_once(lambda dt: run_reported(None, self.redraw_z, 'Z_POSITION'), 0)
 
     def _write_z_text(self, pos):
-        """Write a Z read-back into its box, unless the user is typing in it.
+        """Write a Z read-back into its box.
 
-        The box commits on focus loss (`on_focus: if not self.focus:
-        root.set_position_text(self.text)`), so a value written underneath a
-        part-typed entry is not merely displayed -- it is committed as a Z
-        move when the user clicks away. Every read-back write goes through
-        here so the guard cannot be present at three sites and missing at
-        the fourth. ``pos`` None, a Z the API does not know (homing, or
-        lost), is shown as ``--``; committed from the box, it moves nothing.
+        While the user is in the box it holds the read-back and shows it once
+        left unedited (``CommitInput``), so a click in and out moves nothing
+        and a part-typed entry is never written over. ``pos`` None, a Z the
+        API does not know (homing, or lost), is shown as ``--``; committed
+        from the box, it moves nothing.
         """
-        box = self.ids['z_position_id']
-        if box.focus:
+        # The figures are a readout; whether the API knows Z is the change.
+        gui_logger.display('Z_POSITION_KNOWN', pos is not None)
+        self.ids['z_position_id'].text = '--' if pos is None else format(pos, '.2f')
+
+    def redraw_z(self):
+        """Draw the Z panel as the API answers it now: the slider at the target, the text where Z is.
+
+        The text is the position the API knows, never the target: while Z
+        homes or is lost the target still answers the last number Z
+        reported, and the box would show a Z nobody established. A scope
+        without Z is left as it is.
+        """
+        scope = _app_ctx.ctx.lumaview.scope
+        if not scope.capabilities.has_focus:
             return
-        new_text = '--' if pos is None else format(max(0, pos), '.2f')
-        # Cache text to prevent redundant ScrollView updates
-        if box.text != new_text:
-            box.text = new_text
-
-    def update_text_only(self):
-        self._write_z_text(self.ids['obj_position'].value)
-
-    def _show_z_target(self):
-        """Show the Z target the API holds; nothing when it holds none."""
-        pos = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
-        if pos is not None:
-            self._update_z_position(pos)
-
-    def _update_z_position(self, pos):
-        """Update Z slider and text -- must be called on main thread.
-
-        Only updates text field when user is not typing (focus check),
-        matching XY behavior. Without this, the text shows current
-        position during motion then snaps to target -- confusing.
-        """
-        self.ids['obj_position'].value = max(0, pos)
-        self._write_z_text(pos)
+        self.show_z(scope.motion.axis_positions()['Z'].position_um)
 
     def show_z(self, polled):
         """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
@@ -118,58 +97,47 @@ class VerticalControl(BoxLayout):
 
         The listener bridge calls this, on the UI thread, for every Z move,
         run or not: a step's move, each autofocus sample, the restore when
-        an autofocus gives up. The slider is where Z is going and the text
-        where it is. The slider is left alone while the user holds it, as
-        the text is while the box has focus, so a drag is not overwritten.
+        an autofocus gives up; ``redraw_z`` calls it for every other redraw.
+        The slider is where Z is going and the text where it is. The slider
+        is left alone while the user holds it, as the text is while the box
+        has focus, so a drag is not overwritten.
         """
         slider = self.ids['obj_position']
-        target = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
+        target = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
         if target is not None and not slider.user_interacting:
-            slider.value = max(0, target)
+            slider.value = target
         self._write_z_text(polled)
 
-    def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
+    def _z_jog(self, direction: int, coarse: bool):
         """Shared Z-axis jog handler.
 
         Args:
             direction: +1 for up, -1 for down.
             coarse: True for coarse step, False for fine step.
-            overshoot_enabled: Enable backlash compensation overshoot.
         """
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
-        run_reported(
-            lambda: move_relative(
-                'Z',
-                direction * ctx.scope.motion.jog_step('Z', coarse),
-                overshoot_enabled=overshoot_enabled,
-            ),
-            redraw=None,
-            label=label,
-        )
+        jog('Z', direction, coarse)
 
     @debounce(0.2)
-    def coarse_up(self, overshoot_enabled: bool = False):
-        self._z_jog(+1, coarse=True, overshoot_enabled=overshoot_enabled)
+    def coarse_up(self):
+        self._z_jog(+1, coarse=True)
 
     @debounce(0.2)
-    def fine_up(self, overshoot_enabled: bool = False):
-        self._z_jog(+1, coarse=False, overshoot_enabled=overshoot_enabled)
+    def fine_up(self):
+        self._z_jog(+1, coarse=False)
 
     @debounce(0.2)
-    def fine_down(self, overshoot_enabled: bool = False):
-        self._z_jog(-1, coarse=False, overshoot_enabled=overshoot_enabled)
+    def fine_down(self):
+        self._z_jog(-1, coarse=False)
 
     @debounce(0.2)
-    def coarse_down(self, overshoot_enabled: bool = False):
-        self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
+    def coarse_down(self):
+        self._z_jog(-1, coarse=True)
 
-    def _queue_z_move(self, pos: float):
-        """Queue the move to a committed Z value; None when controls are locked.
+    def _queue_z_move(self, pos: float) -> None:
+        """Queue the move to a committed Z value.
 
         The slider and the text box share the move but not the record. The
         slider reports the value it resolved to; the box reports what the user
@@ -177,20 +145,14 @@ class VerticalControl(BoxLayout):
         distinguishable in the bundle, so each caller writes its own line and
         only the move lives here.
         """
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return None
-
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         self._next_pos = pos
         self.queue_slider_position_trigger()
-        return self._next_pos
 
     def set_position(self, pos):
         """The SLIDER's commit -- the kv binds this to its on_release."""
-        resolved = self._queue_z_move(pos)
-        if resolved is not None:
-            gui_logger.slider('Z_POSITION', resolved)
+        self._queue_z_move(pos)
+        gui_logger.slider('Z_POSITION', pos)
 
     def set_position_text(self, text):
         """The BOX's commit -- what was typed is recorded before the move.
@@ -200,14 +162,14 @@ class VerticalControl(BoxLayout):
         setting, and the verb is what tells them apart.
         """
         gui_logger.text_input('Z_POSITION', text)
-        pos = typed_number(text, float, self._show_z_target)
+        pos = typed_number(text, float, self.redraw_z)
         if pos is None:
             gui_logger.text_input('Z_POSITION_APPLIED', self.ids['z_position_id'].text)
             return
         self._queue_z_move(pos)
 
     def queue_slider_position(self):
-        move_absolute('Z', self._next_pos)
+        move_z(self._next_pos)
         self._next_pos = None
 
     def set_bookmark(self):
@@ -229,44 +191,14 @@ class VerticalControl(BoxLayout):
 
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
-        with ctx.settings_lock:
-            pos = ctx.settings['bookmark']['z']
-        move_absolute('Z', pos)
+        go_to_bookmark('GOTO_Z_BOOKMARK', ('Z',))
 
     @debounce(1.0)
     def home(self):
         gui_logger.button('HOME_Z')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] VerticalControl.home()')
         run_reported(lambda: move_home(axis='Z'), None, 'HOME_Z')
-
-    def load_objectives(self):
-        ctx = _app_ctx.ctx
-        logger.info('[LVP Main  ] VerticalControl.load_objectives()')
-        spinner = self.ids['objective_spinner2']
-        spinner.values = ctx.objective_helper.get_objectives_list()
-
-    def pick_objective(self, objective_id):
-        """A person picked an objective from the spinner; the Session decides.
-
-        On a turreted scope the pick says what is installed in the slot in
-        the light path, so the Session assigns it there; with no turret it
-        selects it. A refusal -- the slot is unknown, a run holds the scope
-        -- is shown, and either way the display shows the API's answer, so
-        a refused pick never stays on screen as if it had been taken.
-        """
-        gui_logger.select('OBJECTIVE', objective_id)
-        run_reported(
-            lambda: _app_ctx.ctx.session.select_objective(objective_id),
-            redraw=lambda: self.show_turret_state(prompt=False),
-            label='OBJECTIVE',
-        )
 
     def show_turret_state(self, prompt=True):
         """Show what the API says: the turret slot in the light path, each
@@ -275,8 +207,10 @@ class VerticalControl(BoxLayout):
         Every turret action ends here, a failed one included -- a press,
         a home, a run's step, startup, an objective answer -- because only
         the API knows where the turret is. The button down is the slot the
-        API reports and none is down while that slot is unknown; the
-        spinner shows the active objective, or 'Unknown'.
+        API reports and none is down while that slot is unknown, so the
+        working objective is the name on the pressed button; each button
+        names the objective assigned to its slot. On a scope without a
+        turret, Assign Objective names the active objective.
 
         Args:
             prompt: Ask the objective question when the objective is
@@ -286,25 +220,26 @@ class VerticalControl(BoxLayout):
                 would refuse the answer.
         """
         ctx = _app_ctx.ctx
-        slot = ctx.scope.motion.get_turret_slot()
-        catalogue = ctx.objective_helper.get_objectives_list()
+        turret = ctx.scope.motion.turret_status()
+        slot = turret.slot if turret is not None else None
         for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
             button.state = 'down' if position == slot else 'normal'
-            if assigned is None:
-                button.text = f'< {position} >'
-            elif assigned in catalogue:
-                magnification = ctx.session.get_objective_info(objective_id=assigned)[
-                    'magnification'
-                ]
-                button.text = f'{magnification}x'
-            else:
-                # Shown as assigned, because it is: the active objective
-                # there is unknown, and the spinner says so.
-                button.text = assigned
+            # A name outside the catalogue is shown as assigned, because it
+            # is; the active objective there is unknown.
+            button.text = f'< {position} >' if assigned is None else assigned
 
-        objective_id = ctx.scope.runtime_state.get_current_objective_id()
-        self.ids['objective_spinner2'].text = objective_id or 'Unknown'
+        objective_id = ctx.session.objective_id
+        self.ids['assign_objective_btn'].text = objective_id or 'Assign Objective'
+        shown = objective_id or 'Unknown'
+        if ctx.scope.capabilities.has_turret:
+            # The turret row is shown only on a scope that has one.
+            slots = ' '.join(
+                f'{position}={self.ids[f"turret_pos_{position}_btn"].text}'
+                for position in ctx.scope.runtime_state.get_turret_config()
+            )
+            shown += f' slot={slot} turret=[{slots}]'
+        gui_logger.display('OBJECTIVE', shown)
         ctx.motion_settings.ids['microscope_settings_id'].refresh_fov_labels()
         if objective_id is None and prompt:
             # Scheduled, never opened from here: the startup home's display
@@ -316,12 +251,13 @@ class VerticalControl(BoxLayout):
     def run_autofocus_from_ui(self):
         """Autofocus on the open layer, or stop the autofocus this button started.
 
-        The run is ProtocolRunner.run_autofocus, the one a script or REST
+        The run is ProtocolRunner.start_autofocus, the one a script or REST
         calls: everything about it -- the objective, the capture, every
         refusal -- is the member's, and the boundary shows a refusal once.
-        This button states only what a running GUI knows: the open drawer,
-        its own trigger (the attended one), and the live engineering flag,
-        which is also whether the sweep's characterization data is saved.
+        This button states only what a running GUI knows: the open drawer
+        and the live engineering flag, which is also whether the sweep's
+        characterization data is saved. The run records the GUI as its
+        starter from the host's stamp on the worker that starts it.
 
         Whether the press means Stop is the engine's answer -- is the run
         this button started still live -- never the toggle's, which Kivy has
@@ -332,29 +268,29 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
         ctx = _app_ctx.ctx
         run = self._autofocus_run
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             self._stop_autofocus(run)
             return
 
-        member = ctx.session.create_protocol_runner()
-        layer = common_utils.get_opened_layer(ctx.image_settings)
+        member = ctx.session.protocol_runner()
+        layer = ctx.session.shown_channel.channel
         engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,
             run_ended=lambda outcome, *_ended: self._autofocus_run_ended(layer, outcome),
+            on_ui_thread=True,
         )
 
         def _start():
-            self._autofocus_run = member.run_autofocus(
-                layer=layer,
+            self._autofocus_run = member.start_autofocus(
+                channel=layer,
                 save_characterization_data=engineering_mode,
                 events=events,
-                run_trigger_source='autofocus',
             )
 
         self._submit_autofocus_request(_start)
 
-    def _stop_autofocus(self, run: 'RunHandle') -> None:
+    def _stop_autofocus(self, run: 'Operation') -> None:
         self._submit_autofocus_request(run.stop, stop=True)
 
     def _submit_autofocus_request(self, call, stop: bool = False) -> None:
@@ -379,44 +315,15 @@ class VerticalControl(BoxLayout):
         run = self._autofocus_run
         self.autofocus_held = ctx.session.held_by_other(run)
         button = self.ids['autofocus_id']
-        if run is None or not run.is_live:
+        progress = None if run is None else run.progress()
+        if progress is None or not progress.is_live:
             button.state = 'normal'
             button.text = 'Autofocus'
+            gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
             return
         button.state = 'down'
-        button.text = 'Stopping...' if run.is_stopping else 'Focusing...'
-        # Armed by the run it bounds, the first time that run is seen live,
-        # and once per run: a timer armed before the run existed outlived
-        # every exit that started nothing and reached forward to abort the
-        # next autofocus that did.
-        if self._af_safety_run is not run:
-            self._af_safety_run = run
-            self._schedule_af_safety_timer(run)
-
-    def _unschedule_af_safety_timer(self):
-        if self._af_safety_event is not None:
-            Clock.unschedule(self._af_safety_event)
-            self._af_safety_event = None
-
-    def _schedule_af_safety_timer(self, run: 'RunHandle') -> None:
-        """Arm the stuck-AF bound for *run*: a standalone AF that stops
-        progressing is force-aborted rather than holding the lockout until
-        the user notices. The run pipeline bounds stalled MOTION, not a
-        stalled AF algorithm, so the bound lives with this starter.
-        """
-        self._unschedule_af_safety_timer()
-
-        def _af_safety(dt):
-            # Keyed on the run this bound was armed for, never on whatever
-            # this button holds when it fires, and never on the AF thread
-            # being busy: a timer that outlived its run must stay out of
-            # reach of the next autofocus, and a rival run's AF step is
-            # never this button's to stop.
-            if run.is_live:
-                logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
-                self._stop_autofocus(run)
-
-        self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
+        button.text = 'Stopping...' if progress.is_stopping else 'Focusing...'
+        gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
 
     def _autofocus_run_ended(self, layer: str | None, outcome) -> None:
         """Save the focus this button's autofocus chose, as the focus of the layer it focused.
@@ -429,7 +336,6 @@ class VerticalControl(BoxLayout):
         delivery.
         """
         ctx = _app_ctx.ctx
-        self._unschedule_af_safety_timer()
         if layer is None:
             return
         # AF restored the camera from committed settings; an uncommitted
@@ -440,7 +346,7 @@ class VerticalControl(BoxLayout):
         # these widgets show illumination, gain and exposure, not focus.
         ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
         if outcome.af_focus_z_um is not None:
-            ctx.session.save_layer_focus(layer, outcome.af_focus_z_um)
+            ctx.session.save_channel_focus(layer, outcome.af_focus_z_um)
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.
@@ -457,12 +363,27 @@ class VerticalControl(BoxLayout):
         )
 
         # No prompt follows, deliberately. The press IS the user saying
-        # this slot is empty, and the objective prompt has no cancel
-        # path -- so asking here forced an objective back into the slot
-        # that had just been cleared, leaving the button unable to do
-        # its job at any position. Arriving at an unassigned slot still
-        # asks, and so does startup, so no position goes unasked before
-        # its objective matters.
+        # this slot is empty; asking straight back which objective is in
+        # it is a question they have just answered. Pressing the slot
+        # names its glass when they want to.
+
+    def assign_objective(self):
+        """Ask which objective is installed, on a scope without a turret.
+
+        The question is the Session's, asked whether or not one is owed,
+        and is shown by the one objective popup; its answer and its
+        Cancel go where the owed question's do. A refusal is shown.
+        """
+        gui_logger.button('ASSIGN_OBJECTIVE')
+        # The popup is opened inside the reported call: run_reported drops
+        # the call's return, and the question is that return.
+        run_reported(
+            lambda: self._render_objective_question(
+                _app_ctx.ctx.session.current_slot_objective_question()
+            ),
+            redraw=None,
+            label='ASSIGN_OBJECTIVE',
+        )
 
     def prompt_if_objective_unknown(self, on_resolved=None):
         """Ask the Session whether the objective needs confirming; render the answer.
@@ -516,10 +437,9 @@ class VerticalControl(BoxLayout):
 
     def _render_objective_question(self, question, on_resolved=None):
         """The one popup for the objective question; the answer applies below."""
-        if question.turret_position is not None:
+        if question.turret_slot is not None:
             first_line = (
-                'Please confirm the objective installed at turret position '
-                f'{question.turret_position}.'
+                f'Please confirm the objective installed at turret position {question.turret_slot}.'
             )
         else:
             first_line = 'Please confirm the installed objective.'
@@ -533,12 +453,13 @@ class VerticalControl(BoxLayout):
             objectives=list(question.choices),
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
-                chosen, question.turret_position, on_resolved=on_resolved
+                chosen, question.turret_slot, on_resolved=on_resolved
             ),
+            on_cancel=lambda: self._resolve_objective(on_resolved),
             on_folded=lambda: self._resolve_objective(on_resolved),
         )
 
-    def _apply_objective_answer(self, chosen, turret_position, on_resolved=None):
+    def _apply_objective_answer(self, chosen, slot, on_resolved=None):
         """Hand the answer to the Session and render what it did."""
 
         def _redraw():
@@ -554,7 +475,7 @@ class VerticalControl(BoxLayout):
                 self._resolve_objective(on_resolved)
 
         run_reported(
-            lambda: _app_ctx.ctx.session.confirm_objective(chosen, turret_position=turret_position),
+            lambda: _app_ctx.ctx.session.confirm_objective(chosen, slot=slot),
             redraw=_redraw,
             label='OBJECTIVE_ANSWER',
         )

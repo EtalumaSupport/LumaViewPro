@@ -13,9 +13,11 @@ test_architecture_fixes.py.
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import MemberNames, iter_package_modules, parse_module
 
-_OVERLAY_RENDERERS = frozenset({'transform_to_bullseye', 'add_crosshairs'})
+_OVERLAY_RENDERERS = MemberNames(
+    'modules/capture_overlays.py', {'transform_to_bullseye', 'add_crosshairs'}
+)
 
 
 def _ui_modules():
@@ -48,7 +50,7 @@ def test_the_save_module_does_not_capture():
     reaches = [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr == '_capture_and_wait_impl'
+        if isinstance(node, ast.Attribute) and node.attr == '_capture_still_impl'
     ]
     assert reaches == [], f'modules/image_save.py reaches the capture body at lines {reaches}'
 

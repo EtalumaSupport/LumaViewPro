@@ -48,6 +48,7 @@ from drivers.tmcm6110 import (
     encode_version_reply,
 )
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.case_walk import failing_cases
 
 # How much faster than the wall clock the simulated board runs in these
 # tests, so a millimetre's move takes milliseconds.
@@ -135,14 +136,17 @@ def test_the_firmware_reply_is_ascii_with_no_checksum(board):
 # --- Finding the board ----------------------------------------------------
 
 
-@pytest.mark.parametrize('usb_id', USB_IDS)
-def test_either_usb_identity_is_found(usb_id):
-    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=usb_id)
-    board = Tmcm6110Board(
-        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
-    )
-    assert board.found
-    assert board.is_connected()
+def test_either_usb_identity_is_found():
+    def check(usb_id):
+        sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=usb_id)
+        board = Tmcm6110Board(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+        )
+        assert board.found
+        assert board.is_connected()
+
+    failed = failing_cases(USB_IDS, check)
+    assert not failed, failed
 
 
 def test_a_port_that_is_not_a_6110_is_closed_and_not_found():
@@ -227,8 +231,9 @@ def test_the_members_the_api_reads(board):
     assert board.detect_present_axes() == ['X', 'Y', 'Z']
     assert board.detect_homed_axes() == []
     assert board.get_microscope_model() == 'LS720'
+    assert board.takes_text_commands is False
+    assert not hasattr(board, 'exchange_command')
     assert not hasattr(board, 'exchange_multiline')
-    assert board.exchange_command('INFO') is None
     assert board.get_axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
 
 
@@ -481,8 +486,13 @@ def test_the_limit_switches_read_left_then_right(board, sim):
     assert board.limit_switch_status('Z') == (0, 0)
     sim.axes['Z'].p = float(sim.axes['Z'].layout.right_switch_at)
     assert board.limit_switch_status('Z') == (0, 1)
+
+
+def test_a_switch_read_the_board_does_not_answer_raises(board, sim):
+    """Never a value standing in for the read: a client could not tell it from the switches."""
     sim.silent = True
-    assert board.limit_switch_status('Z') == (-1, -1)
+    with pytest.raises(HardwareError):
+        board.limit_switch_status('Z')
 
 
 # --- Acceleration ---------------------------------------------------------
@@ -628,13 +638,17 @@ def test_a_port_that_raises_on_its_flush_is_dropped_whatever_the_error():
     assert not board.is_connected()
 
 
-def test_an_unplugged_board_is_disconnected(board, sim):
+def test_an_unplugged_board_stays_disconnected_through_a_replug(board, sim):
+    """Nothing reopens a board during a session: a replugged board's next
+    command is refused, as the EL-0940's is."""
     sim.plugged = False
     with pytest.raises(HardwareError, match='port failed'):
         board.target_status('X')
     assert not board.is_connected()
+    sim.plugged = True
     with pytest.raises(HardwareError, match='not connected'):
         board.target_status('X')
+    assert not board.is_connected()
 
 
 # --- The simulated board itself -------------------------------------------

@@ -71,11 +71,10 @@ def cmd_info(args):
     """Show board info via FULLINFO."""
     board = _connect_motor_board()
     try:
-        resp = board.exchange_command('FULLINFO', response_numlines=1)
-        if resp:
-            print(resp)
-        else:
-            print('ERROR: No response from FULLINFO')
+        try:
+            print(board.exchange_command('FULLINFO', response_numlines=1))
+        except HardwareError as e:
+            print(f'ERROR: No response from FULLINFO: {e}')
     finally:
         board.disconnect()
 
@@ -212,9 +211,10 @@ def _move_to_step(board, axis, position, timeout=30):
     """
     try:
         board.move(axis, position)
+        arrived = board.wait_for_position(axis, timeout=timeout)
     except HardwareError as e:
         return str(e)
-    if not board.wait_for_position(axis, timeout=timeout):
+    if not arrived:
         return f'{axis} move-away timeout'
     return None
 

@@ -16,7 +16,6 @@ scale in the installation's current.json.
 """
 
 import datetime
-import pathlib
 import threading
 import traceback
 
@@ -24,17 +23,21 @@ import pandas as pd
 
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
 
+from modules.lumascope_api.illumination import LedState
+from tests.protocol_fixtures import protocol_of
+
 RUN_TIMEOUT_S = 120.0
 
 
-def _step(name, objective, index, position, layer):
+def _step(name, objective, slot, index, position, layer):
     # A step as Add Step builds one: no tile, no z-stack (-1), so the run
-    # treats each as its own step and does not hold the LED across them.
+    # treats each as its own step and does not hold the LED across them,
+    # and the turret slot it was made at.
     return {
         'Name': name,
-        'X': position['x'],
-        'Y': position['y'],
-        'Z': position['z'],
+        'X': position.x_mm,
+        'Y': position.y_mm,
+        'Z': position.z_um,
         'Auto_Focus': False,
         'Color': 'BF',
         'False_Color': False,
@@ -56,17 +59,20 @@ def _step(name, objective, index, position, layer):
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
+        'Turret Slot': slot,
+        'Z-Stack Offset': 0.0,
     }
 
 
 def _expected_pixel_size(session, objective_id):
     import modules.common_utils as common_utils
 
-    focal_length = session.objective_helper.get_objective_info(objective_id)['focal_length']
+    focal_length = session.scope.objectives[objective_id].focal_length_mm
     return round(
         common_utils.get_pixel_size(
             focal_length=focal_length,
-            binning_size=session.scope.imaging.get_binning_size(),
+            binning_size=session.scope.camera.read_binning(),
             capabilities=session.scope.capabilities,
         ),
         common_utils.max_decimal_precision('pixel_size'),
@@ -78,7 +84,6 @@ def main():
     from modules.protocol import Protocol
     from modules.run_events import RunEvents
 
-    repo = pathlib.Path(__file__).resolve().parents[2]
     session_cm = (
         hardware_session()
         if HARDWARE
@@ -96,14 +101,14 @@ def main():
             for slot, objective in session.scope.runtime_state.get_turret_config().items()
             if objective
         }
-        start_slot = motion.get_turret_slot()
+        start_slot = motion.turret_status().slot
         figure('turret slots assigned', slots)
         figure('turret slot at start', start_slot)
         here = slots.get(start_slot)
         others = (
             [
-                objective
-                for objective in slots.values()
+                slot
+                for slot, objective in slots.items()
                 if _expected_pixel_size(session, objective) != _expected_pixel_size(session, here)
             ]
             if here
@@ -117,20 +122,20 @@ def main():
             'another slot holds an objective of a different scale', bool(others), str(slots)
         ):
             return
-        away = others[0]
+        away_slot = others[0]
+        away = slots[away_slot]
 
         labware = session.settings['protocol']['labware']
         position = session.get_current_plate_position()
         figure('step position (plate mm, z um)', position)
         layer = session.settings['BF']
-        protocol = Protocol(
-            tiling_configs_file_loc=repo / 'data' / 'tiling.json',
+        protocol = protocol_of(
             config={
                 'version': Protocol.CURRENT_VERSION,
                 'steps': pd.DataFrame(
                     [
-                        _step('away', away, 0, position, layer),
-                        _step('back', here, 1, position, layer),
+                        _step('away', away, away_slot, 0, position, layer),
+                        _step('back', here, start_slot, 1, position, layer),
                     ]
                 ),
                 'period': datetime.timedelta(minutes=1.0),
@@ -147,23 +152,25 @@ def main():
         lit_at_turn = []
         illumination = session.scope.illumination
 
-        def _observed_move_turret(position, restore_z=True):
+        def _observed_move_turret(slot, restore_z=True):
             lit_at_turn.append(
-                sorted(c for c, st in illumination.get_led_states().items() if st['enabled'])
+                sorted(
+                    str(r.name) for r in illumination.get_led_states() if r.state is LedState.LIT
+                )
             )
-            real_move_turret(position=position, restore_z=restore_z)
-            turned_to.append((position, motion.get_turret_slot()))
+            real_move_turret(slot=slot, restore_z=restore_z)
+            turned_to.append((slot, motion.turret_status().slot))
 
         motion.move_turret = _observed_move_turret
         run_parent = SCRATCH / 'p10_runs'
         files_written = threading.Event()
         try:
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=protocol,
                 parent_dir=str(run_parent),
                 events=RunEvents(files_written=lambda *written: files_written.set()),
             )
-            result = outcome.wait(timeout_s=RUN_TIMEOUT_S)
+            result = outcome.result(timeout=RUN_TIMEOUT_S)
         finally:
             del motion.move_turret
         figure('run result', None if result is None else (result.status, result.reason))
@@ -171,7 +178,7 @@ def main():
         check("the run's files were written", files_written.wait(15.0))
 
         figure('turret moves (asked, landed)', turned_to)
-        expected_slots = [motion.get_turret_position_for_objective_id(o) for o in (away, here)]
+        expected_slots = [away_slot, start_slot]
         check(
             "the run turned the turret to each step's slot, in order",
             [asked for asked, _ in turned_to] == expected_slots,
@@ -181,7 +188,9 @@ def main():
             'each turret move landed on the slot it asked for',
             all(asked == landed for asked, landed in turned_to),
         )
-        check('the turret ends on the slot it started on', motion.get_turret_slot() == start_slot)
+        check(
+            'the turret ends on the slot it started on', motion.turret_status().slot == start_slot
+        )
         figure('channels lit as each turret move starts', lit_at_turn)
         check('no LED is lit as a turret move starts', lit_at_turn and not any(lit_at_turn))
 

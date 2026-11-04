@@ -5,9 +5,8 @@ Bug
 ---
 ui/image_settings.py schedules a 0.5 s Clock.schedule_interval that
 calls Histogram.histogram(). The interval is unscheduled only on
-accordion collapse or layer switch. The play/pause button pauses the
-display thread + sets scope_display.play=False, but the histogram
-Clock keeps ticking. Likewise during a protocol acquisition the
+accordion collapse or layer switch. The Freeze button pauses the
+display thread, but the histogram Clock keeps ticking. Likewise during a protocol acquisition the
 histogram fires every 0.5 s. Each tick pulls a frame from the camera
 buffer, downsamples + bins it, and rebuilds a 128-bin GPU mesh -- a
 contended read against the capture pipeline + wasted CPU/GPU work.
@@ -15,8 +14,10 @@ contended read against the capture pipeline + wasted CPU/GPU work.
 Fix
 ---
 Two early-return guards inside Histogram.histogram():
-- Skip if scope_display.play is False (preview paused via cam_toggle)
-- Skip if ctx.protocol_running.is_set() (protocol acquisition)
+- Skip if ctx.scope_display_thread.is_paused (the picture is frozen)
+- Skip while session.controls_lock.run_named is set (a run, a diagnostic,
+  a home or a run's files hold the run surface); not on run_lockout, which an
+  idle control session also sets while the live picture still shows the scope
 
 Behavior-preserving for the happy path (preview running, no protocol).
 
@@ -51,8 +52,8 @@ def _histogram_method() -> ast.FunctionDef:
 def test_histogram_skips_when_preview_paused():
     method = _histogram_method()
     src = ast.unparse(method)
-    assert 'scope_display' in src and '.play' in src, (
-        'Histogram.histogram must check scope_display.play to skip the '
+    assert 'scope_display_thread.is_paused' in src, (
+        'Histogram.histogram must check scope_display_thread.is_paused to skip the '
         'histogram work when live preview is paused. (#534)'
     )
 
@@ -60,8 +61,8 @@ def test_histogram_skips_when_preview_paused():
 def test_histogram_skips_during_protocol():
     method = _histogram_method()
     src = ast.unparse(method)
-    assert 'run_lockout' in src, (
-        'Histogram.histogram must check session.run_lockout '
+    assert 'run_named' in src, (
+        'Histogram.histogram must check session.controls_lock.run_named '
         'to skip the histogram work during a protocol acquisition. (#534)'
     )
 
@@ -87,14 +88,14 @@ def test_guards_run_before_camera_read():
     camera_read_idx = -1
 
     for i, unparsed in body_indices:
-        if play_guard_idx == -1 and 'scope_display' in unparsed and '.play' in unparsed:
+        if play_guard_idx == -1 and 'scope_display_thread.is_paused' in unparsed:
             play_guard_idx = i
-        if protocol_guard_idx == -1 and 'run_lockout' in unparsed:
+        if protocol_guard_idx == -1 and 'run_named' in unparsed:
             protocol_guard_idx = i
         if camera_read_idx == -1 and 'get_image_from_buffer' in unparsed:
             camera_read_idx = i
 
-    assert play_guard_idx >= 0, 'scope_display.play guard not found (#534)'
+    assert play_guard_idx >= 0, 'scope_display_thread.is_paused guard not found (#534)'
     assert protocol_guard_idx >= 0, 'protocol_running guard not found (#534)'
     assert camera_read_idx >= 0, (
         'get_image_from_buffer call not found in Histogram.histogram; '
@@ -123,11 +124,13 @@ def test_guards_are_early_returns():
             return False
         return any(isinstance(inner, ast.Return) and inner.value is None for inner in stmt.body)
 
-    play_ok = any(is_if_with_bare_return(s, ('scope_display', '.play')) for s in method.body)
-    proto_ok = any(is_if_with_bare_return(s, ('run_lockout',)) for s in method.body)
+    play_ok = any(
+        is_if_with_bare_return(s, ('scope_display_thread.is_paused',)) for s in method.body
+    )
+    proto_ok = any(is_if_with_bare_return(s, ('run_named',)) for s in method.body)
 
     assert play_ok, (
-        'scope_display.play guard must be `if ...: return` (early-return '
+        'scope_display_thread.is_paused guard must be `if ...: return` (early-return '
         'shape), not a conditional that falls through. (#534)'
     )
-    assert proto_ok, 'run-lockout guard must be `if ...: return` (early-return shape). (#534)'
+    assert proto_ok, 'run_named guard must be `if ...: return` (early-return shape). (#534)'

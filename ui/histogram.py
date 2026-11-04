@@ -52,20 +52,20 @@ class Histogram(Widget):
     def histogram(self, *args):
         ctx = _app_ctx.ctx
 
-        # Skip when live preview is paused. cam_toggle in main_display
-        # sets scope_display.play=False and pauses the display thread,
-        # but the 0.5 s histogram Clock keeps ticking; without this
-        # guard each tick fetches a frame from the camera buffer, builds
-        # a 128-bin mesh, and uploads to the GPU for nothing.
-        scope_display = getattr(ctx, 'scope_display', None)
-        if scope_display is not None and not scope_display.play:
+        # Skip while the live picture is frozen. The 0.5 s histogram Clock
+        # keeps ticking through a freeze; without this guard each tick
+        # fetches a frame from the camera buffer, builds a 128-bin mesh,
+        # and uploads to the GPU for nothing.
+        if ctx.scope_display_thread.is_paused:
             return
 
         # Skip during protocol acquisition. The histogram contends with
         # the capture / protocol pipeline for get_image_from_buffer and
-        # the texture isn't user-visible during a run anyway.
+        # the texture isn't user-visible during a run anyway. The run
+        # surface's own holder, not the lockout: an idle control session
+        # locks the controls while the live picture still shows the scope.
         session = getattr(ctx, 'session', None)
-        if session is not None and session.run_lockout:
+        if session is not None and session.controls_lock.run_named is not None:
             return
 
         # The histogram is a live-image tool: compute only when it is
@@ -78,7 +78,7 @@ class Histogram(Widget):
 
         bins = 128
 
-        if ctx.scope.imaging.active_cached:
+        if ctx.scope.camera.active:
             image, _ = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
             if image is None:
                 return

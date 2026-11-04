@@ -14,17 +14,18 @@ import sys
 import time
 import traceback
 import harness
+from tests.stock_channels import LED0, LED1
 
 s, live = harness.make_session('p8', home=True)
 try:
     from modules import config_helpers
 
-    lay = 'Blue'
+    lay = LED0
     with s.settings_lock:
         s.settings['stimulation_enabled'] = True
         s.settings[lay]['acquire'] = 'image'
         s.settings[lay]['stim_config']['enabled'] = True  # the GUI forbids this pair
-        s.settings['Green']['acquire'] = 'image'
+        s.settings[LED1]['acquire'] = 'image'
     snap = s.get_settings_snapshot()[lay]
     print(
         f'1: stored pair -> acquire={snap["acquire"]!r} '
@@ -35,9 +36,10 @@ try:
         s.get_layer_configs([lay])[lay]['acquire'],
         s.get_layer_configs([lay])[lay]['stim_config']['enabled'],
     )
-    print('3: session.get_enabled_stim_configs:', list(s.get_enabled_stim_configs().keys()))
+    enabled = [layer for layer, cfg in s.get_stim_configs().items() if cfg['enabled']]
+    print('3: session.get_stim_configs, enabled:', enabled)
     cfg = config_helpers.get_composite_capture_config_from_settings(
-        s.settings, s.objective_helper, position=s.get_current_plate_position()
+        s.settings, s.scope.objective_helper, position=s.get_current_plate_position()
     )
     proto = s.scope.protocols.create_protocol(input_config=cfg)
     steps = proto.steps()
@@ -45,18 +47,18 @@ try:
     harness.check('a script can build a protocol from settings holding the pair', len(row) > 0)
     _acq = row['Acquire'].iloc[0] if len(row) else None
     _stim = row['Stim_Config'].iloc[0].get(lay) if len(row) else None
-    print(f'4: protocol step for Blue -> Acquire={_acq!r} Stim_Config={_stim!r}')
+    print(f'4: protocol step for {lay} -> Acquire={_acq!r} Stim_Config={_stim!r}')
 
     # run it and see whether prepare() refuses the illegal pair
     s.scope.motion.home('ALL')
     time.sleep(2)
-    s.scope.imaging.start_streaming()
-    runner = s.create_protocol_runner()
+    s.scope.imaging.enable_streaming()
+    runner = s.protocol_runner()
     refused = False
     try:
         run = runner.start_composite(sequence_name='stimpair', parent_dir=pathlib.Path(live) / 'C')
         print('5: prepare()/start_composite with the illegal pair -> ACCEPTED')
-        print('5: outcome', run.wait(timeout_s=180).status)
+        print('5: outcome', run.result(timeout=180).status)
     except Exception as e:
         refused = True
         print('5: REFUSED', type(e).__name__, e)

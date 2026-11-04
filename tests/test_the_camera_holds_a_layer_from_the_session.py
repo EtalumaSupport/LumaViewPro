@@ -20,9 +20,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 # Distinct from the simulated camera's own default (10 ms, 1 dB), so a camera
 # left at its default cannot pass for one that took the layer.
@@ -31,21 +33,18 @@ _BLUE = {'exposure_ms': 100.0, 'gain_db': 10.0, 'auto_gain': False}
 
 
 def _camera(session) -> tuple[float, float]:
-    imaging = session.scope.imaging
-    return round(float(imaging.get_exposure_ms()), 3), round(float(imaging.get_gain_db()), 3)
+    camera = session.scope.camera
+    return round(float(camera.read_exposure_ms()), 3), round(float(camera.read_gain_db()), 3)
 
 
-def _said(monkeypatch) -> list[str]:
-    import modules.scope_session as scope_session
-
-    lines: list[str] = []
-    monkeypatch.setattr(scope_session.logger, 'info', lambda msg, *a, **k: lines.append(str(msg)))
-    return lines
+def _said(caplog) -> list[str]:
+    """The INFO lines logged while the test ran."""
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
 
 
 @pytest.fixture
 def session():
-    built = ScopeSession.create(complete_settings(BF=_BF, Blue=_BLUE), simulate=True)
+    built = ScopeSession.create(complete_settings(BF=_BF, **{LED0: _BLUE}), simulate=True)
     home_sim_scope(built.scope)
     yield built
     try:
@@ -55,45 +54,47 @@ def session():
 
 
 def _two_step_protocol(session):
-    """A BF step and a Blue step at the current position, from the layers' settings."""
+    """A BF step and an LED 0 step at the current position, from the layers' settings."""
     for layer in session.get_layer_configs():
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
-    session.settings['Blue']['acquire'] = 'image'
+    session.settings[LED0]['acquire'] = 'image'
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )
-    session.add_step(protocol, before_step=0)
-    colors = [protocol.step(idx=i)['Color'] for i in range(protocol.num_steps())]
-    return protocol, colors.index('BF'), colors.index('Blue')
+    session.add_step(protocol, before_step_index=0)
+    colors = [protocol.step_row(step_index=i)['Color'] for i in range(protocol.num_steps())]
+    return protocol, colors.index('BF'), colors.index(LED0)
 
 
 class TestBringUp:
     def test_the_camera_holds_bf_once_the_session_is_up(self, session):
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
-    def test_a_scope_with_no_camera_is_not_applied_and_says_so(self, monkeypatch):
+    def test_a_scope_with_no_camera_is_not_applied_and_says_so(self, caplog):
         applied = MagicMock()
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=False),
             apply_layer_camera=applied,
+            _show_layer=lambda layer: None,
         )
-        said = _said(monkeypatch)
+        caplog.set_level(logging.INFO)
         ScopeSession._apply_bring_up_layer(stand_in)
         applied.assert_not_called()
-        assert any('no camera, so BF is not applied' in line for line in said)
+        assert any('no camera, so BF is not applied' in line for line in _said(caplog))
 
-    def test_a_scope_whose_layers_are_unresolved_still_comes_up(self, monkeypatch):
+    def test_a_scope_whose_layers_are_unresolved_still_comes_up(self, caplog):
         applied = MagicMock()
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=True),
             apply_layer_camera=applied,
+            _show_layer=lambda layer: None,
             _layers_on_scope=lambda: set(),
         )
-        said = _said(monkeypatch)
+        caplog.set_level(logging.INFO)
         ScopeSession._apply_bring_up_layer(stand_in)
         applied.assert_not_called()
-        assert any('no BF layer' in line for line in said)
+        assert any('no BF layer' in line for line in _said(caplog))
 
 
 class TestGoingToAStep:
@@ -106,22 +107,91 @@ class TestGoingToAStep:
         session.go_to_step(protocol, bf_idx)
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
+    def test_a_started_go_returns_with_the_camera_on_its_steps_layer(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+
+        going = session.start_go_to_step(protocol, blue_idx)
+
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+        going.result(timeout=30)
+
+    def test_a_repeat_after_another_layer_was_shown_shows_the_steps_layer(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+        session.go_to_step(protocol, blue_idx)
+        session.show_channel('BF')
+
+        session.go_to_step(protocol, blue_idx)
+
+        assert session.shown_channel.channel == LED0
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+
+    def test_going_to_another_layers_step_during_a_recording_is_refused(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.go_to_step(protocol, blue_idx)
+            assert (refused.value.reason, refused.value.holder) == (
+                'exclusive_activity_running',
+                'recording',
+            )
+            assert session.shown_channel.channel == 'BF'
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
+    def test_going_to_a_step_whose_preview_would_light_during_a_recording_is_refused_unmoved(
+        self, session
+    ):
+        protocol, bf_idx, _blue_idx = _two_step_protocol(session)
+        session.update_settings('protocol_led_on', True)
+        motion = session.scope.motion
+        # Away from the step's Z, so a move to it would show.
+        motion.move_z(motion.get_current_position('Z') + 50.0)
+        away = motion.get_current_position('Z')
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.go_to_step(protocol, bf_idx)
+            assert (refused.value.reason, refused.value.holder) == (
+                'exclusive_activity_running',
+                'recording',
+            )
+            assert motion.get_current_position('Z') == away
+            assert channel_reading(session.scope.illumination, 'BF').state == LedState.DARK
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
+    def test_a_manual_step_after_an_auto_gain_step_holds_its_own_gain(self, session):
+        """Going back to a manual step from an auto-gain one puts the manual
+        step's gain on the camera, and the capture gate expects it (#840).
+
+        The camera's loop owns the gain while it runs and takes back a write
+        made under it, which the simulated camera models; the gain is written
+        once the loop is off. Written before the loop was turned off, the
+        camera stayed at the loop's value and the gate expected nothing.
+        """
+        session.settings[LED0]['auto_gain'] = True
+        protocol, bf_idx, blue_idx = _two_step_protocol(session)
+
+        session.go_to_step(protocol, blue_idx)
+        session.go_to_step(protocol, bf_idx)
+
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+        assert session.scope.imaging.frame_validity.target('gain') == _BF['gain_db']
+
     def test_a_camera_refusal_is_raised_once_the_stage_has_arrived(self, session, monkeypatch):
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
-        refused = CameraSettingRejected(
-            'gain_db', 10.0, title='Camera Setting Not Applied', message='x'
-        )
-        monkeypatch.setattr(
-            session.scope.imaging,
-            'apply_layer_camera_settings',
-            MagicMock(side_effect=refused),
-        )
+        refused = CameraSettingRejected('gain_db', 10.0, message='x')
+        # a stand-in by design: the simulated camera takes every in-range value
+        monkeypatch.setattr(session.scope.camera, 'hold_layer', MagicMock(side_effect=refused))
 
         with pytest.raises(CameraSettingRejected) as raised:
             session.go_to_step(protocol, blue_idx)
 
         assert raised.value is refused
-        assert not session.scope.motion.is_moving()
+        assert not session.scope.motion.is_any_axis_moving()
 
 
 class TestTheMember:
@@ -129,7 +199,7 @@ class TestTheMember:
         before = _camera(session)
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.apply_layer_camera('Lumi')
-        assert refused.value.reason == 'axis_absent'
+        assert refused.value.reason == 'not_on_this_scope'
         assert _camera(session) == before
 
     def test_a_held_scope_refuses_the_apply(self, session):
@@ -137,7 +207,7 @@ class TestTheMember:
         held = session.activity_claim.try_claim('diagnostic')
         try:
             with pytest.raises(HardwareCommandRefusedError):
-                session.apply_layer_camera('Blue')
+                session.apply_layer_camera(LED0)
         finally:
             held.release()
         assert _camera(session) == before
@@ -145,24 +215,148 @@ class TestTheMember:
     def test_the_auto_gain_cap_carries_the_installations_override(self, session, monkeypatch):
         session.settings['ag_ae_max_exposure_ms'] = {'fluorescence': 123.0}
         applied = MagicMock(return_value=None)
-        monkeypatch.setattr(session.scope.imaging, 'apply_layer_camera_settings', applied)
+        monkeypatch.setattr(session.scope.camera, 'hold_layer', applied)
 
-        session.apply_layer_camera('Blue')
+        session.apply_layer_camera(LED0)
 
-        sent = applied.call_args.kwargs
-        assert sent['layer'] == 'Blue'
-        assert (sent['exposure_ms'], sent['gain_db'], sent['auto_gain']) == (100.0, 10.0, False)
-        assert sent['auto_gain_settings']['max_exposure_ms'] == 123.0
-        assert sent['auto_gain_settings']['min_exposure_ms'] == 1.0
+        layer, sent = applied.call_args.args
+        assert layer == LED0
+        assert (sent.exposure_ms, sent.gain_db, sent.auto_gain) == (100.0, 10.0, False)
+        assert sent.auto_gain_settings['max_exposure_ms'] == 123.0
+        assert sent.auto_gain_settings['min_exposure_ms'] == 1.0
+
+
+class TestTheHeldLayer:
+    """The camera's record of the layer it holds: set by the Session's apply,
+    cleared by every raw camera door, carried by a camera snapshot."""
+
+    def test_the_layer_applied_is_the_layer_held(self, session):
+        session.apply_layer_camera(LED0)
+        assert session.scope.camera.get_held_layer() == LED0
+
+    def test_applying_the_held_layer_again_writes_nothing(self, session):
+        imaging = session.scope.imaging
+        session.apply_layer_camera(LED0)
+        imaging.capture_still(timeout_s=5.0)
+        before = imaging.frame_validity.invalidation_counts
+
+        session.apply_layer_camera(LED0)
+
+        assert imaging.frame_validity.invalidation_counts == before
+
+    def test_a_store_change_is_written_although_the_layer_is_held(self, session):
+        session.apply_layer_camera(LED0)
+        session.settings[LED0]['exposure_ms'] = 55.0
+
+        session.apply_layer_camera(LED0)
+
+        assert _camera(session) == (55.0, _BLUE['gain_db'])
+
+    def test_a_raw_camera_write_leaves_no_layer_held(self, session):
+        camera = session.scope.camera
+        session.apply_layer_camera(LED0)
+
+        camera.set_exposure_ms(30.0)
+
+        assert camera.get_held_layer() is None
+        session.apply_layer_camera(LED0)
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+
+    def test_a_restored_snapshot_holds_the_layer_it_was_taken_with(self, session):
+        camera = session.scope.camera
+        session.apply_layer_camera(LED0)
+        snapshot = camera.save_camera_state('test')
+        camera.set_gain_db(1.0)
+
+        camera.restore_camera_state(snapshot)
+
+        assert camera.get_held_layer() == LED0
+
+    def test_a_trimmed_restore_leaves_no_layer_held(self, session):
+        camera = session.scope.camera
+        session.apply_layer_camera(LED0)
+        snapshot = camera.save_camera_state('test')
+        del snapshot['gain_db']
+
+        camera.restore_camera_state(snapshot)
+
+        assert camera.get_held_layer() is None
+
+    def test_an_inverted_auto_gain_range_does_not_stop_a_layer_that_does_not_arm_it(self, session):
+        # Two writes each bound allows leave the range inverted; it is the
+        # arm's to refuse, and a layer with auto-gain off arms nothing.
+        session.update_settings('protocol.autogain.max_gain_db', 2.0)
+        session.update_settings('protocol.autogain.min_gain_db', 10.0)
+
+        session.apply_layer_camera(LED0)
+
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+
+    def test_a_refused_layer_is_not_held_and_is_written_again(self, session, monkeypatch):
+        camera = session.scope.camera
+        real = camera._apply_settings_impl
+        # a stand-in by design: the simulated camera takes every in-range value
+        monkeypatch.setattr(
+            camera,
+            '_apply_settings_impl',
+            MagicMock(side_effect=CameraSettingRejected('gain_db', 10.0, message='x')),
+        )
+        with pytest.raises(CameraSettingRejected):
+            session.apply_layer_camera(LED0)
+        assert camera.get_held_layer() is None
+
+        monkeypatch.setattr(camera, '_apply_settings_impl', real)
+        session.apply_layer_camera(LED0)
+
+        assert camera.get_held_layer() == LED0
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
 
 def test_no_gui_module_puts_a_layer_on_the_camera_itself():
-    """The GUI applies a layer through the Session member, never the imaging one."""
+    """The GUI applies a layer through the Session member, never the camera one."""
     from tests.ast_seams import REPO_ROOT
 
     callers = [
         str(path.relative_to(REPO_ROOT))
         for path in sorted((REPO_ROOT / 'ui').rglob('*.py'))
-        if 'apply_layer_camera_settings(' in path.read_text()
+        if 'camera.apply(' in path.read_text()
     ]
     assert callers == []
+
+
+class TestAWriteToTheShownLayer:
+    """A write to the shown layer's camera or LED setting is on the hardware
+    when it returns; a hidden layer's, or one under a held scope, is stored."""
+
+    def test_the_shown_layers_exposure_is_on_the_camera_when_the_write_returns(self, session):
+        session.update_settings('BF.exposure_ms', 12.0)
+
+        assert _camera(session) == (12.0, _BF['gain_db'])
+
+    def test_a_hidden_layers_exposure_is_stored_only(self, session):
+        session.update_settings(f'{LED0}.exposure_ms', 33.0)
+
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+        assert session.settings[LED0]['exposure_ms'] == 33.0
+
+    def test_the_lit_shown_layers_illumination_is_on_its_led(self, session):
+        session.light_shown_channel(True)
+
+        session.update_settings('BF.illumination_ma', 7.0)
+
+        assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 7.0
+
+    def test_a_write_while_the_scope_is_held_is_stored_only(self, session):
+        held = session.activity_claim.try_claim('diagnostic')
+        try:
+            session.update_settings('BF.exposure_ms', 12.0)
+        finally:
+            held.release()
+
+        assert session.settings['BF']['exposure_ms'] == 12.0
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+
+    def test_auto_gain_turned_on_for_the_shown_layer_arms_the_camera(self, session):
+        session.set_channel_auto_gain('BF', True)
+
+        assert session.scope.camera.lock_auto_gain().state is not None

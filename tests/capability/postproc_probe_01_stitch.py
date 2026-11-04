@@ -17,9 +17,9 @@ from runfolder import run_protocol_folder
 def main() -> int:
     live = probe_dir('stitch')
     with headless_session(live, acquiring=('BF',)) as (session, runner):
-        session.scope.motion.move_absolute('X', 40000.0)
-        session.scope.motion.move_absolute('Y', 30000.0)
-        session.scope.motion.move_absolute('Z', 1000.0)
+        session.scope.motion.move_xy(x_um=40000.0)
+        session.scope.motion.move_xy(y_um=30000.0)
+        session.scope.motion.move_z(1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
         here = session.get_current_plate_position()
         outcome, folder = run_protocol_folder(
@@ -28,7 +28,7 @@ def main() -> int:
             runner,
             tiling='2x2',
             sequence_name='probe_stitch',
-            positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
+            positions=[{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}],
         )
         print('run outcome:', outcome)
         print('folder:', folder)

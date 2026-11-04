@@ -6,9 +6,8 @@ same bench session:
 
 1. ``LEDBoard.led_on(block=True)`` polling shape. An ack is only
    trusted when the response echoes the command back OR contains
-   ``'LED'`` + channel + mA as substrings. An empty-string response
-   is NOT an ack -- empty responses are observed when the LED
-   firmware is wedged (e.g. left mid-engineering-mode by a
+   ``'LED'`` + channel + mA as substrings. No reply is NOT an ack --
+   it is observed when the LED firmware is wedged (e.g. left mid-engineering-mode by a
    diagnostic flow that exited without draining), and the LED is
    NOT actually energized in that state. The substring check
    protects callers from silently succeeding while the hardware is
@@ -19,31 +18,53 @@ same bench session:
    user-dump bundle.
 """
 
+import logging
 import threading
+import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
+from tests.wire_boards import led_on_the_wire
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _no_boot_wait():
+    """The LED board module's own clock with no sleep; every other thread's is real."""
+    import drivers.ledboard as ledboard_mod
+
+    return patch.object(
+        ledboard_mod, 'time', SimpleNamespace(sleep=MagicMock(), monotonic=time.monotonic)
+    )
+
+
+def _asked(caplog, command):
+    return [
+        r for r in caplog.records if r.name == 'LVP.serial' and f' {command} -> ' in r.getMessage()
+    ]
+
+
 class TestLedOnBlockAckShape:
     """The block=True polling loop must trust only command-echo or
-    substring-match acks. Empty responses must keep polling."""
+    substring-match acks; no reply keeps polling.
+
+    The field LED firmware's answer runs on the firmware-backed simulator.
+    The bare command echo (shape A) and a board that connected silent are
+    answers no emulated firmware gives, so those cases script the exchange."""
 
     def _make_led(self, response_sequence):
         """Build a real LEDBoard with exchange_command monkeypatched."""
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)  # bypass __init__ (needs serial)
-        led._validate_and_build_led_cmd = lambda ch, illumination_ma: (
-            'BF',
-            f'LED{ch}_{int(illumination_ma)}',
-        )
-        led._update_state_cache = lambda color, mA: None
-        responses = list(response_sequence)
-        led.exchange_command = MagicMock(
-            side_effect=lambda cmd: responses.pop(0) if responses else None
-        )
+        # a stand-in by design: the subject is led_on's poll, and the wire's
+        # exchange is its interchangeable collaborator; an entry that is
+        # an exception is raised, as the wire raises a dropped reply
+        led.exchange_command = MagicMock(side_effect=list(response_sequence))
         return led
 
     def test_command_echo_response_breaks_polling_loop(self):
@@ -52,40 +73,30 @@ class TestLedOnBlockAckShape:
         led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         assert led.exchange_command.call_count == 1
 
-    def test_substring_match_response_breaks_polling_loop(self):
-        """Firmware shape B: response includes 'LED' + channel + mA
-        ('LED 3 set to 2 mA.')."""
-        led = self._make_led(['LED 3 set to 2 mA.'])
-        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
-        assert led.exchange_command.call_count == 1
+    @pytest.mark.firmware_tier
+    def test_substring_match_response_breaks_polling_loop(self, caplog):
+        """Firmware shape B, the field firmware's: the response includes
+        'LED' + channel + mA ('LED 3 set to 2 mA.')."""
+        led, _sim = led_on_the_wire()
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
+        [asked] = _asked(caplog, 'LED3_2')
+        assert 'LED 3 set to 2 mA.' in asked.getMessage()
 
-    def test_empty_string_response_keeps_polling(self):
-        """Empty-string responses indicate the LED firmware is wedged;
-        the loop must keep polling, not accept the empty as ack. This
-        gives the user a visible timeout + protocol halt rather than a
-        silent dark capture."""
-        # 100ms timeout; firmware returns '' forever.
-        led = self._make_led([''] * 200)
+    @pytest.mark.firmware_tier
+    def test_no_reply_keeps_polling(self, caplog):
+        """No serial bytes back at all: the loop keeps asking until its
+        timeout, then raises rather than return to a silent dark capture.
+        The board's reply is held past the whole poll."""
         import time
 
+        led, sim = led_on_the_wire()
+        sim.delay_next_reply(3.0)
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
-        elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
-        # Multiple retries during the 0.1s window -- not bailing on first ''.
-        assert led.exchange_command.call_count >= 3
-
-    def test_none_response_keeps_polling(self):
-        """No serial bytes back at all: same retry-until-timeout shape
-        as the wedged-firmware empty case."""
-        led = self._make_led([None] * 200)
-        import time
-
-        t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
-        elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
-        assert led.exchange_command.call_count >= 3
+        with caplog.at_level(logging.INFO, logger='LVP.serial'), pytest.raises(BoardNoReplyError):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=1.0)
+        assert time.monotonic() - t0 >= 1.0
+        assert len(_asked(caplog, 'LED3_2')) >= 2, 'the loop gave up after one ask'
 
     def test_firmware_silent_aborts_polling_immediately(self):
         """A board that connected silent never echoes a command until a power
@@ -94,17 +105,20 @@ class TestLedOnBlockAckShape:
         autofocus entry) stalls the whole timeout, compounding to minutes over a
         run. Distinct from a live-but-transiently-empty firmware (above), which
         keeps polling for a visible timeout."""
-        led = self._make_led([None] * 200)
+        led = self._make_led(
+            [BoardNoReplyError('LED3_2: the board sent nothing at connect; power cycle it')] * 200
+        )
         led.firmware_silent = True
         import time
 
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
+        with pytest.raises(BoardNoReplyError, match='power cycle it'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         elapsed = time.monotonic() - t0
         assert elapsed < 0.5, (
             f'silent-board block must abort fast, not poll: elapsed={elapsed:.3f}s'
         )
-        # Only the pre-loop exchange ran; the loop aborted on the silent check
+        # Only the first exchange ran; the loop aborted on the silent check
         # before any retry.
         assert led.exchange_command.call_count == 1
 
@@ -120,26 +134,22 @@ class TestLedDriverRejectsNonAckResponses:
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
-        led._validate_and_build_led_cmd = lambda ch, illumination_ma: (
-            'BF',
-            f'LED{ch}_{int(illumination_ma)}',
-        )
-        led._update_state_cache = lambda color, mA: None
-        responses = list(response_sequence)
-        led.exchange_command = MagicMock(
-            side_effect=lambda cmd: responses.pop(0) if responses else None
-        )
+        # a stand-in by design: the subject is led_on's poll, and the wire's
+        # exchange is its interchangeable collaborator; an entry that is
+        # an exception is raised, as the wire raises a dropped reply
+        led.exchange_command = MagicMock(side_effect=list(response_sequence))
         return led
 
     def test_unrelated_response_keeps_polling(self):
         """A non-empty, non-None reply that is neither the command echo
         nor an LED/channel/mA substring match must NOT be accepted as
-        an ack -- the loop keeps polling until timeout."""
+        an ack -- the loop keeps polling until timeout, then raises."""
         import time
 
         led = self._make_led(['ERROR: unknown command'] * 200)
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardReplyUnreadableError, match='never confirmed LED3_2'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
             f'an unrelated reply must not break the polling loop early; elapsed={elapsed:.3f}s'
@@ -155,7 +165,8 @@ class TestLedDriverRejectsNonAckResponses:
 
         led = self._make_led(['LED 5 set to 9 mA.'] * 200)
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardReplyUnreadableError, match='never confirmed LED3_2'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
             f'a wrong-channel reply must not count as an ack; elapsed={elapsed:.3f}s'
@@ -276,88 +287,19 @@ class TestBundleFilenameByReportType:
         assert zip_path.name.startswith('SNlogs-')
 
 
-class TestLogsOnlySerialNumberLookupChain:
-    """Bench bug 2026-05-18: tech-support bundle filename was `SNlogs-...`
-    instead of `SN12062-...` because `generate_logs_only` only consulted
-    `motor_board.motorconfig.serial_number()` (which returned 'Unknown'
-    on some boards) and fell straight through to the 'logs' fallback
-    without trying the FULLINFO path the full TSR uses. The chain must
-    be: motorconfig -> diag.get_serial_number() -> 'logs'.
-    """
-
-    def _build_report_stub(self, motorconfig_sn, fullinfo_sn):
-        """Construct a TechSupportReport with a stubbed diag whose
-        motorconfig and get_serial_number return controlled values.
-        Returns the SN-resolution result (the value that would be passed
-        to _create_zip)."""
-        from modules.tech_support_report import TechSupportReport
-
-        report = TechSupportReport.__new__(TechSupportReport)
-        report._meta = {}
-
-        motor_board = MagicMock()
-        if motorconfig_sn is _NO_ATTR:
-            del motor_board.motorconfig
-        else:
-            motor_board.motorconfig.serial_number.return_value = motorconfig_sn
-
-        diag = MagicMock()
-        diag.motor_board = motor_board
-        diag.get_serial_number.return_value = fullinfo_sn
-        report.diag = diag
-
-        # Replicate the SN-resolution chain from generate_logs_only.
-        # Kept inline so the test fails if the chain changes shape.
-        sn_tag = None
-        try:
-            mb = report.diag.motor_board
-            if mb is not None and hasattr(mb, 'motorconfig'):
-                sn = mb.motorconfig.serial_number()
-                if sn and sn != 'Unknown':
-                    sn_tag = sn
-        except Exception:
-            sn_tag = None
-        if not sn_tag:
-            try:
-                sn = report.diag.get_serial_number()
-                if sn and sn != 'UNKNOWN':
-                    sn_tag = sn
-            except Exception:
-                sn_tag = None
-        if not sn_tag:
-            sn_tag = 'logs'
-        return sn_tag
-
-    def test_motorconfig_returns_sn(self):
-        """Happy path: motorconfig has the SN, no fallback needed."""
-        assert self._build_report_stub('12062', None) == '12062'
-
-    def test_motorconfig_unknown_falls_through_to_fullinfo(self):
-        """The bench bug: motorconfig returns 'Unknown', the chain must
-        try diag.get_serial_number() (FULLINFO) instead of dropping
-        straight to 'logs'."""
-        assert self._build_report_stub('Unknown', '12062') == '12062'
-
-    def test_both_unknown_falls_through_to_logs(self):
-        """Last-resort fallback: neither source has the SN."""
-        assert self._build_report_stub('Unknown', 'UNKNOWN') == 'logs'
-
-    def test_motorconfig_attribute_missing_falls_through_to_fullinfo(self):
-        """motor_board exists but has no motorconfig attribute (e.g.
-        SimulatedMotorBoard) -- chain must continue to FULLINFO."""
-        assert self._build_report_stub(_NO_ATTR, '12062') == '12062'
-
-
-_NO_ATTR = object()
-
-
 class TestLedExitEngineeringRecoversFromWedge:
     """The EL-0925 Gen3 firmware (2024-06-05ESWEA) `factory()` function
     sometimes doesn't exit on Q when the eng-mode body (e.g. LEDREADS)
     has already timed out. The firmware is left stuck inside factory()
     and standard LED commands return ''. exit_engineering_mode must
     detect this via a post-Q INFO probe and run Ctrl-C/B/D soft reset
-    to bring the firmware back."""
+    to bring the firmware back.
+
+    The way out without a recovery is
+    `test_sim_wire_led.py`'s enter-and-leave test on the field firmware. A
+    wedged factory() is scripted here: a lost reply on the emulated board
+    takes an echo line and INFO still answers, so the wedge needs the
+    firmware itself left waiting inside factory()."""
 
     def _make_led(self, info_responses, write_log):
         """Build a real LEDBoard stub. info_responses is a list of
@@ -387,22 +329,6 @@ class TestLedExitEngineeringRecoversFromWedge:
         led._safe_write = MagicMock(side_effect=lambda data, context='': write_log.append(data))
         return led
 
-    def test_happy_path_no_recovery_when_info_returns_banner(self):
-        """Post-Q INFO returns a healthy banner -> no Ctrl-D recovery
-        fires, no extra delay. exchange_command returns only the first
-        line of the multi-line INFO response, so the marker must be in
-        that first line."""
-        write_log = []
-        led = self._make_led(
-            info_responses=['Version:      EL-0925 Gen3 LED Controller'],
-            write_log=write_log,
-        )
-        led.exit_engineering_mode()
-
-        # Only Q + one INFO. No Ctrl-D bytes written.
-        assert led._safe_write.call_count == 0
-        assert all(b not in write_log for b in (b'\x03', b'\x02', b'\x04'))
-
     def test_wedged_firmware_triggers_ctrl_d_recovery_and_succeeds(self):
         """Post-Q INFO returns '' (firmware wedged in factory).
         Recovery sequence Ctrl-C/Ctrl-C/Ctrl-B/Ctrl-D fires; second
@@ -415,15 +341,9 @@ class TestLedExitEngineeringRecoversFromWedge:
             ],
             write_log=write_log,
         )
-        # Patch time.sleep to skip the 5s firmware-boot wait.
-        import drivers.ledboard as ledboard_mod
-
-        original_sleep = ledboard_mod.time.sleep
-        ledboard_mod.time.sleep = MagicMock()
-        try:
+        # The board module's own clock skips the 5s firmware-boot wait.
+        with _no_boot_wait():
             led.exit_engineering_mode()
-        finally:
-            ledboard_mod.time.sleep = original_sleep
 
         # Ctrl-C x2, Ctrl-B, Ctrl-D all written in order.
         assert write_log == [b'\x03', b'\x03', b'\x02', b'\x04']
@@ -440,15 +360,8 @@ class TestLedExitEngineeringRecoversFromWedge:
             info_responses=['', ''],  # both probes wedged
             write_log=write_log,
         )
-        import drivers.ledboard as ledboard_mod
-
-        original_sleep = ledboard_mod.time.sleep
-        ledboard_mod.time.sleep = MagicMock()
-        try:
-            with _pytest.raises(HardwareError, match='wedged'):
-                led.exit_engineering_mode()
-        finally:
-            ledboard_mod.time.sleep = original_sleep
+        with _no_boot_wait(), _pytest.raises(HardwareError, match='wedged'):
+            led.exit_engineering_mode()
 
 
 class TestTechSupportReportPassesTimeoutS:

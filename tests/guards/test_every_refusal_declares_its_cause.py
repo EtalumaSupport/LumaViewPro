@@ -5,19 +5,20 @@ A REST server answers a refusal 422 when the request as sent cannot succeed
 on this scope and 409 when the scope's state refused it, and a polling
 client retries only the second. Nothing on a refusal said which, so a
 server would have decided per exception, and a client retrying on a 409
-would retry a bad argument for ever. Each type now states its ``cause``,
-or ``causes`` keyed by reason where its reasons differ; a type stating
-neither is refused at import, and a mixed type refuses to be built with a
-reason its table lacks.
+would retry a bad argument for ever. Each type now maps every reason it
+carries to its cause in ``causes``, checked where the type is defined
+(``tests/guards/test_a_reason_means_one_thing.py``), and refuses to be
+built with a reason its table lacks.
 
 The tables are held to the raise sites both ways: for
 ``ProtocolRunRefusedError`` by ``test_every_runner_refusal_reason_is_covered``
 (``tests/test_run_refusal_contract.py``), for the other two mixed types here.
 ``HardwareCommandRefusedError``'s reasons arrive from four modules and a
 driver, so a reason handed on from a part or from the stage's interlock is
-resolved to the set its source declares, and the drivers' interlock
-literals are held to ``INTERLOCK_REASONS``, since a driver cannot import the
-table.
+resolved to the set its source declares: a part's own, and for an
+interlock the refusal before motion its ``REFUSED_BEFORE_MOTION`` names.
+The drivers' interlock literals are held to the interlocks' one list
+(``INTERLOCK_TITLES``), whose keys the driver's fault carries.
 """
 
 import ast
@@ -25,11 +26,17 @@ import importlib
 
 import pytest
 
+from lib.stage_interlock import INTERLOCK_TITLES
 from modules.exceptions import (
     INTERLOCK_REASONS,
+    AlreadyStartedError,
+    BlockingCallRefusedError,
+    CameraDriverRepairRefusedError,
+    ControlSessionRefusedError,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
     MissingPart,
+    PostProcessingRefusedError,
     ProtocolRunRefusedError,
     Quiet,
     Refusal,
@@ -37,6 +44,8 @@ from modules.exceptions import (
 )
 from tests import ast_seams
 from tests.guards.test_every_refusal_states_its_reason import _base_name, _classes
+from tests.case_walk import failing_cases
+from tests.stock_channels import LED2
 
 
 def _types_mixing_in(mixin):
@@ -59,74 +68,37 @@ def _types_mixing_in(mixin):
     return found
 
 
-def _mixed(types):
-    return {name: cls for name, cls in types.items() if 'causes' in vars(cls)}
-
-
-# How to build each mixed type with a given reason. A new mixed type fails
-# test_the_factories_cover_every_mixed_type until it has a row here.
+# How to build each type whose reasons differ in cause with a given reason.
 _FACTORIES = {
+    'AlreadyStartedError': lambda reason: AlreadyStartedError(reason, 'm'),
+    'CameraDriverRepairRefusedError': CameraDriverRepairRefusedError,
+    'ControlSessionRefusedError': ControlSessionRefusedError,
     'LiveFolderPathRefusedError': lambda reason: LiveFolderPathRefusedError(reason, 'n', 'm'),
-    'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 't', 'm'),
+    'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),
+    'BlockingCallRefusedError': lambda reason: BlockingCallRefusedError(reason, 'member'),
+    'PostProcessingRefusedError': lambda reason: PostProcessingRefusedError(
+        operation='Stitch', reason=reason, message='m'
+    ),
 }
 
 
 def test_the_walk_finds_both_kinds():
-    # The instrument on known positives: one single-cause refusal, the
-    # three mixed ones, one inheriting its cause, and the quiet type.
+    # The instrument on known positives: one refusal of one reason, one
+    # built through a factory, and the quiet type.
     refusals = _types_mixing_in(Refusal)
     for name in ('StepNotFoundError', 'ProtocolScheduleRefusedError', *_FACTORIES):
         assert name in refusals, name
-    assert set(_mixed(refusals)) == set(_FACTORIES)
-    assert 'RunAlreadyEndedError' in _types_mixing_in(Quiet)
+    assert 'RunWaitExpiredError' in _types_mixing_in(Quiet)
 
 
-def test_every_refusal_and_quiet_type_declares_a_cause():
-    offenders = []
-    for name, cls in {**_types_mixing_in(Refusal), **_types_mixing_in(Quiet)}.items():
-        table = cls.causes if 'causes' in vars(cls) else None
-        if table is not None:
-            if not table or not all(isinstance(c, RefusalCause) for c in table.values()):
-                offenders.append(name)
-        elif not isinstance(cls.cause, RefusalCause):
-            offenders.append(name)
-    assert offenders == [], (
-        f'these outcome types declare no RefusalCause: {sorted(offenders)}. State '
-        'cause = RefusalCause.REQUEST or .STATE, or causes keyed by every reason.'
-    )
+def test_a_refusal_is_not_built_with_a_reason_it_declares_no_cause_for():
+    def check(name):
+        with pytest.raises(TypeError, match="declares no reason 'no_such_reason'"):
+            _FACTORIES[name]('no_such_reason')
 
-
-def test_a_refusal_that_declares_no_cause_is_refused_at_import():
-    with pytest.raises(TypeError, match='declares no cause'):
-
-        class _NoCauseError(Refusal, Exception):
-            title = 'Refused'
-
-    with pytest.raises(TypeError, match='declares no cause'):
-
-        class _NoCauseQuietError(Quiet, Exception):
-            pass
-
-
-def test_a_cause_inherited_from_a_declaring_type_counts():
-    class _ParentError(Refusal, Exception):
-        cause = RefusalCause.REQUEST
-
-    class _ChildError(_ParentError):
-        pass
-
-    assert _ChildError().cause == RefusalCause.REQUEST
-
-
-def test_the_factories_cover_every_mixed_type():
-    assert set(_mixed(_types_mixing_in(Refusal))) == set(_FACTORIES)
-
-
-@pytest.mark.parametrize('name', sorted(_FACTORIES))
-def test_a_mixed_type_is_not_built_with_a_reason_it_declares_no_cause_for(name):
-    with pytest.raises(TypeError, match="declares no cause for the reason 'no_such_reason'"):
-        _FACTORIES[name]('no_such_reason')
+    failed = failing_cases(sorted(_FACTORIES), check)
+    assert not failed, failed
 
 
 def test_a_mixed_types_cause_follows_its_reason():
@@ -145,7 +117,7 @@ def test_a_mixed_types_cause_follows_its_reason():
 
 def _missing_part_reasons():
     parts = [p for p in vars(MissingPart).values() if isinstance(p, MissingPart)]
-    parts += [MissingPart.led('Red'), MissingPart.led(1)]
+    parts += [MissingPart.led(LED2), MissingPart.led_address(1)]
     return {p.reason for p in parts}
 
 
@@ -154,9 +126,10 @@ class _RaisedReasons(ast.NodeVisitor):
 
     A reason is the ``reason`` keyword or the first argument. A name's
     ``.reason`` resolves to the missing parts' reasons when the call passes
-    ``missing=``, and to ``INTERLOCK_REASONS`` when the name is bound to a
-    ``MotionInterlockError`` (an ``except ... as`` or an annotated
-    parameter); anything else is unread, and fails the census.
+    ``missing=``. When the name is bound to a ``MotionInterlockError`` (an
+    ``except ... as`` or an annotated parameter), its ``.reason`` resolves to
+    the interlocks' own list, and ``REFUSED_BEFORE_MOTION[name.reason]`` to
+    ``INTERLOCK_REASONS``. Anything else is unread, and fails the census.
     """
 
     def __init__(self, rel, type_name, raised, unread):
@@ -205,9 +178,19 @@ class _RaisedReasons(ast.NodeVisitor):
             and reason.attr == 'reason'
             and isinstance(reason.value, ast.Name)
         )
+        before_motion = (
+            isinstance(reason, ast.Subscript)
+            and _base_name(reason.value) == 'REFUSED_BEFORE_MOTION'
+            and isinstance(reason.slice, ast.Attribute)
+            and reason.slice.attr == 'reason'
+            and isinstance(reason.slice.value, ast.Name)
+            and reason.slice.value.id in self.interlocks[-1]
+        )
         if handed_on and any(kw.arg == 'missing' for kw in node.keywords):
             self.raised.update(_missing_part_reasons())
         elif handed_on and reason.value.id in self.interlocks[-1]:
+            self.raised.update(INTERLOCK_TITLES)
+        elif before_motion:
             self.raised.update(INTERLOCK_REASONS)
         else:
             text = ast.unparse(reason) if reason is not None else '(none)'
@@ -238,14 +221,5 @@ def test_the_drivers_interlock_reasons_are_the_tables():
     for rel, tree in ast_seams.iter_package_modules(('drivers',)):
         _RaisedReasons(rel, 'MotionInterlockError', raised, unread).visit(tree)
     assert unread == [], unread
-    assert raised == INTERLOCK_REASONS
+    assert raised == set(INTERLOCK_TITLES)
     assert set(HardwareCommandRefusedError.causes) >= INTERLOCK_REASONS
-
-
-def test_a_stale_stop_carries_a_reason_a_title_and_a_cause():
-    from modules.exceptions import RunAlreadyEndedError
-
-    error = RunAlreadyEndedError('That run has already ended; no run is live.')
-    assert error.reason == 'run_already_ended'
-    assert error.title == 'Run Already Ended'
-    assert error.cause == RefusalCause.REQUEST

@@ -6,11 +6,14 @@ tagged with the bits it can reach, N x (2^b - 1); every 8-bit rendering of it
 is drawn against one frame's white, so it looks N times brighter; and its
 saturation is measured against what it can hold, not against its tag's power
 of two. The count and the per-frame depth are the capture's own, recorded with
-the frame, so no caller restates them.
+the frame, so no caller restates them. A saved sum states that white beside
+its depth, so it reopens as it was taken, in LVP and in Fiji, and a product
+that keeps its inputs' values (a stitch, a projection, a video, each channel
+of a composite) shows them against it too.
 
 Before this, an 8-bit camera's sum was clipped to 255 (the counts lost from
 every file), a 12-bit sum was tagged 16 (rendered at about a quarter of one
-frame's brightness), ``capture_frame_depth(image)`` after a sum answered one
+frame's brightness), a capture's depth after a sum answered one
 frame's depth, a sum z-projection of 12-bit slices was tagged 12 and failed
 its read-back, a hyperstack mixing 8-bit and 16-bit planes was refused, and
 an 8-bit camera was offered only the 8-bit image mode.
@@ -18,6 +21,7 @@ an 8-bit camera was offered only the 8-bit image mode.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -27,12 +31,15 @@ import tifffile as tf
 
 from modules import image_mode, image_utils, zprojection
 from modules.exceptions import FrameDepthError
-from modules.protocol_image_writer import ProtocolImageWriter
 from modules.scope_session import ScopeSession
 from modules.stack_builder import StackBuilder
 from modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
+from modules.layer_record import release_color
+from modules.layer_record import release_colors
+from modules.zproject_method import ZProjectMethod
+from tests.stock_channels import LED0, LED1, LED2
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
 
@@ -47,9 +54,10 @@ def sim_camera():
         scope._camera_driver.profile.pixel_formats = [pixel_format]
         cam = scope._camera_driver
         cam.set_timing_mode('fast')
-        cam.set_pixel_format(pixel_format)
+        # The format is chosen through the image mode, as a caller chooses it.
+        scope.camera.set_image_mode({'Mono8': '8bit', 'Mono12': '12bit_scientific'}[pixel_format])
         cam.set_test_pattern(True, 'White')
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
         return scope
 
     return _make
@@ -97,11 +105,13 @@ def test_a_value_past_what_the_sum_can_reach_is_still_refused():
 
 def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
     scope = sim_camera('Mono8')
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=4)
-    assert image.dtype == np.uint16
-    assert int(image.max()) == 4 * WHITE['Mono8']
-    assert scope.imaging.capture_frame_depth(image) == 10
-    assert scope.imaging.capture_frame_full_scale(image) == 4 * WHITE['Mono8']
+    still = scope.imaging.capture_still(
+        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
+    assert still.image.dtype == np.uint16
+    assert int(still.image.max()) == 4 * WHITE['Mono8']
+    assert still.significant_bits == 10
+    assert still.full_scale == 4 * WHITE['Mono8']
 
 
 def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
@@ -114,38 +124,39 @@ def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
 
 def test_the_depth_of_a_sum_needs_no_count(sim_camera):
     scope = sim_camera('Mono12')
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=4)
-    assert int(image.max()) == 4 * WHITE['Mono12']
-    assert scope.imaging.capture_frame_depth(image) == 14
+    still = scope.imaging.capture_still(
+        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
+    assert int(still.image.max()) == 4 * WHITE['Mono12']
+    assert still.significant_bits == 14
     # The depth answered is one the frame honours: no value lies past it.
-    assert int(image.max()) <= (1 << scope.imaging.capture_frame_depth(image)) - 1
+    assert int(still.image.max()) <= (1 << still.significant_bits) - 1
 
 
 def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
     scope = sim_camera('Mono12')
-    image = scope.imaging.capture_and_wait(
-        force_to_8bit=False, sum_count=3, accept_dark=True, timeout_s=2.0
-    )
-    assert image is not None
-    record = scope.imaging.last_capture_info['frame_record']
+    record = scope.imaging.capture_still(
+        sum_count=3, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    ).record
     assert record.frames_summed == 3
     assert record.frame_significant_bits == 12
 
 
 @pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono8', 3), ('Mono8', 4), ('Mono12', 3)])
 def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames):
+    """Measured per frame at its own depth, so a sum, whose counts run past
+    one frame's white, still reads blown."""
     scope = sim_camera(pixel_format)
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=frames)
-    writer = ProtocolImageWriter.__new__(ProtocolImageWriter)
-    writer._scope = scope
-    evidence = writer._capture_evidence(image, scope.imaging.capture_frame_full_scale(image))
-    assert 'sat=100.0%' in evidence
+    record = scope.imaging.capture_still(
+        sum_count=frames, all_ones_check=True, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    ).record
+    assert record.saturated_fraction == 1.0
 
 
 @pytest.fixture(scope='module')
 def ls620_session():
     settings = complete_settings(microscope='LS620')
-    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
     session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
     yield session
     session.shutdown()
@@ -153,21 +164,18 @@ def ls620_session():
 
 def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
     imaging = ls620_session.scope.imaging
-    image = imaging.capture_and_wait(
-        force_to_8bit=False, sum_count=4, accept_dark=True, timeout_s=2.0
-    )
-    assert image is not None
-    assert image.dtype == np.uint16
-    assert imaging.capture_frame_depth(image) == 10
-    assert imaging.last_capture_info['frame_record'].frame_significant_bits == 8
+    still = imaging.capture_still(sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    assert still.image.dtype == np.uint16
+    assert still.significant_bits == 10
+    assert still.record.frame_significant_bits == 8
 
 
 def test_every_camera_is_offered_every_mode():
     assert image_mode.available_modes() == [
-        image_mode.IMAGE_MODE_8BIT,
-        image_mode.IMAGE_MODE_12BIT_SCIENTIFIC,
-        image_mode.IMAGE_MODE_12BIT_SCALED,
-        image_mode.IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
+        image_mode.ImageMode.EIGHT_BIT,
+        image_mode.ImageMode.SCIENTIFIC,
+        image_mode.ImageMode.SCALED,
+        image_mode.ImageMode.FALSE_COLOR_RGB,
     ]
 
 
@@ -187,12 +195,24 @@ def test_a_jpg_beside_a_full_depth_mode_is_warned(mode, formats, warned):
 # --- the products -------------------------------------------------------------
 
 
-def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, color: str = 'Blue'):
+def _write(
+    path: pathlib.Path,
+    array: np.ndarray,
+    bits: int,
+    encoding: str,
+    color: str = LED0,
+    *,
+    white: int | None = None,
+    ome: bool = False,
+    frames_summed: int | None = None,
+):
+    counted = {} if frames_summed is None else {'frames_summed': frames_summed}
     image_utils.write_tiff(
         data=array,
         file_loc=path,
         metadata={
-            'datetime': '2026-10-04T12:00:00',
+            **counted,
+            'datetime': datetime.datetime(2026, 10, 4, 12, 0, 0),
             'plate_pos_mm': {'x': 0.0, 'y': 0.0},
             'z_pos_um': 0.0,
             'exposure_time_ms': 50.0,
@@ -201,12 +221,10 @@ def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, colo
             'pixel_size_um': 0.5,
             'channel': color,
             'objective': {
-                'model': 'PlanFluor20x',
-                'manufacturer': 'Nikon',
+                'id': '20x Oly',
                 'magnification': 20,
-                'aperture': 0.45,
-                'working_distance': 8.1,
-                'immersion': 'Air',
+                'numerical_aperture': 0.45,
+                'working_distance_mm': 8.1,
             },
             'instrument': {
                 'manufacturer': 'Etaluma',
@@ -214,19 +232,19 @@ def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, colo
                 'serial_number': 'SN0',
                 'camera_model': 'MT9P031',
             },
-            'plate': {'name': '96-well', 'rows': 8, 'columns': 12},
-            'well_label': 'A1',
+            'plate': {'name': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
         },
-        ome=False,
-        color=color,
+        ome=ome,
+        color=release_color(color),
         significant_bits=bits,
         save_encoding=encoding,
+        white_bits=white,
     )
 
 
 def test_a_sum_projection_of_8bit_slices_keeps_its_counts():
     slices = [np.full((4, 4), 200, dtype=np.uint8) for _ in range(3)]
-    projected = zprojection.zproject(slices, zprojection.ZProjectMethod.Sum)
+    projected = zprojection.zproject(slices, ZProjectMethod.Sum)
     assert projected.dtype == np.uint16
     assert int(projected.max()) == 600
 
@@ -237,9 +255,7 @@ def test_a_colour_sum_projection_does_not_wrap():
         rgb = np.zeros((4, 4, 3), dtype=np.uint8)
         rgb[:, :, 2] = 200
         slices.append(rgb)
-    result = ZProjector(has_turret=False)._zproject_for_multi_channel(
-        slices, zprojection.ZProjectMethod.Sum
-    )
+    result = ZProjector(has_turret=False)._zproject_for_multi_channel(slices, ZProjectMethod.Sum)
     assert result['image'].dtype == np.uint16
     assert int(result['image'][:, :, 2].max()) == 600
 
@@ -247,19 +263,59 @@ def test_a_colour_sum_projection_does_not_wrap():
 def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     rows = []
     for z in range(3):
-        name = f'A1_Blue_Z{z}.tiff'
+        name = f'A1_{LED0}_Z{z}.tiff'
         _write(tmp_path / name, np.full((8, 8), 4000, dtype=np.uint16), 12, 'right_aligned')
-        rows.append({'Color': 'Blue', 'Filepath': name})
+        rows.append({'Color': LED0, 'Filepath': name})
     result = ZProjector(has_turret=False)._zproject(
         path=tmp_path,
         df=pd.DataFrame(rows),
         method='Sum',
         output_file_loc=pathlib.Path('projected.tiff'),
+        channel_colors=release_colors(),
     )
     assert result['significant_bits'] == 14
-    pixels, bits = image_utils.load_pixels(tmp_path / 'projected.tiff')
+    pixels, bits, white = image_utils.load_pixels(tmp_path / 'projected.tiff')
     assert bits == 14
     assert int(pixels.max()) == 12000
+    # A projected sum is shown against one slice's white, as a captured sum is.
+    assert white == 12
+
+
+def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
+    """Project three slices, each a 4-frame sum, and read back what the output states."""
+    rows = []
+    for z in range(3):
+        name = f'A1_{LED0}_Z{z}.tiff'
+        _write(
+            tmp_path / name,
+            np.full((8, 8), 4000, dtype=np.uint16),
+            14,
+            'right_aligned',
+            white=12,
+            frames_summed=4,
+        )
+        rows.append({'Color': LED0, 'Filepath': name})
+    ZProjector(has_turret=False)._zproject(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        method=method,
+        output_file_loc=pathlib.Path('projected.tiff'),
+        channel_colors=release_colors(),
+    )
+    return image_utils.read_file_record(tmp_path / 'projected.tiff')
+
+
+def test_a_sum_projection_states_no_frame_count(tmp_path):
+    # Three slices of four frames each, summed: the slice's count beside a
+    # per-frame exposure would state a third of what each pixel integrates.
+    stated = _project_summed_slices(tmp_path, 'Sum')
+    assert stated['exposure_time_ms'] == 50.0
+    assert 'frames_summed' not in stated
+
+
+def test_a_max_projection_keeps_its_slices_frame_count(tmp_path):
+    # Each output pixel is one slice's pixel, still a sum of four frames.
+    assert _project_summed_slices(tmp_path, 'Max')['frames_summed'] == 4
 
 
 MIXED_PLANES = pytest.mark.parametrize(
@@ -274,12 +330,12 @@ MIXED_PLANES = pytest.mark.parametrize(
 
 
 def _mixed_planes(path: pathlib.Path, encoding: str) -> pd.DataFrame:
-    """An unsummed 8-bit Blue plane beside a 4-sum 10-bit Lumi plane, on disk."""
+    """An unsummed 8-bit LED0 plane beside a 4-sum 10-bit Lumi plane, on disk."""
     _write(path / 'blue.tiff', np.full((4, 4), 200, dtype=np.uint8), 8, encoding)
     _write(path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
     return pd.DataFrame(
         [
-            {'Filepath': 'blue.tiff', 'Color': 'Blue', 'Scan Count': 0, 'Z-Slice': 0},
+            {'Filepath': 'blue.tiff', 'Color': LED0, 'Scan Count': 0, 'Z-Slice': 0},
             {'Filepath': 'lumi.tiff', 'Color': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
         ]
     ).assign(X=0.0, Y=0.0, Z=0.0)
@@ -300,6 +356,7 @@ def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
         df=_mixed_planes(tmp_path, encoding),
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result['status'], result.get('error')
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
@@ -313,6 +370,7 @@ def test_a_runs_stack_is_built_in_the_runs_encoding(tmp_path, encoding, unsummed
         df=_mixed_planes(tmp_path, encoding),
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result.status, result.error
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
@@ -327,9 +385,161 @@ def test_a_manual_recordings_stack_is_built_in_its_encoding(tmp_path, encoding, 
         path=tmp_path,
         output_file_loc=tmp_path / 'stack.ome.tiff',
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result['status'], result.get('error')
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
+
+
+# --- reopened: the white saved beside the depth --------------------------------
+
+# A 4-sum of 12-bit frames, black to one frame's white and on past it.
+_FOUR_SUM = np.tile(np.linspace(0, 16380, 64).astype(np.uint16), (8, 1))
+
+
+@pytest.mark.parametrize(
+    ('encoding', 'ome', 'stored_white', 'tolerance'),
+    [
+        # Each container and shift is its own path through the write and read.
+        ('right_aligned', False, 12, 0),
+        ('right_aligned', True, 12, 0),
+        # The fill shifts the payload by 2; the white moves with it, and the
+        # rendering is one count off where 4095 << 2 is 16380, not 16383.
+        ('msb_aligned', False, 14, 1),
+        ('rgb', False, 14, 1),
+    ],
+)
+def test_a_saved_sum_reopens_against_one_frames_white(
+    tmp_path, encoding, ome, stored_white, tolerance
+):
+    file = tmp_path / ('sum.ome.tiff' if ome else 'sum.tiff')
+    _write(file, _FOUR_SUM, 14, encoding, white=12, ome=ome)
+
+    pixels, bits, white = image_utils.load_pixels(file)
+
+    assert white == stored_white
+    reopened = image_utils.convert_to_8bit(pixels, bits, white_bits=white)
+    captured = image_utils.convert_sum_to_8bit(_FOUR_SUM, 4, 12)
+    assert int(np.abs(reopened.astype(int) - captured.astype(int)).max()) <= tolerance
+
+
+def test_a_file_that_states_no_white_renders_at_its_depth(tmp_path):
+    _write(tmp_path / 'enhanced.tiff', _FOUR_SUM, 14, 'right_aligned', white=None)
+    _, bits, white = image_utils.load_pixels(tmp_path / 'enhanced.tiff')
+    assert (bits, white) == (14, None)
+
+
+def test_a_white_above_its_depth_is_refused(tmp_path):
+    with pytest.raises(ValueError, match='white at 14 bits lies above the 12-bit payload'):
+        _write(tmp_path / 'bad.tiff', np.zeros((4, 4), np.uint16), 12, 'right_aligned', white=14)
+
+
+def test_fiji_opens_a_file_at_the_white_lvp_shows_it_against(tmp_path):
+    """Fiji stretches a file that states no display range to its own darkest
+    and brightest pixel, which LVP never does; every ImageJ-container write
+    states the range LVP renders against."""
+    cases = {
+        'a 4-sum of 12-bit frames': (_FOUR_SUM, 14, 'right_aligned', 12, 4095),
+        'one 12-bit frame': (np.full((8, 8), 1000, np.uint16), 12, 'right_aligned', 12, 4095),
+        'a scaled 4-sum': (_FOUR_SUM, 14, 'msb_aligned', 12, 16383),
+        'a file that states no white': (_FOUR_SUM, 14, 'right_aligned', None, 16383),
+    }
+    wrong = {}
+    for name, (array, bits, encoding, white, expected_max) in cases.items():
+        file = tmp_path / f'{name}.tiff'
+        _write(file, array, bits, encoding, white=white)
+        with tf.TiffFile(file) as tif:
+            shown = (tif.imagej_metadata['min'], tif.imagej_metadata['max'])
+        if shown != (0, expected_max):
+            wrong[name] = shown
+    assert not wrong, wrong
+
+
+def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
+    import av
+
+    from modules.video_builder import VideoBuilder
+
+    # Four frames of 1024 each: one frame's white, about a quarter of the sum's tag.
+    rows = []
+    for scan in range(2):
+        name = f'A1_BF_{scan}.tiff'
+        _write(
+            tmp_path / name, np.full((24, 32), 4096, np.uint16), 14, 'right_aligned', 'BF', white=12
+        )
+        rows.append({'Filepath': name, 'Scan Count': scan, 'Color': 'BF'})
+
+    VideoBuilder(has_turret=False)._create_video(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        frame_rate_fps=10,
+        enable_timestamp_overlay=False,
+        output_file_loc=pathlib.Path('out.mp4'),
+        channel_colors=release_colors(),
+    )
+
+    with av.open(str(tmp_path / 'out.mp4')) as container:
+        frame = next(iter(container.decode(video=0))).to_ndarray(format='gray')
+    assert frame.mean() > 200
+
+
+def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
+    """A 4-sum LED1 beside an unsummed LED2, each at one frame's white: both
+    render full, where one shared depth showed the unsummed channel dark."""
+    from modules.composite_generation import CompositeGeneration
+
+    _write(
+        tmp_path / 'green.tiff',
+        np.full((8, 8), 4095, np.uint16),
+        14,
+        'right_aligned',
+        LED1,
+        white=12,
+    )
+    _write(
+        tmp_path / 'red.tiff',
+        np.full((8, 8), 4095, np.uint16),
+        12,
+        'right_aligned',
+        LED2,
+        white=12,
+    )
+    df = pd.DataFrame(
+        [{'Filepath': 'green.tiff', 'Color': LED1}, {'Filepath': 'red.tiff', 'Color': LED2}]
+    )
+
+    result = CompositeGeneration._create_composite_image(
+        path=tmp_path,
+        df=df,
+        brightness_thresholds_percent={},
+        channel_colors=release_colors(),
+    )
+
+    assert result['status'] is True, result['error']
+    red, green = result['image'][..., 0], result['image'][..., 1]
+    assert int(red.min()) == 255
+    assert int(green.min()) == 255
+
+
+def test_a_stitch_keeps_its_tiles_white(tmp_path):
+    from modules.stitching_core import simple_position_stitcher
+
+    rows = []
+    for i, x in enumerate((0.0, 1.0)):
+        name = f'tile{i}.tiff'
+        _write(tmp_path / name, np.full((8, 8), 4095, np.uint16), 14, 'right_aligned', white=12)
+        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'Color': LED0})
+
+    result = simple_position_stitcher(
+        tmp_path,
+        pd.DataFrame(rows),
+        pathlib.Path('stitched.tiff'),
+        channel_colors=release_colors(),
+    )
+
+    assert result['status'] is True, result['error']
+    _, bits, white = image_utils.load_pixels(tmp_path / 'stitched.tiff')
+    assert (bits, white) == (14, 12)
 
 
 # --- the renderings and the hand-offs -----------------------------------------
@@ -357,39 +567,39 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
         jpeg_quality=95,
         save_encoding='right_aligned',
         significant_bits=10,
+        white_bits=8,
         objective_id='4x Oly',
         frame_record=frame_record(frames_summed=3, frame_significant_bits=8),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
+        fallback_focus=None,
     )
     jpg = cv2.imdecode(np.frombuffer(pathlib.Path(path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
     assert int(jpg.min()) >= 250
 
 
-def test_the_depth_before_any_capture_is_the_cameras_stamp(sim_camera):
+def test_a_single_frames_depth_is_its_own_stamp(sim_camera):
     scope = sim_camera('Mono12')
-    assert scope.imaging.capture_frame_depth(np.zeros((4, 4), dtype=np.uint16)) == 12
-    assert scope.imaging.capture_frame_full_scale(np.zeros((4, 4), dtype=np.uint16)) == 4095
+    still = scope.imaging.capture_still(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    assert (still.significant_bits, still.full_scale) == (12, 4095)
 
 
-def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path):
+def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path, post_processing):
     from modules import stack_builder
-    from modules.notification_center import notifications
 
     asked = {}
 
-    def _load_folder(self, **kwargs):
+    def _load_folder(self, path, **kwargs):
         asked.update(kwargs)
-        # Only what it was asked matters here; the build's answer is reported.
-        raise RuntimeError('not built in this test')
+        # Only what it was asked matters here.
+        return {'message': 'not built in this test'}
 
-    monkeypatch.setattr(notifications, 'report_outcome', lambda *a, **k: None)
     monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
-    stack_builder.build_hyperstacks_for_run(
+    post_processing.run_hyperstack(
         tmp_path,
-        False,
-        tmp_path / 'tiling.json',
-        wait_for_images=lambda: None,
         save_encoding='msb_aligned',
-    )
+        channel_colors=release_colors(),
+        written=lambda: None,
+    ).result(timeout=5.0)
     assert asked['save_encoding'] == 'msb_aligned'

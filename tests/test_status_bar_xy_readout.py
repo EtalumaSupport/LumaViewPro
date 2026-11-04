@@ -67,3 +67,30 @@ def test_status_bar_trigger_runs_at_at_least_10hz():
         f'<= 0.1s (10 Hz) so cursor XY/Plate readouts stay responsive '
         f'during motion. (#638)'
     )
+
+
+def test_the_cursor_has_no_plate_position_while_the_stage_is_not_known(sim_session):
+    """Unhomed, X and Y are UNKNOWN while the position cache still answers
+    its seed: the status line gets no plate position, so only the pixel
+    shows, never one converted from a stage position nobody established."""
+    from ui.shader import cursor_plate
+
+    scope = sim_session.scope
+    assert scope.motion.axis_positions()['X'].position_um is None
+
+    assert cursor_plate(scope, (50, 50), (100, 100)) is None
+
+
+def test_the_cursor_at_the_frame_centre_is_where_the_stage_is(sim_session):
+    """Homed, the pixel at the frame's centre is the stage position the API
+    knows, on the plate."""
+    from tests.scope_fakes import home_sim_scope
+    from ui.shader import cursor_plate
+
+    scope = sim_session.scope
+    home_sim_scope(scope)
+    stage = scope.motion.axis_positions()
+
+    assert cursor_plate(scope, (50, 50), (100, 100)) == scope.runtime_state.stage_to_plate(
+        stage['X'].position_um, stage['Y'].position_um
+    )

@@ -4,7 +4,7 @@
 ``ScopeDisplay._check_slow_frame`` takes ``settled`` as an argument and does
 not judge a frame delivered while a camera change is still switching over.
 Whether the camera has settled is frame validity's answer
-(``ScopeDisplay._camera_settled`` asks the API's ``frames_until_valid`` with
+(``ScopeDisplay._camera_settled`` asks the API's ``changes_in_force`` with
 stage motion left out), never something inferred from the frame cadence.
 The detector's own tests feed ``settled`` by hand, and ``_camera_settled``
 is tested against a real ``FrameValidity``; the one line joining them is the

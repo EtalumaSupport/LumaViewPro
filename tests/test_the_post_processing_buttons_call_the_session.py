@@ -16,6 +16,7 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 from modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
 
 import ui.post_processing as post_processing
@@ -31,6 +32,7 @@ def session(monkeypatch):
         output_root=pathlib.Path('folder'),
         artifact_paths=(),
         degraded_outputs=(),
+        excluded_inputs=(),
     )
     for member in ('stitch', 'zproject', 'composite', 'video'):
         getattr(ctx.session.post_processing, member).return_value = built
@@ -45,7 +47,8 @@ def session(monkeypatch):
     def inline(call, redraw, label, **kwargs):
         assert kwargs['lane'] is ctx.session.post_processing.lane
         call()
-        redraw()
+        if redraw is not None:
+            redraw()
 
     monkeypatch.setattr(post_processing, 'submit_reported', inline)
     return ctx.session
@@ -90,13 +93,13 @@ def test_video_hands_the_typed_rate_to_the_build_to_judge(session, typed, asked)
     )
     _body(post_processing.VideoCreationControls, 'run_video_gen')(panel, MagicMock(), '/data/v')
     session.post_processing.video.assert_called_once_with(
-        '/data/v', frames_per_sec=asked, timestamp_overlay=True, on_progress=ANY
+        '/data/v', frame_rate_fps=asked, timestamp_overlay=True, on_progress=ANY
     )
 
 
 def test_cell_count_asks_with_the_panels_method(session):
-    method = {'context': {'pixels_per_um': 1.0}}
-    panel = SimpleNamespace(_settings=method)
+    method = CellCountMethod(pixels_per_um=1.0)
+    panel = SimpleNamespace(_method=method)
     _body(post_processing.CellCountControls, 'apply_method_to_folder')(
         panel, MagicMock(), '/data/cells'
     )
@@ -105,12 +108,33 @@ def test_cell_count_asks_with_the_panels_method(session):
     )
 
 
+def test_graph_save_asks_with_the_form_the_panel_holds(session):
+    panel = SimpleNamespace(
+        _results='/data/results.csv',
+        selected_x_axis='count',
+        selected_y_axis='area',
+        _trendline_kind='None',
+        x_axis_label='Cells',
+        y_axis_label='Area',
+        graph_title='Growth',
+    )
+    post_processing.GraphingControls.save_graph(panel, '/data/g.v2')
+    session.post_processing.graph.assert_called_once_with(
+        '/data/results.csv',
+        '/data/g.v2',
+        x='count',
+        y='area',
+        trendline=None,
+        x_label='Cells',
+        y_label='Area',
+        title='Growth',
+    )
+
+
 def test_enhance_asks_and_shows_the_answer(session):
     panel = SimpleNamespace(
         _queue_derived_image=lambda image, bits: None,
         busy=True,
-        status_text='',
-        last_output_folder='',
     )
     panel._export_done = lambda result: post_processing.QuickEnhanceControls._export_done(
         panel, result
@@ -122,5 +146,4 @@ def test_enhance_asks_and_shows_the_answer(session):
         '/data/one.tif', on_progress=ANY, on_derived_image=panel._queue_derived_image
     )
     assert panel.busy is False
-    assert panel.status_text == 'done'
-    assert popup.text == 'done'
+    popup.show_outcome.assert_called_once_with('done')

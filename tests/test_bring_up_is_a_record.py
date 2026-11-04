@@ -17,35 +17,33 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
-
 import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
+from drivers.exceptions import BoardNoReplyError
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverFallback
+from drivers.registry import DriverFallback, NoLiveDriverError
 from drivers.simulated_camera import SimulatedCamera
+from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import (
-    ArgumentRefusedError,
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
+    MotorBoardUnavailableError,
     NoHardwareDetectedNotice,
-    PartialHardwareError,
 )
 from modules.lumascope_api.bring_up import (
-    CAMERA,
-    LED,
-    MOTOR,
-    BringUpRecord,
+    CAUSE_PHRASES,
+    Part,
     PartStatus,
     SettingsSetAside,
 )
 from modules.notification_center import OutcomeKind
 from modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
-from tests.settings_fixtures import complete_settings
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
 class _SafetyOffFailedBoard(NullLEDBoard):
@@ -87,9 +85,23 @@ def _bring_up(monkeypatch, tmp_path, *, motor=None, led=None, camera=None, **set
         return real_camera_create('sim', **kw)
 
     monkeypatch.setattr(lumascope_module.camera_registry, 'create', _camera)
+    # On an installation of its own: a real scope takes its lock.
     return ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path), **settings), warn_pre_release=False
+        complete_settings(live_folder=str(tmp_path), **settings),
+        source_path=str(installation_of_its_own()),
+        warn_pre_release=False,
     )
+
+
+def _status(record, part):
+    """``part``'s status, read from the record's ``parts``."""
+    (status,) = [status for status in record.parts if status.part == part]
+    return status
+
+
+def _substitution(record, setting):
+    """What bring-up used for ``setting`` instead of the saved value, or None."""
+    return next((sub for sub in record.substitutions if sub.setting == setting), None)
 
 
 def _outcomes(posts, kind):
@@ -97,7 +109,16 @@ def _outcomes(posts, kind):
 
 
 class TestEachPartNamesItsCause:
-    def test_a_motor_board_whose_port_is_held_is_on_the_record_and_in_the_one_report(
+    def test_every_camera_cause_has_its_words_in_a_list_of_parts(self):
+        # A part's label reads its cause's phrase; a camera reason without
+        # one would raise where bring-up reports the camera that failed.
+        missing = sorted(set(CameraNotAvailableError._WORDS) - set(CAUSE_PHRASES))
+        assert missing == []
+        assert PartStatus(Part.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
+            'Camera (firmware file missing)'
+        )
+
+    def test_a_motor_board_whose_port_is_held_is_on_the_record_and_told_once_with_its_remedy(
         self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
@@ -107,13 +128,67 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            assert [n.reason for n in faults] == [PartialHardwareError('').reason]
-            assert 'Motor Controller (port in use)' in faults[0].message
+            assert [(n.title, n.reason, n.category) for n in faults] == [
+                (MotorBoardUnavailableError.title, 'port_in_use', 'Motion')
+            ]
+            assert 'Close other programs holding the port' in faults[0].message
             assert faults[0].shown
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_each_board_is_told_once_for_every_cause_with_that_cause_s_advice(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # One walk over the registry's causes, the LED's table naming all
+        # five, for both boards: an offender is a board and cause told other
+        # than once, by its own type, in its own words.
+        boards = (
+            ('led', LedBoardUnavailableError, 'LEDBoard'),
+            ('motor', MotorBoardUnavailableError, 'MotorBoard'),
+        )
+        offenders = []
+        for part, notice, driver in boards:
+            for cause in sorted(LedBoardUnavailableError.causes):
+                centre_posts.clear()
+                s = _bring_up(
+                    monkeypatch,
+                    tmp_path,
+                    microscope='LS850T',
+                    **{part: DriverFallback(cause, (driver,))},
+                )
+                try:
+                    told = [
+                        (n.title, n.reason, n.message)
+                        for n in _outcomes(centre_posts, OutcomeKind.FAULT)
+                    ]
+                finally:
+                    s.shutdown()
+                    s.scope.disconnect()
+                if told != [(notice.title, cause, str(notice(cause)))]:
+                    offenders.append((part, cause, told))
+        assert offenders == []
+
+    def test_two_boards_missing_are_two_notices_one_each(self, monkeypatch, tmp_path, centre_posts):
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('port_in_use', ('LEDBoard',)),
+            motor=DriverFallback('port_in_use', ('MotorBoard',)),
+            microscope='LS850T',
+        )
+        try:
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
+            assert sorted((n.title, n.category) for n in faults) == sorted(
+                [
+                    (LedBoardUnavailableError.title, 'Illumination'),
+                    (MotorBoardUnavailableError.title, 'Motion'),
+                ]
+            )
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -128,11 +203,38 @@ class TestEachPartNamesItsCause:
             microscope='LS620',
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record().missing == ()
             assert _outcomes(centre_posts, OutcomeKind.FAULT) == []
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_scope_whose_model_the_catalogue_lacks_is_missing_its_led_board(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # Only a resolved identity can say a scope has no LED board: one
+        # whose board reports a model this release does not list has no
+        # layers to read, and its held LED board is missing, not unexpected.
+        # A stand-in by design: no simulated board reports an unlisted model.
+        monkeypatch.setattr(NullMotionBoard, 'get_microscope_model', lambda self: 'LS999X')
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('port_in_use', ('LEDBoard',)),
+            microscope='LS850T',
+        )
+        try:
+            assert s.scope.channel_identity.channels == ()
+            led = _status(s.bring_up_record(), Part.LED)
+            assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
+            assert led in s.bring_up_record().missing
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
+            assert [(n.title, n.reason) for n in faults] == [
+                (LedBoardUnavailableError.title, 'port_in_use')
+            ]
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -147,20 +249,18 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            led = s.bring_up_record().part(LED)
+            led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            by_reason = {n.reason: n for n in faults}
-            assert set(by_reason) == {'not_responding', 'partial_hardware'}
-            unavailable = by_reason['not_responding']
-            assert unavailable.title == LedBoardUnavailableError.title
-            assert 'Power-cycle' in unavailable.message
-            assert 'LED Board (not responding)' in by_reason['partial_hardware'].message
+            assert [(n.title, n.reason) for n in faults] == [
+                (LedBoardUnavailableError.title, 'not_responding')
+            ]
+            assert 'Power-cycle' in faults[0].message
         finally:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_camera_that_raised_keeps_its_own_heading_and_its_cause(
+    def test_a_camera_that_raised_is_told_once_under_its_own_heading_and_its_cause(
         self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
@@ -170,14 +270,13 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            camera = s.bring_up_record().part(CAMERA)
-            assert (camera.up, camera.cause) == (False, 'camera_port_in_use')
+            camera = _status(s.bring_up_record(), Part.CAMERA)
+            assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            by_reason = {n.reason: n for n in faults}
-            assert by_reason['camera_port_in_use'].title == 'Camera port in use'
-            assert by_reason['camera_port_in_use'].category == 'Camera'
-            assert 'Camera (port in use)' in by_reason['partial_hardware'].message
+            assert [(n.title, n.reason, n.category) for n in faults] == [
+                ('Camera port in use', 'port_in_use', 'Camera')
+            ]
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -189,12 +288,14 @@ class TestEachPartNamesItsCause:
             'report_outcome',
             lambda exc, **kw: reported.append(exc),
         )
-        backend_error = FileNotFoundError('/dev/video0 missing')
+        backend_error = NoLiveDriverError(
+            'camera', DriverFallback('not_detected', ('PylonCamera', 'IDSCamera'))
+        )
         s = _bring_up(monkeypatch, tmp_path, camera=backend_error, microscope='LS850T')
         try:
             failed = [e for e in reported if isinstance(e, CameraNotAvailableError)]
             assert len(failed) == 1
-            assert failed[0].reason == 'camera_not_detected'
+            assert failed[0].reason == 'not_detected'
             assert failed[0].__cause__ is backend_error
         finally:
             s.shutdown()
@@ -217,26 +318,6 @@ class TestASimulatedScopeReportsNothing:
             s.shutdown()
 
 
-class TestAPartIsAskedByName:
-    def test_a_name_the_record_lacks_is_refused_offering_its_parts(self):
-        record = BringUpRecord(
-            parts=(
-                PartStatus(MOTOR, up=True),
-                PartStatus(LED, up=True),
-                PartStatus(CAMERA, up=True),
-            )
-        )
-        assert record.part(LED).part == LED
-
-        with pytest.raises(ArgumentRefusedError) as refused:
-            record.part('MOTOR')
-        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
-            'part_unknown',
-            'name',
-            (MOTOR, LED, CAMERA),
-        )
-
-
 class TestASimulatedManualScope:
     def test_its_motor_board_is_neither_up_nor_missing(self, tmp_path, centre_posts):
         s = ScopeSession.create(
@@ -245,7 +326,7 @@ class TestASimulatedManualScope:
             warn_pre_release=False,
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
             assert s.bring_up_record().missing == ()
             assert centre_posts == []
@@ -260,7 +341,7 @@ class TestNothingCameUp:
             tmp_path,
             motor=DriverFallback('not_detected', ('MotorBoard',)),
             led=DriverFallback('not_detected', ('LEDBoard',)),
-            camera=FileNotFoundError('no camera'),
+            camera=NoLiveDriverError('camera', DriverFallback('not_detected', ('PylonCamera',))),
             microscope='LS850T',
         )
         try:
@@ -281,7 +362,7 @@ class TestAProblemOnAPartThatCameUp:
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_SafetyOffFailedBoard(), microscope='LS850T')
         try:
-            led = s.bring_up_record().part(LED)
+            led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'TimeoutError: no reply'
             assert not led.missing
@@ -293,6 +374,26 @@ class TestAProblemOnAPartThatCameUp:
             s.shutdown()
             s.scope.disconnect()
 
+    def test_a_motor_board_that_does_not_take_the_acceleration_limit_is_up_and_says_so(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={'AMAXX'}
+        )
+        s = _bring_up(monkeypatch, tmp_path, motor=board, microscope='LS850T')
+        try:
+            motor = _status(s.bring_up_record(), Part.MOTOR)
+            assert (motor.up, motor.cause) == (True, 'acceleration_not_set')
+            assert motor.detail == 'BoardNoReplyError: AMAXX: no reply from the board'
+            assert not motor.missing
+            told = [n for n in centre_posts if n.reason == BoardNoReplyError.reason]
+            assert len(told) == 1, 'told once'
+            assert (told[0].title, told[0].category) == (BoardNoReplyError.title, 'Motion')
+            assert s.scope.motor_connected, 'the scope came up with its motor board'
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
 
 class TestSubstitutions:
     def test_a_saved_binning_the_camera_lacks_is_recorded_and_reported_once(
@@ -300,7 +401,7 @@ class TestSubstitutions:
     ):
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', binning={'size': '8x8'})
         try:
-            sub = s.bring_up_record().substitution('binning')
+            sub = _substitution(s.bring_up_record(), 'binning')
             assert (sub.saved, sub.used) == (8, 1)
             notices = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
             assert len(notices) == 1
@@ -322,7 +423,7 @@ class TestSubstitutions:
         monkeypatch.setattr(SimulatedCamera, 'get_supported_pixel_formats', lambda self: ('Mono8',))
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', image_mode='12bit_scientific')
         try:
-            assert s.bring_up_record().substitution('image_mode') is None
+            assert _substitution(s.bring_up_record(), 'image_mode') is None
             assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
             assert s.settings['image_mode'] == '12bit_scientific'
         finally:
@@ -360,9 +461,9 @@ class TestSubstitutions:
             frame={'width': 1900, 'height': 1100},
         )
         try:
-            sub = s.bring_up_record().substitution('frame')
+            sub = _substitution(s.bring_up_record(), 'frame')
             assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
-            assert s.scope.imaging.frame_size_cached == {'width': 1700, 'height': 1100}
+            assert s.scope.camera.frame_size.to_dict() == {'width': 1700, 'height': 1100}
             assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
             notices = [n for n in centre_posts if n.reason == 'frame_refitted']
             assert len(notices) == 1

@@ -40,7 +40,13 @@ def af_session(tmp_path, monkeypatch):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         # Clear of the travel limit the home leaves Z at, so the sweep's
         # window fits and it reaches its first capture.
-        session.scope.motion.move_absolute('Z', 3000.0)
+        session.scope.motion.move_z(3000.0)
+        # A scene with a focus where the sweep starts, so a sweep left to
+        # finish finds a peak: a featureless frame has none, and an
+        # autofocus over it fails.
+        camera = session.scope._camera_driver
+        camera.set_test_pattern(enabled=True, pattern='focus_target')
+        camera.set_focal_z(3000.0)
         yield session, runner
 
 
@@ -51,7 +57,7 @@ class _WedgedSweep:
         self.inside = threading.Event()
         self.release = threading.Event()
         imaging_type = type(session.scope.imaging)
-        real = imaging_type.capture_and_wait
+        real = imaging_type.capture_still
         af_thread = session.autofocus_thread
 
         def wedged(imaging, *args, **kwargs):
@@ -64,7 +70,7 @@ class _WedgedSweep:
                     time.sleep(0.01)
             return real(imaging, *args, **kwargs)
 
-        monkeypatch.setattr(imaging_type, 'capture_and_wait', wedged)
+        monkeypatch.setattr(imaging_type, 'capture_still', wedged)
 
 
 def _record_reports(monkeypatch):
@@ -88,15 +94,16 @@ def _wait_until(predicate, timeout_s=RESULT_TIMEOUT_S):
         time.sleep(0.02)
 
 
+@pytest.mark.slow
 def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_session, monkeypatch):
     session, runner = af_session
     sweep = _WedgedSweep(monkeypatch, session)
     reported = _record_reports(monkeypatch)
 
-    handle = runner.run_autofocus(layer='BF')
+    handle = runner.start_autofocus(channel='BF')
     assert sweep.inside.wait(RESULT_TIMEOUT_S), 'the sweep never reached its capture'
     handle.stop()
-    outcome = handle.wait(timeout_s=RESULT_TIMEOUT_S)
+    outcome = handle.result(timeout=RESULT_TIMEOUT_S)
 
     assert outcome is not None, 'the stopped run never let go of the scope'
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped'), outcome
@@ -105,7 +112,7 @@ def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_se
     assert [r.steps for r in told] == [['Stop autofocus']], told
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(channel='BF')
     assert refused.value.reason == 'autofocus_running'
     assert 'did not stop' in str(refused.value)
     assert 'Stop it' not in str(refused.value)
@@ -119,7 +126,7 @@ def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_se
     ]
     assert late == [], 'the freed sweep reported faults of a run that was over'
 
-    again = runner.run_autofocus(layer='BF').wait(timeout_s=RESULT_TIMEOUT_S)
+    again = runner.start_autofocus(channel='BF').result(timeout=RESULT_TIMEOUT_S)
     assert again is not None and again.status == 'completed', again
 
 
@@ -128,10 +135,10 @@ def test_a_sweep_that_stops_in_time_is_no_cleanup_failure(af_session, monkeypatc
     sweep = _WedgedSweep(monkeypatch, session, stops_when_aborted=True)
     reported = _record_reports(monkeypatch)
 
-    handle = runner.run_autofocus(layer='BF')
+    handle = runner.start_autofocus(channel='BF')
     assert sweep.inside.wait(RESULT_TIMEOUT_S), 'the sweep never reached its capture'
     handle.stop()
-    outcome = handle.wait(timeout_s=RESULT_TIMEOUT_S)
+    outcome = handle.result(timeout=RESULT_TIMEOUT_S)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped'), outcome
     assert outcome.cleanup_failures == (), outcome.cleanup_failures

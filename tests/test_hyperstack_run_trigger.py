@@ -10,58 +10,79 @@ signal -- so the trigger lives there, and a run started from any host
 gets its stacks.
 """
 
-import datetime
 import threading
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK, ImageCaptureConfig
+from modules.image_mode import ImageCaptureConfig, OutputFormat
 from modules.notification_center import OutcomeKind
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
+from tests.case_walk import failing_cases
+from modules.layer_record import release_colors
+from tests.stock_channels import LED0
 
 
-def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL):
-    runner = bare_capture_runner()
+def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL, **overrides):
+    runner = bare_capture_runner(**overrides)
     runner._run_mode = run_mode
     runner._image_capture_config = ImageCaptureConfig.from_image_mode(
-        '8bit', output_format_sequenced=OUTPUT_FORMAT_HYPERSTACK
+        '8bit', output_format_sequenced=OutputFormat.HYPERSTACK
     )
     runner._run_dir = tmp_path
-    # The run resolved its data root at start; the build reads the tiling
-    # config from there, not from wherever the process happens to live.
-    runner._tiling_configs_file_loc = tmp_path / 'data' / 'tiling.json'
     # The run's writes, ended with nothing outstanding: its images are written.
     runner._write_batch = RunWriteBatch(MagicMock())
     runner._write_batch.close()
     runner._scope.capabilities.has_turret = False
+    # The colours the run took at start.
+    runner._channel_colors = release_colors()
     return runner
 
 
-def _join(thread):
-    assert isinstance(thread, threading.Thread)
-    thread.join(timeout=5.0)
-    assert not thread.is_alive()
+def _built(runner):
+    # The build's end, however it ended: the run's files settle on it.
+    ended = threading.Event()
+    assert runner._start_hyperstack_build(on_end=ended.set) is not None
+    assert ended.wait(5.0), 'the build never ended'
 
 
 class TestRunnerHyperstackTrigger:
-    def test_completion_builds_hyperstacks_without_any_ui(self, tmp_path):
-        runner = _hyperstack_runner(tmp_path)
-        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
-            _join(thread)
-        build.assert_called_once_with(
-            run_dir=tmp_path,
-            has_turret=False,
-            tiling_configs_file_loc=tmp_path / 'data' / 'tiling.json',
-            wait_for_images=ANY,
-            save_encoding='8bit',
-        )
+    def test_completion_builds_hyperstacks_without_any_ui(
+        self, tmp_path, monkeypatch, post_processing
+    ):
+        # The run's end builds its stacks through the session's builds, on
+        # their lane, from the run's own folder, encoding and colours.
+        import modules.stack_builder as stack_builder
+
+        asked = []
+
+        def _load_folder(self, path, **kwargs):
+            asked.append(
+                (
+                    threading.current_thread().name == post_processing.lane.executor_name,
+                    path,
+                    kwargs['save_encoding'],
+                    kwargs['channel_colors'],
+                )
+            )
+            return {
+                'message': 'Success.',
+                'degraded': False,
+                'new_count': 0,
+                'output_root': path,
+                'accounting_note': '',
+            }
+
+        monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
+        runner = _hyperstack_runner(tmp_path, post_processing=post_processing)
+        _built(runner)
+
+        assert asked == [(True, tmp_path, '8bit', release_colors())]
 
     def test_a_held_batch_builds_nothing_and_reports_the_timeout(
-        self, tmp_path, monkeypatch, centre_posts
+        self, tmp_path, monkeypatch, centre_posts, post_processing
     ):
         # The stacks are read back off the run's images: a build that
         # started before the run's last write landed would silently miss
@@ -71,58 +92,49 @@ class TestRunnerHyperstackTrigger:
         import modules.stack_builder as stack_builder
 
         monkeypatch.setattr(scr, '_POST_RUN_WRITES_WAIT_S', 0.05)
-        runner = _hyperstack_runner(tmp_path)
+        runner = _hyperstack_runner(tmp_path, post_processing=post_processing)
         runner._write_batch = RunWriteBatch(MagicMock())
         runner._write_batch.submit(lambda: None, {}, what='an image', pace_until=None)
         runner._write_batch.close()
-        builder = MagicMock()
-        builder.operation_key = 'hyperstack_build'
-        monkeypatch.setattr(stack_builder, 'StackBuilder', lambda has_turret: builder)
+        loaded = MagicMock()
+        monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', loaded)
 
-        _join(runner._start_hyperstack_build())
+        _built(runner)
 
-        builder.load_folder.assert_not_called()
+        loaded.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
         (failure,) = [n for n in centre_posts if n.kind is not OutcomeKind.NOTICE]
         assert (failure.kind, failure.reason) == (OutcomeKind.FAULT, 'write_batch_timeout')
-        assert failure.operation_key == builder.operation_key
+        assert failure.operation_key == 'post-processing:Hyperstack'
 
-    def test_the_build_holds_the_path_the_run_armed_it_with(self, tmp_path, monkeypatch):
-        # The build runs on a daemon thread that outlives the run: the
-        # next run nulls and re-fills the runner's fields, so a build
-        # still reading them would follow the SUCCESSOR run's data root.
-        # Capturing the value at arming is what makes that impossible.
+    def test_the_build_holds_the_run_it_was_armed_for(self, tmp_path):
+        # The build runs on the lane after the run has ended: the next run
+        # nulls and re-fills the runner's fields, so a build still reading
+        # them would follow the SUCCESSOR run's folder and writes. Capturing
+        # the values at arming is what makes that impossible.
         import modules.sequenced_capture_runner as scr
 
         runner = _hyperstack_runner(tmp_path)
-        armed = runner._tiling_configs_file_loc
         armed_batch = MagicMock()
         runner._write_batch = armed_batch
-        # The build step is held unstarted until this test has moved the
-        # fields on, so the build cannot reach them before the successor's
-        # values are in place.
-        held = []
-        monkeypatch.setattr(
-            runner, '_spawn_post_run_step', lambda name, build_fn: held.append(build_fn)
-        )
-
+        # The build is held unsubmitted until this test has moved the fields
+        # on, so it cannot reach them before the successor's values are in
+        # place.
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            runner._start_hyperstack_build()
-            runner._tiling_configs_file_loc = tmp_path / 'next_run' / 'data' / 'tiling.json'
-            successor_batch = MagicMock()
-            runner._write_batch = successor_batch
-            (build_fn,) = held
-            build_fn()
+            runner._start_hyperstack_build(on_end=lambda: None)
+        runner._run_dir = tmp_path / 'next_run'
+        successor_batch = MagicMock()
+        runner._write_batch = successor_batch
 
-        build.assert_called_once_with(
-            run_dir=tmp_path,
-            has_turret=False,
-            tiling_configs_file_loc=armed,
-            wait_for_images=ANY,
-            save_encoding='8bit',
+        ((submit, _on_end), _) = build.call_args
+        submit()
+        # a stand-in by design: the subject is what the runner hands its builds.
+        run_hyperstack = runner._post_processing.run_hyperstack
+        run_hyperstack.assert_called_once_with(
+            tmp_path, save_encoding='8bit', channel_colors=release_colors(), written=ANY
         )
         # The images it waits for are its own run's, not the successor's.
-        build.call_args.kwargs['wait_for_images']()
+        run_hyperstack.call_args.kwargs['written']()
         armed_batch.wait_until_written.assert_called_once_with(scr._POST_RUN_WRITES_WAIT_S)
         successor_batch.wait_until_written.assert_not_called()
 
@@ -141,7 +153,7 @@ class TestRunnerHyperstackTrigger:
         runner = _hyperstack_runner(tmp_path)
         mutate(runner)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            assert runner._start_hyperstack_build() is None
+            assert runner._start_hyperstack_build(on_end=lambda: None) is None
         build.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -152,38 +164,8 @@ class TestRunnerHyperstackTrigger:
     def test_scan_and_zstack_modes_also_build(self, tmp_path, run_mode):
         runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
-            _join(thread)
+            runner._start_hyperstack_build(on_end=lambda: None)
         build.assert_called_once()
-
-
-def test_the_build_takes_the_tiling_config_path_from_its_caller():
-    # The build resolved data/tiling.json from the process's script root,
-    # which is not the root the session was built with. The path is the
-    # caller's to state, and stating it is not optional: a default is
-    # exactly the silent fallback to a root nobody chose.
-    import inspect
-
-    import modules.stack_builder as stack_builder
-
-    parameters = inspect.signature(stack_builder.build_hyperstacks_for_run).parameters
-    assert 'tiling_configs_file_loc' in parameters, (
-        'build_hyperstacks_for_run must take the tiling config path from its '
-        f'caller; its parameters are {list(parameters)}'
-    )
-    assert parameters['tiling_configs_file_loc'].default is inspect.Parameter.empty, (
-        'the tiling config path must be required, so no caller can fall back '
-        'to a data root it did not choose'
-    )
-
-
-def test_gui_tier_no_longer_owns_the_trigger():
-    # The GUI-tier trigger read the LIVE UI config and was unreachable
-    # from a headless host; its deletion is load-bearing for the
-    # relocation (a surviving copy would be a second, drifting path).
-    import modules.config_ui_getters as config_ui_getters
-
-    assert not hasattr(config_ui_getters, 'create_hyperstacks_if_needed')
 
 
 # ---------------------------------------------------------------------------
@@ -244,47 +226,54 @@ def test_every_run_mode_states_its_engine_behavior():
     )
 
 
-@pytest.mark.parametrize('run_mode', list(RUN_MODE_ENGINE_BEHAVIOR), ids=lambda m: m.value)
-def test_run_mode_hyperstack_applicability_matches_its_declared_row(run_mode, tmp_path):
-    runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
-    with patch('modules.stack_builder.build_hyperstacks_for_run'):
-        result = runner._start_hyperstack_build()
-        if isinstance(result, threading.Thread):
-            _join(result)
-    blocked = result is None
-    assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
+def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
+    def check(run_mode):
+        run_dir = tmp_path / run_mode.value
+        run_dir.mkdir()
+        runner = _hyperstack_runner(run_dir, run_mode=run_mode)
+        with patch('modules.stack_builder.build_hyperstacks_for_run'):
+            result = runner._start_hyperstack_build(on_end=lambda: None)
+        blocked = result is None
+        assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
+
+    failed = failing_cases(list(RUN_MODE_ENGINE_BEHAVIOR), check, label=lambda m: m.value)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('run_mode', list(RUN_MODE_ENGINE_BEHAVIOR), ids=lambda m: m.value)
-def test_run_mode_scan_count_matches_its_declared_row(run_mode):
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+def test_run_mode_scan_count_matches_its_declared_row():
+    def check(run_mode):
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
 
-    protocol = MagicMock()
-    protocol.period.return_value = datetime.timedelta(seconds=60)
-    protocol.duration.return_value = datetime.timedelta(seconds=300)
+        protocol = MagicMock()
+        protocol.period_s.return_value = 60.0
+        protocol.duration_s.return_value = 300.0
+        protocol.num_scans.return_value = 5
 
-    n_scans = SequencedCaptureRunner._calculate_num_scans(
-        protocol=protocol, run_mode=run_mode, max_scans=1
-    )
-    if RUN_MODE_ENGINE_BEHAVIOR[run_mode]['derives_scans_from_duration']:
-        # 300/60 == 5 scans, clamped by max_scans to 1 -- the clamp is what
-        # distinguishes it from the verbatim branch, so read the unclamped
-        # count too.
-        assert (
-            SequencedCaptureRunner._calculate_num_scans(
-                protocol=protocol, run_mode=run_mode, max_scans=None
-            )
-            == 5
+        n_scans = SequencedCaptureRunner._calculate_num_scans(
+            protocol=protocol, run_mode=run_mode, max_scans=1
         )
-        assert n_scans == 1
-    else:
-        assert n_scans == 1
-        assert (
-            SequencedCaptureRunner._calculate_num_scans(
-                protocol=protocol, run_mode=run_mode, max_scans=None
+        if RUN_MODE_ENGINE_BEHAVIOR[run_mode]['derives_scans_from_duration']:
+            # 300/60 == 5 scans, clamped by max_scans to 1 -- the clamp is what
+            # distinguishes it from the verbatim branch, so read the unclamped
+            # count too.
+            assert (
+                SequencedCaptureRunner._calculate_num_scans(
+                    protocol=protocol, run_mode=run_mode, max_scans=None
+                )
+                == 5
             )
-            is None
-        ), 'a non-derived run mode must pass max_scans through verbatim'
+            assert n_scans == 1
+        else:
+            assert n_scans == 1
+            assert (
+                SequencedCaptureRunner._calculate_num_scans(
+                    protocol=protocol, run_mode=run_mode, max_scans=None
+                )
+                is None
+            ), 'a non-derived run mode must pass max_scans through verbatim'
+
+    failed = failing_cases(list(RUN_MODE_ENGINE_BEHAVIOR), check)
+    assert not failed, failed
 
 
 def test_a_composite_run_never_carries_the_hyperstack_format():
@@ -294,6 +283,6 @@ def test_a_composite_run_never_carries_the_hyperstack_format():
     from tests.test_composite_run_config import _settings
 
     config = config_helpers.get_composite_image_capture_config_from_settings(
-        _settings(acquiring=('BF', 'Blue'), sequenced_format=OUTPUT_FORMAT_HYPERSTACK)
+        _settings(acquiring=('BF', LED0), sequenced_format=OutputFormat.HYPERSTACK)
     )
-    assert config.output_format_sequenced != OUTPUT_FORMAT_HYPERSTACK
+    assert config.output_format_sequenced != OutputFormat.HYPERSTACK

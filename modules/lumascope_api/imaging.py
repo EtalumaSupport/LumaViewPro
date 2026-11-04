@@ -1,212 +1,229 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar_color,
-_focusing_event, _camera_listeners, _camera_temp_event,
-_suppress_value_warnings, and the frame_validity instance.
+ImagingAPI owns the capture: _last_capture_info, _focusing_event, the frame
+listeners, the stream check and _camera_temp_event. The camera's settings and state are CameraAPI's
+(``modules/lumascope_api/camera.py``), which it holds and calls.
 """
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
-import datetime
-import enum
-import functools
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterator, Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-import modules.common_utils as common_utils
-from modules.finite_number import refuse_unless_finite_number
+from modules.finite_number import refuse_unless_wait_s
 import modules.image_utils as image_utils
-from drivers.exceptions import HardwareError
+from drivers import host_clock
+from drivers.camera import Frame
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
+from modules.activity_claim import a_guarded_write
 from modules.exceptions import (
-    AutoGainNotSettledError,
-    CameraSettingOutOfRangeError,
-    CameraSettingRejected,
-    CameraSettingUnsupportedError,
+    ArgumentRefusedError,
     CameraStreamStalledError,
-    ExposureAtMaximumNotice,
-    ExposureAtMinimumNotice,
+    CaptureFailedError,
     FrameHandlerRemovedError,
-    FrameListenerNotRegisteredError,
     HardwareCommandRefusedError,
-    MissingPart,
 )
-from modules.frame_validity import FrameValidity
-from modules.lumascope_api.frame_record import FrameRecord
-from modules.lumascope_api.illumination import live_lit_pairs
+from modules.frame_validity import Change, Counter, FrameValidity, FrameValiditySource, Judgment
+from modules.lumascope_api.camera import (
+    AutoGainConvergence,
+    AutoGainLock,
+    LayerCameraRequest,
+    LayerHold,
+    _camera_not_connected,
+    _refuse_unless_auto_gain_settings,
+)
+from modules.lumascope_api.frame_record import (
+    BLOWN_FRACTION,
+    CapturedStill,
+    ClockMapping,
+    FrameRecord,
+    FrameTime,
+    arrival_time,
+    camera_frame_time,
+    grab_record,
+)
+from modules.lumascope_api.illumination import lit_other_than, live_lit_pairs
 from modules.notification_center import notifications
-from modules.sequential_io_executor import IOTask
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
-from modules.api_surface import api, api_fields
-
-
-# What a dispatched camera command does when no camera is connected: it is
-# refused, naming the camera, unless its dispatch names the answer it is
-# satisfied with -- an off whose end state already holds -- or leaves the
-# question to its body, which alone can read what it was asked to do.
-_REFUSED_WHEN_ABSENT = object()
-_DECIDED_IN_BODY = object()
-
-# The camera cache with no camera behind it: at construction, and again when
-# the scope disconnects, so no read describes a camera that has left. Every
-# value is one the matching is_valid_* predicate rejects, except 'binning',
-# whose absent default is also a legal factor (see ImagingAPI.__init__).
-_NO_CAMERA_CACHE = {
-    'active': False,
-    'gain_db': -1.0,
-    'exposure_ms': 0.0,
-    'frame_size': {'width': 0, 'height': 0},
-    'min_frame_size': {'width': 0, 'height': 0},
-    'max_exposure_ms': 0.0,
-    'max_gain_db': 0.0,
-    # The floors are None until a camera declares one, and stay None
-    # when it declares none: a missing floor is not a floor of zero.
-    'min_exposure_ms': None,
-    'min_gain_db': None,
-    'pixel_format': None,
-    'binning': 1,
-}
-
-
-def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
-    """The refusal of ``member`` for want of a camera, raised by whoever asked.
-
-    Built from the asker's own answer, never a second poll: a camera that
-    answered connected on a re-ask would leave the refusal unraised.
-    """
-    part = MissingPart.CAMERA
-    return HardwareCommandRefusedError(part.reason, member, missing=part)
-
-
-def _no_camera_cache() -> dict:
-    """A fresh copy of ``_NO_CAMERA_CACHE``: its frame dicts are not shared."""
-    return {k: dict(v) if isinstance(v, dict) else v for k, v in _NO_CAMERA_CACHE.items()}
-
-
-class AutoGainConvergence(enum.Enum):
-    """Where a continuous auto-gain arm landed when the capture locked it.
-
-    CONVERGED: exposure inside the layer class's usable range.
-    MAXED: exposure pinned at the class ceiling -- the scene is too dark
-        for the range, so target brightness was not reached.
-    AT_MINIMUM: exposure at or below the class usable floor -- the scene
-        is too bright for the range.
-    FAILED: the camera reported no usable achieved value, so the capture
-        ran without an exposure/gain evidence gate.
-    The limit states are outcomes, not failures: the frame is saved with
-    the achieved values and a run continues.
-    """
-
-    CONVERGED = 'CONVERGED'
-    MAXED = 'MAXED'
-    AT_MINIMUM = 'AT_MINIMUM'
-    FAILED = 'FAILED'
+from modules.api_surface import Admission, api, api_fields
 
 
 @dataclasses.dataclass(frozen=True)
-class _AutoGainArm:
-    """A commanded continuous auto-gain arm, held until a capture locks it.
+class _NoFrame:
+    """A grab that ended without a frame, handed back for its caller to raise.
 
-    resume_after_capture: a live-view arm is re-armed after the capture
-    so the view keeps adjusting; a protocol step's arm stays locked Off
-    until the next step arms again.
+    The grab raises nothing itself: ``_capture_still_impl`` first asks whether
+    its window was dirtied (a re-grab, not a failure) and runs its own
+    cleanup, then raises. ``reason`` is a ``CaptureFailedError`` reason, or
+    ``'removed'`` for a camera found gone, which is refused as every camera
+    command is, naming the caller's member. ``leg`` is where the grab
+    stopped -- ``'entry'``, ``'grab'`` or ``'sum'`` -- for the log.
     """
 
-    settings: dict
-    resume_after_capture: bool
+    reason: str
+    leg: str
+    source: FrameValiditySource | None = None
+
+    @property
+    def removed(self) -> bool:
+        return self.reason == 'removed'
+
+    def error(self, member: str) -> CaptureFailedError | HardwareCommandRefusedError:
+        if self.removed:
+            return _camera_not_connected(member)
+        return CaptureFailedError(self.reason, source=self.source)
 
 
-@api_fields(
-    'ceiling_ms',
-    'exposure_ms',
-    'floor_ms',
-    'gain_db',
-    'resume_after_capture',
-    'settings',
-    'state',
-    'stored_exposure_ms',
-)
 @dataclasses.dataclass(frozen=True)
-class AutoGainLock:
-    """The result of locking an auto-gain arm; ``state`` is None when no
-    arm was recorded (nothing was locked, no driver traffic happened)."""
+class _Grabbed:
+    """A grab that got its frame: the image it returns, and the frame it came from.
 
-    state: AutoGainConvergence | None
-    exposure_ms: float | None = None
-    gain_db: float | None = None
-    floor_ms: float | None = None
-    ceiling_ms: float | None = None
-    resume_after_capture: bool = False
-    settings: dict | None = None
-    # The exposure a caller STORES as the layer's manual setting after the
-    # lock: the achieved value floored to the class's usable floor. The
-    # auto loop can drive the camera below that floor on a bright scene;
-    # a setting stored that low makes near-black captures on ordinary
-    # scenes, so the store keeps the floor while exposure_ms keeps the
-    # truth. Decided here so a GUI and a REST caller store the same value.
-    stored_exposure_ms: float | None = None
-
-    def __post_init__(self) -> None:
-        # Both achieved values or neither: a consumer that keeps the lock's
-        # gain and a snapshot's exposure would leave a mixed camera state.
-        if (self.exposure_ms is None) != (self.gain_db is None):
-            raise ValueError(
-                'AutoGainLock carries exposure_ms and gain_db together or not at all; '
-                f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
-            )
-
-
-def capture_failure_cause(info: dict | None) -> str:
-    """Why a capture returned no frame, read off its evidence record.
-
-    One ladder for every reader -- the protocol writer's failure row and
-    the manual capture's notice -- so a support bundle and the screen name
-    the same cause. A deadline expiry (state changes outran the budget)
-    reads very differently from a camera that delivered nothing, and a
-    hardcoded cause once mislabeled every failure as the latter.
+    ``image`` is what the caller is handed -- the frame's own pixels, a sum,
+    an 8-bit rendering or a scale-bar copy -- read-only in every case.
+    ``frame`` is the last frame the image was made from and ``earliest`` the
+    first (the same frame, but for a sum). ``earliest`` is the one a change
+    could have reached last, so the one the capture is judged by, and the
+    one its record and its log describe: the image's instant is its first
+    frame's start.
+    ``saturated_fraction`` and ``dark`` are what the grab found of the frames
+    it kept, for the capture's record (``FrameRecord``): None when it was not
+    asked to look.
     """
-    info = info or {}
-    if info.get('deadline_expired'):
-        return 'capture deadline expired -- invalidation outran the budget'
-    if info.get('drain_failed'):
-        return 'frame drain failed -- camera delivered no frame'
-    if info.get('chunk_rejected'):
-        return (
-            f'frame chunk never matched the {info["chunk_rejected"]} '
-            'target -- the camera delivered frames exposed under '
-            'other settings'
+
+    image: np.ndarray
+    frame: Frame
+    earliest: Frame
+    saturated_fraction: float | None
+    dark: bool | None
+
+
+@dataclasses.dataclass(frozen=True)
+class _Judged:
+    """What a capture's grab judges each frame by: a frame is kept only when
+    every change it does not exclude counts it (``FrameValidity.judge``).
+
+    ``mapping`` is the camera's clock as the capture's cycle took it, the one
+    its record carries. ``clock_bound_ns`` is how long the grab takes frames
+    when a change runs the clock rule: the latest instant a frame must start
+    after, plus one grab window (the scope's steady clock,
+    ``host_clock.steady_ns``); None when every change runs the credit rule,
+    whose grab keeps the caller's ``timeout_s``.
+    """
+
+    mapping: ClockMapping | None
+    exclude_sources: tuple[FrameValiditySource, ...]
+    clock_bound_ns: int | None
+
+    def unmet(self, frame_validity: FrameValidity, frame: Frame) -> Judgment | None:
+        """The first change ``frame`` does not count for, by source; None when it counts for all."""
+        for judgment in frame_validity.judgments(frame, self.mapping):
+            if judgment.change.source not in self.exclude_sources and not judgment.counts:
+                return judgment
+        return None
+
+
+@dataclasses.dataclass(frozen=True)
+class _FeedMark:
+    """The camera's feed at one instant on the scope's steady clock: where a wait starts.
+
+    A wait that gives up states against its mark how long it waited and what
+    the feed did meanwhile (``account``). Both counts are read because they
+    stop apart: frames handed over stop when the feed stops, frames stored
+    stop when the store stage wedges while the feed runs, and both rising
+    with no frame taken is a wait that missed frames the store had. The last
+    stored frame is read at the give-up; a driver whose fresh-frame grab
+    empties the store as it starts (the FX2's) holds none after a wait in
+    which nothing arrived.
+    """
+
+    at_ns: int
+    handed_over: int
+    stored: int
+
+    @classmethod
+    def read(cls, driver: Camera) -> _FeedMark:
+        return cls(host_clock.steady_ns(), driver.frames_delivered, driver.delivered_counts[0])
+
+    def account(self, driver: Camera) -> str:
+        """The wait from this mark to now and what the feed did in it, for a give-up line."""
+        now = _FeedMark.read(driver)
+        last = driver.grab()
+        last_stored = (
+            f'last stored seq={last.seq}, {(now.at_ns - last.arrived_ns) / 1e9:.3f}s before'
+            if last is not None
+            else 'no frame in the store'
         )
-    return 'camera inactive or not grabbing'
+        return (
+            f'waited {(now.at_ns - self.at_ns) / 1e9:.3f}s from steady {self.at_ns / 1e9:.3f}s; '
+            f'handed over {self.handed_over}->{now.handed_over}, '
+            f'stored {self.stored}->{now.stored}; {last_stored}'
+        )
 
 
-def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
-    """The exposure to store as a manual setting after an auto-gain lock."""
-    return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
+def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
+    """The one line a successful capture leaves: the frame it returned, how
+    well the camera's clock was mapped beside it, and how long after each
+    change it came, so a support bundle shows whether the rule held."""
+    frame = grabbed.earliest
+    frame_id = (frame.chunks or {}).get('FrameID')
+    parts = [
+        f'capture_still: frame seq={frame.seq} id={frame_id if frame_id is not None else "na"}'
+    ]
+    if grabbed.frame is not frame:
+        parts[0] += f' (sum to seq={grabbed.frame.seq})'
+    mapping = record.clock_mapping
+    parts[0] += (
+        ' clock=none' if mapping is None else f' clock=+-{mapping.uncertainty_ns / 1000:.0f}us'
+    )
+    judgments = record.judgments
+    for judgment in judgments:
+        f = judgment.fields()
+        in_force = f' in_force+{f["after_in_force_ms"]}ms' if 'after_in_force_ms' in f else ''
+        parts.append(
+            f'{f["source"]} {"counts" if f["counts"] else "DOES NOT COUNT"} '
+            f'+{f["frames_after"]}fr +{f["after_write_ms"]}ms{in_force} '
+            f'skip={f["skip"]} by={",".join(f["counted_by"]) or "none"}'
+        )
+    return ' | '.join(parts)
 
 
-@api_fields('bytes_per_s', 'frames_per_s')
+def _refuse_unusable_depth(significant_bits: int) -> None:
+    """Refuse a payload depth no frame has: outside 1 to 16.
+
+    A negative depth raised from the shift that builds full scale, and 0
+    made full scale 0, so every pixel read as saturated. A depth that is
+    not an int is the API door's to refuse.
+    """
+    if not 1 <= significant_bits <= 16:
+        raise ArgumentRefusedError(
+            'out_of_range', argument='significant_bits', value=significant_bits, limits=(1, 16)
+        )
+
+
+@api_fields('bytes_per_s', 'frame_rate_fps')
 @dataclasses.dataclass(frozen=True)
 class DeliveredRate:
     """What the camera delivered to the host over the last second.
 
-    ``frames_per_s`` counts the frames stored, whatever any display does with
+    ``frame_rate_fps`` counts the frames stored, whatever any display does with
     them. ``bytes_per_s`` is the bytes those same frames took on the link --
     the payload the camera sent, not the transport's protocol overhead -- so
-    ``bytes_per_s / frames_per_s`` is the bytes one frame takes on the link.
+    ``bytes_per_s / frame_rate_fps`` is the bytes one frame takes on the link.
     Both are 0 when nothing was delivered in the last window: no camera, a
     camera not streaming, or no recent window measured.
     """
 
-    frames_per_s: float
+    frame_rate_fps: float
     bytes_per_s: float
 
     @property
@@ -215,219 +232,21 @@ class DeliveredRate:
         return self.bytes_per_s / 1_000_000
 
 
-NOT_DELIVERING = DeliveredRate(frames_per_s=0.0, bytes_per_s=0.0)
-
-
-@api_fields('applied', 'capped', 'stored')
-@dataclasses.dataclass(frozen=True)
-class AppliedCameraSetting:
-    """What a stored camera setting actually becomes on the attached body.
-
-    A stored gain or exposure is the user's committed intent and outlives
-    whichever camera happens to be attached. A smaller body cannot reach it,
-    so the value written to hardware is the cap while the stored value is
-    left alone -- put a capable camera back and the intent applies again.
-
-    The three facts travel together because both consumers need all three:
-    the apply path writes ``applied``, and a display has to show ``stored``
-    while saying the camera is holding it down. Handing out a bare float
-    would make each consumer recompute ``capped`` for itself, which is the
-    second answerer this type exists to prevent.
-    """
-
-    stored: float | bool
-    applied: float | bool
-    capped: bool
-
-    def __post_init__(self) -> None:
-        # capped is not a caller's opinion: it is whether the write differs
-        # from the intent. A consumer that renders one while testing the
-        # other would report a limit that is not being applied.
-        if self.capped != (self.applied != self.stored):
-            raise ValueError(
-                f'AppliedCameraSetting: capped={self.capped!r} contradicts '
-                f'stored={self.stored!r} applied={self.applied!r}'
-            )
-
-
-def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
-    """Resolve a stored setting against a published maximum.
-
-    An unknown cap (no camera, or a driver that publishes none) narrows
-    nothing: a missing bound is not a bound of zero, and inventing one here
-    would apply a limit no hardware asked for. ``stored`` is a finite
-    number: its callers refuse any other, since ``nan <= cap`` is False and
-    NaN would be applied as the camera's maximum.
-    """
-    value = float(stored)
-    if cap is None or value <= cap:
-        return AppliedCameraSetting(stored=value, applied=value, capped=False)
-    return AppliedCameraSetting(stored=value, applied=float(cap), capped=True)
+NOT_DELIVERING = DeliveredRate(frame_rate_fps=0.0, bytes_per_s=0.0)
 
 
 if TYPE_CHECKING:
     from drivers.camera import Camera
     from modules.lumascope_api._lumascope import Lumascope
+    from modules.lumascope_api.camera import CameraAPI
     from modules.scheduler import Scheduler
 
 _api_log = _logging.getLogger('LVP.api')
 
 
-def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
-    """The title and sentence for a gain the camera refused.
-
-    One home for every raise of a gain refusal: the public setter, the
-    layer apply and the reports of refusals whose flight ends in the API.
-    """
-    return (
-        'Camera Setting Not Applied',
-        f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
-        'Captures will continue at the previous gain. Check that '
-        'the value is within the camera limits.',
-    )
-
-
-def _rejected_mode_words(what: str) -> tuple[str, str]:
-    """The title and sentence for a mode change the camera refused."""
-    return (
-        'Camera Setting Not Applied',
-        f'The camera did not take the {what} change. Captures will continue '
-        'with the camera as it was.',
-    )
-
-
-def _rejected_black_level_words(black_level: float) -> tuple[str, str]:
-    """The title and sentence for a black level the camera refused; see
-    ``_rejected_gain_words``. A camera holding its black level automatically
-    refuses a manual one, which the sentence names."""
-    return (
-        'Camera Setting Not Applied',
-        f'The camera did not accept the black level {float(black_level):g}. '
-        'Captures will continue at the previous black level. A camera that '
-        'sets its black level automatically takes no manual value.',
-    )
-
-
-def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
-    """The typed refusal of a camera value setting, in its one set of words."""
-    title, message = _REJECTED_VALUE_WORDS[setting](requested)
-    return CameraSettingRejected(setting, requested, title=title, message=message)
-
-
-def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
-    """The typed refusal of a mode change, in its one set of words."""
-    title, message = _rejected_mode_words(what)
-    return CameraSettingRejected(setting, requested, title=title, message=message)
-
-
-def _absent_mode_refusal(
-    setting: str, requested: object, what: str, *, offered: tuple, consequence: str
-) -> CameraSettingUnsupportedError:
-    """The refusal of a camera setting the attached camera does not have.
-
-    Nothing reached the camera. ``offered`` is what the camera can still be
-    asked for (an auto mode's off, a toggle's standard setting, or nothing),
-    and ``consequence`` the sentence saying what stays as it is.
-    """
-    return CameraSettingUnsupportedError(
-        setting,
-        requested,
-        offered=offered,
-        title='Not Available on This Camera',
-        message=f'This camera has no {what}. {consequence}',
-    )
-
-
-# What stays as it is when an auto mode the camera lacks is refused.
-_AUTO_MODE_STAYS = 'The gain and exposure stay as they are set.'
-
-
-def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
-    """A camera's range for a person, naming only the ends it declares.
-
-    The one wording of a range, shared by the setters' refusal and the run's.
-    """
-    if low is None:
-        return f'at most {high:g} {unit}'
-    if high is None:
-        return f'at least {low:g} {unit}'
-    return f'{low:g} to {high:g} {unit}'
-
-
-def _value_in_effect(result: object, requested: float, scale: float = 1.0) -> float:
-    """The value a camera write left in effect, in the API's unit.
-
-    A driver that can say what it applied answers with a number, and that
-    number is the truth: a body that clamps, snaps or quantizes applies
-    something other than the request. Any other applied answer -- a driver
-    that cannot report a value -- leaves the request as the best knowledge.
-    ``bool`` is an ``int`` subclass, so a bare ``True`` is excluded
-    explicitly rather than read as 1.0.
-
-    Args:
-        result: The driver's answer to the write (not ``False``).
-        requested: The value asked for, in the API's unit.
-        scale: Multiplier from the driver's unit to the API's.
-    """
-    if isinstance(result, (int, float)) and not isinstance(result, bool):
-        return float(result) * scale
-    return requested
-
-
-def _rejected_exposure_words(exposure_ms: float) -> tuple[str, str]:
-    """The title and sentence for an exposure the camera refused; see
-    ``_rejected_gain_words``."""
-    return (
-        'Camera Setting Not Applied',
-        f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
-        'Captures will continue at the previous exposure. Check '
-        'that the value is within the camera limits.',
-    )
-
-
-_REJECTED_VALUE_WORDS = {
-    'gain_db': _rejected_gain_words,
-    'exposure_ms': _rejected_exposure_words,
-    'black_level': _rejected_black_level_words,
-}
-
-# The camera settings a restore puts back beyond gain and exposure, in the
-# order it writes them: a binning write resets the frame, and the black
-# level's range is the pixel format's.
-_GEOMETRY_ORDER = ('binning', 'frame_size', 'pixel_format', 'black_level')
-
-# Each live-read setting's noun, driver read, validity check and coercion.
-_LIVE_SETTING_READS = {
-    'binning': (
-        'binning',
-        lambda driver: driver.get_binning_size(),
-        common_utils.is_valid_binning_size,
-        int,
-    ),
-    'frame_size': (
-        'frame size',
-        lambda driver: driver.get_frame_size(),
-        common_utils.is_valid_frame_size,
-        lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-    ),
-    'pixel_format': (
-        'pixel format',
-        lambda driver: driver.get_pixel_format(),
-        common_utils.is_valid_pixel_format,
-        str,
-    ),
-}
-
-
-def _describe_geometry(snapshot: dict) -> str:
-    """The snapshot's settings beyond gain and exposure, for the log."""
-    return ' '.join(f'{key}={snapshot[key]}' for key in _GEOMETRY_ORDER if key in snapshot)
-
-
 # Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
-# row + WAVE7_PHASE_4D5_PLAN sec 9 alignment 2026-05-19. Budget anchors to
-# the 30 fps realistic-cap target (per FRAME_VALIDITY_RIG_COMPARISON_2026-
-# 05-19.md: daA3840 max sustained median 17.6 fps; a2A3536 49.9 fps).
+# row. Budget anchors to the 30 fps realistic-cap target (measured on the
+# rigs: daA3840 max sustained median 17.6 fps; a2A3536 49.9 fps).
 # Plugin gets ~70% of the inter-frame window; driver keeps ~10 ms headroom.
 HANDLER_BUDGET_MS = 24
 
@@ -482,12 +301,12 @@ class _BudgetedHandler:
             profile_trace.NO_RECORDING,
         )
 
-    def __call__(self, image, timestamp, chunks) -> None:
+    def __call__(self, frame: Frame) -> None:
         if self._removed:
             return
         t0 = time.perf_counter()
         try:
-            self._handler(image, timestamp, chunks)
+            self._handler(frame)
         except Exception as e:
             # A handler that raises on every frame would otherwise log a
             # traceback per frame for as long as the camera streams. The
@@ -550,59 +369,37 @@ class _BudgetedHandler:
         )
 
 
-@api_fields('setting', 'value')
-@dataclasses.dataclass(frozen=True)
-class CameraChanged:
-    """A camera event: the setting changed, ``'gain'`` or ``'exposure'``, and its new value."""
-
-    setting: str
-    value: float
-
-
-@api_fields('image', 'timestamp', 'chunks')
+@api_fields('frame')
 @dataclasses.dataclass(frozen=True)
 class FrameDelivered:
-    """A frame the camera delivered: the image, when it arrived, its chunk data when the camera sends any."""
+    """A frame the camera delivered: its ``Frame`` record -- the read-only
+    image, its arrival number and times, its depth, and its chunk data when
+    the camera sends any."""
 
-    image: np.ndarray
-    timestamp: datetime.datetime
-    chunks: dict | None
+    frame: Frame
 
 
 class ImagingAPI:
-    """Imaging sub-API. Owns camera setters/getters/orchestration plus
-    camera state slots (cache, frame_buffer, scale_bar, listeners,
-    capture/focus events) and the frame_validity instance.
+    """Imaging sub-API: the capture. Owns the grab, the capture's record,
+    the frame listeners, the stream check, the scale bar and the
+    capture/focus events. The camera's settings and state are
+    ``CameraAPI``'s, which this holds and calls.
     """
 
-    def __init__(self, scope: Lumascope, driver: Camera | None) -> None:
+    def __init__(self, scope: Lumascope, camera: CameraAPI, frame_validity: FrameValidity) -> None:
         self._scope = scope
-        # driver argument kept for API compatibility but unused; `_driver`
-        # is a @property that re-resolves `self._scope._camera_driver` so
-        # disconnect / reconnect / test hot-swap propagate without
-        # rebinding ImagingAPI. Same pattern as MotionAPI._driver /
-        # IlluminationAPI._driver.
-        del driver  # intentionally unused, kept for backward call sites
+        # The camera this captures with: its lock serializes the grab against
+        # its writes, its dispatch puts a capture on the camera lane, and its
+        # hold and auto-gain lock run inside a capture's own lane task.
+        self._camera = camera
 
-        # State / camera locks. _state_lock guards _scale_bar_color,
-        # _last_capture_info and _auto_gain_arm; _cam_lock serializes
-        # access to the camera driver itself (any path that touches
-        # the SDK reads/writes goes through this lock).
+        # _state_lock guards _last_capture_info and _last_frame_summing.
         self._state_lock = threading.Lock()
-        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='imaging._cam_lock')
 
         # Once-per-episode latch for the enabled-but-no-objective scale-bar
         # skip log; the gates run per displayed frame, so an unlatched
         # warning would flood the log at display rate.
         self._scale_bar_objective_skip_logged = False
-
-        # Camera change listeners -- push-based UI update mechanism.
-        # Each listener is called with (param: str, value: float) whenever
-        # camera gain or exposure changes. param is 'gain' or 'exposure'.
-        # Fires from the thread that caused the change, so listeners MUST
-        # schedule UI work via Clock.schedule_once.
-        self._camera_listeners_lock = threading.Lock()
-        self._camera_listeners: list = []
 
         # Per-frame listener registry. Each user handler is wrapped in
         # a _BudgetedHandler; the wrapper is what's registered with the
@@ -614,9 +411,6 @@ class ImagingAPI:
         self._frame_listener_lock = threading.Lock()
         self._frame_listener_wrappers: dict = {}
 
-        # Latest captured frame; populated by get_image_from_buffer.
-        self._frame_buffer = None
-
         # Boolean operation flags -- threading.Event for wait/signal.
         self._focusing_event = threading.Event()  # set => autofocus in progress
 
@@ -624,52 +418,28 @@ class ImagingAPI:
         # self._state_lock. Per the Sentinel-return contract: None
         # means "no result yet."
 
-        # Evidence about the most recent capture_and_wait (hold duration,
-        # drained frame count, chunk-verified exposure / gain). Read via
-        # last_capture_info by callers that log per-capture provenance.
+        # Evidence about the most recent capture past its call (hold
+        # duration, drained frame count, rechecks, deadline): what a capture
+        # leaves frame or not. A frame's own facts are its record's, handed
+        # back with it. Read via last_capture_info.
         self._last_capture_info = None
-        # Set by the dark-floor guard when it rejects, read by capture_and_wait
-        # so the failure names darkness rather than falling through to the
-        # cause ladder's camera-inactive default. Cleared at the start of every
-        # capture -- a stale True would misattribute the NEXT failure.
-        self._dark_saved = False
         # (frames summed, each frame's delivered depth) of the frame the last
         # capture produced, set by the reducer that summed it, or None before
-        # the first. The one account of a capture's sum: its record and
-        # capture_frame_depth both read it, so no caller restates the count.
+        # the first. The one account of a capture's sum, read only by the
+        # record the capture builds, so no caller restates the count.
         self._last_frame_summing: tuple[int, int] | None = None
 
-        # The commanded continuous auto-gain arm, or None. Only the API
-        # commands the auto mode and no driver reads it back, so this is
-        # the single record that an arm is standing. Consumed atomically
-        # by the capture that locks it (under _state_lock).
-        self._auto_gain_arm: _AutoGainArm | None = None
-
-        # When True, programmatic value-range warnings (sub-0.1ms exposure,
-        # future similar setters) are silenced. Internal callers that sweep
-        # full ranges (camera characterization, dynamic-range tests) enter
-        # this via suppress_value_warnings(); the warnings exist for L1
-        # researchers who type microsecond values thinking ms.
-        self._suppress_value_warnings = False
-
-        # Frame validity instance -- ground-truth for "is this frame
-        # ready to score / save?" Phase 4d closes the cross-API loop
-        # from Phase 3 where motion.py / illumination.py referenced
-        # self._scope.frame_validity. Lumascope.__init__ wires up the
-        # motion-settle check after this slot is set.
-        # The frame-count source is read late, through this lambda: the
-        # composition root assigns _driver after this constructor runs, so
-        # binding the driver itself here would capture nothing.
-        self.frame_validity = FrameValidity(self._frames_delivered)
+        # Frame validity -- ground-truth for "is this frame ready to score /
+        # save?" The scope builds the one instance and hands it to the camera,
+        # which invalidates it on every write, and to the capture, which
+        # drains it.
+        self.frame_validity = frame_validity
         # The stream check's state (start_stream_check). The watch and its
         # bound are written only on the scheduler's thread, by _check_stream.
         self._stream_check_scheduler: Scheduler | None = None
         self._stream_check_handle: object | None = None
         self._stream_watch: StallWatch | None = None
         self._stream_watch_bound_s: float | None = None
-        # The delivered count when the exposure's bound last dropped: the
-        # longer bound holds until the frames in the pipeline then have come.
-        self._stream_bound_dropped_at: int | None = None
         self._stream_stall_reported = False
         # The delivered rate (_sample_delivery), written only on the
         # scheduler's thread: the last (frames, wire bytes, time) reading, and
@@ -677,47 +447,12 @@ class ImagingAPI:
         # thread sees one window's rate.
         self._delivery_reading: tuple[int, int, float] | None = None
         self._delivered_rate: tuple[DeliveredRate, float] | None = None
+        # Notified each time a rate is published, for wait_for_delivered_rate.
+        self._delivered_rate_published = threading.Condition()
 
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
-
-        # The scale bar's colour, set per frame by the live view from the
-        # active layer; whether the bar is drawn is the session's setting
-        # (``scale_bar.enabled``), read at each capture and held nowhere
-        # here. Written from the GUI thread and read from the capture and
-        # live-view threads, so every access outside this constructor goes
-        # through self._state_lock. None draws the default colour.
-        self._scale_bar_color: str | None = None
-
-        # Camera state cache -- the single store every public camera getter
-        # answers from. Updated when the camera connects, after every
-        # set_gain_db/set_exposure/etc. write-through, and by each getter's
-        # validated live read. Every entry is either a validated hardware
-        # reading or its seed below, and the seeds are the documented
-        # camera-absent defaults -- so a driver failure sentinel can never
-        # be cached or returned, and for every key except 'binning' the
-        # matching is_valid_* predicate rejects the seed, making "never
-        # successfully read" detectable from the value itself. gain_db
-        # seeds to -1.0 (not 0.0) because 0 dB is a legal gain and would
-        # read as hardware truth. 'binning' seeds to 1, which is also its
-        # absent default AND a legal factor: never-read and genuinely-1x1
-        # are indistinguishable by design -- both honestly answer 1.
-        self._camera_cache_lock = threading.Lock()
-        self._camera_cache = _no_camera_cache()
-        # Per-key write generation, bumped by every authoritative cache
-        # write (_commit_camera_writes). A validated live READ snapshots
-        # the generation before touching the driver and commits only if
-        # it is unchanged, so a read that was in flight while a setter
-        # landed can never overwrite the setter's newer truth with the
-        # pre-write hardware value.
-        self._camera_cache_write_gen: dict[str, int] = {}
-        # Per-key monotonic timestamp of the last WARNING about a failed
-        # camera read; failures inside the window log at debug instead,
-        # so a dead camera polled at frame rate warns once per window,
-        # not per frame.
-        self._camera_read_warn_ts: dict[str, float] = {}
-        self._populate_camera_cache()
 
     @property
     def _driver(self) -> Camera | None:
@@ -729,221 +464,15 @@ class ImagingAPI:
         """
         return self._scope._camera_driver
 
-    @property
-    def _binning_size(self) -> int:
-        """Last-known binning factor (cache-backed; no SDK read).
-
-        Per-frame consumers (scale-bar sizing, FOV math) read this instead
-        of get_binning_size() so the hot path never touches the SDK.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['binning']
-
-    # --- Private helpers (relocated from Lumascope) ---
-
-    def _frames_delivered(self) -> int:
-        """Frames the camera has delivered so far, for frame validity.
-
-        Zero with no driver attached: no frame has arrived, which is what
-        the number says. A write recorded against 0 is then satisfied by the
-        first frame that ever arrives, which is the correct reading of "the
-        camera had delivered nothing when this was written".
-        """
-        return self._driver.frames_delivered if self._driver else 0
-
-    def _load_camera_timing(self) -> None:
-        """Load per-camera timing config if available.
-
-        Looks for data/camera_timing/<model>.json and overrides
-        FrameValidity.SKIP_FRAMES with measured values.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        try:
-            import json
-            import os
-            import pathlib
-
-            model = self._scope.capabilities.camera_model
-            if not model:
-                return
-            safe_name = model.replace(' ', '_')
-            timing_dir = (
-                pathlib.Path(os.path.dirname(__file__)).parent.parent / 'data' / 'camera_timing'
-            )
-            timing_path = timing_dir / f'{safe_name}.json'
-            if not timing_path.exists():
-                return
-            with open(timing_path) as f:
-                config = json.load(f)
-            self.frame_validity.load_camera_timing(config)
-            logger.info(f'[SCOPE API ] Loaded camera timing config from {timing_path}')
-        except Exception as e:
-            logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
-
-    def _populate_camera_cache(self) -> None:
-        """Populate camera cache from hardware. Called at init and on reconnect.
-
-        One canonical read path: every key refreshes through the same
-        validated-read commit the public getters answer by, so a failed or
-        sentinel read never overwrites a cached last-known-good value,
-        one raising key cannot abort the rest of the round, and populate
-        cannot drift from the getters' validation rules. The direct
-        _live_validated_read calls cover the keys with no public getter
-        (sensor minimum, exposure/gain ceilings).
-        """
-        if not self._driver or not self._driver.active:
-            with self._camera_cache_lock:
-                self._camera_cache['active'] = False
-            return
-
-        try:
-            self.get_binning_size()
-            self.get_gain_db()
-            self.get_exposure_ms()
-            self._get_frame_size()
-            self._get_pixel_format()
-            self._live_validated_read(
-                'min_frame_size',
-                lambda driver: driver.get_min_frame_size(),
-                common_utils.is_valid_frame_size,
-                lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-            )
-            self._live_validated_read(
-                'max_exposure_ms',
-                lambda driver: driver.get_max_exposure(),
-                common_utils.is_valid_exposure_ms,
-                float,
-            )
-            self._live_validated_read(
-                'max_gain_db',
-                lambda driver: driver.get_max_gain(),
-                lambda v: isinstance(v, (int, float)) and v > 0,
-                float,
-            )
-            # Committed as read, None included, rather than through the
-            # validated read: an undeclared floor is an answer, not a failed
-            # read, and it must replace a previous camera's floor.
-            min_gain = self._driver.min_gain
-            min_exposure = self._driver.get_min_exposure()
-            self._commit_camera_writes(
-                {
-                    'min_gain_db': float(min_gain) if min_gain is not None else None,
-                    'min_exposure_ms': (
-                        float(min_exposure)
-                        if common_utils.is_valid_exposure_ms(min_exposure)
-                        else None
-                    ),
-                }
-            )
-            with self._camera_cache_lock:
-                self._camera_cache['active'] = True
-            logger.info('[SCOPE API ] Camera cache populated')
-        except Exception as e:
-            logger.warning(f'[SCOPE API ] Failed to populate camera cache: {e}')
-            with self._camera_cache_lock:
-                self._camera_cache['active'] = bool(self._driver and self._driver.active)
-
-    def _refresh_cache_from_hardware_after_auto(self) -> None:
-        """Resync gain + exposure cache to hardware after an auto cycle.
-
-        The auto-gain / auto-exposure SDK paths drive hardware values
-        directly without going through this layer's cache, so when the
-        auto cycle toggles off the cache may hold a stale pre-auto
-        value. Without this refresh, the cache-equality skip at
-        ``set_gain_db`` / ``set_exposure_ms`` short-circuits subsequent
-        setter calls and hardware silently stays at the converged auto
-        value -- the user-visible failure shape was a protocol's first
-        run capturing at an unintended exposure inherited from a
-        pre-scan live-mode AG cycle.
-
-        Soft-fails on hardware-read exceptions by clearing the cached
-        values to a sentinel so the next setter falls through (better
-        than a stale cached value silently passing the equality check).
-        """
-        if not self._driver or not self._driver.active:
-            return
-        try:
-            gain = self._driver.get_gain()
-            exp = self._driver.get_exposure_t()
-        except Exception as e:
-            self._commit_camera_writes({'gain_db': -1.0, 'exposure_ms': -1.0})
-            logger.warning(
-                f'[SCOPE API ] cache refresh after auto-off failed: {e}; '
-                f'cache invalidated to force next setter through.'
-            )
-            return
-        # A non-physical reading (the drivers' negative failed-read
-        # sentinel) routes to the SAME -1.0 invalidation the exception
-        # path above writes -- NOT keep-prior: the pre-auto cached value
-        # is known-stale here (hardware moved during the auto cycle), and
-        # keeping it would let the setter equality check short-circuit.
-        # Committed as an authoritative write (generation bump): a stale
-        # getter read racing this resync must not resurrect the pre-auto
-        # value.
-        resync = {}
-        if gain is not None:
-            resync['gain_db'] = float(gain) if common_utils.is_valid_gain_db(gain) else -1.0
-        if exp is not None:
-            resync['exposure_ms'] = float(exp) if common_utils.is_valid_exposure_ms(exp) else -1.0
-        if resync:
-            self._commit_camera_writes(resync)
-        # Diagnostic: record where hardware auto-gain/exposure actually
-        # converged when the cycle ended. A converged gain that stayed near
-        # the floor on a dim scene means the settle window ended before AG
-        # ramped (under-converged -> dark capture); a gain at the ceiling
-        # means the scene needs more light, not more settle frames.
-        logger.debug(
-            f'[AG CONVERGE] auto cycle ended; camera converged to gain={gain} dB exposure={exp} ms'
-        )
-
-    def _invalidate_camera_cache(self) -> None:
-        """Return the camera cache to the no-camera state, on disconnect.
-
-        Every key, not only ``'active'``: a cached read that went on
-        describing the departed camera once decided a write -- a frame edit
-        at the old size compared equal to the stale cache, skipped the
-        camera and was stored with no camera behind it. Committed as an
-        authoritative write, so a read in flight cannot re-commit a value of
-        the camera that left.
-        """
-        self._commit_camera_writes(_no_camera_cache())
-
-    def _fire_camera_listeners(self, param: str, value: float) -> None:
-        """Notify all camera listeners of a setting change."""
-        with self._camera_listeners_lock:
-            listeners = list(self._camera_listeners)
-        for fn in listeners:
-            try:
-                fn(param, value)
-            except Exception as ex:
-                # No caller waits on a listener, so its fault stops here; the
-                # other listeners are still told.
-                notifications.report_outcome(ex, solicited=False, category='Camera')
-
-    def _get_latest_chunks(self) -> dict | None:
-        """Per-frame chunk metadata for the most recent successful grab.
-
-        None when no camera is attached or the camera stores frames without
-        chunks (IDS, FX2, the simulator); frame_validity then falls back to
-        skip-frames calibration.
-        """
-        if self._driver is None:
-            return None
-        handler = getattr(self._driver, 'cam_image_handler', None)
-        if handler is None:
-            return None
-        return handler.get_last_chunks()
-
-    def _chunk_target_mismatch(self) -> str | None:
-        """Name the first chunk-validatable source whose latest frame chunk
+    def _chunk_target_mismatch(self, chunks: Mapping[str, int | float] | None) -> str | None:
+        """Name the first chunk-validatable source whose value in ``chunks``
         does not match its recorded target, or None if all match.
 
-        None also covers every can't-verify case (no chunk support, chunk
-        key absent, no target recorded) -- absence of evidence is not a
-        mismatch, and cameras without chunks rely on skip-count settling.
+        ``chunks`` are the frame's own, the frame being judged. None also
+        covers every can't-verify case (no chunk support, chunk key absent,
+        no target recorded) -- absence of evidence is not a mismatch, and
+        cameras without chunks rely on skip-count settling.
         """
-        chunks = self._get_latest_chunks()
         if not chunks:
             return None
         fv = self.frame_validity
@@ -957,357 +486,6 @@ class ImagingAPI:
             if not fv.chunk_match(source, value):
                 return source
         return None
-
-    def _camera_write(
-        self,
-        write_fn: Callable[[], object],
-        *,
-        refusal: Callable[[], CameraSettingRejected] | None,
-        invalidates: tuple[str, ...] = (),
-        force_invalidate: tuple[str, ...] = (),
-        targets: tuple[tuple[str, float | None], ...] = (),
-        force_clear: tuple[str, ...] = (),
-        cache_update: dict[str, object] | None = None,
-        target_from_result: tuple[str, ...] = (),
-    ) -> object:
-        """Single sanctioned path for a camera-state write and its validity
-        consequence. Every camera setter routes its hardware write through here
-        so the write and the frame-validity invalidation it requires are
-        declared together -- a new setter cannot write a camera node and forget
-        to invalidate.
-
-        Order is load-bearing: the write happens first, then ``force_invalidate``
-        fires unconditionally (the always-mark-RED contract for the manual value
-        setters, so a hardware-rejected write still expires validity rather than
-        leaving a stale frame acceptable), then the applied-only block runs. A
-        write is "applied" when the driver did not return ``False`` -- an explicit
-        ``False`` is the only rejection signal; a ``None`` return (drivers without
-        a confirmation signal) and any truthy result both count as applied.
-        A write that raises is refused: the unconditional block still fires,
-        and ``refusal()`` is raised with the driver's exception as its cause,
-        so no setter lets a driver's own exception out of the API.
-
-        Args:
-            write_fn: Zero-arg callable performing the driver write (including
-                any lock it needs) and returning the driver's result.
-            refusal: Builds the ``CameraSettingRejected`` this write raises
-                when the driver raises, in the words of the setting's
-                refusal. Required, so a new setter states it; ``None`` only
-                for a write that sends nothing to the camera.
-            invalidates: Sources to invalidate only when the write was applied.
-            force_invalidate: Sources to invalidate unconditionally, regardless
-                of the result.
-            targets: ``(source, value)`` pairs passed to ``set_target`` when the
-                write was applied (``value`` None clears the target).
-            force_clear: Sources whose chunk target is cleared (set to None)
-                unconditionally -- the mode/one-shot setters drop their manual
-                target whether or not the driver reported the write applied, so
-                chunk-match falls back to skip-frames settling (target
-                maintenance stays outside the applied gate). Clear-only by
-                construction: an unconditional write can only ever drop a
-                target, never record one for a possibly-rejected value.
-            cache_update: Keys to write into the ``_camera_cache`` snapshot when
-                the write was applied.
-            target_from_result: Sources whose chunk target is taken from the
-                driver's own return value instead of from ``targets``. A driver
-                may clamp, snap or quantize the request before the hardware
-                sees it; the frame then carries chunk data describing what was
-                APPLIED, so a target recorded from the request can never match
-                and every subsequent frame is rejected. Declaring the target
-                here -- rather than computing it at the call site -- is what
-                keeps a transforming setter from silently reintroducing that
-                mismatch. A driver returning a non-numeric result (applied, but
-                unable to report a value) falls back to the ``targets`` entry
-                for that source.
-
-        Returns:
-            The driver write's result, so the caller can do its own rejection
-            handling / listener fire.
-        """
-        try:
-            result = write_fn()
-        except Exception as ex:
-            if refusal is None:
-                raise
-            raise refusal() from ex
-        finally:
-            for source in force_invalidate:
-                self.frame_validity.invalidate(source)
-            for source in force_clear:
-                self.frame_validity.set_target(source, None)
-        applied = result is not False
-        if applied:
-            for source in invalidates:
-                self.frame_validity.invalidate(source)
-            for source, value in targets:
-                if (
-                    source in target_from_result
-                    and isinstance(result, (int, float))
-                    and not isinstance(result, bool)
-                ):
-                    # bool is an int subclass, so a driver reporting a bare
-                    # True would otherwise stamp a 1.0 target and reject
-                    # every frame -- the failure this parameter exists to
-                    # prevent, reintroduced by the check meant to prevent it.
-                    value = float(result)
-                self.frame_validity.set_target(source, value)
-            if cache_update:
-                self._commit_camera_writes(cache_update)
-        return result
-
-    # Failed camera reads inside this window after a WARNING log at debug;
-    # mirrors the notification framework's short non-fatal dedup window so
-    # a dead camera polled at frame rate warns once per window, not per
-    # frame, while the first failure of a streak is always visible in the
-    # main log.
-    _READ_FAILURE_WARN_INTERVAL_S = 5.0
-
-    def _commit_camera_writes(self, updates: dict) -> None:
-        """Cache write-through for authoritative values.
-
-        Authoritative means the value did not come from a read: a driver
-        write that was applied, or a deliberate invalidation. Bumps each
-        key's write generation so a validated live read that was already
-        in flight when this landed cannot commit its now-stale value over
-        the newer truth.
-        """
-        with self._camera_cache_lock:
-            self._camera_cache.update(updates)
-            for key in updates:
-                self._camera_cache_write_gen[key] = self._camera_cache_write_gen.get(key, 0) + 1
-
-    def _log_camera_read_failure(self, key: str, cause: object) -> None:
-        """Surface a failed camera read without per-frame log spam.
-
-        The read failures this layer absorbs (getters answer
-        last-known-good) must still be visible in the main log, or a
-        camera whose every read fails looks healthy in a tech-support
-        bundle. First failure per key per window logs WARNING; repeats
-        within the window log debug.
-        """
-        now = time.monotonic()
-        with self._camera_cache_lock:
-            last_warn = self._camera_read_warn_ts.get(key, 0.0)
-            warn = (now - last_warn) >= self._READ_FAILURE_WARN_INTERVAL_S
-            if warn:
-                self._camera_read_warn_ts[key] = now
-        if warn:
-            logger.warning(
-                f'[SCOPE API ] camera {key} read failed ({cause}); '
-                f'answering last-known-good until a read succeeds'
-            )
-        else:
-            _api_log.debug(f'camera {key} read failed: {cause}')
-
-    @api
-    @property
-    def camera_removed(self) -> bool:
-        """Whether this scope's camera was declared removed by its driver.
-
-        The driver's removal latch, set once by whatever saw the camera go
-        (an SDK removal callback, a bus probe, the grab loop) and cleared
-        only by the driver's next connect. Narrower than ``Lumascope.camera_connected``, which also
-        reads False when a connection query merely failed. False when the
-        scope has no camera at all -- nothing was removed.
-
-        Returns:
-            bool: True once the camera has been declared removed.
-        """
-        return self._driver is not None and self._driver.is_device_removed()
-
-    # --- Setters ---
-    def _removed_during_write(self, setting: str, absent_label: str, requested: float) -> bool:
-        """Whether a write that reported refused had in fact lost its camera.
-
-        ``_mark_disconnected()`` deliberately leaves ``_active`` attached --
-        the SDK handle is released later, off this thread, so the C++
-        destructor cannot fire on an SDK callback thread -- so the driver's
-        own inactive branch never fires for a removed device, and a write
-        that failed because the hardware vanished arrives at the value
-        setters looking exactly like a refusal. Reporting it as one names
-        the wrong cause: it tells the user to check that their value is
-        within the camera limits, and raises ``CameraSettingRejected`` at
-        the public setter for what the missing-hardware contract calls a
-        quiet no-op. True here means the caller answers "not confirmed"
-        instead, which is what a vanished camera actually leaves behind.
-        """
-        if not self.camera_removed:
-            return False
-        logger.error(
-            f'[SCOPE API ] {setting}: camera removed during the write; '
-            f'{requested!r} was not applied'
-        )
-        self._notify_camera_absent(absent_label)
-        return True
-
-    def _set_gain_db_impl(self, gain_db: float) -> float | bool | None:
-        """Set the camera gain, and answer with the gain now in effect.
-
-        Deliberately does NOT raise on a refusal, unlike the public
-        ``set_gain_db`` that wraps it; a driver that raises from the write
-        raises ``CameraSettingRejected`` here, chained (``_camera_write``).
-        This body is the composition primitive the auto-gain lock, the
-        exposure ceiling, the camera restore and the layer apply build on,
-        and each of them carries on at the gain the camera holds and answers
-        for the refusal in its own outcome. Nothing
-        is logged or shown here: a refusal is reported once, by whoever ends
-        its flight.
-
-        Args:
-            gain_db: Gain value in dB.
-
-        Returns:
-            float | bool | None: The gain in dB now in effect -- the driver's
-                own answer when it gives one, since a body that clamps or
-                quantizes applies something other than the request, else the
-                request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active or the camera was removed during the
-                write -- neither is a refusal.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        # The validity invalidate must never be gated by the software cache:
-        # a cache desynced from hardware once short-circuited it, so a frame at
-        # a stale gain was captured as valid. force_invalidate marks 'gain' RED
-        # on every write (even a rejected one); the value the driver says it
-        # applied is recorded as the chunk target and cached only when the
-        # write was not rejected. The driver compares against live hardware and
-        # skips a truly redundant SDK write; the cache-equality check here gates
-        # only the UI listener + info log, where a missed redundant update is
-        # harmless.
-        prior = self.gain_db_cached
-
-        def _write_gain():
-            with self._cam_lock:
-                return self._driver.gain(gain_db)
-
-        ok = self._camera_write(
-            _write_gain,
-            refusal=lambda: _value_rejection('gain_db', gain_db),
-            force_invalidate=('gain',),
-            targets=(('gain', float(gain_db)),),
-            target_from_result=('gain',),
-        )
-        if ok is False:
-            if self._removed_during_write('gain_db', 'gain', float(gain_db)):
-                return None
-            # Frames keep streaming at the OLD gain, and IDS has no chunk
-            # backstop to catch a mismatch downstream, so the request is not
-            # recorded as truth.
-            return False
-        applied = _value_in_effect(ok, float(gain_db))
-        self._commit_camera_writes({'gain_db': applied})
-        if abs(applied - prior) >= 0.001:
-            _api_log.info(f'set_gain_db {applied}dB')
-            self._fire_camera_listeners('gain', applied)
-        return applied
-
-    def _set_exposure_ms_impl(self, exposure_ms: float) -> float | bool | None:
-        """Set the camera exposure time, and answer with the exposure now in
-        effect.
-
-        Non-raising and silent for the same reason as ``_set_gain_db_impl``.
-
-        Args:
-            exposure_ms: Exposure time in milliseconds.
-
-        Returns:
-            float | bool | None: The exposure in milliseconds now in effect --
-                converted from the driver's microseconds when it reports
-                them, since a body that clamps to its floor or quantizes onto
-                a row grid applies something other than the request, else the
-                request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active or the camera was removed during the
-                write -- neither is a refusal.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        # The validity invalidate must never be gated by the software cache:
-        # a cache desynced from hardware once short-circuited it, capturing a
-        # frame at a stale exposure as valid. Always invalidate + drive the
-        # setter; the cache-equality check gates only the UI listener + log.
-        prior = self.exposure_ms_cached
-        # Sanity-check threshold: 5 microseconds. Pylon physical
-        # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
-        # below 5 us is impossible on any sensor we ship with and
-        # indicates a unit-confusion bug (e.g. seconds-treated-as-ms).
-        # Bright-field captures legitimately use 0.03 ms (30 us) on
-        # bright samples, so the threshold sits below that range.
-        if exposure_ms < 0.005 and not self._suppress_value_warnings:
-            import traceback
-
-            _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(
-                f'[SCOPE API ] set_exposure_ms({exposure_ms}ms) is below '
-                f'any Basler sensor physical minimum -- camera '
-                f'will clamp the request. Confirm the value is '
-                f'in milliseconds, not seconds or microseconds.\n'
-                f'Call stack:\n{_caller}'
-            )
-
-        # Record the applied exposure for chunk-match. ChunkExposureTime is
-        # microseconds; the API takes milliseconds. Convert at the seam so the
-        # chunk value and frame_validity's tolerance share units. force_invalidate
-        # marks 'exposure' RED on every write; target + cache only when the write
-        # was not rejected.
-        def _write_exposure():
-            with self._cam_lock:
-                return self._driver.exposure_t(exposure_ms)
-
-        ok = self._camera_write(
-            _write_exposure,
-            refusal=lambda: _value_rejection('exposure_ms', exposure_ms),
-            force_invalidate=('exposure',),
-            targets=(('exposure', float(exposure_ms) * 1000.0),),
-            target_from_result=('exposure',),
-        )
-        if ok is False:
-            if self._removed_during_write('exposure_ms', 'exposure', float(exposure_ms)):
-                return None
-            # Frames keep streaming at the OLD exposure, and IDS has no chunk
-            # backstop to catch a mismatch downstream, so the request is not
-            # recorded as truth.
-            return False
-        applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
-        self._commit_camera_writes({'exposure_ms': applied})
-        if abs(applied - prior) >= 0.001:
-            _api_log.info(f'set_exposure {applied}ms')
-            self._fire_camera_listeners('exposure', applied)
-        return applied
-
-    # --- Public dispatch ---
-    # These three are what every caller reaches: an SDK script, a REST
-    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
-    # which call them under their taking so the lane admits their work while
-    # they hold the scope. From a task already on the lane's worker the lane
-    # runs the body inline.
-
-    # How long a dispatched camera write waits on the camera worker before
-    # giving up. A gain or exposure write is a short SDK call behind at most
-    # a few queued camera commands, so this is a liveness bound rather than
-    # a budget -- if it ever expires, the worker is wedged and the caller
-    # should hear about it instead of blocking forever. Deliberately not a
-    # public parameter: an external caller has no way to know what value
-    # would be right.
-    _CAMERA_WRITE_TIMEOUT_S = 5.0
-
-    # A command whose body may stop and restart the grab is slower than a
-    # value write: a grab restart on a Pylon body has been measured at 11 s
-    # (frame size, pixel format, and on Pylon the conversion-gain mode and
-    # line-noise reduction too), and the dispatcher's wait bounds QUEUE TIME
-    # plus execution -- a restart queued behind another one must not time
-    # out while both are healthy. Such a command takes this bound once per
-    # restart it may make. The bound stays a liveness verdict, not a
-    # budget: `fut.result` ABANDONS on timeout without cancelling, so a
-    # timed-out write still lands later and the caller's view of the camera
-    # diverges -- which is why this must be sized so a healthy write can
-    # never hit it.
-    _CAMERA_GEOMETRY_TIMEOUT_S = 30.0
-
-    # A restore may restart the grab three times (binning, frame size, pixel
-    # format) and then writes the black level, gain, exposure and the
-    # auto-gain arm.
-    _CAMERA_RESTORE_TIMEOUT_S = 3 * _CAMERA_GEOMETRY_TIMEOUT_S + 4 * _CAMERA_WRITE_TIMEOUT_S
 
     # The capture bound is wider, and it is a BASE: a dispatched capture
     # legitimately spends time draining stale frames before it returns, and
@@ -1331,1212 +509,6 @@ class ImagingAPI:
     _CAPTURE_DEADLINE_FLOOR_S = 3.0
     _CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S = 0.15
     _CAPTURE_DEADLINE_MARGIN = 1.5
-
-    def _dispatch_camera(
-        self,
-        impl,
-        name,
-        args=(),
-        kwargs=None,
-        *,
-        timeout_s,
-        override=False,
-        falsifies_recording=False,
-        satisfied_when_absent=_REFUSED_WHEN_ABSENT,
-    ):
-        """Run one camera command for an external caller, on the right thread.
-
-        The body runs on the scope's camera lane, serialized against every
-        other camera-bus operation, and this blocks until it has. A lane that
-        will not accept work tells the caller so, because the alternative is
-        `put` returning None and the command disappearing with nothing raised
-        and nothing logged.
-
-        The lane's ``call`` decides a refusal and raises it to the caller:
-        the lane is closed, or a run, a diagnostic or a home holds the scope and this
-        call is not made under its taking, or ``falsifies_recording`` is set
-        and a recording holds the scope. Once admitted, the task asks for the
-        camera before the body runs (``_asking_for_the_camera``), so after
-        ``disconnect()`` the lane's own ``scope_disconnected`` is what the
-        caller hears.
-
-        ``override`` admits the task whatever holds the scope, on the key the
-        session registered: only for a read that must touch the camera from
-        its lane's thread but changes nothing a holder depends on.
-
-        ``satisfied_when_absent`` is what the command answers with no camera
-        connected: an off whose end state already holds, or a read with no
-        camera to describe. Left out, the command is refused naming the
-        camera.
-        """
-        kwargs = kwargs or {}
-        key = self._scope._camera_override_key if override else None
-        task = IOTask(
-            action=self._asking_for_the_camera(impl, name, satisfied_when_absent),
-            args=args,
-            kwargs=kwargs,
-            falsifies_recording=falsifies_recording,
-        )
-        return self._scope._camera_executor.call(task, name, timeout_s, override=key)
-
-    def _submit_camera(self, impl, name, args=(), *, waiter):
-        """Put one camera command on the camera lane without waiting for it.
-
-        The command is admitted or refused on the calling thread, as
-        ``_dispatch_camera`` admits it, so a refusal raises here; its outcome
-        settles ``waiter``, a Future the caller made and marked running. With
-        no camera connected the outcome is the refusal naming the camera.
-
-        Raises:
-            HardwareCommandRefusedError: the lane is closed, or a run, a
-                diagnostic or a home holds the scope and this call is not made under
-                its taking.
-        """
-        task = IOTask(
-            action=self._asking_for_the_camera(impl, name, _REFUSED_WHEN_ABSENT), args=args
-        )
-        self._scope._camera_executor.submit(task, name, waiter=waiter)
-
-    def _asking_for_the_camera(self, impl, member: str, satisfied_when_absent):
-        """``impl``, run only once the camera is asked for, on the lane.
-
-        The camera's one presence question for an outside command, asked
-        after the lane admits it and before the body writes: with no camera
-        connected the command is refused naming it, or answers
-        ``satisfied_when_absent`` when its dispatch names one. Bring-up's
-        direct ``_impl`` calls do not pass through here and ask for
-        themselves. A body handed ``_DECIDED_IN_BODY`` is run as it is.
-        """
-        if satisfied_when_absent is _DECIDED_IN_BODY:
-            return impl
-
-        @functools.wraps(impl)
-        def ask_then_run(*args, **kwargs):
-            if not self._scope.camera_connected:
-                if satisfied_when_absent is _REFUSED_WHEN_ABSENT:
-                    raise _camera_not_connected(member)
-                return satisfied_when_absent
-            return impl(*args, **kwargs)
-
-        return ask_then_run
-
-    def refuse_camera_not_connected(self, member: str) -> None:
-        """Refuse when no camera is connected.
-
-        Asked by every outside camera command on the camera lane before it
-        writes. Offered alone to a caller that must refuse before work of its
-        own starts: Go To Step asks it before moving, and a frame listener
-        before it is registered. Off the lane after ``disconnect()`` it
-        answers as a command on the lane would, ``scope_disconnected``.
-
-        A consult seam, not part of the L2 API surface: an L2 caller's camera
-        command asks it itself.
-
-        Raises:
-            HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'``, naming the camera.
-                Nothing was sent.
-        """
-        if self._scope._camera_executor.pending_shutdown:
-            raise HardwareCommandRefusedError('scope_disconnected', member)
-        if not self._scope.camera_connected:
-            raise _camera_not_connected(member)
-
-    def _refuse_out_of_range(
-        self,
-        setting: str,
-        requested: float,
-        minimum: float | None,
-        maximum: float | None,
-        *,
-        noun: str,
-        unit: str,
-    ) -> None:
-        """Refuse a request outside the camera's declared range.
-
-        Checked on the public setters, from the cached limits, so every
-        camera answers alike: a body that would refuse the value and one that
-        would silently clamp it both never see it. The impls check no range;
-        their callers (the layer apply, the auto-gain lock, the restore)
-        write values that are already the camera's own or capped to it. An
-        undeclared end is not checked.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the request is not a
-                finite number, which no range admits.
-            CameraSettingOutOfRangeError: The request is outside the range.
-        """
-        refuse_unless_finite_number(requested, setting)
-        value = float(requested)
-        if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
-            raise CameraSettingOutOfRangeError(
-                setting,
-                value,
-                minimum,
-                maximum,
-                title='Camera Setting Out of Range',
-                message=(
-                    f"{noun.capitalize()} {value:g} {unit} is outside this camera's range, "
-                    f'{camera_range_words(minimum, maximum, unit)}. The {noun} was not changed.'
-                ),
-            )
-
-    @api
-    def set_gain_db(self, gain_db: float) -> float | None:
-        """Set the camera gain, wait for it, and answer with the gain in effect.
-
-        See ``_set_gain_db_impl`` for the value contract; this adds the
-        dispatch described on ``_dispatch_camera`` and the raise below.
-
-        The raise is here rather than in the impl because this is the L2
-        surface -- an SDK, headless or REST caller -- where the refusal ends
-        its flight at the caller. Success is observed by the returned value; a
-        refusal cannot be mistaken for one by a caller that forgets to check a
-        return code.
-
-        Returns:
-            float | None: The gain in dB now in effect, which differs from the
-                request when the camera snapped it. ``None`` when the camera
-                was removed during the write.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the gain is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The gain is outside the range the
-                camera declares; nothing was sent to it.
-            CameraSettingRejected: A live driver refused the gain or raised
-                from the write (chained). It carries the words its reporter
-                shows; nothing is shown here.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-        """
-        self._refuse_out_of_range(
-            'gain_db',
-            gain_db,
-            self.min_gain_db_cached,
-            self.max_gain_db_cached,
-            noun='gain',
-            unit='dB',
-        )
-        applied = self._dispatch_camera(
-            self._set_gain_db_impl,
-            'set_gain_db',
-            args=(gain_db,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-        if applied is False:
-            raise _value_rejection('gain_db', gain_db)
-        # Passed through, not swallowed: every dispatcher in this class returns
-        # what its impl returned, and a test pins that contract across all of
-        # them. The raise is added to that, not substituted for it.
-        return applied
-
-    @api
-    def set_exposure_ms(self, exposure_ms: float) -> float | None:
-        """Set the camera exposure time, wait for it, and answer with the
-        exposure in effect.
-
-        See ``_set_exposure_ms_impl`` for the value contract and the
-        unit-confusion warning it carries. The raise is placed here, on the
-        L2 surface, for the reason given on ``set_gain_db``.
-
-        Returns:
-            float | None: The exposure in milliseconds now in effect, which
-                differs from the request when the camera clamped it to its
-                floor or quantized it. ``None`` when the camera was removed
-                during the write.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The exposure is outside the range
-                the camera declares; nothing was sent to it.
-            CameraSettingRejected: A live driver refused the exposure or
-                raised from the write (chained). It carries the words its
-                reporter shows; nothing is shown here.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-        """
-        self._refuse_out_of_range(
-            'exposure_ms',
-            exposure_ms,
-            self.min_exposure_ms_cached,
-            self.max_exposure_ms_cached,
-            noun='exposure',
-            unit='ms',
-        )
-        applied = self._dispatch_camera(
-            self._set_exposure_ms_impl,
-            'set_exposure_ms',
-            args=(exposure_ms,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-        if applied is False:
-            raise _value_rejection('exposure_ms', exposure_ms)
-        # See set_gain_db: the dispatcher's pass-through contract holds.
-        return applied
-
-    @api
-    def set_auto_gain(
-        self, state: bool, settings: dict, *, resume_after_capture: bool = True
-    ) -> bool | None:
-        """Enable or disable automatic gain adjustment, and wait for it.
-
-        See ``_set_auto_gain_impl`` for the value contract; this adds the
-        dispatch described on ``_dispatch_camera`` and the raise below.
-
-        With no camera connected, turning auto-gain off is satisfied: True,
-        as a camera already in manual answers.
-
-        Raises:
-            CameraSettingRejected: The camera refused the change. Nothing
-                was recorded, and nothing is shown here.
-            CameraSettingUnsupportedError: Turning auto-gain on for a camera
-                without it.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, for turning auto-gain on with no camera connected.
-        """
-        result = self._dispatch_camera(
-            self._set_auto_gain_impl,
-            'set_auto_gain',
-            args=(state, settings),
-            kwargs={'resume_after_capture': resume_after_capture},
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
-        )
-        if result is False:
-            raise _mode_rejection('auto_gain', state, 'auto-gain')
-        return result
-
-    def _set_auto_gain_impl(
-        self, state: bool, settings: dict, *, resume_after_capture: bool = True
-    ) -> bool | None:
-        """Enable or disable automatic gain adjustment.
-
-        Non-raising on a refusal, as the value impls are (a raising write
-        raises ``CameraSettingRejected``); a refusal is answered, not
-        reported, and records no arm: the lock would otherwise write back
-        values from a loop that never ran.
-
-        Args:
-            state: True to enable auto gain, False to disable.
-            settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db',
-                and optionally 'max_exposure_ms' / 'min_exposure_ms' (the
-                per-channel-class bounds of the exposure AG/AE may settle
-                in; the caller supplies them since it knows the layer).
-            resume_after_capture: with ``state=True``, whether a capture
-                that locks this arm re-arms it afterwards (live view) or
-                leaves the camera at the locked values (a protocol step).
-
-        Returns:
-            bool | None: The driver's answer (see ``Camera.gain`` for the
-                three cases); ``None`` when no camera is active. ``True``,
-                with nothing written, for turning off a mode a camera
-                without hardware auto-gain never had.
-
-        Raises:
-            CameraSettingUnsupportedError: Turning auto-gain on for a camera
-                without it. Nothing reaches the camera.
-        """
-
-        if not self._driver or not self._driver.active:
-            return None
-        if not self._camera_has_auto_gain():
-            # Such a camera is already manual, so off is its state rather
-            # than a write: no validity invalidation, no target clear, no
-            # cache resync. Its driver answers no auto-mode call truthfully,
-            # so it is never asked.
-            if state:
-                raise _absent_mode_refusal(
-                    'auto_gain',
-                    state,
-                    'automatic gain',
-                    offered=(False,),
-                    consequence=_AUTO_MODE_STAYS,
-                )
-            return True
-
-        def _write_auto_gain():
-            return self._driver.auto_gain(
-                state,
-                target_brightness=settings['target_brightness'],
-                min_gain_db=settings['min_gain_db'],
-                max_gain_db=settings['max_gain_db'],
-                ae_max_exposure_ms=settings.get('max_exposure_ms'),
-            )
-
-        # Auto-gain dynamically adjusts the value, so clear the manual gain
-        # target (chunk-match falls back to skip-frames calibration). Arming
-        # hardware continuous AG needs the camera several frames to settle
-        # against the lit scene, so invalidate 'auto_gain' to hold capture for
-        # the settle count. The mode flip leaves the gain value node
-        # unchanged, so these are forced, not gated on a value delta.
-        arm_settle = state
-        if arm_settle:
-            self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
-        result = self._camera_write(
-            _write_auto_gain,
-            refusal=lambda: _mode_rejection('auto_gain', state, 'auto-gain'),
-            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
-            force_clear=('gain',),
-        )
-        if result is False:
-            return False
-        with self._state_lock:
-            self._auto_gain_arm = (
-                _AutoGainArm(dict(settings), resume_after_capture) if arm_settle else None
-            )
-        # Hardware-truth wins over cache after the auto cycle ends.
-        if not state:
-            self._refresh_cache_from_hardware_after_auto()
-        return result
-
-    @api
-    def lock_auto_gain(self) -> AutoGainLock:
-        """Lock a standing continuous auto-gain arm and return the result.
-
-        See ``_lock_auto_gain_impl`` for the contract; this adds only the
-        dispatch described on ``_dispatch_camera``. A caller leaving
-        auto-gain stores ``stored_exposure_ms`` / ``gain_db`` as the manual
-        setting; when no arm stands the result's ``state`` is None and
-        nothing was written. With no camera connected no arm can stand, and
-        that is the answer.
-        """
-        return self._dispatch_camera(
-            self._lock_auto_gain_impl,
-            'lock_auto_gain',
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=AutoGainLock(state=None),
-        )
-
-    def _lock_auto_gain_impl(self) -> AutoGainLock:
-        """Turn a standing continuous auto-gain arm into locked manual values.
-
-        The camera's auto loop chose an exposure and gain the caller never
-        requested, so the capture gate's recorded targets are stale. The
-        lock writes the achieved values back as manual values through the
-        ordinary setters, which re-targets the gate; the next frame must
-        then prove them like any manual setting. The achieved values come
-        from the last stored frame's chunks when the camera has them (the
-        same node and unit the gate compares), else from the cache the
-        disarm just resynced from hardware.
-
-        Returns an AutoGainLock; ``state`` is None when no arm was
-        recorded, and nothing was written.
-        """
-        with self._state_lock:
-            arm, self._auto_gain_arm = self._auto_gain_arm, None
-        if arm is None:
-            return AutoGainLock(state=None)
-        settings = arm.settings
-        floor = settings.get('min_exposure_ms') or None
-        ceiling = settings.get('max_exposure_ms') or None
-        if self._set_auto_gain_impl(False, settings) is False:
-            self._report_refused_write(_mode_rejection('auto_gain', False, 'auto-gain'))
-        chunks = self._get_latest_chunks() or {}
-        exp_us = chunks.get('ExposureTime')
-        gain = chunks.get('Gain')
-        if isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
-            exp_ms: object = exp_us / 1000.0
-        else:
-            exp_ms = self.exposure_ms_cached
-            gain = self.gain_db_cached
-        if not (common_utils.is_valid_exposure_ms(exp_ms) and common_utils.is_valid_gain_db(gain)):
-            # No usable achieved value: drop the stale exposure target too
-            # (the disarm dropped the gain target) so the capture proceeds
-            # without an exposure/gain gate rather than rejecting forever.
-            self._camera_write(lambda: None, refusal=None, force_clear=('exposure',))
-            logger.warning(
-                '[AG CONVERGE] locked: state=FAILED -- the camera reported no '
-                f'usable achieved exposure/gain (exposure={exp_ms} gain={gain}); '
-                'the capture proceeds ungated on exposure and gain'
-            )
-            lock = AutoGainLock(
-                AutoGainConvergence.FAILED,
-                None,
-                None,
-                floor,
-                ceiling,
-                arm.resume_after_capture,
-                settings,
-            )
-            self._notify_auto_gain_outcome(lock)
-            return lock
-        exp_ms = float(exp_ms)
-        gain = float(gain)
-        # The write-back pins the values auto-gain just reached, which the
-        # camera already holds, so a refused write-back leaves the lock's
-        # state true; the refusal itself is reported.
-        if self._set_exposure_ms_impl(exp_ms) is False:
-            self._report_refused_write(_value_rejection('exposure_ms', exp_ms))
-        if self._set_gain_db_impl(gain) is False:
-            self._report_refused_write(_value_rejection('gain_db', gain))
-        if ceiling is not None and exp_ms >= ceiling * 0.99:
-            state = AutoGainConvergence.MAXED
-        elif floor is not None and exp_ms <= floor:
-            state = AutoGainConvergence.AT_MINIMUM
-        else:
-            state = AutoGainConvergence.CONVERGED
-        line = (
-            f'[AG CONVERGE] locked: state={state.value} exposure={exp_ms:.3f} ms '
-            f'gain={gain:.2f} dB (class floor={floor} ms ceiling={ceiling} ms)'
-        )
-        # All four states at info: a converged lock logged only at debug left
-        # no trace in a customer bundle of what the camera settled at.
-        logger.info(line)
-        lock = AutoGainLock(
-            state,
-            exp_ms,
-            gain,
-            floor,
-            ceiling,
-            arm.resume_after_capture,
-            settings,
-            stored_exposure_ms=stored_exposure_after_lock(exp_ms, floor),
-        )
-        self._notify_auto_gain_outcome(lock)
-        return lock
-
-    def _notify_auto_gain_outcome(self, lock: AutoGainLock) -> None:
-        """Tell an attended user what the lock found; a protocol run is
-        unattended and gets the log line only.
-
-        A live-view arm (``resume_after_capture``) is the attended case:
-        the user toggled auto-gain off, took a manual capture, or started a
-        manual autofocus. A protocol step's arm is not, and during a run
-        only a fatal, run-aborting error may reach the screen. The limit
-        states are information -- the setting keeps the class floor or
-        ceiling and cannot show the raw value -- and a lock that found
-        nothing usable is an error, because the frame was taken without an
-        exposure check.
-        """
-        if not lock.resume_after_capture:
-            return
-        if lock.state is AutoGainConvergence.MAXED:
-            outcome = ExposureAtMaximumNotice(lock.ceiling_ms)
-        elif lock.state is AutoGainConvergence.AT_MINIMUM:
-            outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.floor_ms)
-        elif lock.state is AutoGainConvergence.FAILED:
-            outcome = AutoGainNotSettledError()
-        else:
-            return
-        notifications.report_outcome(outcome, solicited=False, category='Auto-gain')
-
-    def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: object) -> None:
-        """Bring the exposure inside the auto loop's range before enabling it.
-
-        The loop's upper bound is the class ceiling, but writing the bound
-        does not move an exposure already above it: the camera then leaves
-        the exposure where it is and adjusts gain only, the lock reads the
-        pinned value, and the stored setting clips it to the slider -- the
-        live view halves in brightness at toggle-off. Clamping through the
-        ordinary setter re-targets the gate to the ceiling as well, so the
-        next frame proves it. The cache is a setter's write or a hardware
-        resync at every arm (both arming callers write the exposure just
-        before; every disarm resyncs), so the sentinel guard is the only
-        skip.
-        """
-        if not isinstance(ceiling_ms, (int, float)) or ceiling_ms <= 0:
-            return
-        current_ms = self.exposure_ms_cached
-        if not common_utils.is_valid_exposure_ms(current_ms) or current_ms <= ceiling_ms:
-            return
-        logger.info(
-            f'[AG ARM] exposure {current_ms:.3f} ms above the class ceiling '
-            f'{ceiling_ms:g} ms; clamped to the ceiling before arming'
-        )
-        if self._set_exposure_ms_impl(float(ceiling_ms)) is False:
-            # The arm goes ahead at the exposure the camera holds.
-            self._report_refused_write(_value_rejection('exposure_ms', float(ceiling_ms)))
-
-    def _report_refused_write(self, rejection: CameraSettingRejected) -> None:
-        """Report a camera refusal whose flight ends in this class.
-
-        The auto-gain lock's write-back and disarm, the exposure-ceiling clamp,
-        the camera restore and the live-view re-arm each carry on with the
-        camera as it is, so no caller hears the refusal; this is where it is
-        reported, once, through the one reporter. No person asked for these
-        writes.
-        """
-        notifications.report_outcome(rejection, solicited=False, category='Camera')
-
-    def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
-        """Re-arm continuous auto-gain after a capture locked a live-view arm."""
-        if lock.state is None or not lock.resume_after_capture or lock.settings is None:
-            return
-        if self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True) is False:
-            self._report_refused_write(_mode_rejection('auto_gain', True, 'auto-gain'))
-
-    @api
-    def set_auto_exposure_time(self, state: bool = True) -> bool | None:
-        """Enable or disable automatic exposure adjustment, and wait for it.
-
-        See ``_set_auto_exposure_time_impl`` for the value contract; this
-        adds the dispatch described on ``_dispatch_camera`` and the raise
-        below.
-
-        With no camera connected, turning auto-exposure off is satisfied:
-        True, as a camera already in manual answers.
-
-        Raises:
-            CameraSettingRejected: The camera refused the change; nothing is
-                shown here.
-            CameraSettingUnsupportedError: Turning auto-exposure on for a
-                camera without it.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, for turning auto-exposure on with no camera connected.
-        """
-        result = self._dispatch_camera(
-            self._set_auto_exposure_time_impl,
-            'set_auto_exposure_time',
-            args=(state,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
-        )
-        if result is False:
-            raise _mode_rejection('auto_exposure', state, 'auto-exposure')
-        return result
-
-    def _set_auto_exposure_time_impl(self, state: bool = True) -> bool | None:
-        """Enable or disable automatic exposure adjustment.
-
-        Args:
-            state: True to enable auto exposure, False to disable.
-
-        Returns:
-            bool | None: The driver's answer; ``False`` when it refused, and
-                then the cache is not resynced. ``None`` when no camera is
-                active. ``True``, with nothing written, for turning off a mode
-                a camera without hardware auto-exposure never had.
-
-        Raises:
-            CameraSettingUnsupportedError: Turning auto-exposure on for a
-                camera without it. Nothing reaches the camera.
-        """
-
-        if not self._driver or not self._driver.active:
-            return None
-        if not self._camera_has_auto_exposure():
-            # See _set_auto_gain_impl: off is such a camera's state, not a write.
-            if state:
-                raise _absent_mode_refusal(
-                    'auto_exposure',
-                    state,
-                    'automatic exposure',
-                    offered=(False,),
-                    consequence=_AUTO_MODE_STAYS,
-                )
-            return True
-        # Auto-exposure dynamically adjusts the value, so clear the manual
-        # exposure target (chunk-match falls back to skip-frames calibration).
-        # The mode flip leaves the exposure value node unchanged, so the
-        # invalidate + target-clear are forced, not gated on a value delta.
-        result = self._camera_write(
-            lambda: self._driver.auto_exposure_t(state),
-            refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
-            force_invalidate=('exposure',),
-            force_clear=('exposure',),
-        )
-        if result is False:
-            return False
-        # Hardware-truth wins over cache after the auto cycle ends.
-        if not state:
-            self._refresh_cache_from_hardware_after_auto()
-        return result
-
-    def _camera_setting_rejection(
-        self, setting: str, requested, title: str, body: str
-    ) -> CameraSettingRejected:
-        """Build the typed rejection for a camera-setting apply.
-
-        Callers ``raise self._camera_setting_rejection(...)`` so the raise
-        is explicit at every rejection site. Nothing is logged or shown
-        here: the rejection is reported once, by whoever ends its flight,
-        in the words it carries.
-        """
-        return CameraSettingRejected(setting, requested, title=title, message=body)
-
-    def set_frame_size(self, w: int, h: int) -> dict | None:
-        """Set the camera frame size in pixels, and wait for it.
-
-        See ``_set_frame_size_impl`` for the delivered-geometry contract
-        and the rejection semantics; this adds only the dispatch
-        described on ``_dispatch_camera``, on the geometry timeout (a
-        large-frame resize is a slow write).
-
-        Raises:
-            CameraSettingOutOfRangeError: A width or height below the
-                camera's minimum frame, or above the scope's maximum at the
-                current binning: the sensor, or the model's smaller maximum
-                (``capabilities.camera_max_frame_size``). Nothing reaches the
-                camera; an undeclared end is not checked.
-            HardwareCommandRefusedError: A recording holds the scope: its
-                frames are fitted to the geometry it started with.
-        """
-        minimum = self.min_frame_size_cached
-        maximum = self._max_frame_unbinned()
-        factor = self._binning_size
-        for axis, value in (('width', w), ('height', h)):
-            self._refuse_out_of_range(
-                f'frame_{axis}',
-                value,
-                minimum[axis] if minimum else None,
-                maximum[axis] // factor if maximum else None,
-                noun=f'frame {axis}',
-                unit='px',
-            )
-        return self._dispatch_camera(
-            self._set_frame_size_impl,
-            'set_frame_size',
-            args=(w, h),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-            falsifies_recording=True,
-        )
-
-    def _max_frame_unbinned(self) -> dict | None:
-        """The largest frame the scope delivers, unbinned
-        (``capabilities.camera_max_frame_size``), or None when it is unknown.
-        """
-        size = self._scope.capabilities.camera_max_frame_size
-        if size is None:
-            return None
-        return {'width': size[0], 'height': size[1]}
-
-    def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
-        """Set the camera frame size in pixels.
-
-        Success is observed by receiving the DELIVERED geometry; rejection
-        is a raise. A caller therefore cannot record a rejected or clamped
-        apply as current geometry -- the only value available to record is
-        the one the camera actually took (a rejected resize once left the
-        UI, FOV math, and saved settings claiming a size the camera never
-        held, and the retry was absorbed by a dedupe record built from the
-        request).
-
-        Args:
-            w: Frame width in pixels.
-            h: Frame height in pixels.
-
-        Returns:
-            dict | None: The DELIVERED ``{'width', 'height'}`` -- the
-                clamped/snapped geometry actually in effect, which may
-                differ from the request. None when no camera is active (an
-                outside caller is refused before this runs).
-
-        Raises:
-            CameraSettingRejected: A live driver rejected the apply. It
-                carries the words its reporter shows; nothing is shown here.
-        """
-
-        if not self._driver or not self._driver.active:
-            return None
-
-        def _refused() -> CameraSettingRejected:
-            return self._camera_setting_rejection(
-                'frame_size',
-                {'width': w, 'height': h},
-                'Frame size change failed',
-                f'The camera did not accept the frame size {w}x{h}. '
-                f'It remains at the previous size -- try again, or check '
-                f'the USB connection if this repeats.',
-            )
-
-        # A frame-size change reallocates buffers; the pipeline must flush, so
-        # invalidate unconditionally. Cache the DELIVERED size, not the request:
-        # a driver may clamp or snap the request to its legal grid
-        # (oversize-then-crop, alignment multiples), and FOV / pixel-size math
-        # reads this cache, so it must reflect what the camera actually
-        # delivers. The delivered geometry comes from the write's own return
-        # value -- a separate get_frame_size() read-back is deliberately
-        # avoided because a transient read error there can spuriously drop the
-        # camera. A falsy result means the WRITE failed, so the prior cache
-        # entry (still describing the hardware) is left in place.
-        delivered = self._camera_write(
-            lambda: self._driver.set_frame_size(w, h),
-            refusal=_refused,
-            force_invalidate=('frame_size',),
-        )
-        if not delivered:
-            raise _refused()
-        delivered_size = {'width': int(delivered['width']), 'height': int(delivered['height'])}
-        self._commit_camera_writes({'frame_size': dict(delivered_size)})
-        return delivered_size
-
-    def _notify_camera_absent(self, op_label: str) -> None:
-        """Fire a deduped notification when the camera was removed during a
-        value write (``_removed_during_write``), past the lane's presence
-        question, which refuses a command with no camera before it runs.
-        notification_center collapses repeats by (category, title) over 5s
-        so a chain of failed writes in the removal window yields one popup,
-        not dozens.
-
-        Suppressed in no_hardware mode (cold-start with nothing
-        connected) -- the consolidated "No hardware detected" popup
-        fires from lumaviewpro.on_start and the per-setter popup
-        would stack on top of it. Runtime disconnects (camera unplugged
-        mid-session) still notify because no_hardware is False then.
-        """
-        if getattr(self._scope, 'no_hardware', False):
-            return
-        notifications.warning(
-            'Camera',
-            'Camera not connected',
-            f'Cannot change {op_label} -- camera is not connected. '
-            f'Check USB and reconnect, then try again.',
-        )
-
-    def set_binning_size(self, size: int) -> None:
-        """Set camera pixel binning size, and wait for it.
-
-        See ``_set_binning_size_impl`` for the apply/rejection contract;
-        this adds the dispatch described on ``_dispatch_camera``, on the
-        geometry timeout (binning reallocates buffers).
-
-        Raises:
-            HardwareCommandRefusedError: A recording holds the scope: its
-                frames and their pixel size follow the binning it started
-                with. ``'not_connected'``, naming the camera, when it is gone
-                before the body runs.
-            CameraSettingRejected: The camera refused the binning.
-        """
-        if not self._dispatch_camera(
-            self._set_binning_size_impl,
-            'set_binning_size',
-            args=(size,),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-            falsifies_recording=True,
-        ):
-            raise _camera_not_connected('set_binning_size')
-
-    def _set_binning_size_impl(self, size: int) -> bool:
-        """Set camera pixel binning size.
-
-        Args:
-            size: Binning factor (1 = no binning, 2 = 2x2, etc.).
-
-        Returns:
-            bool: True when the driver applied the binning. False only
-                when the camera is absent (an outside caller is refused
-                before this runs).
-
-        Raises:
-            CameraSettingRejected: A live driver rejected the apply or
-                raised from it (chained). A raise rather than a status,
-                so a rejected binning cannot be
-                recorded as current by a caller that drops the return --
-                a rejected binning silently poisons every native-ROI /
-                FOV / stitch derivation built on the recorded factor.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-
-        def _refused() -> CameraSettingRejected:
-            return self._camera_setting_rejection(
-                'binning',
-                size,
-                'Binning change failed',
-                f'The camera did not accept {size}x{size} binning. It remains '
-                f'at the previous binning -- try again, or check the USB '
-                f'connection if this repeats.',
-            )
-
-        # Binning realloc only takes effect when the driver applied it,
-        # so the invalidate is gated on the driver result.
-        # The factor is committed to the cache only when the driver
-        # applied it. A rejected write must not leave the requested
-        # value where scale-bar / FOV math reads it -- the hardware
-        # is still at the previous binning.
-        ok = self._camera_write(
-            lambda: self._driver.set_binning_size(size=size),
-            refusal=_refused,
-            invalidates=('binning',),
-            cache_update={'binning': int(size)},
-        )
-        # `is False` (not falsy): an explicit False is the driver's only
-        # rejection signal; a None return (drivers without a confirmation
-        # signal) counts as applied, matching _camera_write's own applied
-        # semantics -- treating None as rejection here would raise while
-        # the cache had already committed the factor.
-        if ok is False:
-            raise _refused()
-        # Both cached geometries are binning-dependent: the sensor
-        # minimum halves at 2x, and the delivered frame size halves
-        # with it. Left stale, the UI's frame-size clamp reads the 1x
-        # minimum and FOV math reads the 1x frame size until the next
-        # full hardware refresh. set_binning_size returns no geometry,
-        # so this refresh reads the getters -- a deliberate exception
-        # to the no-read-back preference, accepted because binning
-        # changes are rare user actions, not per-frame traffic. The
-        # validated-read path keeps a failed refresh from caching a
-        # sentinel (the prior geometry stays in place).
-        self._live_validated_read(
-            'min_frame_size',
-            lambda driver: driver.get_min_frame_size(),
-            common_utils.is_valid_frame_size,
-            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-        )
-        self._get_frame_size()
-        _api_log.info(f'set_binning {size}x{size} -> True')
-        return True
-
-    def set_pixel_format(self, pixel_format: str) -> None:
-        """Set the camera pixel format, and wait for it.
-
-        See ``_set_pixel_format_impl`` for the apply/rejection contract;
-        this adds the dispatch described on ``_dispatch_camera``, on the
-        geometry timeout (a format change reallocates geometry).
-
-        Raises:
-            HardwareCommandRefusedError: A recording holds the scope: its
-                frames are written at the depth it started with.
-                ``'not_connected'``, naming the camera, when it is gone
-                before the body runs.
-            CameraSettingRejected: The camera refused the format.
-        """
-        if not self._dispatch_camera(
-            self._set_pixel_format_impl,
-            'set_pixel_format',
-            args=(pixel_format,),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-            falsifies_recording=True,
-        ):
-            raise _camera_not_connected('set_pixel_format')
-
-    def _set_pixel_format_impl(self, pixel_format: str) -> bool:
-        """Set the camera pixel format.
-
-        Args:
-            pixel_format: Format string (e.g. 'Mono8', 'Mono12').
-
-        Returns:
-            bool: True when the driver applied the format. False only
-                when the camera is absent / inactive (an outside caller is
-                refused before this runs).
-
-        Raises:
-            CameraSettingRejected: A live driver rejected the format
-                (unsupported) or raised from the apply (chained). A raise
-                rather than a status, so a caller that drops the
-                return cannot record a rejected format as current --
-                capture depth, saved-file tagging, and data-rate math all
-                key off the recorded format.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-
-        def _refused() -> CameraSettingRejected:
-            return self._camera_setting_rejection(
-                'pixel_format',
-                pixel_format,
-                'Pixel format change failed',
-                f'The camera did not accept the pixel format {pixel_format}. '
-                f'It remains at the previous format -- try again, or check '
-                f'the USB connection if this repeats.',
-            )
-
-        # Format change reallocates geometry only when the driver applied
-        # it, so invalidate + snapshot are gated on the driver result.
-        result = self._camera_write(
-            lambda: self._driver.set_pixel_format(pixel_format),
-            refusal=_refused,
-            invalidates=('pixel_format',),
-            cache_update={'pixel_format': pixel_format},
-        )
-        if result is False:
-            raise _refused()
-        return True
-
-    def set_conversion_gain_mode(self, mode: str) -> None:
-        """Set the camera sensor conversion gain mode, and wait for it.
-
-        See ``_set_conversion_gain_mode_impl`` for the mode contract;
-        this adds the dispatch described on ``_dispatch_camera``.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-            CameraSettingUnsupportedError: ``'High'`` on a camera without
-                the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
-                Nothing reaches the camera.
-            CameraSettingRejected: The camera refused the change or raised
-                from it (chained).
-        """
-        if not self._dispatch_camera(
-            self._set_conversion_gain_mode_impl,
-            'set_conversion_gain_mode',
-            args=(mode,),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        ):
-            raise _camera_not_connected('set_conversion_gain_mode')
-
-    def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
-        """Set the camera sensor conversion gain mode.
-
-        High conversion gain lowers the sensor read-noise floor (better
-        low-light signal-to-noise) at the cost of dynamic range; Low is
-        the standard wide-range mode. A camera without the mode
-        (``capabilities.camera_supports_conversion_gain_mode``) is already
-        at Low, so Low is its state rather than a write.
-
-        Args:
-            mode: 'High' (low noise) or 'Low' (wide dynamic range).
-
-        Returns:
-            bool: True when the camera is in ``mode``. False only when the
-                camera is absent (an outside caller is refused before this
-                runs).
-
-        Raises:
-            CameraSettingUnsupportedError: ``'High'`` on a camera without
-                the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
-                Nothing reaches the camera.
-            CameraSettingRejected: The driver refused the change or raised
-                from it (chained).
-        """
-        if not self._driver or not self._driver.active:
-            return False
-        if not self._scope.capabilities.camera_supports_conversion_gain_mode:
-            if mode == 'Low':
-                return True
-            raise _absent_mode_refusal(
-                'conversion_gain_mode',
-                mode,
-                'high conversion gain',
-                offered=('Low',),
-                consequence='It stays at its standard conversion gain.',
-            )
-        if mode not in ('High', 'Low'):
-            raise CameraSettingUnsupportedError(
-                'conversion_gain_mode',
-                mode,
-                offered=('High', 'Low'),
-                title='Not Available on This Camera',
-                message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
-            )
-        result = self._camera_write(
-            lambda: self._driver.set_conversion_gain_mode(mode),
-            refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
-            invalidates=('conversion_gain_mode',),
-        )
-        if result is False:
-            raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode')
-        return True
-
-    def set_line_noise_reduction(self, enabled: bool) -> None:
-        """Enable or disable the line-noise filter, and wait for it.
-
-        See ``_set_line_noise_reduction_impl`` for the contract; this
-        adds the dispatch described on ``_dispatch_camera``.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-            CameraSettingUnsupportedError: Turning the filter on for a camera
-                without it. Nothing reaches the camera.
-            CameraSettingRejected: The camera refused the change or raised
-                from it (chained).
-        """
-        if not self._dispatch_camera(
-            self._set_line_noise_reduction_impl,
-            'set_line_noise_reduction',
-            args=(enabled,),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        ):
-            raise _camera_not_connected('set_line_noise_reduction')
-
-    def _set_line_noise_reduction_impl(self, enabled: bool) -> bool:
-        """Enable or disable the camera line-noise reduction filter.
-
-        A camera-side filter that smooths horizontal stripe artifacts in
-        the sensor readout. A camera without it
-        (``capabilities.camera_supports_line_noise_reduction``) is already
-        unfiltered, so off is its state rather than a write.
-
-        Args:
-            enabled: True turns the filter on; False off.
-
-        Returns:
-            bool: True when the filter is as asked. False only when the
-                camera is absent (an outside caller is refused before this
-                runs).
-
-        Raises:
-            CameraSettingUnsupportedError: Turning the filter on for a camera
-                without it. Nothing reaches the camera.
-            CameraSettingRejected: The driver refused the change or raised
-                from it (chained).
-        """
-        if not self._driver or not self._driver.active:
-            return False
-        if not self._scope.capabilities.camera_supports_line_noise_reduction:
-            if not enabled:
-                return True
-            raise _absent_mode_refusal(
-                'line_noise_reduction',
-                enabled,
-                'line noise reduction',
-                offered=(False,),
-                consequence='Its readout stays unfiltered.',
-            )
-        result = self._camera_write(
-            lambda: self._driver.set_line_noise_reduction(enabled=enabled),
-            refusal=lambda: _mode_rejection(
-                'line_noise_reduction', enabled, 'line noise reduction'
-            ),
-            invalidates=('line_noise_reduction',),
-        )
-        if result is False:
-            raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction')
-        return True
-
-    @api
-    def get_black_level(self) -> float | None:
-        """Read the camera's black level, live.
-
-        The value is the camera's own black level parameter, in the camera's
-        own units, as the vendors' EMVA 1288 sheets state it: on a Basler
-        body one unit moves the gray value by a model-specific step (0.0625 DN
-        at 12-bit depth on the daA3840), on an IDS body it is DN of the current
-        pixel format, on the FX2 it is the sensor's Row Black Target. The
-        offset it makes in DN is measured, not derived from it.
-
-        Not cached: a failed read has no last-known-good to answer with.
-
-        Returns:
-            float | None: The black level; None when no camera is active or
-                the camera reports none.
-
-        Raises:
-            HardwareError: The camera reports a black level and the read
-                failed.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        return driver.get_black_level()
-
-    @api
-    def get_black_level_range(self) -> tuple[float, float] | None:
-        """Read the range ``set_black_level`` accepts, live, in the units of
-        ``get_black_level``.
-
-        The camera's own minimum and maximum for its current pixel format;
-        the range changes with the format. ``set_black_level`` refuses a value
-        outside it before anything reaches the camera.
-
-        Not cached: a failed read has no last-known-good to answer with.
-
-        Returns:
-            tuple[float, float] | None: ``(minimum, maximum)``; None when no
-                camera is active or the camera has no black level setting.
-                A camera holding its black level automatically still answers
-                its range; ``set_black_level`` is then refused by the camera.
-
-        Raises:
-            HardwareError: The camera has a black level setting and the read
-                failed.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        return driver.get_black_level_range()
-
-    @api
-    def get_resulting_frame_rate(self) -> float | None:
-        """Read the frame rate the camera reports its current settings allow,
-        live, in frames per second.
-
-        The camera's own figure: Basler's resulting acquisition frame rate,
-        IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
-        FX2 reports none. It is what the camera says it can do, not what
-        reaches the host; what reaches the host is ``get_delivered_rate``.
-
-        Not cached: a failed read has no last-known-good to answer with.
-
-        Returns:
-            float | None: Frames per second; None when no camera is active or
-                the camera reports none.
-
-        Raises:
-            HardwareError: The camera reports a frame rate and the read
-                failed.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        return driver.get_resulting_frame_rate()
-
-    @api
-    def set_black_level(self, value: float) -> float | None:
-        """Set the camera's black level, wait for it, and answer with the
-        value in effect.
-
-        See ``get_black_level`` for what the value means. The value holds
-        until the next connect, when the camera reloads its default user set.
-
-        Returns:
-            float | None: The black level now in effect, which differs from
-                the request when the camera snapped it.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-            CameraSettingUnsupportedError: This camera has no black level
-                setting (``capabilities.camera_supports_black_level`` is
-                False). Nothing reached the camera.
-            ArgumentRefusedError: ``'not_a_number'``, the value is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The value is outside the range the
-                camera reports for its current pixel format; nothing was sent.
-            CameraSettingRejected: The camera refused it, as a camera holding
-                its black level automatically does, or raised from the write
-                (chained).
-            HardwareError: The camera's probe, range read or read-back
-                failed; the black level in effect is unknown.
-        """
-        applied = self._dispatch_camera(
-            self._set_black_level_impl,
-            'set_black_level',
-            args=(value,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-        if applied is False:
-            raise _value_rejection('black_level', value)
-        return applied
-
-    def _set_black_level_impl(self, value: float) -> float | bool | None:
-        """Set the black level; the refusals of ``set_black_level`` are raised
-        here, on the camera lane, because the support probe and the range are
-        live camera reads. A camera refusal is answered ``False``, not raised.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        if not driver.supports_black_level():
-            raise _absent_mode_refusal(
-                'black_level',
-                value,
-                'black level setting',
-                offered=(),
-                consequence='The black level stays as it is.',
-            )
-        low, high = driver.get_black_level_range()
-        self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
-
-        def _write_black_level():
-            with self._cam_lock:
-                return self._driver.set_black_level(float(value))
-
-        result = self._camera_write(
-            _write_black_level,
-            refusal=lambda: _value_rejection('black_level', value),
-            invalidates=('black_level',),
-        )
-        if result is False and self._removed_during_write(
-            'black_level', 'black level', float(value)
-        ):
-            return None
-        return result
 
     # --- SDK-perf knobs (write-only by design) ---
     #
@@ -2783,7 +755,7 @@ class ImagingAPI:
         """Set the Pylon GrabStrategy used by the next start_grabbing().
 
         Production default is LatestImageOnly (the contract for
-        frame_validity, capture_and_wait, and the auto-discard
+        frame_validity, capture_still, and the auto-discard
         skip_frames floor). OneByOne delivers every frame for
         apples-to-apples bench comparisons against Pylon Viewer.
 
@@ -2865,394 +837,138 @@ class ImagingAPI:
             return False
         return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
 
-    def _live_validated_read(
-        self,
-        key: str,
-        reader: Callable[[Camera], object],
-        is_valid: Callable[[object], bool],
-        coerce: Callable[[Any], Any],
-    ) -> object | None:
-        """Attempt one live driver read: validate, commit to cache, return.
-
-        Returns None when no camera is active or the read raised or came
-        back as the driver's failure sentinel (-1 / None / {}). The commit
-        is generation-guarded: if an authoritative write
-        (_commit_camera_writes) landed while the driver read was in
-        flight, the stale read is discarded and the newer cache value is
-        returned instead, so a slow read can never overwrite a setter's
-        write-through.
-
-        Callers decide what None means: the value getters fall back to
-        the cached last-known-good; the live-confirmed consumers
-        (metadata writers, state snapshots) omit the field, because for
-        them a stale value recorded as truth is worse than no value.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        with self._camera_cache_lock:
-            gen_before = self._camera_cache_write_gen.get(key, 0)
-        try:
-            live = reader(driver)
-        except Exception as ex:
-            self._log_camera_read_failure(key, ex)
-            return None
-        if not is_valid(live):
-            self._log_camera_read_failure(key, f'sentinel value {live!r}')
-            return None
-        value = coerce(live)
-        with self._camera_cache_lock:
-            if self._camera_cache_write_gen.get(key, 0) == gen_before:
-                self._camera_cache[key] = value
-            else:
-                value = self._camera_cache[key]
-        return value
-
-    def _validated_camera_read(
-        self,
-        key: str,
-        reader: Callable[[Camera], object],
-        is_valid: Callable[[object], bool],
-        coerce: Callable[[Any], Any],
-        absent: object,
-    ) -> object:
-        """Refresh-then-read: the single path a public camera getter answers by.
-
-        Attempts the live driver read on every call (so a getter tracks
-        hardware while auto-gain moves it), commits the result to the camera
-        cache only when it validates, and answers from the cache either way.
-        A driver failure sentinel (-1 / None / {}) or a raising read can
-        therefore never cross this boundary: consumers receive the
-        last-known-good value, or ``absent`` (the documented camera-absent
-        default) when no camera is active or no valid value has ever been
-        read.
-
-        Args:
-            key: Camera-cache key backing this getter.
-            reader: Live read, called with the resolved driver.
-            is_valid: Shared validity predicate for this value.
-            coerce: Normalizes a validated live value for caching.
-            absent: Documented return when no camera is active or no valid
-                value is known.
-
-        Returns:
-            The validated live value, the cached last-known-good, or
-            ``absent``.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return absent
-        live = self._live_validated_read(key, reader, is_valid, coerce)
-        if live is not None:
-            return live
-        with self._camera_cache_lock:
-            cached = self._camera_cache[key]
-        return cached if is_valid(cached) else absent
-
-    def _grab_sizing_exposure_s(self) -> float:
-        """The exposure in seconds, for sizing a grab's wait and a frame's cost.
-
-        Read live, so a mid-window exposure change sizes the next grab. 0
-        when the camera has never reported one: every wait sized from it
-        has a floor of its own, and with no exposure to scale it is the
-        floor that sizes it.
-        """
-        exposure_ms = self.get_exposure_ms()
-        return exposure_ms / 1000 if exposure_ms is not None else 0.0
-
-    @api
-    def get_live_camera_settings(self) -> dict:
-        """Live-confirmed camera settings, omitting any field whose read
-        did not just succeed.
-
-        For consumers that record what the hardware was at a specific
-        moment (saved-image metadata, state snapshots): the value getters
-        (get_gain_db / get_exposure_ms) deliberately hide read failures
-        behind the last-known-good cache, which is right for control flow
-        but would record a value the frame was not captured at. Here,
-        unknown stays unknown.
-
-        Returns:
-            dict: Any of 'gain_db', 'exposure_ms', 'frame_size'
-                (``{'width': int, 'height': int}``), and 'pixel_format' --
-                only fields whose live driver read succeeded and
-                validated. Empty when no camera is active.
-        """
-        settings = {}
-        gain = self._live_validated_read(
-            'gain_db',
-            lambda driver: driver.get_gain(),
-            common_utils.is_valid_gain_db,
-            float,
-        )
-        if gain is not None:
-            settings['gain_db'] = gain
-        exposure = self._live_validated_read(
-            'exposure_ms',
-            lambda driver: driver.get_exposure_t(),
-            common_utils.is_valid_exposure_ms,
-            float,
-        )
-        if exposure is not None:
-            settings['exposure_ms'] = exposure
-        frame_size = self._live_validated_read(
-            'frame_size',
-            lambda driver: driver.get_frame_size(),
-            common_utils.is_valid_frame_size,
-            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-        )
-        if frame_size is not None:
-            settings['frame_size'] = dict(frame_size)
-        pixel_format = self._live_validated_read(
-            'pixel_format',
-            lambda driver: driver.get_pixel_format(),
-            common_utils.is_valid_pixel_format,
-            str,
-        )
-        if pixel_format is not None:
-            settings['pixel_format'] = pixel_format
-        return settings
-
-    @api
-    def get_gain_db(self) -> float | None:
-        """Get the current camera gain.
-
-        Returns:
-            float | None: Gain in dB -- the live reading when it succeeds,
-                else the last-known-good value. None when no camera is
-                active or gain has never been read.
-        """
-        return self._validated_camera_read(
-            'gain_db',
-            lambda driver: driver.get_gain(),
-            common_utils.is_valid_gain_db,
-            float,
-            None,
-        )
-
-    @api
-    def get_exposure_ms(self) -> float | None:
-        """Get the current camera exposure time.
-
-        Returns:
-            float | None: Exposure time in milliseconds -- the live reading
-                when it succeeds, else the last-known-good value. None when
-                no camera is active or exposure has never been read.
-        """
-        return self._validated_camera_read(
-            'exposure_ms',
-            lambda driver: driver.get_exposure_t(),
-            common_utils.is_valid_exposure_ms,
-            float,
-            None,
-        )
-
-    def _get_frame_size(self) -> dict | None:
-        """Get the current camera frame size.
-
-        Returns:
-            dict | None: Contains 'width' and 'height' in pixels -- the live
-                reading when it succeeds, else the last-known-good value.
-                None when no camera is active or the size has never been
-                read.
-        """
-        frame_size = self._validated_camera_read(
-            'frame_size',
-            lambda driver: driver.get_frame_size(),
-            common_utils.is_valid_frame_size,
-            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-            None,
-        )
-        return dict(frame_size) if frame_size is not None else None
-
-    def _get_pixel_format(self) -> str | None:
-        """Get the current camera pixel format.
-
-        Returns:
-            str | None: Pixel format string (e.g. 'Mono8') -- the live
-                reading when it succeeds, else the last-known-good value
-                (seeded by connect-time configuration and the
-                set_pixel_format write-through). None when no camera is
-                active or no format is known.
-        """
-        return self._validated_camera_read(
-            'pixel_format',
-            lambda driver: driver.get_pixel_format(),
-            common_utils.is_valid_pixel_format,
-            str,
-            None,
-        )
-
-    def get_width(self) -> int | None:
-        """Get the current frame width setting.
-
-        Returns:
-            int | None: Current width in pixels -- last-known-good when the
-                live read fails. None when no camera is active or the size
-                has never been read.
-        """
-        frame_size = self._get_frame_size()
-        return int(frame_size['width']) if frame_size else None
-
-    def get_height(self) -> int | None:
-        """Get the current frame height setting.
-
-        Returns:
-            int | None: Current height in pixels -- last-known-good when the
-                live read fails. None when no camera is active or the size
-                has never been read.
-        """
-        frame_size = self._get_frame_size()
-        return int(frame_size['height']) if frame_size else None
-
-    @api
-    def get_binning_size(self) -> int:
-        """Get the current camera binning size.
-
-        Returns:
-            int: Current binning factor, always >= 1 -- last-known-good when
-                the live read fails, 1 when no camera is active. The driver's
-                -1 failed-read sentinel never surfaces here: a -1 would flow
-                into frame-geometry arithmetic (native size = displayed *
-                binning) as a sign flip.
-        """
-        return self._validated_camera_read(
-            'binning',
-            lambda driver: driver.get_binning_size(),
-            common_utils.is_valid_binning_size,
-            int,
-            1,
-        )
-
-    @api
-    def get_pixel_alignment(self) -> dict:
-        """Return the camera's deliverable frame-size granularity.
-
-        Every camera delivers the size asked for exactly, by acquiring the next
-        window up on its grid and cropping back, so the only constraint is even
-        dimensions (H.264): ``{2, 2}``, the camera profile's step.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}``.
-        """
-        default = {'width': 2, 'height': 2}
-        if not self._driver or not self._driver.active:
-            return default
-        try:
-            return dict(self._driver.profile.alignment)
-        except (AttributeError, TypeError):
-            return default
-
     # --- Capture ---
-    def _capture_and_wait_impl(
+    def _capture_still_impl(
         self,
         force_to_8bit: bool = True,
         *,
+        member: str,
         accept_dark: bool = False,
-        exclude_sources: tuple = (),
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback=None,
-    ) -> np.ndarray | None:
+    ) -> CapturedStill:
         """Capture a frame guaranteed to reflect the current hardware state.
 
-        Uses frame-based settling: drains stale frames from the camera pipeline
-        until frame_validity confirms all pending state changes (LED, gain,
-        exposure, motion) have settled. Then grabs a fresh valid frame.
+        Drains stale frames from the camera pipeline until every change (LED,
+        gain, exposure, motion, ...) can be met by its source's rule
+        (``capabilities.frame_rules``): a credit-rule change by its frame
+        count, a clock-rule change by time on the camera's clock, a move by
+        its axis settling too. Then grabs, keeping only a frame that the one
+        judgment (``FrameValidity.judge``) counts for every change it does not
+        exclude, and taking the next frame otherwise.
 
-        Frame-based settling automatically adapts to the camera's frame rate --
-        fast exposures drain quickly, slow exposures drain slowly, matching
-        the actual camera pipeline depth.
+        Counting frames adapts to the camera's frame rate -- fast exposures
+        drain quickly, slow exposures drain slowly.
 
         Args:
             force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity, e.g. ('z_move',).
+            member: The public member the capture is refused as.
+            exclude_sources: Sources to ignore for validity, e.g. ``(FrameValiditySource.Z_MOVE,)``.
                 The frame returned can predate an excluded change, so a
                 frame that is measured or recorded never excludes one.
-            all_ones_check: Reject all-max-value frames (camera hardware issue).
+            all_ones_check: Measure the frame's saturation. A blown frame
+                is grabbed again once and, blown again, kept; the record
+                carries the fraction either way (``FrameRecord``
+                ``saturated_fraction``, ``blown``). Without it both are None.
             accept_dark: Caller-intent override for the derived dark-floor
                 expectation. The capture derives whether illumination is
                 commanded ON from the illumination API itself (a channel
                 counts as lit only at strictly positive current, so an
                 enabled 0 mA channel is dark by design); when a channel is
-                lit, a frame with essentially no lit pixel is retried then
-                rejected loudly. accept_dark=True admits the dark frame
-                anyway -- for callers whose dark frames are legitimate
-                while lit: autofocus sweeps (an out-of-focus fluorescence
-                plane can carry no signal) and benchmark probes.
+                lit, a frame with essentially no lit pixel is retried until
+                ``timeout_s`` and then kept, its record's ``dark`` True.
+                accept_dark=True skips the judgment, the record's ``dark``
+                None -- for callers whose dark frames are legitimate while
+                lit: autofocus sweeps (an out-of-focus fluorescence plane can
+                carry no signal) and benchmark probes.
             timeout_s: Timeout (seconds) for the final get_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
             sum_iteration_callback: Called after each summed frame.
 
         Returns:
-            numpy.ndarray | None: Captured image array on success, None
-                on camera-inactive, frame-drain failure, or deadline
-                expiry. Per the Sentinel-return contract:
-                `if image is None: ...`.
+            CapturedStill: The captured image with its record.
+
+        Raises:
+            CaptureFailedError: no frame: ``'no_frame'``, the camera
+                delivered none within its grab window, draining, grabbing or
+                waiting for a sum's next frame; ``'deadline_expired'``, state
+                changes outran the budget below; ``'no_fresh_frame'``, frames
+                came but none within the grab's bound counted for the
+                ``setting`` changed (under the credit rule that bound is
+                ``timeout_s``; under the clock rule one grab window past the
+                instant a frame must start after); ``'chunk_rejected'``,
+                frames counted but none at the ``setting`` asked;
+                ``'record_read_failed'``, a frame came but the camera did not
+                answer a read its record needs, chained from the
+                ``CameraReadFailedError``.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, absent at the call or removed during the capture;
+                ``'camera_not_streaming'``, connected but not grabbing.
+                Nothing reports either here: the raise is the report, so a
+                live-view auto-gain arm is not re-armed on a removal.
 
         The capture honors invalidation across its whole window: hardware
         state changing between the drain's settle and the grab's return is
         detected via the invalidation counters, and the capture re-drains,
         re-derives its expectations (dark floor included), and re-grabs.
         The drain-and-recheck deadline bounds that loop -- a sustained
-        invalidation stream produces a loud, distinctly-logged None in
-        bounded time instead of an open-ended hold. The deadline clock
+        invalidation stream raises ``'deadline_expired'`` in bounded time
+        instead of an open-ended hold. The deadline clock
         suspends while commanded motion is still physically settling
         (motion has its own authoritative completion signal, and a frame
         budget must not out-vote it), and it governs only the drain and
         re-check loops: the interior of one grab is bounded by
-        ``timeout_s`` and, for summed captures, the sum window itself.
+        ``timeout_s`` (under the clock rule, by its own bound, one grab
+        window past the instant a frame must start after) and, for summed
+        captures, the sum window itself.
         The one state change no polling design can see is a driver write
         whose invalidate has not yet landed when the grab returns; that
         residual is microseconds wide and accepted.
         """
-        # Every exit -- including these not-ready sentinels -- records
-        # last_capture_info, so a consumer relaying the failure cause is
-        # always reading THIS attempt, never a stale dict from the
-        # previous capture.
+        # A capture refused at its call records nothing; every capture past
+        # it records its evidence in last_capture_info, frame or not.
         if not self._driver or not self._driver.active:
-            with self._state_lock:
-                self._last_capture_info = {'not_ready': True}
-            return None
+            raise _camera_not_connected(member)
 
         # active (connected) is necessary but not sufficient to deliver a
         # frame: connect() configures the camera without starting the feed
-        # (the lifecycle split), and stop_streaming() deliberately halts it.
-        # A not-grabbing camera cannot produce a capture, so return the same
-        # not-ready sentinel as the active check above -- named distinctly so
-        # a stopped or not-yet-started feed is not misread as a grab timeout.
+        # (the lifecycle split), and disable_streaming() deliberately halts it.
+        # A not-grabbing camera cannot produce a capture, so it is refused
+        # as that, distinctly, so a stopped or not-yet-started feed is not
+        # misread as a grab timeout.
         if not self._driver.is_grabbing():
             logger.warning(
-                '[SCOPE API ] capture_and_wait: no active grab (streaming not '
-                'started or stopped) -- returning None until the feed is running.'
+                '[SCOPE API ] capture_still: no active grab (streaming not '
+                'started or stopped) -- refused until the feed is running.'
             )
-            with self._state_lock:
-                self._last_capture_info = {'not_ready': True}
-            return None
+            raise HardwareCommandRefusedError('camera_not_streaming', member)
 
         hold_start = time.monotonic()
-        exposure_s = self._grab_sizing_exposure_s()
-        grab_timeout_s = max(exposure_s * 3, 1.0)
+        hold_mark = _FeedMark.read(self._driver)
+        exposure_s = self._camera._grab_sizing_exposure_s()
+        grab_timeout_s = self._camera._grab_wait_s()
 
         # The deadline is frozen at entry: the pending frame count and the
         # exposure are read once and never re-raised, so invalidations
         # arriving after entry extend the work but not the budget. The sum
         # term mirrors the public dispatcher's liveness wait -- a long
         # summed capture legitimately grinds for its whole sum window, and
-        # a re-grab repeats that window. Each frame is costed at the larger
-        # of the exposure and the conservative frame-period floor: a camera
-        # cannot deliver frames faster than its readout, whatever the
-        # exposure says.
-        n_entry = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
+        # a re-grab repeats that window. The timeout term is the grab's own
+        # retry window for a lit frame, which the dispatcher's wait carries
+        # too: without it, a change landing while the grab waits out dark
+        # frames charges that whole wait to a budget that never held it, and
+        # a capture that would have saved its dark frame is refused as
+        # invalidation churn instead. The settle term is what the changes
+        # are owed, the public dispatcher's own (``_settle_budget``), and
+        # with the floor it is a recording's whole wait (``_settle_limit``).
         frame_cost_s = max(exposure_s, self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S)
-        deadline_s = (
-            self._CAPTURE_DEADLINE_FLOOR_S
-            + n_entry * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
-            + sum_count * (frame_cost_s + sum_delay_s)
-        )
+        n_entry, settle_limit_s = self._settle_limit(exclude_sources, frame_cost_s)
+        deadline_s = settle_limit_s + sum_count * (frame_cost_s + sum_delay_s) + timeout_s
         # Pause-and-resume accounting: an interval is charged to the budget
         # only when no commanded motion was still settling at the check.
         # Charging suspended intervals would expire the budget across one
@@ -3262,12 +978,12 @@ class ImagingAPI:
 
         def _deadline_expired() -> bool:
             now = time.monotonic()
-            if not self.frame_validity.unsettled_motion_sources(exclude_sources=exclude_sources):
+            if not self.frame_validity.owed(exclude_sources=exclude_sources).moving:
                 _clock['active'] += now - _clock['last']
             _clock['last'] = now
             return _clock['active'] > deadline_s
 
-        def _record_capture_info(**extra) -> None:
+        def _record_capture_info() -> None:
             with self._state_lock:
                 self._last_capture_info = {
                     'hold_ms': (time.monotonic() - hold_start) * 1000.0,
@@ -3276,22 +992,22 @@ class ImagingAPI:
                     'deadline_s': deadline_s,
                     'n_entry': n_entry,
                     'active_s': _clock['active'],
-                    **extra,
                 }
 
-        def _deadline_none(where: str):
+        def _deadline_expired_error(where: str) -> CaptureFailedError:
             if lock is not None:
-                self._resume_auto_gain_impl(lock)
+                self._camera._resume_auto_gain_impl(lock)
             logger.warning(
-                f'[SCOPE API ] capture_and_wait: capture DEADLINE EXPIRED '
+                f'[SCOPE API ] capture_still: capture DEADLINE EXPIRED '
                 f'({where}) -- active={_clock["active"]:.3f}s > '
                 f'deadline_s={deadline_s:.3f}s (n_entry={n_entry}, '
                 f'rechecks={recheck_cycles}, '
                 f'wall={time.monotonic() - hold_start:.3f}s); invalidation '
-                f'outran the capture budget. Distinct from grab failure.'
+                f'outran the capture budget. Distinct from grab failure. '
+                f'{hold_mark.account(self._driver)}'
             )
-            _record_capture_info(deadline_expired=True)
-            return None
+            _record_capture_info()
+            return CaptureFailedError('deadline_expired')
 
         # `drained` accumulates across every drain re-entry; `rechecks`
         # counts how many times the window was dirtied and re-run.
@@ -3303,15 +1019,26 @@ class ImagingAPI:
         lock: AutoGainLock | None = None
         while True:
             if _deadline_expired():
-                return _deadline_none('recheck-top')
+                raise _deadline_expired_error('recheck-top')
             # Grab plumbing is re-derived each cycle so a mid-window
             # exposure change sizes the NEXT drain and grab for the state
             # that now holds -- a grab timeout sized to a stale short
             # exposure fails healthy long-exposure frames and reports the
             # staleness as a drain failure. Plumbing only: the budget
             # above stays frozen.
-            exposure_s = self._grab_sizing_exposure_s()
-            grab_timeout_s = max(exposure_s * 3, 1.0)
+            grab_timeout_s = self._camera._grab_wait_s()
+
+            # The camera's clock, mapped once per cycle and before its drain:
+            # the clock rule's drain, the grab's judge and the frame's record
+            # all read this one mapping. A failed latch fails the capture, as
+            # a failed read for the record does.
+            try:
+                mapping = self._clock_mapping_for_record()
+            except HardwareError:
+                if lock is not None:
+                    self._camera._resume_auto_gain_impl(lock)
+                raise
+            uncertainty_ns = mapping.uncertainty_ns if mapping is not None else 0
 
             # Snapshot the invalidation counters BEFORE the drain: any
             # invalidation landing after this line -- during the drain,
@@ -3326,52 +1053,55 @@ class ImagingAPI:
                 if s not in exclude_sources
             }
 
-            # Drain stale frames until all pending state changes have
-            # settled. Settling is by frame count for every camera: a
-            # chunk certifies the register in force when the frame was
-            # tagged, not the light integrated into it, so it can never
-            # stand in for the pipeline flush this wait exists to cover.
-            # Each drained grab passes its frame timestamp so a frame
-            # concurrently counted by the preview poller is not counted
-            # twice.
-            while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
+            # Drain stale frames until every change can be met, each by its
+            # source's rule (``FrameValidity.owed``): a credit-rule change
+            # until its frame count is met, a clock-rule change until the
+            # host's clock passes the instant a frame must start after, and
+            # a move until its axis settles. A chunk certifies the register
+            # in force when the frame was tagged, not the light integrated
+            # into it, so it never stands in for this wait. Each drained grab
+            # passes its frame's ordinal so a frame concurrently counted by
+            # the preview poller is not counted twice.
+            while not self.changes_in_force(mapping, exclude_sources):
                 if _deadline_expired():
-                    return _deadline_none('drain-loop')
-                status, _drain_frame_ts, drain_seq = self._driver.grab_new_capture(
-                    timeout_s=grab_timeout_s
-                )
-                if status:
-                    self.frame_validity.count_frame(drain_seq)
+                    raise _deadline_expired_error('drain-loop')
+                drain_mark = _FeedMark.read(self._driver)
+                drained = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+                if drained is not None:
+                    self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
                     drain_iterations += 1
                 else:
-                    remaining = self.frame_validity.frames_until_valid(
-                        exclude_sources=exclude_sources
+                    owed = self.frame_validity.owed(
+                        exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
                     )
-                    device_removed = (
-                        self._driver.is_device_removed()
-                        if self._driver and hasattr(self._driver, 'is_device_removed')
-                        else None
+                    instant_ms = (
+                        f'{(owed.until_ns - host_clock.steady_ns()) / 1e6:.1f}'
+                        if owed.until_ns is not None
+                        else 'none'
                     )
+                    # The removal latch is set the moment a removal is seen;
+                    # ``active`` is released later, off-thread.
+                    removed = self._camera.camera_removed or not self._driver.active
                     logger.warning(
-                        f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                        f'[SCOPE API ] capture_still: frame drain failed -- '
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
-                        f'(drained={drain_iterations}, frames_until_valid={remaining}, '
-                        f'device_removed={device_removed})'
+                        f'(drained={drain_iterations}, frames_owed={owed.frames}, '
+                        f'ms_to_clock_instant={instant_ms}, '
+                        f'device_removed={removed}); {drain_mark.account(self._driver)}'
                     )
-                    # None is the contract's failure sentinel. A bool here
-                    # slips every `is None` caller check: the stills leg
-                    # skipped its capture strike -- and reset the accumulated
-                    # counter -- on exactly this stalled-feed failure mode.
-                    _record_capture_info(drain_failed=True)
+                    _record_capture_info()
+                    if removed:
+                        # The raise is the report: nothing to re-arm.
+                        raise _camera_not_connected(member)
                     if lock is not None:
-                        self._resume_auto_gain_impl(lock)
-                    return None
+                        self._camera._resume_auto_gain_impl(lock)
+                    raise CaptureFailedError('no_frame')
 
             if lock is None:
                 # The lock consumes the arm under _state_lock and reports
                 # state None when nothing stood; no unguarded peek first.
-                lock = self._lock_auto_gain_impl()
+                lock = self._camera._lock_auto_gain_impl()
                 if lock.state is not None:
                     continue
 
@@ -3388,9 +1118,22 @@ class ImagingAPI:
             lit = live_lit_pairs(self._scope.illumination)
             expected_lit = bool(lit)
 
-            with self._state_lock:
-                self._dark_saved = False
-            image = self._get_image_impl(
+            # The grab keeps only a frame every change counts, and under the
+            # clock rule takes frames until one grab window past the latest
+            # instant a frame must start after. A change landing since the
+            # drain ended moves that instant, and the compare below re-runs
+            # the cycle for it.
+            until_ns = self.frame_validity.owed(
+                exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
+            ).until_ns
+            judged = _Judged(
+                mapping=mapping,
+                exclude_sources=exclude_sources,
+                clock_bound_ns=(
+                    until_ns + int(grab_timeout_s * 1e9) if until_ns is not None else None
+                ),
+            )
+            grabbed = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
                 dark_floor_check=expected_lit and not accept_dark,
@@ -3401,17 +1144,17 @@ class ImagingAPI:
                 force_new_capture=True,
                 new_capture_timeout_s=grab_timeout_s,
                 verify_chunk_targets=True,
+                judged=judged,
             )
-            grabbed_at = datetime.datetime.now()
 
             # Post-grab compare: a changed counter means the window was
             # dirtied and the frame (or failure) predates the state the
-            # caller commanded. The compare runs BEFORE any None
-            # propagates: a dirtied-window failure is recoverable -- it
-            # was caused by the very change this loop exists to honor --
-            # so only a clean-window None falls through as a genuine grab
-            # failure. Compare spans both key sets: a source's first-ever
-            # invalidation adds a key the snapshot lacks.
+            # caller commanded. The compare runs BEFORE any failure is
+            # raised: a dirtied-window failure is recoverable -- it was
+            # caused by the very change this loop exists to honor -- so
+            # only a clean-window failure is raised as a genuine one. Compare
+            # spans both key sets: a source's first-ever invalidation adds a
+            # key the snapshot lacks.
             counts_after = {
                 s: c
                 for s, c in self.frame_validity.invalidation_counts.items()
@@ -3422,148 +1165,430 @@ class ImagingAPI:
                 continue
             break
 
-        # Record per-capture evidence for the caller's log line (protocol
-        # captures log brightness + the chunk-verified settings per frame so
-        # a support bundle shows what each saved frame was exposed with).
-        chunks = self._get_latest_chunks() or {}
-        extra: dict[str, object] = {}
-        if lock is not None and lock.state is not None:
-            extra['auto_gain'] = lock.state.value
-            extra['auto_gain_exposure_ms'] = lock.exposure_ms
-            extra['auto_gain_gain_db'] = lock.gain_db
-        if image is None:
-            # A clean-window None with a target still mismatching is the
-            # gate's rejection; name it so the writer's cause is truthful.
-            stale = self._chunk_target_mismatch()
-            if stale is not None:
-                extra['chunk_rejected'] = stale
-        # Recorded whether or not a frame came back, and OUTSIDE the None
-        # branch: a dark frame is delivered, not refused, so this fact rides
-        # a SUCCESSFUL capture. It is the only way a caller that did not
-        # measure the pixels itself can tell a dark frame from a lit one.
-        with self._state_lock:
-            if self._dark_saved:
-                extra['dark_saved'] = True
-        # The record's black level read raises on a failed read and fails the
-        # capture; a locked auto-gain arm is re-armed either way.
-        try:
-            if image is not None:
-                extra['frame_record'] = self._build_frame_record(
-                    chunks=chunks, lit=lit, captured_at=grabbed_at
-                )
-            _record_capture_info(
-                chunk_exposure_us=chunks.get('ExposureTime'),
-                chunk_gain_db=chunks.get('Gain'),
-                **extra,
+        # The chunks are the first frame's own, the frame the record names;
+        # a capture that got no frame has none.
+        chunks = dict(grabbed.earliest.chunks or {}) if isinstance(grabbed, _Grabbed) else {}
+        record: FrameRecord | None = None
+        failed = grabbed if isinstance(grabbed, _NoFrame) else None
+        if failed is not None:
+            logger.warning(
+                f'[SCOPE API ] capture_still: nothing captured -- {failed.reason} at the '
+                f'{failed.leg} (drained={drain_iterations}, rechecks={recheck_cycles})'
             )
+        # A camera found gone is refused, and its refusal is the report: a
+        # locked auto-gain arm is re-armed on every other exit, and on that
+        # one there is nothing to re-arm.
+        removed = failed is not None and failed.removed
+        try:
+            if failed is None:
+                # A frame is kept only with its record: a gain, exposure or
+                # black level read the camera does not answer fails the
+                # capture, in the capture failure's words, so every caller
+                # that handles a failed capture handles this one; one that
+                # failed because the camera left between the grab and the
+                # read is that removal.
+                # The frame is judged against the mapping its record carries,
+                # the one its cycle took before the drain.
+                judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
+                # Its time is the first frame's start on the camera's clock,
+                # through the same mapping; a camera without a latch, or a
+                # frame that came without its tick, states its arrival.
+                captured_at = (
+                    camera_frame_time(grabbed.earliest, mapping) if mapping is not None else None
+                )
+                if captured_at is None:
+                    captured_at = arrival_time(grabbed.earliest)
+                try:
+                    record = self._build_frame_record(
+                        chunks=chunks,
+                        lit=lit,
+                        captured_at=captured_at,
+                        clock_mapping=mapping,
+                        judgments=judgments,
+                        saturated_fraction=grabbed.saturated_fraction,
+                        dark=grabbed.dark,
+                        auto_gain=lock.state if lock is not None else None,
+                    )
+                except CameraReadFailedError as unread:
+                    _record_capture_info()
+                    if not self._camera.camera_removed:
+                        logger.warning(
+                            f'[SCOPE API ] capture_still: record read failed -- {unread}'
+                        )
+                        raise CaptureFailedError('record_read_failed') from unread
+                    removed = True
+                    raise _camera_not_connected(member) from unread
+            if failed is None:
+                _api_log.info(_capture_line(grabbed, record))
+            _record_capture_info()
         finally:
-            if lock is not None:
-                self._resume_auto_gain_impl(lock)
-        return image
+            if lock is not None and not removed:
+                self._camera._resume_auto_gain_impl(lock)
+        if failed is not None:
+            raise failed.error(member)
+        return CapturedStill(image=grabbed.image, record=record)
+
+    def _capture_holding_layer_impl(
+        self, layer: str, request: LayerCameraRequest, member: str, **capture
+    ) -> CapturedStill:
+        """``_capture_still_impl``, with the camera holding ``layer``'s stored settings.
+
+        For a capture that is already its own camera-lane task (the still):
+        the camera's hold for a capture (``CameraAPI._hold_layer_for_capture``)
+        runs inline, as the capture body does, so neither is admitted again
+        against whatever holds the scope now. ``capture`` is the capture
+        body's keyword arguments. A frame named and set for ``layer`` is lit
+        by no other LED, so another one lit refuses it before the hold.
+
+        Raises:
+            HardwareCommandRefusedError: ``'other_led_lit'``, an LED other
+                than ``layer``'s is lit; nothing was written or captured. As
+                ``_hold_layer_for_capture`` says, and whatever the capture
+                raises.
+            CameraSettingRejected: as ``_hold_layer_for_capture`` says.
+        """
+        if lit_other_than(self._scope.illumination, layer):
+            raise HardwareCommandRefusedError('other_led_lit', member)
+        self._camera._hold_layer_for_capture(layer, request, member)
+        return self._capture_still_impl(member=member, **capture)
 
     def _build_frame_record(
         self,
         *,
-        chunks: dict,
+        chunks: dict[str, int | float],
         lit: frozenset[tuple[int, float]],
-        captured_at: datetime.datetime,
+        captured_at: FrameTime,
+        clock_mapping: ClockMapping | None,
+        judgments: tuple[Judgment, ...],
+        saturated_fraction: float | None,
+        dark: bool | None,
+        auto_gain: AutoGainConvergence | None,
     ) -> FrameRecord:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
         Exposure and gain come from the frame's own chunk values where the
-        camera stamps them (Pylon ace 2 / dart), which are what frame
-        validity checked the frame against. A camera without chunks (IDS,
-        the simulator) answers from a live read here, beside the grab -- the
-        nearest the frame has to its own account, and nothing queued behind
-        the grab on this lane can reach it. The live-confirmed surface, not
-        the value getters: those answer last-known-good after a failed read,
-        which is right for control flow and wrong for a record.
+        camera stamps them (Pylon ace 2 / dart, the simulated camera), which
+        are what frame validity checked the frame against. A frame without
+        them (IDS, FX2, a Basler frame whose chunk was not delivered) takes
+        a fresh read here, beside the grab -- the nearest the frame has to
+        its own account, and nothing queued behind the grab on this lane can
+        reach it. A read the camera does not answer raises
+        ``CameraReadFailedError`` and fails the capture, as a failed black
+        level read does, rather than saving a frame whose exposure or gain
+        is unknown. The record says which each is (``SettingSource``).
         """
-        exposure_us = chunks.get('ExposureTime')
-        gain_db = chunks.get('Gain')
-        if exposure_us is None or gain_db is None:
-            live = self.get_live_camera_settings()
-        else:
-            live = {}
-        exposure_ms = exposure_us / 1000.0 if exposure_us is not None else live.get('exposure_ms')
-        if gain_db is None:
-            gain_db = live.get('gain_db')
-
-        # A non-physical value -- a failed read's negative sentinel, or the
-        # zero exposure an inactive camera reports -- is not a setting the
-        # frame had; unknown stays unknown rather than being written into a
-        # file as a measurement.
-        if not common_utils.is_valid_exposure_ms(exposure_ms):
-            logger.warning(
-                '[SCOPE API ] Exposure for this frame is unknown (no chunk data and '
-                'the live camera read failed or the camera is inactive); its record '
-                'carries none'
-            )
-            exposure_ms = None
-        if not common_utils.is_valid_gain_db(gain_db):
-            logger.warning(
-                '[SCOPE API ] Gain for this frame is unknown (no chunk data and the '
-                'live camera read failed); its record carries none'
-            )
-            gain_db = None
-
-        illumination = self._scope.illumination
-        ticks = chunks.get('Timestamp')
-        frame_id = chunks.get('FrameID')
         camera = self._scope.capabilities
         with self._state_lock:
             frames_summed, frame_significant_bits = self._last_frame_summing
-        return FrameRecord(
+        return grab_record(
             captured_at=captured_at,
-            exposure_ms=exposure_ms,
-            gain_db=gain_db,
+            chunks=chunks,
+            read_exposure_ms=lambda: self._camera._read_fresh('exposure_ms'),
+            read_gain_db=lambda: self._camera._read_fresh('gain_db'),
             black_level=self._black_level_for_record(),
-            illumination_ma={illumination.state_ch2color(ch): ma for ch, ma in lit},
+            lit=dict(lit),
             frames_summed=frames_summed,
             frame_significant_bits=frame_significant_bits,
-            camera_timestamp_ticks=int(ticks) if ticks is not None else None,
-            camera_tick_hz=camera.camera_timestamp_tick_hz,
-            frame_id=int(frame_id) if frame_id is not None else None,
-            binning_size=self._binning_size,
+            binning_size=self._camera._held_or_read('binning'),
             camera_model=camera.camera_model,
+            camera_tick_hz=camera.camera_timestamp_tick_hz,
+            clock_mapping=clock_mapping,
+            judgments=judgments,
+            saturated_fraction=saturated_fraction,
+            dark=dark,
+            held_channel=self._camera.get_held_layer(),
+            auto_gain=auto_gain,
+        )
+
+    @api(in_process=True)
+    def map_camera_clock(self) -> ClockMapping | None:
+        """The camera's clock mapped onto the host's steady and wall clocks, now.
+
+        The latch is a command to the camera, so it runs on the camera's
+        lane, as a capture's own latch does: a latch and the read of what it
+        latched never interleave with another's. A recording takes one as it
+        starts and maps every frame's tick through it.
+
+        Returns:
+            ClockMapping | None: The mapping; None for a camera without a
+                latch (``capabilities.camera_has_clock_latch``).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
+            CameraReadFailedError: The latch or the read of what it latched
+                failed.
+        """
+        return self._camera._dispatch_camera(
+            self._clock_mapping_for_record,
+            'map_camera_clock',
+            timeout_s=self._camera._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _clock_mapping_for_record(self) -> ClockMapping | None:
+        """The camera's clock mapped onto the host's, taken at the top of each
+        capture cycle, before its drain: the latch alone is bracketed by the
+        host's steady clock, and the read of what it latched follows outside
+        the bracket; the wall clock is read just before it, outside it too
+        (``host_clock.wall_ns``, ``ClockMapping.wall_ns``). None for a camera
+        without a latch. A failed latch or read raises ``HardwareError`` and
+        fails the capture, as a failed black level read does.
+        """
+        camera = self._scope.capabilities
+        if not camera.camera_has_clock_latch:
+            return None
+        wall_ns = host_clock.wall_ns()
+        before = host_clock.steady_ns()
+        self._driver.latch_clock()
+        after = host_clock.steady_ns()
+        host_ns = (before + after) // 2
+        return ClockMapping(
+            host_ns=host_ns,
+            camera_ticks=self._driver.latched_clock_ticks(),
+            tick_hz=camera.camera_timestamp_tick_hz,
+            uncertainty_ns=(after - before + 1) // 2,
+            wall_ns=wall_ns + (host_ns - before),
+        )
+
+    def _settle_budget(
+        self, exclude_sources: tuple[FrameValiditySource, ...], frame_cost_s: float
+    ) -> tuple[int, float]:
+        """The frames the changes are owed, and the seconds a capture budgets for them.
+
+        The one settle term the capture's deadline and the public
+        dispatcher's wait both read: the frames owed under the credit rule,
+        each at ``frame_cost_s`` and the deadline's margin, plus the time
+        until the host's clock passes the instant a frame must start after
+        under the clock rule (``FrameValidity.owed``, without the clock
+        mapping's uncertainty, which no budget is taken beside).
+        """
+        owed = self.frame_validity.owed(exclude_sources=exclude_sources)
+        clock_s = (
+            max(0, owed.until_ns - host_clock.steady_ns()) / 1e9
+            if owed.until_ns is not None
+            else 0.0
+        )
+        return owed.frames, owed.frames * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN + clock_s
+
+    def _settle_limit(
+        self, exclude_sources: tuple[FrameValiditySource, ...], frame_cost_s: float
+    ) -> tuple[int, float]:
+        """The frames the changes are owed, and how long they may take to come into force.
+
+        The settle term (``_settle_budget``) plus the deadline's floor: the
+        part of a capture's deadline that is the wait for its changes, and
+        the whole of a recording's (``changes_in_force_limit_s``).
+        """
+        n, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
+        return n, self._CAPTURE_DEADLINE_FLOOR_S + settle_s
+
+    @api(in_process=True)
+    def changes_in_force_limit_s(
+        self, exclude_sources: tuple[FrameValiditySource, ...] = ()
+    ) -> float:
+        """How long the changes now recorded may take to come into force, in seconds.
+
+        The capture's own limit for its wait (``capture_still``), so a
+        recording that waits for ``changes_in_force`` gives up when a capture
+        would: the frames owed under the credit rule, each at the exposure in
+        force or the slowest frame period, with a margin; the time until the
+        clock rule's instant; and a floor for one grab's timeout.
+
+        Args:
+            exclude_sources: Sources whose changes are not waited for.
+
+        Returns:
+            float: Seconds, measured from now.
+
+        Raises:
+            Nothing.
+        """
+        frame_cost_s = max(
+            self._camera._grab_sizing_exposure_s(),
+            self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
+        )
+        return self._settle_limit(exclude_sources, frame_cost_s)[1]
+
+    @api(reads=True, in_process_arguments=('mapping',))
+    def changes_in_force(
+        self,
+        mapping: ClockMapping | None = None,
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
+    ) -> bool:
+        """Whether every change recorded is in force, so a frame starting now counts.
+
+        The one answer to whether a frame would count: a capture's drain
+        ends on it, a recording waits on it before its first frame, and the
+        live view, a REST client and a plugin ask it, so none waits on
+        anything else: no frame is owed under the credit rule
+        (``FrameValidity.owed``), and the host's steady clock has passed the
+        instant a frame must start after under the clock rule, taken with
+        ``mapping``'s uncertainty. It latches nothing, so asking it is never
+        a camera command: a capture or a recording passes the mapping its
+        frames are judged by (``map_camera_clock``); a caller with no frame
+        to judge passes none and is answered without the uncertainty.
+
+        Args:
+            mapping: The camera's clock mapping the caller judges by, or
+                None; in-process only, never on the wire.
+            exclude_sources: Sources whose changes are not waited for.
+
+        Returns:
+            bool: True when a frame starting now counts for every change.
+
+        Raises:
+            Nothing.
+        """
+        owed = self.frame_validity.owed(
+            exclude_sources=exclude_sources,
+            uncertainty_ns=mapping.uncertainty_ns if mapping is not None else 0,
+        )
+        return owed.frames == 0 and (
+            owed.until_ns is None or host_clock.steady_ns() >= owed.until_ns
         )
 
     def _black_level_for_record(self) -> float | None:
-        """The black level a frame's record carries: a live read beside the
+        """The black level a frame's record carries: a fresh read beside the
         grab, None when the camera reports none. A setter makes it a capture
         variable, so a frame states it as it states its gain; a failed read
-        raises ``HardwareError`` and fails the capture rather than saving a
-        frame whose black level is unknown.
+        raises ``CameraReadFailedError`` and fails the capture rather than
+        saving a frame whose black level is unknown.
         """
-        return self._driver.get_black_level()
+        return self._camera._read_black_level_impl()
 
-    @api(in_process=True)
-    def capture_and_wait(
+    @api(in_process=True, engineering=True)
+    def capture_still(
         self,
-        force_to_8bit: bool = True,
+        hold: LayerHold | None = None,
         *,
+        force_to_8bit: bool = True,
         accept_dark: bool = False,
-        exclude_sources: tuple = (),
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
-    ) -> np.ndarray | None:
-        """Capture a frame-valid image on the camera worker, and wait for it.
+    ) -> CapturedStill:
+        """Capture a frame-valid image on the camera worker, and hand it back with its record.
 
-        See ``_capture_and_wait_impl`` for the argument contract, the
-        frame-drain behaviour, and the None-on-failure sentinel; this adds
-        only the dispatch described on ``_dispatch_camera``. ``timeout_s``
-        stays the content-gate retry budget the body reads; the executor
-        wait is bounded separately and internally.
+        A frame guaranteed to reflect the hardware as it is now: the capture
+        passes over stale frames until every change since the last one (an
+        LED, the gain, the exposure, a move) is met by its source's rule
+        (``ScopeCapabilities.frame_rules``) -- a frame count, time on the
+        camera's clock, an axis settling -- and keeps only a frame that
+        counts for every change it does not exclude. A change landing while
+        the capture runs is seen, and the capture starts its wait again,
+        within a deadline; the deadline stands still while a commanded move
+        is settling. The capture is one command on the camera's lane, and
+        this returns once it has run, with the frame's record beside the
+        image (``CapturedStill``), so the record is the frame's and no later
+        capture's; a caller that needs only the pixels reads ``.image``.
+
+        Given ``hold``, the camera holds that layer's stored settings for the
+        grab (``CameraAPI.hold_layer``), in the same camera-lane task; given
+        None, it captures with the camera as set. In-process only, as
+        ``hold_layer`` is: the Session reads the layer's store and hands it
+        in (``ScopeSession.capture_still``), so a still is held at no
+        settings but its layer's.
+
+        Args:
+            hold: The layer whose stored settings the camera holds for the
+                grab, or None for the camera as set.
+            force_to_8bit: True for an 8-bit image; False for the camera's
+                own depth, in a uint16 array for a 12- or 16-bit camera.
+            accept_dark: While a channel is lit (at a current above 0 mA), a
+                frame with essentially no lit pixel is taken again until
+                ``timeout_s`` passes, then kept and recorded dark. True skips
+                that judgment, for a caller whose dark frames are legitimate
+                while lit, such as an autofocus sweep.
+            exclude_sources: Changes not to wait for, e.g.
+                ``(FrameValiditySource.Z_MOVE,)``. The frame can then predate
+                such a change, so a frame that is measured or saved never
+                excludes one.
+            all_ones_check: Measure the frame's saturation: a blown frame is
+                grabbed again once and, blown again, kept.
+            timeout_s: Seconds the grab, and each summed frame, keeps taking
+                frames for one that passes its checks, once the stale ones are
+                passed over; 0, the default, gives each one try.
+            sum_count: Frames summed into the image, for noise reduction; a
+                sum's array is uint16.
+            sum_delay_s: Seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame, on the
+                camera's lane.
+
+        Returns:
+            The frame's ``CapturedStill``: its image, (H, W) for a mono
+            camera and (H, W, 3) for a color one, and its record.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
-                number; NaN would make the body's drain deadline never pass.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
+                time is not a wait from 0 to 30 days, or the wait for the
+                capture and every frame of its sum together is longer.
+                Nothing reached the camera.
+            CaptureFailedError: ``'no_frame'``, the camera delivered none
+                within its grab window; ``'deadline_expired'``, changes kept
+                landing until the deadline passed; ``'no_fresh_frame'``,
+                frames came but none within the grab's bound counted for the
+                ``setting`` changed; ``'chunk_rejected'``, frames counted but
+                none at the ``setting`` asked; ``'record_read_failed'``, a
+                frame came but the camera did not answer a read of the gain,
+                exposure or black level its record needs, so it was not kept,
+                chained from the ``CameraReadFailedError``.
+            HardwareCommandRefusedError: ``'not_connected'``, naming this
+                member, with no camera at the call or removed during the
+                capture; ``'camera_not_streaming'``, connected but not
+                grabbing; or, given ``hold``, a run, a diagnostic or a home
+                holds the scope, or ``'other_led_lit'``, an LED other than its
+                layer's is lit.
+            CameraSettingRejected: given ``hold``, the camera refused one of
+                its settings; nothing was captured.
+        """
+        wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
+        capture = {
+            'force_to_8bit': force_to_8bit,
+            'accept_dark': accept_dark,
+            'exclude_sources': exclude_sources,
+            'all_ones_check': all_ones_check,
+            'timeout_s': timeout_s,
+            'sum_count': sum_count,
+            'sum_delay_s': sum_delay_s,
+            'sum_iteration_callback': sum_iteration_callback,
+        }
+        if hold is None:
+            return self._camera._dispatch_camera(
+                self._capture_still_impl,
+                'capture_still',
+                kwargs={'member': 'capture_still', **capture},
+                timeout_s=wait_s,
+            )
+        if hold.request.auto_gain:
+            _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
+        # The hold's writes run in the same task, ahead of the capture.
+        return self._camera._dispatch_camera(
+            self._capture_holding_layer_impl,
+            'capture_still',
+            args=(hold.channel, hold.request, 'capture_still'),
+            kwargs=capture,
+            timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _capture_wait_s(
+        self,
+        exclude_sources: tuple[FrameValiditySource, ...],
+        timeout_s: float,
+        sum_count: int,
+        sum_delay_s: float,
+    ) -> float:
+        """How long a public capture waits for its camera-lane task.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, as
+                ``capture_still`` says.
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
-            refuse_unless_finite_number(value, name)
+            refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
         # with the work the caller declared: the content-gate retry budget
         # runs inside the body, and each summed frame costs an exposure plus
@@ -3574,42 +1599,27 @@ class ImagingAPI:
         # the body's own drain-and-recheck deadline -- otherwise a deep
         # legitimate drain (a 20-frame auto-gain settle at the luminescence
         # exposure ceiling) surfaces to the caller as an executor
-        # TimeoutError instead of the body's loud, distinctly-logged None.
+        # TimeoutError instead of the body's own 'deadline_expired'.
         frame_cost_s = max(
-            self.exposure_ms_cached / 1000.0,
+            self._camera._grab_sizing_exposure_s(),
             self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
         )
+        _, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
             + timeout_s
             + sum_count * (frame_cost_s + sum_delay_s)
-            + self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
-            * frame_cost_s
-            * self._CAPTURE_DEADLINE_MARGIN
+            + settle_s
         )
-        return self._dispatch_camera(
-            self._capture_and_wait_impl,
-            'capture_and_wait',
-            kwargs={
-                'force_to_8bit': force_to_8bit,
-                'accept_dark': accept_dark,
-                'exclude_sources': exclude_sources,
-                'all_ones_check': all_ones_check,
-                'timeout_s': timeout_s,
-                'sum_count': sum_count,
-                'sum_delay_s': sum_delay_s,
-                'sum_iteration_callback': sum_iteration_callback,
-            },
-            timeout_s=wait_s,
-        )
+        # Each time in range, a long sum can still make a wait no host holds.
+        refuse_unless_wait_s(wait_s, 'the wait for the capture and every frame of its sum')
+        return wait_s
 
-    # A frame at least this saturated is treated as blown -- a stale-gain
-    # or over-exposure symptom. Set high so a legitimately bright field
-    # does not trip it; a true blown-white frame saturates essentially
-    # every pixel. Surfaced (warn + notify) rather than saved silently.
-    _SATURATION_NEAR_MAX_FRACTION = 0.99  # pixel >= 99% of full scale = saturated
-    _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
+    # A pixel at or above this fraction of full scale is saturated; how many
+    # of them make a frame blown is the record's (``BLOWN_FRACTION``).
+    _SATURATION_NEAR_MAX_FRACTION = 0.99
 
+    @api(in_process=True, engineering=True)
     @staticmethod
     def saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
         """Fraction of pixels at or above the near-full-scale threshold.
@@ -3626,7 +1636,17 @@ class ImagingAPI:
         the pixel count, not a summary statistic. `significant_bits` is
         required rather than defaulted -- a caller that has to guess the
         payload depth is the case this measures wrong.
+
+        Args:
+            arr: The frame's pixels; None or an empty array answers 0.
+            significant_bits: The frame's payload depth in bits, 1 to 16, from which
+                full scale is taken.
+
+        Raises:
+            ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
+                outside 1 to 16, the depths a frame's 16-bit container holds.
         """
+        _refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1
@@ -3648,8 +1668,10 @@ class ImagingAPI:
         """Fraction of pixels above the dark-floor threshold.
 
         Measured against the frame's payload depth, not the container
-        dtype -- the same depth rule as ``saturated_fraction``.
+        dtype -- the same depth rule as ``saturated_fraction``, and the same
+        refusal of a depth no frame has.
         """
+        _refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1
@@ -3668,7 +1690,8 @@ class ImagingAPI:
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
-    ) -> np.ndarray | None:
+        judged: _Judged | None = None,
+    ) -> np.ndarray | _NoFrame:
         """Grab and return an image from the camera.
 
         By default returns the last buffered frame. Set force_new_capture=True
@@ -3678,17 +1701,19 @@ class ImagingAPI:
         This is the ungated primitive: it does NOT wait for frame validity,
         so the returned frame may not reflect a just-changed gain, exposure,
         LED, or stage position. For any frame you will SAVE or MEASURE as
-        truth, call capture_and_wait, which drains the camera pipeline until
+        truth, call capture_still, which drains the camera pipeline until
         the validity marker is GREEN before grabbing.
 
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
             timeout_s: Max seconds to wait for a valid frame.
-            all_ones_check: Reject saturated (all-max-value) frames.
-            dark_floor_check: Reject frames with essentially no pixel above
-                the dark floor, retrying until a lit frame arrives or
-                timeout_s expires. Internal transport of the value
-                capture_and_wait derives from commanded LED state; the
+            all_ones_check: Measure each kept frame's saturation; a blown one
+                is grabbed again once, then kept (``_Grabbed.saturated_fraction``).
+            dark_floor_check: Pass over frames with essentially no pixel
+                above the dark floor until a lit frame arrives, and when
+                timeout_s expires keep the dark one (``_Grabbed.dark``).
+                Internal transport of the value
+                capture_still derives from commanded LED state; the
                 public get_image never sets it (probes and diagnostics
                 must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
@@ -3708,124 +1733,148 @@ class ImagingAPI:
                 still exposing when the settings changed. No-op for cameras
                 without chunk support or when no target is recorded (e.g.
                 hardware auto-gain owns the value).
+            judged: The capture's judgment of each frame (``_Judged``): a
+                frame is passed over, before any other check, until one
+                counts for every change it does not exclude, and when its
+                bound passes the grab ends ``'no_fresh_frame'`` naming the
+                change. None for the ungated grab, which judges nothing.
 
         Returns:
-            numpy.ndarray | None: Captured image array, or None on failure
-                (camera inactive, frame drain failed, timeout exceeded).
-                Per the Sentinel-return contract preface in LumascopeSkills:
-                `if image is None: ...` to detect failure.
+            numpy.ndarray | _NoFrame: The captured image, or the record of
+                a grab that got none, which the caller raises once its own
+                cleanup has run (``_NoFrame.error``). Nothing is raised or
+                reported here.
 
                 Shape is (H, W) 2D mono for mono-native cameras and
                 (H, W, 3) RGB for color-native cameras. Probe
                 `scope.capabilities.is_color_native` to disambiguate.
                 This method does NOT apply layer false-color -- apply
                 at the display / encode boundary via
-                `image_utils.mono_to_rgb_falsecolor(img, layer)`.
+                `image_utils.mono_to_rgb_falsecolor(img, color)`.
 
                 Dtype is uint8 when force_to_8bit=True, and for a single
                 frame from an 8-bit camera; uint16 when force_to_8bit=False
                 for 12/16-bit cameras (uint16 container holds the native bit
                 width), and for a sum on every camera (its counts pass one
-                frame's range). ``capture_frame_depth`` gives the depth the
-                frame carries.
+                frame's range). ``capture_still`` hands back the depth the
+                frame carries (``CapturedStill.significant_bits``).
         """
 
         if not self._driver or not self._driver.active:
-            return None
+            return _NoFrame('removed', 'entry')
 
-        tmp_buffer = []
+        frames: list[Frame] = []
+        # What the kept frames were found to be, for the capture's record:
+        # the most saturated of them, and whether any was kept dark. None
+        # where the check was not asked.
+        kept_saturation = 0.0 if all_ones_check else None
+        kept_dark = False if dark_floor_check else None
         # Arrival ordinal of the frame most recently taken into the sum; None
         # until the first one lands. Local by construction: a bound that
         # outlived one capture would reject the next capture's frames.
         earliest_seq = None
-        timeout_td = datetime.timedelta(seconds=timeout_s)
-        for _ in range(sum_count):
-            start_time = datetime.datetime.now()
-            stop_time = start_time + timeout_td
+        timeout_ns = int(timeout_s * 1e9)
+        for frame_index in range(sum_count):
+            # Waiting for a sum's next frame is its own leg, for the log.
+            leg = 'sum' if frame_index else 'grab'
+            # Timed on the clock the frames' arrivals carry, so a give-up
+            # line's wait and the last frame's age are on one clock.
+            mark = _FeedMark.read(self._driver)
+            stop_ns = mark.at_ns + timeout_ns
 
             while True:
-                # Acquire cam_lock for camera grab -- prevents concurrent
-                # set_gain_db/set_exposure from another thread mid-frame.
-                with self._cam_lock:
-                    if force_new_capture:
-                        grab_status, _grab_image_ts, grab_seq = self._driver.grab_new_capture(
-                            new_capture_timeout_s
-                        )
-                    else:
-                        grab_status, _grab_image_ts, grab_seq = self._driver.grab()
+                frame = (
+                    self._driver.grab_new_capture(new_capture_timeout_s)
+                    if force_new_capture
+                    else self._driver.grab()
+                )
+                if frame is not None:
+                    self.frame_validity.count_frame(frame.seq, by=Counter.GRAB)
 
-                    if grab_status:
-                        self.frame_validity.count_frame(grab_seq)
-                        tmp = self._driver.get_array()  # thread-safe copy
-
-                if not grab_status:
+                if frame is None:
                     # A camera that is gone will not deliver; don't retry for
                     # the whole timeout. The removal latch is set the moment a
                     # removal is seen; ``active`` is released later, off-thread,
                     # so it alone would miss a failure in between.
-                    if self.camera_removed or not self._driver.active:
+                    if self._camera.camera_removed or not self._driver.active:
                         logger.error('[SCOPE API ] get_image: camera disconnected')
-                        from modules.notification_center import notifications
-
-                        notifications.error(
-                            'Camera',
-                            'Camera Disconnected',
-                            'Camera is no longer available. Check USB connection.',
+                        return _NoFrame('removed', leg)
+                    if host_clock.steady_ns() > stop_ns:
+                        logger.error(
+                            f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                            f'{mark.account(self._driver)}'
                         )
-                        return None
-                    if datetime.datetime.now() > stop_time:
-                        logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
-                        return None
+                        return _NoFrame('no_frame', leg)
                     logger.debug('[SCOPE API ] get_image grab failed, retrying')
                     time.sleep(0.05)
                     continue
 
-                # Saturation measures against the just-grabbed frame's own
-                # payload depth (the delivery stamp), never the container
-                # dtype -- a 12-bit frame in a uint16 container is blown at
-                # 4095, not 65535. Read only on the checking path: the stamp
-                # read takes the handler's frame lock, which the streaming
-                # thread contends on every delivery.
-                if all_ones_check:
-                    frame_depth = self.last_significant_bits
-                if (
-                    all_ones_check
-                    and self.saturated_fraction(tmp, frame_depth) >= self._SATURATION_BLOWN_FRACTION
-                ):
+                # A frame the one judgment does not count for some change was
+                # exposed before that change reached it: the next frame is
+                # taken, and every later check sees only a frame that counts.
+                unmet = judged.unmet(self.frame_validity, frame) if judged is not None else None
+                if unmet is not None:
+                    expired = (
+                        host_clock.steady_ns() > judged.clock_bound_ns
+                        if judged.clock_bound_ns is not None
+                        else host_clock.steady_ns() > stop_ns
+                    )
+                    source = unmet.change.source
+                    if expired:
+                        logger.warning(
+                            f'[SCOPE API ] get_image: no frame counted for the {source} '
+                            f'change within the grab bound (last frame seq={frame.seq}, '
+                            f'{unmet.change.rule.rule.value} rule) -- capture rejected. '
+                            f'{mark.account(self._driver)}'
+                        )
+                        return _NoFrame('no_fresh_frame', leg, source=source)
+                    logger.debug(
+                        f'[SCOPE API ] get_image: frame seq={frame.seq} does not count '
+                        f'for the {source} change; waiting for the next'
+                    )
+                    if not force_new_capture:
+                        time.sleep(0.05)
+                    continue
+
+                # Saturation measures against the frame's own payload depth,
+                # never the container dtype -- a 12-bit frame in a uint16
+                # container is blown at 4095, not 65535.
+                frame_saturation = (
+                    self.saturated_fraction(frame.image, frame.significant_bits)
+                    if all_ones_check
+                    else None
+                )
+                frame_dark = False
+                if frame_saturation is not None and frame_saturation >= BLOWN_FRACTION:
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
                     # silently (the prior behavior) hid real data corruption.
-                    retry_frame = None
-                    with self._cam_lock:
-                        retry_status, _retry_image_ts, retry_seq = (
-                            self._driver.grab_new_capture(new_capture_timeout_s)
-                            if force_new_capture
-                            else self._driver.grab()
-                        )
-                        if retry_status:
-                            self.frame_validity.count_frame(retry_seq)
-                            retry_frame = self._driver.get_array()
-                    # Saturation walk is outside cam_lock -- no camera state needed,
-                    # and the walk would otherwise block concurrent set_gain_db/set_exposure.
-                    if retry_frame is not None and (
-                        self.saturated_fraction(retry_frame, self.last_significant_bits)
-                        < self._SATURATION_BLOWN_FRACTION
-                    ):
-                        tmp = retry_frame  # retry was clean, use it
+                    retry = (
+                        self._driver.grab_new_capture(new_capture_timeout_s)
+                        if force_new_capture
+                        else self._driver.grab()
+                    )
+                    if retry is not None:
+                        self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
+                    retry_saturation = (
+                        self.saturated_fraction(retry.image, retry.significant_bits)
+                        if retry is not None
+                        else None
+                    )
+                    if retry_saturation is not None and retry_saturation < BLOWN_FRACTION:
+                        frame, frame_saturation = retry, retry_saturation
                     else:
-                        # Log (not notify): a blown frame is self-evident on
-                        # screen and in the saved file, so a popup adds nothing.
-                        # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = self.saturated_fraction(tmp, frame_depth) * 100.0
-                        logger.warning(
-                            f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
-                            f'saturated -- likely over-exposure or a stale camera gain; '
-                            f'the frame may be unusable.'
+                        # Kept, and recorded as blown on the capture's record;
+                        # whoever took the capture tells it (a run once per
+                        # step, a still once), so it is not told here.
+                        logger.debug(
+                            f'[SCOPE API ] get_image: kept a frame '
+                            f'{frame_saturation * 100.0:.0f}% saturated'
                         )
 
                 if dark_floor_check:
-                    lit_fraction = self._lit_fraction(tmp, self.last_significant_bits)
+                    lit_fraction = self._lit_fraction(frame.image, frame.significant_bits)
                     if lit_fraction < self._DARK_MIN_LIT_FRACTION:
                         # The caller declared illumination ON, yet no pixel
                         # clears the floor: the frame integrated before the
@@ -3839,8 +1888,11 @@ class ImagingAPI:
                         # Darkness says nothing about the LED -- only tracked
                         # illumination state does -- so it decides nothing
                         # here beyond what gets logged and recorded.
-                        if datetime.datetime.now() > stop_time:
-                            logger.warning(
+                        if host_clock.steady_ns() > stop_ns:
+                            # Recorded as dark on the capture's record, and
+                            # told by whoever took the capture, as a blown
+                            # frame is.
+                            logger.debug(
                                 f'[SCOPE API ] get_image: frame is dark -- '
                                 f'{lit_fraction:.6f} of pixels above '
                                 f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
@@ -3849,13 +1901,11 @@ class ImagingAPI:
                                 f'{timeout_s:.1f}s. Saving the dark frame.'
                             )
                             # Carried out as a FACT about the frame, never a
-                            # failure cause: the writer records it on the run
-                            # row and an L2/REST caller reads it off
-                            # last_capture_info, so a dark frame stays
-                            # distinguishable from a lit one without anyone
-                            # re-measuring pixels downstream.
-                            with self._state_lock:
-                                self._dark_saved = True
+                            # failure cause: it rides the frame's record, so
+                            # the writer, the saved file and an in-process
+                            # caller can tell a dark frame from a lit one
+                            # without anyone re-measuring pixels downstream.
+                            frame_dark = True
                             # No break/continue: the dark frame is this
                             # capture, so it falls through the remaining
                             # gates (chunk targets, sum accumulation) on
@@ -3882,10 +1932,10 @@ class ImagingAPI:
                     # stable for the duration of this call -- a newer frame
                     # racing in here was exposed under the same settings and
                     # is equally acceptable.
-                    stale_source = self._chunk_target_mismatch()
+                    stale_source = self._chunk_target_mismatch(frame.chunks)
                     if stale_source is not None:
-                        if datetime.datetime.now() > stop_time:
-                            chunks = self._get_latest_chunks() or {}
+                        if host_clock.steady_ns() > stop_ns:
+                            chunks = frame.chunks or {}
                             chunk_key = self.frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
                             logger.warning(
                                 f'[SCOPE API ] get_image: frame chunk for '
@@ -3895,9 +1945,10 @@ class ImagingAPI:
                                 f'target={self.frame_validity.target(stale_source)}) -- '
                                 f'either the camera is still delivering frames '
                                 f'exposed under the previous settings, or it '
-                                f'clamped the requested value. Capture rejected.'
+                                f'clamped the requested value. Capture rejected. '
+                                f'{mark.account(self._driver)}'
                             )
-                            return None
+                            return _NoFrame('chunk_rejected', leg, source=stale_source)
                         logger.debug(
                             f'[SCOPE API ] get_image: rejecting frame exposed '
                             f'under stale {stale_source}; waiting for a frame '
@@ -3916,25 +1967,32 @@ class ImagingAPI:
                 # clock that jumped forward rejects every genuinely new frame
                 # until it times out, losing the capture. The first frame of a
                 # sum has nothing to be newer than.
-                if earliest_seq is None or grab_seq > earliest_seq:
-                    tmp_buffer.append(tmp)
+                if earliest_seq is None or frame.seq > earliest_seq:
+                    frames.append(frame)
+                    if frame_saturation is not None:
+                        kept_saturation = max(kept_saturation, frame_saturation)
+                    if frame_dark:
+                        kept_dark = True
                     break
 
                 # The expected path for a buffered camera, not a fault: the
                 # driver returned the frame we already summed, so poll again.
                 logger.debug(
-                    f'[SCOPE API ] get_image: frame {grab_seq} already summed '
+                    f'[SCOPE API ] get_image: frame {frame.seq} already summed '
                     f'(need > {earliest_seq}); waiting for the next arrival'
                 )
 
                 # Timestamp not met -- check timeout then retry
-                if datetime.datetime.now() > stop_time:
-                    logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
-                    return None
+                if host_clock.steady_ns() > stop_ns:
+                    logger.error(
+                        f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                        f'{mark.account(self._driver)}'
+                    )
+                    return _NoFrame('no_frame', leg)
                 time.sleep(0.05)
 
             if sum_count > 1:
-                earliest_seq = grab_seq
+                earliest_seq = frame.seq
                 if sum_iteration_callback is not None:
                     sum_iteration_callback()
 
@@ -3946,31 +2004,30 @@ class ImagingAPI:
         # frame indefinitely between calls. The _state_lock around per-write
         # didn't actually serialize concurrent get_image calls anyway (chained
         # writes from different threads could still interleave).
-        # The depth each frame was delivered at, read beside the grabs that
-        # produced them: with the count, it is the sum's whole account.
-        frame_bits = self.last_significant_bits
+        # The depth the frames were delivered at, carried by the frames
+        # themselves: with the count, it is the sum's whole account.
+        frame_bits = frames[0].significant_bits
         with self._state_lock:
             self._last_frame_summing = (sum_count, frame_bits)
 
         if sum_count == 1:
-            image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
+            image = frames[0].image
         else:
             # A sum is stored in a 16-bit container on every camera, an 8-bit
             # one included: its counts pass any one frame's range, and the
             # container is where they saturate.
             container_max = np.iinfo(np.uint16).max
 
-            combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
-            for img in tmp_buffer:
-                combined += img
+            combined = np.zeros_like(frames[0].image, dtype=np.uint32)
+            for summed in frames:
+                combined += summed.image
 
             image = np.minimum(combined, container_max).astype(np.uint16)
 
-        # One snapshot for the whole overlay decision: enabled and color must
-        # come from the same configuration even if the GUI toggles mid-frame.
-        scale_bar = self.scale_bar_config
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
+        use_scale_bar = self._resolve_use_scale_bar(
+            self._scope.read_setting('scale_bar.enabled'), objective
+        )
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
@@ -3980,22 +2037,117 @@ class ImagingAPI:
         # rendering scales a single frame against it and a sum against one
         # frame's white -- a sum is rendered brighter, which is what summing
         # is for.
-        significant_bits = image_utils.summed_significant_bits(sum_count, frame_bits)
-
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
                 objective=objective,
-                binning_size=self._binning_size,
-                color=scale_bar.get('color'),
-                significant_bits=significant_bits,
+                binning_size=self._camera.binning,
+                frames_summed=sum_count,
+                frame_bits=frame_bits,
                 capabilities=self._scope.capabilities,
             )
 
         if need_8bit:
             image = image_utils.convert_sum_to_8bit(image, sum_count, frame_bits)
 
-        return image
+        # Read-only whichever path made it, as the camera's own frame is: the
+        # capture's image is the instrument's account, not a scratch buffer.
+        image.flags.writeable = False
+        return _Grabbed(
+            image=image,
+            frame=frames[-1],
+            earliest=frames[0],
+            saturated_fraction=kept_saturation,
+            dark=kept_dark,
+        )
+
+    @api(in_process=True)
+    def judge_frame(self, frame: Frame, mapping: ClockMapping | None) -> tuple[Judgment, ...]:
+        """Whether ``frame`` counts for each source's last change, by the rule a capture waits on.
+
+        The one decision (``FrameValidity.judge``), asked of every change
+        recorded so far (gain, exposure, black level, LED, a move, ...), by
+        the rule each change's source runs (``capabilities.frame_rules``): a
+        capture's record carries it for the frame it returns, and a frame
+        listener can ask it of any frame it receives. Each ``Judgment``
+        carries the change it was judged against: the last frame the driver
+        had been handed when it was recorded, when it was recorded, its rule,
+        the frames it needed and who counted them, and for a move when its
+        axis settled.
+
+        Args:
+            frame: A frame the camera delivered (a frame listener's ``Frame``).
+            mapping: The camera's clock mapped onto the host's, which the
+                clock rule judges a frame's start by: a capture's
+                ``frame_record.clock_mapping``. None for a camera without a
+                latch; a clock-rule change then counts no frame.
+
+        Raises:
+            Nothing.
+        """
+        return self.frame_validity.judgments(frame, mapping)
+
+    @api(in_process=True)
+    def recorded_changes(self) -> dict[FrameValiditySource, Change]:
+        """Each source's last recorded change, settled or not, by source.
+
+        What a frame is judged against (``judge_frame``): when the change was
+        recorded, the last frame the driver had been handed then, its rule,
+        and for a move when its axis settled. A change stays its source's until the
+        next one replaces it.
+
+        Raises:
+            Nothing.
+        """
+        return self.frame_validity.changes()
+
+    @api(in_process=True)
+    @contextlib.contextmanager
+    def held_frame_rules(self, record: dict) -> Iterator[None]:
+        """Judge the changes recorded inside the ``with`` block by counts not yet on disk.
+
+        Use as ``with scope.imaging.held_frame_rules(record): ...``. The
+        rules are built from ``record`` as bring-up builds them from the
+        camera's timing record file (``capabilities.frame_rules``), and are
+        handed to the gate for the block: each change recorded inside it
+        waits its held count. When the block ends, however it ends, the
+        installation's rules are back, and each change recorded after it
+        waits the installation's count. A change keeps the rule it was
+        recorded under, on either side. For a characterization's verify
+        phase, which captures under the counts it just measured before they
+        are saved; ``capabilities.frame_rules`` still publishes the
+        installation's.
+
+        Args:
+            record: A camera timing record, schema 3, checked as a file is
+                (``FrameValidity.check_timing_record``).
+
+        Raises:
+            ArgumentRefusedError: ``'wrong_kind'``, a record this release
+                cannot take as measured; nothing was held.
+            ControlSessionRefusedError: ``'control_session_held'``, a control
+                session is held by someone else; nothing was held.
+        """
+        try:
+            if not isinstance(record, dict):
+                raise ValueError('not a dictionary')
+            FrameValidity.check_timing_record(record)
+        except ValueError as refused:
+            raise ArgumentRefusedError(
+                'wrong_kind',
+                argument='record',
+                value=record,
+                takes=f'a camera timing record this release reads ({refused})',
+            ) from refused
+        rules = FrameValidity.rules_from_record(
+            record, self._scope.capabilities.camera_has_clock_latch
+        )
+        with a_guarded_write(self._scope._activity_claim):
+            self.frame_validity.use_rules(rules)
+        try:
+            yield
+        finally:
+            self.frame_validity.use_rules(self._scope.capabilities.frame_rules)
 
     @api(in_process=True)
     def get_image(
@@ -4009,12 +2161,12 @@ class ImagingAPI:
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
-    ) -> np.ndarray | None:
+    ) -> np.ndarray:
         """Grab and return an image from the camera -- the UNGATED primitive.
 
         Never dark-rejects: liveness probes and diagnostics must see what
         the camera sees, dark or not. For any frame you will SAVE or
-        MEASURE as truth, call capture_and_wait, which drains the camera
+        MEASURE as truth, call capture_still, which drains the camera
         pipeline until the validity marker is GREEN and derives the
         dark-floor expectation from commanded LED state.
 
@@ -4022,29 +2174,78 @@ class ImagingAPI:
         pinned contract (introspected by tests), and a silent kwarg
         pass-through would re-open the door this split closed.
 
-        See ``_get_image_impl`` for the full argument contract.
+        By default the last buffered frame is returned; ``force_new_capture``
+        waits for a fresh one. The grab is one command on the camera's lane,
+        waited for. It does not wait for frame validity, so the frame may not
+        reflect a just-changed gain, exposure, LED or stage position.
+
+        Args:
+            force_to_8bit: True for an 8-bit image; False for the camera's
+                own depth, in a uint16 array for a 12- or 16-bit camera.
+            timeout_s: Seconds to wait for a frame.
+            all_ones_check: Measure each frame's saturation: a blown frame is
+                grabbed again once, then kept.
+            sum_count: Frames summed into the image, for noise reduction; a
+                sum's array is uint16.
+            sum_delay_s: Seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame, on the
+                camera's lane.
+            force_new_capture: True to wait for a frame the camera captures
+                after the call, rather than take the last buffered one.
+            new_capture_timeout_s: Seconds to wait for that new frame.
+            verify_chunk_targets: Pass over frames whose own record of
+                exposure and gain (the camera's chunk data) differs from the
+                last values asked for, until one matches or ``timeout_s``
+                passes; no effect on a camera without chunk data, or while
+                hardware auto-gain owns the values.
+
+        Returns:
+            The image: (H, W) for a mono camera, (H, W, 3) for a color one,
+            with no channel's false colour applied.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
-                number.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
+                time is not a wait from 0 to 30 days, or the wait for every
+                frame of the sum together is longer. Nothing reached the
+                camera.
+            CaptureFailedError: ``'no_frame'``, no frame within the timeouts;
+                ``'chunk_rejected'``, frames came but none at the ``setting``
+                asked (``verify_chunk_targets``).
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, absent at the call or removed during the grab.
         """
         for name, value in (
             ('timeout_s', timeout_s),
             ('sum_delay_s', sum_delay_s),
             ('new_capture_timeout_s', new_capture_timeout_s),
         ):
-            refuse_unless_finite_number(value, name)
-        return self._get_image_impl(
-            force_to_8bit=force_to_8bit,
-            timeout_s=timeout_s,
-            all_ones_check=all_ones_check,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-            force_new_capture=force_new_capture,
-            new_capture_timeout_s=new_capture_timeout_s,
-            verify_chunk_targets=verify_chunk_targets,
+            refuse_unless_wait_s(value, name)
+        # A liveness bound, not a budget: each frame of a sum may wait out its
+        # retry window and then one last new-capture grab, plus its delay.
+        wait_s = self._CAPTURE_WAIT_TIMEOUT_S + sum_count * (
+            timeout_s + new_capture_timeout_s + sum_delay_s
         )
+        # Each time in range, a long sum can still make a wait no host holds.
+        refuse_unless_wait_s(wait_s, 'the wait for every frame of the sum')
+        grabbed = self._camera._dispatch_camera(
+            self._get_image_impl,
+            'get_image',
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'timeout_s': timeout_s,
+                'all_ones_check': all_ones_check,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+                'force_new_capture': force_new_capture,
+                'new_capture_timeout_s': new_capture_timeout_s,
+                'verify_chunk_targets': verify_chunk_targets,
+            },
+            timeout_s=wait_s,
+        )
+        if isinstance(grabbed, _NoFrame):
+            raise grabbed.error('get_image')
+        return grabbed.image
 
     @api(in_process=True)
     def get_image_from_buffer(
@@ -4053,11 +2254,13 @@ class ImagingAPI:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
         Copy budget (per frame):
-          - grab_latest(): 0 copies (returns reference from ImageHandler)
-          - add_scale_bar(): 0 copies (modifies array in-place)
+          - grab(): 0 copies (returns the read-only stored frame)
+          - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
+            is shared with every other consumer and is never written)
           - convert_to_8bit(): 1 copy (LUT indexing creates new array),
             or 0 fresh allocations when the caller supplies out_8bit.
-          - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
+          - Total without the bar: 0 copies (8-bit) or 1 copy (12-bit with
+            force_to_8bit); the bar adds 1
           The caller adds 1 more copy via tobytes() for GPU blit.
 
         Args:
@@ -4072,160 +2275,112 @@ class ImagingAPI:
                 overwrites it.
 
         Returns:
-            tuple: (image, timestamp) where image is numpy.ndarray and timestamp
-                   is from the camera SDK, or (None, None) if unavailable.
+            tuple: (image, seq) where image is numpy.ndarray and seq is the
+                   frame's hand-over ordinal (``Frame.seq``), the same for every
+                   read of one frame, or (None, None) if unavailable.
                    Per the Sentinel-return contract: `if image is None: ...`.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, so it has no scale-bar setting to read.
         """
         if not self._driver or not self._driver.active:
             return None, None
 
-        # Single-copy grab: grab_latest() returns the image directly,
-        # avoiding the extra copy that grab() + get_array() would make.
-        # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts, frame_significant_bits, grab_seq = (
-            self._driver.grab_latest()
-        )
-        if not grab_status or tmp is None:
+        frame = self._driver.grab()
+        if frame is None:
             return None, None
-        # grab_latest() returns the same buffered frame on every poll, and
+        # grab() returns the same buffered frame on every poll, and
         # this preview path can poll faster than the camera delivers. The
         # frame's arrival ordinal dedupes the count so validity skip counts
         # retire against real frames, not poll rate -- counting polls let a
         # capture accept a frame exposed under the previous gain/exposure/LED
         # state. The ordinal also keeps a frame this path grabbed before a
         # write from retiring any of that write's wait.
-        self.frame_validity.count_frame(grab_seq)
+        self.frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
+        tmp = frame.image
 
-        with self._state_lock:
-            self._frame_buffer = tmp
-
-        # Snapshot both fields together; see get_image for why.
-        scale_bar = self.scale_bar_config
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
+        use_scale_bar = self._resolve_use_scale_bar(
+            self._scope.read_setting('scale_bar.enabled'), objective
+        )
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=objective,
-                binning_size=self._binning_size,
-                color=scale_bar.get('color'),
-                significant_bits=frame_significant_bits,
+                binning_size=self._camera.binning,
+                frames_summed=1,
+                frame_bits=frame.significant_bits,
                 capabilities=self._scope.capabilities,
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_to_8bit(tmp, frame_significant_bits, out=out_8bit)
+            tmp = image_utils.convert_to_8bit(tmp, frame.significant_bits, out=out_8bit)
 
-        return tmp, grab_image_ts
+        return tmp, frame.seq
 
+    @api
     @property
     def significant_bits(self) -> int:
         """Meaningful payload bits of frames the current camera delivers.
 
         The depth a single captured frame should be scaled / tagged by (12 for a
-        Mono12 sensor, 8 for an 8-bit one). A summed frame carries the bits
-        the sum can reach and is not described by this -- ``capture_frame_depth``
-        answers for it. Falls back to the container width when no camera is
-        attached.
+        Mono12 sensor, 8 for an 8-bit one); it follows ``set_image_mode``. A
+        summed frame carries the bits the sum can reach and is not described
+        by this -- ``CapturedStill.significant_bits`` answers for it. The deepest the
+        camera offers is ``capabilities.camera_max_significant_bits``.
 
-        Derived from the CACHED pixel format (the validated last-known-good)
+        Derived from the HELD pixel format (the one the camera last reported
+        or took)
         via the driver's own depth rule (``significant_bits_for_format``, so
         a constant-depth driver like FX2 stays authoritative), not a live
         driver read: a transient format-read failure once made a 12-bit
         camera report depth 16 here, so a fully blown frame passed the
         saturation evidence check at 0.0% and files were stamped at the
-        wrong depth. For the depth of a frame you are HOLDING, prefer
-        ``last_significant_bits`` -- the per-frame stamp.
+        wrong depth. A frame you are HOLDING carries its own depth
+        (``Frame.significant_bits``; ``CapturedStill.significant_bits`` for a capture).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the scope has no
+                camera, so no frames have a depth.
         """
         driver = self._driver
         if driver is None:
-            return 16
-        return driver.significant_bits_for_format(self._get_pixel_format())
-
-    @property
-    def last_significant_bits(self) -> int:
-        """Payload depth of the most recently delivered frame (per-frame stamp).
-
-        The depth to save, evidence-check, or downconvert a just-captured
-        frame at: every driver stamps the depth WITH the frame at delivery,
-        so it cannot fail a live read and always describes a frame the
-        camera actually produced. Read it as closely as possible to the
-        grab that produced the frame you hold -- a later read can describe
-        a newer frame. The stamp is an in-memory read (no SDK node touch),
-        so it has no transient-failure mode. Falls back to
-        ``significant_bits`` (the validated cached-format depth -- NOT the
-        driver's live-read fallback, which a transient format failure
-        could turn into a wrong container-width answer) when no frame has
-        been stored yet; 16 when no camera is attached.
-        """
-        driver = self._driver
-        if driver is None:
-            return 16
-        stamped = driver.last_stamped_significant_bits()
-        return int(stamped) if stamped is not None else self.significant_bits
-
-    @api(in_process=True)
-    def capture_frame_depth(self, array: np.ndarray | None) -> int:
-        """Payload depth of a frame just produced by a capture call.
-
-        The one depth-classification rule every save / evidence / display
-        consumer shares: an 8-bit array carries 8 significant bits (a single
-        8-bit frame, or a capture already rendered to 8 bits), a sum carries
-        the bits it can reach (``image_utils.summed_significant_bits``), and
-        a single wider frame carries the per-frame delivery stamp. The count
-        and the stamp are the capture's own, recorded by the reducer that
-        made the frame, so no caller restates how many frames it summed. Read
-        it at capture time, before this scope captures again, and hand it
-        DOWN with the frame -- re-deriving depth later reads the camera's
-        state at that later moment, not the frame's.
-        """
-        if array is not None and getattr(array, 'dtype', None) == np.uint8:
-            return 8
-        with self._state_lock:
-            summing = self._last_frame_summing
-        if summing is None:
-            return self.last_significant_bits
-        return image_utils.summed_significant_bits(*summing)
-
-    @api(in_process=True)
-    def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
-        """The value at which a frame just produced by a capture call is saturated.
-
-        The saturation evidence's full scale: 255 for an 8-bit array, and
-        for a wider frame what it can hold -- one frame's full scale, or N
-        of them for a sum (``image_utils.summed_full_scale``), never the
-        tag's power of two, which a sum of blown frames does not reach when N
-        is not a power of two. Read it beside ``capture_frame_depth``.
-        """
-        if array is not None and getattr(array, 'dtype', None) == np.uint8:
-            return 255
-        with self._state_lock:
-            summing = self._last_frame_summing
-        if summing is None:
-            return (1 << self.last_significant_bits) - 1
-        return image_utils.summed_full_scale(*summing)
+            raise _camera_not_connected('significant_bits')
+        return driver.significant_bits_for_format(self._camera.pixel_format)
 
     # --- Streaming control ---
-    @api
-    def start_streaming(self) -> None:
+    @api(admitted_by=(Admission.LANE_CALL,))
+    def enable_streaming(self) -> None:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
         After ``connect()`` the camera is configured but NOT grabbing (the
         camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
         bring-up start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
-        when none is connected. See ``_start_streaming_impl``; this adds the dispatch
-        described on ``_dispatch_camera``, on the geometry timeout (a stop
-        or start of the grab has been measured near 11 s on a Pylon body).
+        when none is connected, or when the start finds it removed. A start
+        the FX2 does not take with the device still present raises its fault
+        (``CameraStreamStartFailedError`` for a START the device refused), the
+        camera left connected and not streaming; a later call tries again.
+        The start is one command on the camera's lane, waited for up to the
+        lane's geometry bound, since a start of the grab has been measured
+        near 11 s on a Pylon body.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected or one the start finds removed.
+            CameraStreamStartFailedError: the FX2 did not take the START with
+                the device still present; the camera is left connected and not
+                streaming.
         """
-        return self._dispatch_camera(
-            self._start_streaming_impl,
-            'start_streaming',
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        return self._camera._dispatch_camera(
+            self._enable_streaming_impl,
+            'enable_streaming',
+            timeout_s=self._camera._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    def _start_streaming_impl(self) -> None:
+    def _enable_streaming_impl(self) -> None:
         driver = self._driver
         if driver is None:
             return
@@ -4237,34 +2392,40 @@ class ImagingAPI:
         if not driver.open_and_start() and not driver.is_grabbing():
             driver.start_grabbing()
 
-    @api
-    def stop_streaming(self) -> None:
+    @api(admitted_by=(Admission.LANE_CALL,))
+    def disable_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
-        After this, ``capture_and_wait()`` fails until streaming resumes;
+        After this, ``capture_still()`` fails until streaming resumes;
         ``get_image()`` still returns the last frame the camera delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
-        as ``start_streaming`` is.
+        as ``enable_streaming`` is.
+
+        Raises:
+            Nothing.
         """
-        return self._dispatch_camera(
-            self._stop_streaming_impl,
-            'stop_streaming',
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        return self._camera._dispatch_camera(
+            self._disable_streaming_impl,
+            'disable_streaming',
+            timeout_s=self._camera._CAMERA_GEOMETRY_TIMEOUT_S,
             satisfied_when_absent=None,
         )
 
-    def _stop_streaming_impl(self) -> None:
+    def _disable_streaming_impl(self) -> None:
         driver = self._driver
         if driver is None:
             return
         driver.stop_grabbing()
 
-    @api
+    @api(reads=True)
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
-        Queries the driver directly (unlike ``active_cached``, which reads
-        the cached connected-state). False when no camera is attached.
+        Queries the driver directly (unlike ``scope.camera.active``, which
+        reads the held connected-state). False when no camera is attached.
+
+        Raises:
+            Nothing.
         """
         driver = self._driver
         if driver is None:
@@ -4281,784 +2442,20 @@ class ImagingAPI:
         it says "not grabbing" is the question put on the lane, behind what
         is queued, so a streaming camera costs nothing. The lane read
         changes nothing a holder depends on, so it is admitted whatever
-        holds the scope. False when no camera is attached.
+        holds the scope (``CameraAPI._read_on_lane``). False when no camera
+        is attached.
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'``, the lane
-                is closed.
+                closed as the question was put.
+            LaneCallStillRunningError: ``'call_overran'``, what is queued
+                ahead outlasted the restore's bound, 170 s.
         """
         if self.is_streaming():
             return True
-        return self._dispatch_camera(
-            self.is_streaming,
-            'is_streaming_once_settled',
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-            override=True,
-            satisfied_when_absent=False,
+        return self._camera._read_on_lane(
+            self.is_streaming, 'is_streaming_once_settled', satisfied_when_absent=False
         )
-
-    # --- State / lifecycle properties ---
-    @property
-    def active_cached(self) -> bool:
-        """Whether the camera is connected and active (reads cache).
-
-        Returns:
-            bool: True if the camera is currently active.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['active']
-
-    @api
-    @property
-    def gain_db_cached(self) -> float:
-        """Current camera gain in dB (reads cache).
-
-        Returns:
-            float: Cached gain value in dB.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['gain_db']
-
-    @api
-    @property
-    def longest_exposure_ms(self) -> float | None:
-        """The longest exposure the camera may be using now, in ms.
-
-        While continuous auto-gain is armed the camera picks its own
-        exposure up to the ceiling the arm was given (the sensor maximum
-        when it was given none), and the cached exposure is the value from
-        before the arm; otherwise the cached exposure is the one in force.
-        A consumer bounding how long a frame may take -- a feed-death
-        watch -- needs the former, not the cache.
-
-        Returns:
-            float | None: The bound in ms; None when the arm has no ceiling
-                and no camera reports a maximum.
-        """
-        with self._state_lock:
-            arm = self._auto_gain_arm
-        if arm is None:
-            return self.exposure_ms_cached
-        ceiling = arm.settings.get('max_exposure_ms')
-        return float(ceiling) if ceiling else self.max_exposure_ms_cached
-
-    @api
-    @property
-    def exposure_ms_cached(self) -> float:
-        """Current camera exposure time in ms (reads cache).
-
-        Returns:
-            float: Cached exposure time in milliseconds.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['exposure_ms']
-
-    @api
-    @property
-    def frame_size_cached(self) -> dict:
-        """Current camera frame size as {'width': int, 'height': int} (reads cache).
-
-        Returns:
-            dict: Copy of the cached frame size dict.
-        """
-        with self._camera_cache_lock:
-            return dict(self._camera_cache['frame_size'])
-
-    @api
-    @property
-    def min_frame_size_cached(self) -> dict | None:
-        """Minimum camera frame size, or None if no camera is connected.
-
-        Returns None (not a zero-sized dict) so callers can distinguish
-        "camera missing" from a real driver value -- the same contract as
-        its siblings max_exposure_ms_cached and max_gain_db_cached.
-
-        Returns:
-            dict | None: Copy of the cached min frame size dict, or None
-                if unavailable.
-        """
-        with self._camera_cache_lock:
-            value = dict(self._camera_cache['min_frame_size'])
-        if value.get('width', 0) <= 0 or value.get('height', 0) <= 0:
-            return None
-        return value
-
-    @api
-    @property
-    def max_exposure_ms_cached(self) -> float | None:
-        """Maximum camera exposure time in ms, or None if no camera is connected.
-
-        Returns None (not a sentinel 0.0) so callers can distinguish
-        "camera missing" from a real driver value. See #616.
-
-        Returns:
-            float | None: Max exposure time in ms, or None if unavailable.
-        """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('max_exposure_ms')
-        if not value or value <= 0:
-            return None
-        return float(value)
-
-    @api
-    @property
-    def max_gain_db_cached(self) -> float | None:
-        """Maximum camera gain in dB, or None if no camera is connected.
-
-        Parallel to max_exposure_ms_cached -- lets the UI size the gain
-        slider to the connected camera's profile-declared cap instead
-        of a universal hardcoded 48 dB that can drive the image past
-        the sensor's usable range (observed on LS620 2026-04-16).
-
-        Returns:
-            float | None: Max gain in dB, or None if unavailable.
-        """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('max_gain_db')
-        if value is None or value <= 0:
-            return None
-        return float(value)
-
-    @api
-    @property
-    def min_gain_db_cached(self) -> float | None:
-        """Minimum camera gain in dB, or None when the camera declares none.
-
-        Unlike the maximum there is no stand-in: None is the answer for a
-        camera whose profile has no floor, and a caller checking a request
-        against the range does not check that end.
-        """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('min_gain_db')
-        return None if value is None else float(value)
-
-    @api
-    @property
-    def min_exposure_ms_cached(self) -> float | None:
-        """Minimum camera exposure in ms, or None when the camera declares
-        none. See ``min_gain_db_cached``."""
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('min_exposure_ms')
-        return None if value is None else float(value)
-
-    @api
-    def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
-        """What a stored gain becomes on the attached camera.
-
-        The one place the gain cap is applied. A caller that narrows a
-        stored value itself -- against this cap or against a widget's
-        range -- is a second answerer, and the store it writes back is
-        how a user's setting gets destroyed by connecting a smaller body.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the gain is not a
-                finite number.
-        """
-        refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
-        return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
-
-    @api
-    def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
-        """What a stored exposure becomes on the attached camera.
-
-        See ``applied_gain_db_for``; the same contract for the other
-        quantity, so both travel the same path to hardware and to display.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
-                finite number.
-        """
-        refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
-        return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
-
-    @api
-    def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:
-        """What a stored auto-gain preference becomes on the attached camera.
-
-        See ``applied_gain_db_for``; the same contract for the mode. A camera
-        without hardware auto-gain runs manual whatever the layer stored, and
-        the stored preference is left alone so a camera that has the mode
-        takes it again.
-        """
-        stored = bool(stored_auto_gain)
-        applied = stored and self._camera_has_auto_gain()
-        return AppliedCameraSetting(stored=stored, applied=applied, capped=applied != stored)
-
-    def _camera_has_auto_gain(self) -> bool:
-        """Whether the attached camera has hardware auto-gain
-        (``capabilities.camera_supports_auto_gain``). The IDS and FX2 drivers
-        have no auto-gain to drive, so nothing may ask them to change it.
-        """
-        return self._scope.capabilities.camera_supports_auto_gain
-
-    def _camera_has_auto_exposure(self) -> bool:
-        """Whether the attached camera has hardware auto-exposure
-        (``capabilities.camera_supports_auto_exposure``)."""
-        return self._scope.capabilities.camera_supports_auto_exposure
-
-    @api
-    @property
-    def pixel_format_cached(self) -> str | None:
-        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
-
-        Returns:
-            str | None: Cached pixel format string, or None when no format
-                has ever been successfully read or configured. A failed
-                driver read never overwrites this entry
-                (validate-before-store at cache population), so a known
-                format survives transient read failures.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['pixel_format']
-
-    # --- Save / restore ---
-    def save_camera_state(self, tag: str) -> dict:
-        """Snapshot every camera setting with a getter, for restoration.
-
-        Omit-if-unknown: a field enters the snapshot only when a usable
-        value exists (the getters answer last-known-good, so a missing
-        field means the value was NEVER successfully read). Restore can
-        therefore trust every field it finds, and name the ones it
-        cannot restore. ``auto_gain_arm`` is always present: the standing
-        continuous arm, or None when none stood -- a run that ends with
-        its step-end disarm otherwise leaves the loop off while the layer
-        toggle shows on, until a slider write happens to re-arm it.
-
-        With a camera active the snapshot also holds its frame size and
-        pixel format, its binning where it offers more than one size, and its
-        black level where that can be set (``capabilities``). These are read
-        live, and a failed read raises: the camera cannot report its own
-        setting, and a restore that left it out would leave the scope changed
-        without saying so.
-
-        Args:
-            tag: Descriptive name for the snapshot (for logging).
-
-        Returns:
-            dict: Snapshot suitable for passing to ``restore_camera_state``.
-
-        Raises:
-            HardwareError: A setting the camera offers could not be read.
-        """
-        snapshot = {'tag': tag}
-        snapshot.update(self._camera_geometry_now())
-        gain_db = self.get_gain_db()
-        if common_utils.is_valid_gain_db(gain_db):
-            snapshot['gain_db'] = gain_db
-        else:
-            # The warning belongs HERE, not at restore: an absent field at
-            # restore time can be a deliberate caller trim (autofocus keeps
-            # the fields its run explicitly targeted), but at save time a
-            # missing value has exactly one meaning -- the camera never
-            # reported it -- and a later partial restore would otherwise be
-            # untraceable.
-            logger.warning(
-                f'[SCOPE API ] save_camera_state tag={tag}: gain has never '
-                f'been successfully read; snapshot omits it and the restore '
-                f'will leave gain unchanged'
-            )
-        exposure_ms = self.get_exposure_ms()
-        if common_utils.is_valid_exposure_ms(exposure_ms):
-            snapshot['exposure_ms'] = exposure_ms
-        else:
-            logger.warning(
-                f'[SCOPE API ] save_camera_state tag={tag}: exposure has '
-                f'never been successfully read; snapshot omits it and the '
-                f'restore will leave exposure unchanged'
-            )
-        with self._state_lock:
-            snapshot['auto_gain_arm'] = self._auto_gain_arm
-        _api_log.info(
-            f'save_camera_state tag={tag}: '
-            f'gain={snapshot.get("gain_db", "never-read")} '
-            f'exp={snapshot.get("exposure_ms", "never-read")} '
-            f'arm={snapshot["auto_gain_arm"] is not None} '
-            f'{_describe_geometry(snapshot)}'
-        )
-        return snapshot
-
-    def _camera_geometry_now(self) -> dict:
-        """The camera's restorable settings beyond gain and exposure, read live.
-
-        Empty when no camera is active. Binning appears only where the camera
-        offers more than one size, the black level only where it can be set.
-
-        Raises:
-            HardwareError: A setting the camera offers could not be read.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return {}
-        caps = self._scope.capabilities
-        now = {key: self._read_setting_live(key) for key in ('frame_size', 'pixel_format')}
-        if len(caps.camera_binning_sizes) > 1:
-            now['binning'] = self._read_setting_live('binning')
-        if caps.camera_supports_black_level:
-            black_level = self.get_black_level()
-            if black_level is None:
-                raise HardwareError("The camera's black level could not be read")
-            now['black_level'] = black_level
-        return now
-
-    def _read_setting_live(self, key: str) -> object:
-        """One live read of a restorable camera setting.
-
-        Raises:
-            HardwareError: The read failed or answered the driver's sentinel.
-        """
-        noun, reader, is_valid, coerce = _LIVE_SETTING_READS[key]
-        value = self._live_validated_read(key, reader, is_valid, coerce)
-        if value is None:
-            raise HardwareError(f"The camera's {noun} could not be read")
-        return value
-
-    def restore_camera_state(self, snapshot: dict) -> None:
-        """Restore every camera setting a saved state holds, and wait.
-
-        See ``_restore_camera_state_impl`` for the contract; this adds the
-        dispatch described on ``_dispatch_camera``, so the restore is one
-        task on the camera lane and its writes cannot interleave with
-        another caller's.
-
-        Args:
-            snapshot: Return value from ``save_camera_state``.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera: none is connected and the snapshot holds a setting
-                to restore.
-        """
-        return self._dispatch_camera(
-            self._restore_camera_state_impl,
-            'restore_camera_state',
-            args=(snapshot,),
-            timeout_s=self._CAMERA_RESTORE_TIMEOUT_S,
-            satisfied_when_absent=_DECIDED_IN_BODY,
-        )
-
-    def _restore_camera_state_impl(self, snapshot: dict) -> None:
-        """Restore every camera setting a saved state holds.
-
-        The binning, frame size, pixel format and black level go back first,
-        in ``_GEOMETRY_ORDER``, each only where it differs from the camera's
-        value now: an unchanged frame size, format or binning write would
-        restart grabbing for nothing. Then gain, exposure and the arm.
-
-        Fields absent from the snapshot are skipped and named in the log:
-        either the caller deliberately trimmed them (autofocus keeps the
-        values its run explicitly targeted) or they were never readable at
-        save time -- save_camera_state already WARNed about the latter.
-        The auto-gain loop goes back to the snapshot's state after the
-        setters: re-armed when an arm was recorded, disarmed when none was
-        and one stands now (a run aborted between a step's arm and its
-        disarm), untouched when the field is absent. A re-arm clamps the
-        exposure to the class ceiling like any arm.
-
-        Args:
-            snapshot: Return value from ``save_camera_state``.
-        """
-        if not snapshot:
-            return
-        tag = snapshot.get('tag', '?')
-        # A removed camera has nothing to restore, and each setter would
-        # report its absence again after the removal was already reported
-        # by whatever noticed it -- a run's ending, the stall check.
-        if self.camera_removed:
-            _api_log.info(f'restore_camera_state tag={tag}: camera removed; nothing restored')
-            return
-        # Decided here rather than at the lane's door, because only the
-        # snapshot says whether there is anything to restore: one taken with
-        # no camera holds no setting and no arm, and restoring it is
-        # satisfied with none connected.
-        if not self._scope.camera_connected:
-            if any(key in snapshot for key in ('gain_db', 'exposure_ms', *_GEOMETRY_ORDER)) or (
-                snapshot.get('auto_gain_arm') is not None
-            ):
-                raise _camera_not_connected('restore_camera_state')
-            return
-        # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
-        # field that fails validation is a caller bug -- the sanctioned
-        # producer only ever emits valid fields -- so that case warns.
-        gain_db = snapshot.get('gain_db')
-        gain_known = common_utils.is_valid_gain_db(gain_db)
-        if not gain_known and 'gain_db' in snapshot:
-            logger.warning(
-                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
-                f'carries a non-physical gain ({gain_db!r}); gain left as-is'
-            )
-        exposure_ms = snapshot.get('exposure_ms')
-        exposure_known = common_utils.is_valid_exposure_ms(exposure_ms)
-        if not exposure_known and 'exposure_ms' in snapshot:
-            logger.warning(
-                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
-                f'carries a non-physical exposure ({exposure_ms!r}); '
-                f'exposure left as-is'
-            )
-        # The log of record goes BEFORE the hardware writes: a setter may
-        # raise a typed exception mid-restore, and the post-mortem then
-        # needs the line stating what this restore was about to do (a
-        # partial restore with no record once misattributed wrong-
-        # brightness images to protocol settings).
-        arm_recorded = 'auto_gain_arm' in snapshot
-        arm = snapshot.get('auto_gain_arm')
-        with self._state_lock:
-            standing = self._auto_gain_arm
-        if arm_recorded and arm is not None:
-            arm_action = 're-armed'
-        elif arm_recorded and standing is not None:
-            arm_action = 'disarmed'
-        else:
-            arm_action = 'unchanged'
-        _api_log.info(
-            f'restore_camera_state tag={tag}: '
-            f'gain={gain_db if gain_known else "skipped"} '
-            f'exp={exposure_ms if exposure_known else "skipped"} '
-            f'arm={arm_action} '
-            f'{_describe_geometry(snapshot)}'
-        )
-        self._restore_camera_geometry(snapshot)
-        if gain_known and self._set_gain_db_impl(gain_db) is False:
-            self._report_refused_write(_value_rejection('gain_db', gain_db))
-        if exposure_known and self._set_exposure_ms_impl(exposure_ms) is False:
-            self._report_refused_write(_value_rejection('exposure_ms', exposure_ms))
-        arm_result = None
-        if arm_action == 're-armed':
-            arm_result = self._set_auto_gain_impl(
-                True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
-            )
-        elif arm_action == 'disarmed':
-            arm_result = self._set_auto_gain_impl(False, dict(standing.settings))
-        if arm_result is False:
-            self._report_refused_write(
-                _mode_rejection('auto_gain', arm_action == 're-armed', 'auto-gain')
-            )
-
-    def _restore_camera_geometry(self, snapshot: dict) -> None:
-        """Write back each of the snapshot's settings beyond gain and exposure
-        that differs from the camera's value now, in ``_GEOMETRY_ORDER``.
-
-        Raises:
-            HardwareError: A setting could not be read to compare.
-            CameraSettingRejected: The camera refused binning, frame size or
-                format; the restore stops there, as a setter's raise does.
-        """
-        for key in _GEOMETRY_ORDER:
-            if key not in snapshot:
-                continue
-            wanted = snapshot[key]
-            now = self.get_black_level() if key == 'black_level' else self._read_setting_live(key)
-            if now == wanted:
-                continue
-            if key == 'binning':
-                self._set_binning_size_impl(wanted)
-            elif key == 'frame_size':
-                self._set_frame_size_impl(wanted['width'], wanted['height'])
-            elif key == 'pixel_format':
-                self._set_pixel_format_impl(wanted)
-            elif self._set_black_level_impl(wanted) is False:
-                self._report_refused_write(_value_rejection('black_level', wanted))
-
-    # --- Camera config orchestration ---
-    @api
-    def apply_layer_camera_settings(
-        self,
-        gain_db: float,
-        exposure_ms: float,
-        auto_gain: bool = False,
-        auto_gain_settings: dict | None = None,
-        resume_after_capture: bool = True,
-        layer: str = '(unspecified)',
-    ) -> dict | None:
-        """Apply per-layer camera settings in one batched call, and wait.
-
-        See ``_apply_layer_camera_settings_impl`` for the contract; this
-        adds only the dispatch described on ``_dispatch_camera``. The
-        batch is one dispatched task, so the three writes stay atomic on
-        the camera lane.
-
-        Args:
-            layer: The layer these settings belong to, for the log line.
-                Optional here and required on the impl: this member is the
-                external-caller surface, where an omitted layer should not
-                be a TypeError, and the default keeps such a call
-                self-describing in api.log rather than anonymous.
-        """
-        return self._dispatch_camera(
-            self._apply_layer_camera_settings_impl,
-            'apply_layer_camera_settings',
-            args=(gain_db, exposure_ms),
-            kwargs={
-                'layer': layer,
-                'auto_gain': auto_gain,
-                'auto_gain_settings': auto_gain_settings,
-                'resume_after_capture': resume_after_capture,
-            },
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-
-    def _apply_layer_camera_settings_impl(
-        self,
-        gain_db: float,
-        exposure_ms: float,
-        *,
-        layer: str,
-        auto_gain: bool = False,
-        auto_gain_settings: dict | None = None,
-        resume_after_capture: bool = True,
-    ) -> dict | None:
-        """Apply per-layer camera settings in a single batched call.
-
-        Sets gain, exposure, and auto-gain state. Replaces 3 separate
-        IOTask queues with a single call for atomicity. Arming may clamp
-        the exposure just handed in down to the layer class's auto-exposure
-        ceiling (the loop cannot bring an exposure above its bound back
-        inside it); the log line below reports the request, the arm's own
-        line records the clamp.
-
-        Every write is attempted even when an earlier one is refused, so one
-        refused setting does not leave the others at a previous layer's
-        values; the refusal is raised once all of them have run.
-
-        Args:
-            gain_db: Camera gain in dB.
-            exposure_ms: Exposure time in milliseconds.
-            layer: The layer these settings belong to. Required, and
-                keyword-only: two layers sharing a gain and an exposure
-                otherwise write identical log lines, and one apply becomes
-                indistinguishable from two. Every caller already holds it.
-            auto_gain: The layer's stored auto-gain preference. A camera
-                without hardware auto-gain applies it as manual
-                (``applied_auto_gain_for``); the store keeps it.
-            auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db
-                               (required if auto_gain is True).
-
-        Returns:
-            dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
-                value now in effect (see ``_set_gain_db_impl``). ``None``
-                when no camera is active.
-
-        Raises:
-            CameraSettingRejected: The camera refused the gain, the exposure
-                or the auto-gain change. When it refused more than one,
-                ``setting`` names each, comma-separated, ``requested`` holds
-                their values in that order, and the message carries each
-                sentence.
-        """
-        if not self._driver or not self._driver.active:
-            return None
-        # These arrive as the layer's STORED values, which a smaller camera
-        # need not be able to reach. Capping here is what lets the store keep
-        # the user's intent: the write below carries a value this body takes,
-        # so the chunk target and the cache record what the sensor is actually
-        # at, and no driver is asked for a value it would refuse (pylon) or
-        # silently self-clamp while reporting success (IDS, FX2) -- that
-        # divergence is why the cap cannot be left to the driver.
-        gain = self.applied_gain_db_for(gain_db)
-        exposure = self.applied_exposure_ms_for(exposure_ms)
-        auto = self.applied_auto_gain_for(auto_gain)
-        gain_result = self._set_gain_db_impl(gain.applied)
-        exposure_result = self._set_exposure_ms_impl(exposure.applied)
-        auto_gain_result = None
-        if auto_gain_settings is not None:
-            auto_gain_result = self._set_auto_gain_impl(
-                auto.applied, settings=auto_gain_settings, resume_after_capture=resume_after_capture
-            )
-        # Both numbers when the camera held one down, so a bundle shows the
-        # intent that was stored next to the value the sensor took; one
-        # number would read as the user having chosen the lower one.
-        capped_note = ''
-        if gain.capped or exposure.capped:
-            capped_note = f' capped(stored gain={gain.stored}dB exp={exposure.stored}ms)'
-        if auto.capped:
-            capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
-        _api_log.info(
-            f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
-            f'exp={exposure.applied}ms auto_gain={auto.applied}{capped_note}'
-        )
-        refused = []
-        if gain_result is False:
-            refused.append(_value_rejection('gain_db', gain.applied))
-        if exposure_result is False:
-            refused.append(_value_rejection('exposure_ms', exposure.applied))
-        if auto_gain_result is False:
-            refused.append(_mode_rejection('auto_gain', auto.applied, 'auto-gain'))
-        if len(refused) == 1:
-            raise refused[0]
-        if refused:
-            raise CameraSettingRejected(
-                ','.join(r.setting for r in refused),
-                tuple(r.requested for r in refused),
-                title=refused[0].title,
-                message=' '.join(str(r) for r in refused),
-            )
-        return {'gain_db': gain_result, 'exposure_ms': exposure_result}
-
-    @api
-    def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None:
-        """Set the auto-gain target brightness, and wait for it.
-
-        See ``_update_auto_gain_target_brightness_impl`` for the settle
-        contract; this adds the dispatch described on ``_dispatch_camera``
-        and the raise below.
-
-        Raises:
-            CameraSettingRejected: The camera refused the change; nothing is
-                shown here.
-            CameraSettingUnsupportedError: The camera has no hardware
-                auto-gain, so there is no target to set.
-            ArgumentRefusedError: ``'not_a_number'``, the target is not a
-                finite number.
-        """
-        refuse_unless_finite_number(target_brightness, 'target_brightness')
-        result = self._dispatch_camera(
-            self._update_auto_gain_target_brightness_impl,
-            'update_auto_gain_target_brightness',
-            args=(target_brightness,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-        if result is False:
-            raise _mode_rejection(
-                'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
-            )
-        return result
-
-    def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> bool | None:
-        """Set the auto-gain target brightness on the camera.
-
-        Args:
-            target_brightness: Target brightness value (0.0 to 1.0).
-
-        Returns:
-            bool | None: The driver's answer; ``False`` when it refused.
-                ``None`` when no camera is active.
-        """
-        if not self._driver or not self._driver.active:
-            return None
-        if not self._camera_has_auto_gain():
-            raise _absent_mode_refusal(
-                'auto_gain_target_brightness',
-                target_brightness,
-                'automatic gain',
-                offered=(False,),
-                consequence=_AUTO_MODE_STAYS,
-            )
-        # Changing the target re-drives the auto-gain loop: gain (and, under
-        # auto-exposure, exposure) converge to a new operating point, so a frame
-        # grabbed before they resettle is captured at the old brightness. Route
-        # through the sanctioned write path and mark the settle sources RED so
-        # capture waits for the convergence -- the same sources set_auto_gain
-        # arms, since this is the same convergence.
-        return self._camera_write(
-            lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
-            refusal=lambda: _mode_rejection(
-                'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
-            ),
-            force_invalidate=('gain', 'auto_gain'),
-        )
-
-    def auto_gain_once(
-        self,
-        state: bool,
-        target_brightness: float,
-        min_gain_db: float,
-        max_gain_db: float,
-        ae_max_exposure_ms: float | None = None,
-    ) -> None:
-        """Run one-shot auto-gain, and wait for it.
-
-        See ``_auto_gain_once_impl`` for the settle contract; this adds
-        only the dispatch described on ``_dispatch_camera``.
-
-        Raises:
-            CameraSettingUnsupportedError: The camera has no hardware
-                auto-gain.
-        """
-        return self._dispatch_camera(
-            self._auto_gain_once_impl,
-            'auto_gain_once',
-            args=(state, target_brightness, min_gain_db, max_gain_db),
-            kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-        )
-
-    def _auto_gain_once_impl(
-        self,
-        state: bool,
-        target_brightness: float,
-        min_gain_db: float,
-        max_gain_db: float,
-        ae_max_exposure_ms: float | None = None,
-    ) -> None:
-        """Run auto-gain for a single frame on the camera.
-
-        Args:
-            state: True to enable one-shot auto-gain.
-            target_brightness: Target brightness (0.0 to 1.0).
-            min_gain_db: Minimum gain in dB.
-            max_gain_db: Maximum gain in dB.
-            ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
-                on the exposure auto-exposure may drive to.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        if not self._camera_has_auto_gain():
-            if state:
-                raise _absent_mode_refusal(
-                    'auto_gain',
-                    state,
-                    'automatic gain',
-                    offered=(False,),
-                    consequence=_AUTO_MODE_STAYS,
-                )
-            return
-        # One-shot AG changes both gain and exposure on the camera from a single
-        # driver call; the pipeline still needs frames to flush the converged
-        # values, so both validity markers must go RED until they settle. The
-        # converged values are chosen by the SDK, so clear any manual chunk-match
-        # target and fall back to skip-frames settling. Both invalidations and
-        # target-clears are forced -- one call, two sources, no value write the
-        # authority could observe.
-        self._camera_write(
-            lambda: self._driver.auto_gain_once(
-                state=state,
-                target_brightness=target_brightness,
-                min_gain_db=min_gain_db,
-                max_gain_db=max_gain_db,
-                ae_max_exposure_ms=ae_max_exposure_ms,
-            ),
-            refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
-            force_invalidate=('gain', 'exposure'),
-            force_clear=('gain', 'exposure'),
-        )
-        with self._state_lock:
-            self._auto_gain_arm = None
-        # One-shot AG always ends with the auto cycle complete and the
-        # SDK toggled back to Off internally; hardware holds the
-        # converged value while LVP's cache is still pre-auto.
-        self._refresh_cache_from_hardware_after_auto()
-
-    @contextlib.contextmanager
-    def suppress_value_warnings(self) -> Iterator[None]:
-        """Suppress programmatic value-range warnings (sub-0.1ms exposure
-        and similar) for the duration of the `with` block.
-
-        Used by sweep-style internal callers (camera characterization
-        dynamic_range / linearity stages) that walk the full setting
-        range deliberately. The warnings exist for L1 researchers who
-        type microsecond values thinking ms; they're noise when the
-        char tool is exercising the API as designed.
-
-        Restores the prior flag value (not unconditionally False) so
-        nested `with` blocks behave correctly. Restoration runs on
-        exception too -- exiting an exception-aborted char run leaves
-        the API in a clean state for the next user action.
-        """
-        prior = self._suppress_value_warnings
-        self._suppress_value_warnings = True
-        try:
-            yield
-        finally:
-            self._suppress_value_warnings = prior
 
     # --- Operation flags ---
     @property
@@ -5087,58 +2484,30 @@ class ImagingAPI:
         else:
             self._focusing_event.clear()
 
-    # --- Frame validity ---
-    @api
-    @property
-    def frame_is_valid(self) -> bool:
-        """True if all pending hardware state changes have settled.
-
-        ``frame_validity`` is the SSOT (see modules/frame_validity.py).
-
-        Returns:
-            bool: True when no pending state changes are outstanding.
-        """
-        return self.frame_validity.is_valid
-
-    @api
-    def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
-        """Number of frames that must be grabbed before the next valid frame.
-
-        Delegates to frame_validity.
-
-        Args:
-            exclude_sources: Sources to exclude from the validity check.
-
-        Returns:
-            int: Number of additional frames to drain before validity. 0 if
-                already valid.
-        """
-        return self.frame_validity.frames_until_valid(
-            exclude_sources=exclude_sources,
-        )
-
+    @api(in_process=True, engineering=True)
     @property
     def last_capture_info(self) -> dict | None:
-        """Evidence about the most recent capture_and_wait on this scope.
+        """How the most recent capture on this scope waited, frame or not.
 
-        Consumed by the protocol file writer and by L2 callers that need
-        the auto-gain outcome of a capture.
+        What a capture leaves whether or not it returned a frame: the
+        protocol file writer's log line, the manual still's retake bound
+        and a measure of the hold and drain read it.
+        What a frame is -- its exposure and gain and where each came from,
+        its auto-gain outcome, its judgments -- is its ``FrameRecord``,
+        handed back with it (``capture_still``), never this slot.
 
         Returns:
-            dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
-                'chunk_gain_db'}`` for the latest capture, or None before
-                the first capture. Chunk values are None on cameras
-                without chunk support. When the capture locked a standing
-                auto-gain arm it also carries ``'auto_gain'`` (one of
-                ``AutoGainConvergence``'s values: CONVERGED / MAXED /
-                AT_MINIMUM / FAILED), ``'auto_gain_exposure_ms'`` and
-                ``'auto_gain_gain_db'`` (the locked values, None on
-                FAILED). A capture the chunk gate rejected carries
-                ``'chunk_rejected'`` naming the source. A capture that
-                returned a frame carries ``'frame_record'``, the
-                ``FrameRecord`` taken with it: read it on the thread that
-                captured, before capturing again, and hand it on with the
-                frame -- the next capture replaces it.
+            dict | None: ``{'hold_ms', 'drained', 'rechecks', 'deadline_s',
+                'n_entry', 'active_s'}`` for the latest capture past its
+                call, whether it returned a frame or raised why it got none;
+                None before the first. A capture refused at its call (no
+                camera, or one not streaming) records nothing, so read this
+                only after a capture that returned or raised
+                ``CaptureFailedError``. Why a capture got no frame is what it
+                raised, never this record. The next capture replaces it.
+
+        Raises:
+            Nothing.
         """
         with self._state_lock:
             return dict(self._last_capture_info) if self._last_capture_info else None
@@ -5164,39 +2533,6 @@ class ImagingAPI:
             )
         return False
 
-    @api
-    @property
-    def scale_bar_config(self) -> dict:
-        """Whether the scale bar is drawn on captured images, and in what colour.
-
-        The one read for this state, taken once per capture so the overlay
-        decision uses one answer: ``enabled`` is the session's
-        ``scale_bar.enabled`` setting (``ScopeSession.set_scale_bar``
-        changes it), ``color`` the last ``set_scale_bar_color``.
-
-        Returns:
-            dict: ``{'enabled': bool, 'color': str | None}``, a copy.
-
-        Raises:
-            ConfigError: No session has bound this scope.
-        """
-        enabled = self._scope.read_setting('scale_bar.enabled')
-        with self._state_lock:
-            return {'enabled': enabled, 'color': self._scale_bar_color}
-
-    @api
-    def set_scale_bar_color(self, color: str) -> None:
-        """The colour the scale bar is drawn in on captured images.
-
-        Whether it is drawn at all is the session's setting
-        (``ScopeSession.set_scale_bar``), which this never changes.
-
-        Args:
-            color: Scale bar colour, e.g. a layer name ("BF", "Red").
-        """
-        with self._state_lock:
-            self._scale_bar_color = color
-
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def _log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
@@ -5207,8 +2543,8 @@ class ImagingAPI:
         camera-temp probe (cold probes live on DiagnosticsAPI).
 
         Raises:
-            HardwareError: The read failed. On a tick the session's scheduler
-                reports it and keeps the schedule.
+            HardwareError: The read failed. On the first sample and on each
+                tick the session's scheduler reports it and keeps the schedule.
         """
         temps = self._scope.diagnostics.get_camera_temperatures_degc()
         if temps is None:
@@ -5221,6 +2557,7 @@ class ImagingAPI:
         schedule_interval_fn: Callable[[Callable[..., None], float], object],
         unschedule_fn: Callable[[object], None],
         *,
+        schedule_once_fn: Callable[[Callable[[], None], float], object],
         interval_s: float = 14400.0,
     ) -> None:
         """Own the periodic camera-temp logging schedule.
@@ -5240,6 +2577,8 @@ class ImagingAPI:
                 Passed in so this module stays GUI-agnostic.
             unschedule_fn: Callable matching ``Clock.unschedule(event)``,
                 used by ``stop_camera_temp_logging``.
+            schedule_once_fn: The scheduler's ``schedule_once``, which takes
+                the immediate sample on the scheduler's thread.
             interval_s: Seconds between log emissions; default 4 hours.
         """
         # Defensive: if a previous logger is already running, stop it
@@ -5251,13 +2590,11 @@ class ImagingAPI:
             self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
-        # One immediate sample. Its caller is the host bringing metrics up,
-        # which a failed read must not stop, so the failure is reported here,
-        # where its flight ends, as a tick's is by the scheduler.
-        try:
-            self._log_camera_temps()
-        except HardwareError as ex:
-            notifications.report_outcome(ex, solicited=False, category='Camera')
+        # One immediate sample, on the scheduler's thread like every tick: the
+        # caller is the host bringing metrics up -- the GUI's main thread at
+        # start -- which must not wait on the camera's lane for it, and a
+        # failed read is reported by the scheduler, as a tick's is.
+        schedule_once_fn(self._log_camera_temps, 0)
 
         def _tick(_dt=0):
             # camera_connected is an instantaneous poll and a False can be
@@ -5306,10 +2643,14 @@ class ImagingAPI:
         so the imaging API watches its own frame count on the session's
         scheduler, in every host, and reports ``CameraStreamStalledError``
         unsolicited once per stall. A stall is the count standing still
-        while the camera is connected and streaming, for longer than a frame
-        at the current exposure can take (``prologue_stall_threshold_s``).
-        Any stop of the stream -- a frame-size, format or binning change
-        restarts it -- starts the watch again from the next frame.
+        while the camera is connected and streaming, or its grab is wanted
+        and has stopped on its own (the driver's ``grab_wanted``), for ten
+        times the longest exposure the camera may be using
+        (``longest_exposure_ms``, the sensor's maximum while the exposure is
+        unknown) and never less than 5 s (``prologue_stall_threshold_s``).
+        A stop someone asked for -- a
+        frame-size, format or binning change restarts it -- starts the watch
+        again from the next frame.
 
         Internal scheduling -- the session arms it at bring-up and the
         scope's disconnect stops it; not part of the L2 API surface.
@@ -5337,7 +2678,7 @@ class ImagingAPI:
         if handle is not None:
             self._stream_check_scheduler.unschedule(handle)
 
-    @api
+    @api(reads=True)
     def get_delivered_rate(self) -> DeliveredRate:
         """Read the rate the camera delivered frames, and their bytes on the link.
 
@@ -5350,6 +2691,9 @@ class ImagingAPI:
         Returns:
             DeliveredRate: Frames and link bytes per second; ``NOT_DELIVERING``
                 (both 0) when nothing was delivered in the last window.
+
+        Raises:
+            Nothing.
         """
         published = self._delivered_rate
         if published is None:
@@ -5358,6 +2702,40 @@ class ImagingAPI:
         if time.monotonic() - measured_at > 2 * self._STREAM_CHECK_INTERVAL_S:
             return NOT_DELIVERING
         return rate
+
+    @api(in_process=True, reads=True)
+    def wait_for_delivered_rate(self, wait_s: float) -> DeliveredRate:
+        """Read the delivered rate, waiting up to ``wait_s`` for one to be measured.
+
+        A stream that has just started has no window measured yet: the rate
+        is measured over the stream check's 1 s ticks, so the first one is
+        published up to two ticks after the stream starts, and
+        ``get_delivered_rate`` reads 0 until then. A caller that needs the
+        rate, not the absence of one, waits here for it.
+
+        In-process: it blocks the caller's thread.
+
+        Args:
+            wait_s: The longest to wait, in seconds.
+
+        Returns:
+            DeliveredRate: The rate as ``get_delivered_rate`` answers it once
+                one is measured; ``NOT_DELIVERING`` when none is measured
+                within ``wait_s``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``wait_s`` is not a wait every host can hold.
+        """
+        refuse_unless_wait_s(wait_s, 'the wait for a measured delivered rate')
+        deadline = time.monotonic() + wait_s
+        with self._delivered_rate_published:
+            while True:
+                rate = self.get_delivered_rate()
+                remaining = deadline - time.monotonic()
+                if rate.frame_rate_fps > 0 or remaining <= 0:
+                    return rate
+                self._delivered_rate_published.wait(remaining)
 
     def _sample_delivery(self, streaming: bool) -> None:
         """Take the delivered rate over the window since the last reading."""
@@ -5385,43 +2763,52 @@ class ImagingAPI:
             # swap) whose count started again from 0: no window yet.
             return
         interval_s = now - previous[2]
-        self._delivered_rate = (
-            DeliveredRate(
-                frames_per_s=(frames - previous[0]) / interval_s,
-                bytes_per_s=(wire_bytes - previous[1]) / interval_s,
-            ),
-            now,
-        )
+        with self._delivered_rate_published:
+            self._delivered_rate = (
+                DeliveredRate(
+                    frame_rate_fps=(frames - previous[0]) / interval_s,
+                    bytes_per_s=(wire_bytes - previous[1]) / interval_s,
+                ),
+                now,
+            )
+            self._delivered_rate_published.notify_all()
 
     def _check_stream(self) -> None:
-        streaming = self._scope.camera_connected and self.is_streaming()
+        # A grab that is wanted and not running stopped when nobody asked,
+        # and is watched as a stall like a grab that delivers nothing.
+        driver = self._driver
+        streaming = self._scope.camera_connected and (
+            self.is_streaming() or (driver is not None and driver.grab_wanted)
+        )
         self._sample_delivery(streaming)
         if not streaming:
             # A camera that is not streaming delivers nothing by design; the
             # watch starts again from the stream's next frame.
             self._stream_watch = None
             self._stream_watch_bound_s = None
-            self._stream_bound_dropped_at = None
             self._stream_stall_reported = False
             return
-        exposure_s = max(0.0, self.longest_exposure_ms or 0.0) / 1000.0
+        exposure_s = max(0.0, self._camera.longest_exposure_ms or 0.0) / 1000.0
         bound_s = prologue_stall_threshold_s(exposure_s)
-        delivered = self._frames_delivered()
+        # Frames stored, not handed over: a store stage that has wedged while
+        # the camera still hands frames over (Pylon's worker, the IDS unpack
+        # worker, the FX2 grab loop) delivers nothing a reader can have. A
+        # stream that is wanted has a driver (``streaming`` above).
+        stored, _ = driver.delivered_counts
         held_s = self._stream_watch_bound_s
         if held_s is not None and bound_s < held_s:
             # A shorter exposure: the frames already in the camera's pipeline
             # were exposed at the longer one, so the longer bound holds until
             # as many frames as the camera's measured exposure change takes
-            # to reach its output have come.
-            if self._stream_bound_dropped_at is None:
-                self._stream_bound_dropped_at = delivered
-            in_pipeline = self.frame_validity.SKIP_FRAMES['exposure']
-            if delivered - self._stream_bound_dropped_at < in_pipeline:
+            # to reach its output have been handed over since the change.
+            # Counted from the change, never from when this check first sees
+            # the shorter bound: ``longest_exposure_ms`` answers the longer
+            # exposure for a while after the write, and frames counted only
+            # from its end hold the longer bound over a stall that begins
+            # after the old frames have all come.
+            change = self.frame_validity.changes().get(FrameValiditySource.EXPOSURE)
+            if change is not None and driver.frames_delivered - change.at_seq < change.skip:
                 bound_s = held_s
-            else:
-                self._stream_bound_dropped_at = None
-        else:
-            self._stream_bound_dropped_at = None
         watch = self._stream_watch
         if watch is None or self._stream_watch_bound_s != bound_s:
             # A new exposure changes how long a healthy frame can take; the
@@ -5429,9 +2816,9 @@ class ImagingAPI:
             watch = self._stream_watch = StallWatch(bound_s)
             self._stream_watch_bound_s = bound_s
         now = time.monotonic()
-        if not watch.stalled(delivered, now):
+        if not watch.stalled(stored, now):
             if self._stream_stall_reported:
-                logger.info(f'[CAM Class ] Camera stream resumed: frames_delivered={delivered}')
+                logger.info(f'[CAM Class ] Camera stream resumed: frames_stored={stored}')
             self._stream_stall_reported = False
             return
         if self._stream_stall_reported:
@@ -5439,51 +2826,17 @@ class ImagingAPI:
         self._stream_stall_reported = True
         seconds = watch.quiet_for_s(now)
         logger.info(
-            f'[CAM Class ] Camera stream stalled: frames_delivered={delivered} unchanged '
+            f'[CAM Class ] Camera stream stalled: frames_stored={stored} unchanged '
             f'for {seconds:.1f} s (bound {bound_s:.1f} s at exposure {exposure_s * 1000.0:.1f} ms)'
         )
         notifications.report_outcome(
             CameraStreamStalledError(seconds), solicited=False, category='Camera'
         )
 
-    # --- Frame-flow listeners ---
-    @api(in_process=True, event=CameraChanged)
-    def add_camera_listener(self, listener: Callable[[str, float], None]) -> None:
-        """Register a callback for camera setting changes.
-
-        The listener is called with ``(param, value)`` whenever camera
-        gain or exposure changes.  *param* is ``'gain'`` or ``'exposure'``.
-        It fires from the thread that caused the change, so listeners
-        **must** schedule UI work via ``Clock.schedule_once``.
-
-        Note: this fires on set_gain_db/set_exposure_ms (user actions),
-        NOT on every camera frame grab -- zero overhead on display framerate.
-
-        Args:
-            listener: ``callable(param: str, value: float)``
-        """
-        with self._camera_listeners_lock:
-            self._camera_listeners.append(listener)
-
-    @api(in_process=True)
-    def remove_camera_listener(self, listener: Callable[[str, float], None]) -> None:
-        """Unregister a camera listener.
-
-        Args:
-            listener: A callable previously passed to
-                ``add_camera_listener``. Silently ignores listeners that
-                are not currently registered.
-        """
-        with self._camera_listeners_lock:
-            try:
-                self._camera_listeners.remove(listener)
-            except ValueError:
-                pass
-
     @api(in_process=True, event=FrameDelivered)
     def add_frame_listener(
         self,
-        cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],
+        cb: Callable[[Frame], None],
         name: str | None = None,
     ) -> None:
         """Register a per-frame listener fired on every successful grab.
@@ -5494,35 +2847,36 @@ class ImagingAPI:
         (``HANDLER_BUDGET_MS`` per call; ``HANDLER_DROP_K`` consecutive
         over-budget or raising invocations remove it, reported once as a
         ``FrameHandlerRemovedError`` warning). Callback
-        signature is ``cb(image, timestamp, chunks)``; runs on the SDK
+        signature is ``cb(frame)``, the camera's ``Frame`` record
+        (``modules.lumascope_api.Frame``: ``image``, ``seq``,
+        ``timestamp``, ``arrived_ns``, ``significant_bits``, ``chunks``);
+        runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
         simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
         on an executor.
 
         Args:
-            cb: Per-frame handler. Signature ``cb(image, timestamp, chunks)``.
+            cb: Per-frame handler. Signature ``cb(frame)``.
             name: Display name for log + notification messages on
                   over-budget / auto-removal. Defaults to the handler's
                   qualname.
 
-        The ``image`` array is shared across all listeners (don't-mutate
-        contract); write to your own output buffer if you need to keep
-        results. Mutating the supplied array affects later listeners
-        plus downstream display / capture consumers.
+        The record is shared across all listeners, the preview and a
+        capture, and is read-only: ``frame.image`` refuses a write
+        (``ValueError``) and ``frame.chunks`` is a read-only mapping. Never
+        set the image writeable again: every other holder would see the
+        change. Draw on your own copy. Keeping the record is safe: no later
+        frame changes it.
 
         Registration is idempotent for the same callable -- a second
         call with the same ``cb`` is a no-op (the original wrapper +
         name are kept).
 
         Raises:
-            FrameListenerNotRegisteredError: The camera driver refused the
-                registration, chained from its error. Nothing is left
-                registered, so a later call can retry.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera; ``'scope_disconnected'`` after ``disconnect()``.
-                Nothing is registered.
+                camera. Nothing is registered.
         """
-        self.refuse_camera_not_connected('add_frame_listener')
+        self._camera.refuse_camera_not_connected('add_frame_listener')
         if name is None:
             name = getattr(cb, '__qualname__', None) or repr(cb)
         with self._frame_listener_lock:
@@ -5532,16 +2886,14 @@ class ImagingAPI:
             self._frame_listener_wrappers[cb] = wrapper
         try:
             self._driver.register_frame_callback(wrapper)
-        except Exception as ex:
+        except BaseException:
             # Rolled back so a later registration can retry.
             with self._frame_listener_lock:
                 self._frame_listener_wrappers.pop(cb, None)
-            raise FrameListenerNotRegisteredError(name) from ex
+            raise
 
     @api(in_process=True)
-    def remove_frame_listener(
-        self, cb: Callable[[np.ndarray, datetime.datetime, dict | None], None]
-    ) -> None:
+    def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None:
         """Remove a listener registered via ``add_frame_listener``.
 
         No new call reaches the handler once this returns (a call already
@@ -5549,6 +2901,12 @@ class ImagingAPI:
         marked removed before the driver is asked, so a driver that fails to
         unregister it goes on calling a wrapper that no longer calls through.
         No-op when the listener was never registered.
+
+        Args:
+            cb: The callback given to ``add_frame_listener``.
+
+        Raises:
+            Nothing.
         """
         with self._frame_listener_lock:
             wrapper = self._frame_listener_wrappers.pop(cb, None)

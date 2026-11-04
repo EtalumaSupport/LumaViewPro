@@ -12,15 +12,14 @@ failure as a temperature failure: the diagnostic snapshot records it in its
 field, the support report writes it, the periodic log logs it at its tick.
 """
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import HardwareError
-from drivers.fx2driver import FX2Camera
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
-from tests.scope_fakes import spec_scope
 from tests.test_ids_diagnostics import _Nodemap, _temp_nodemap, _TempNode, _TempSelector
 
 
@@ -126,23 +125,22 @@ def test_the_ids_snapshot_raises_a_failed_temperature_read():
     cam._read_stream_stats = lambda: {}
 
     def _fail():
-        raise HardwareError('temperature read failed')
+        raise CameraReadFailedError('temperature read failed')
 
     cam.get_all_temperatures = _fail
     with pytest.raises(HardwareError, match='temperature read failed'):
         cam.read_diagnostic_snapshot(duration_s=0)
 
 
-# --- The other drivers --------------------------------------------------------
+# --- The API and its callers ------------------------------------------------
 
 
 def test_the_classic_camera_has_no_sensor():
-    cam = FX2Camera.__new__(FX2Camera)
-    assert cam.supports_temperature() is False
-    assert cam.get_all_temperatures() == {}
+    from tests.scope_fakes import build_scope
 
-
-# --- The API and its callers ------------------------------------------------
+    scope = build_scope(simulate=True, sim_model='LS620')
+    assert scope.capabilities.camera_reports_temperature is False
+    assert scope.diagnostics.get_camera_temperatures_degc() == {}
 
 
 def test_the_simulated_camera_reports_temperature(sim_scope):
@@ -155,7 +153,7 @@ def test_a_failed_read_reaches_the_api_caller(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_all_temperatures',
-            side_effect=HardwareError('temperature read failed'),
+            side_effect=CameraReadFailedError('temperature read failed'),
         ),
         pytest.raises(HardwareError, match='temperature read failed'),
     ):
@@ -169,59 +167,79 @@ def test_no_active_camera_answers_none_at_the_api(sim_scope):
     assert sim_scope.diagnostics.get_camera_temperatures_degc() is None
 
 
-def test_the_diagnostic_snapshot_records_the_failure_in_its_field(sim_scope):
-    with patch.object(
-        sim_scope._camera_driver,
-        'get_all_temperatures',
-        side_effect=HardwareError('temperature read failed'),
-    ):
-        info = sim_scope.diagnostics.get_camera_diagnostic_info()
-
-    assert info['connected'] is True
-    assert info['temperatures'] == 'Error: temperature read failed'
-
-
 def test_a_failed_read_on_a_tick_reaches_the_scheduler(sim_scope):
     """The session's scheduler reports a raising tick and keeps the schedule."""
     with (
         patch.object(
             sim_scope._camera_driver,
             'get_all_temperatures',
-            side_effect=HardwareError('temperature read failed'),
+            side_effect=CameraReadFailedError('temperature read failed'),
         ),
         pytest.raises(HardwareError, match='temperature read failed'),
     ):
         sim_scope.imaging._log_camera_temps()
 
 
-def test_a_failed_startup_sample_is_reported_and_the_schedule_starts(sim_scope, centre_posts):
-    schedule = MagicMock(return_value='handle')
-    with patch.object(
-        sim_scope._camera_driver,
-        'get_all_temperatures',
-        side_effect=HardwareError('temperature read failed'),
-    ):
-        sim_scope.imaging.start_camera_temp_logging(schedule, MagicMock(), interval_s=60.0)
+def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_session, centre_posts):
+    """The host starting metrics never waits on the camera's lane for the first sample.
 
-    reported = [n for n in centre_posts if 'temperature read failed' in n.message]
-    assert len(reported) == 1
-    assert reported[0].category == 'Camera'
-    schedule.assert_called_once()
+    The GUI starts metrics on its main thread, and the read waits for what the
+    camera lane is running; taken on the session's timer, the sample cannot
+    hold the window, and its failure is the scheduler's to report, as a tick's.
+    """
+    from modules.notification_center import Severity, notifications
+
+    # The thread that asks the API read is the one that waits on the lane; the
+    # driver's own read always runs on the lane's thread, so it cannot tell.
+    diagnostics = sim_session.scope.diagnostics
+    the_read = diagnostics.get_camera_temperatures_degc
+    asked_on = []
+
+    def watched_read():
+        asked_on.append(threading.current_thread())
+        return the_read()
+
+    reported = threading.Event()
+
+    def heard(notification):
+        if notification.title == CameraReadFailedError.title:
+            reported.set()
+
+    notifications.add_listener(heard, min_severity=Severity.DEBUG)
+    try:
+        with (
+            patch.object(
+                sim_session.scope._camera_driver,
+                'get_all_temperatures',
+                side_effect=CameraReadFailedError('temperature read failed'),
+            ),
+            patch.object(diagnostics, 'get_camera_temperatures_degc', watched_read),
+        ):
+            sim_session.enable_metrics()
+            assert reported.wait(timeout=10.0), 'the failed first sample was never reported'
+    finally:
+        notifications.remove_listener(heard)
+        sim_session.disable_metrics()
+
+    assert asked_on and asked_on[0] is not threading.current_thread()
+    # The driver's words are the log's; the person reads which fault it was.
+    (post,) = [n for n in centre_posts if n.title == CameraReadFailedError.title]
+    assert post.category == 'Scheduler'
 
 
-def test_the_support_report_writes_a_temperature_failure_as_one(tmp_path):
+def test_the_support_report_writes_a_temperature_failure_as_one(sim_session, tmp_path):
+    """The camera block still writes, and says the temperatures were not read."""
     from modules.tech_support_report import TechSupportReport
 
-    report = TechSupportReport.__new__(TechSupportReport)
-    report.scope = spec_scope()
-    report.scope.diagnostics.get_camera_diagnostic_info.return_value = {
-        'connected': True,
-        'model': 'daA3840-45um',
-        'temperatures': 'Error: temperature read failed',
-    }
-
-    report._step_camera_diagnostics(tmp_path)
+    report = TechSupportReport(sim_session)
+    with patch.object(
+        sim_session.scope._camera_driver,
+        'get_all_temperatures',
+        side_effect=CameraReadFailedError('temperature read failed'),
+    ):
+        report._step_camera_diagnostics(tmp_path)
 
     written = (tmp_path / 'camera_info' / 'camera_info.txt').read_text()
-    assert 'temperature read failed' in written
+    assert 'not read: temperature read failed' in written
+    assert 'Gain Db: ' in written
     assert not (tmp_path / 'camera_info' / 'no_camera.txt').exists()

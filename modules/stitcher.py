@@ -1,30 +1,31 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import logging
-import os
 import pathlib
 
 import pandas as pd
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+import modules.post_derivation as post_derivation
 from modules.stitching_core import (
     channel_aware_stitcher,
     simple_position_stitcher,
 )
 
 from modules.common_utils import PostFunction
+from modules.image_mode import OutputFormat
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.layer_record import ChannelColors
+from modules.stitch_mode import StitchMode
 
 logger = logging.getLogger('LVP.modules.stitcher')
 
 
 class Stitcher(ProtocolPostProcessor):
-    QUALITY_MODE = 'quality'
-    FAST_PREVIEW_MODE = 'fast_preview'
-    _FAST_PREVIEW_SUFFIX = 'FastPreview'
+    _PLACE = 'tile position'
 
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -39,7 +40,7 @@ class Stitcher(ProtocolPostProcessor):
         # chain, so its degraded outputs are the montages that dropped to
         # unregistered edge-to-edge placement.
         return (
-            f'{count} {self._post_function.value.lower()} artifact(s) used geometry-only '
+            f'{count} {self.operation_label} artifact(s) used geometry-only '
             'fallback stitching. Review the mosaic geometry; the log names each reason.'
         )
 
@@ -55,12 +56,29 @@ class Stitcher(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(
+        self, group: pd.DataFrame, output_format: OutputFormat, **kwargs
+    ) -> post_derivation.Step:
+        return post_derivation.Step(
+            PostFunction.STITCHED,
+            (
+                ('mode', kwargs.get('stitching_mode', StitchMode.QUALITY)),
+                *post_derivation.format_settings(output_format),
+            ),
+        )
+
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # By stage position, not tile name: an inserted step has none.
+        return group['X'].astype(str) + ',' + group['Y'].astype(str)
+
+    def _generate_filename(
+        self, df: pd.DataFrame, post: tuple[str, ...], output_format: OutputFormat, **kwargs
+    ) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -72,9 +90,6 @@ class Stitcher(ProtocolPostProcessor):
         # a single-channel stitch keeps its channel, and a composite-stitch
         # carries 'Composite' automatically (its Color is 'Composite'), so no
         # leaked channel token needs removing.
-        post = ('stitched',)
-        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
-            post = ('stitched', self._FAST_PREVIEW_SUFFIX)
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
@@ -86,8 +101,7 @@ class Stitcher(ProtocolPostProcessor):
         )
 
         prefix = self._prepend_capture_root(name, kwargs)
-        outfile = f'{prefix}.tiff'
-        return outfile
+        return f'{prefix}{image_utils.derived_file_suffix(output_format)}'
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -117,23 +131,27 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        # Source pixel_size_um from the tile's own PhysicalSizeX, written at
+        # Source pixel_size_um from the tiles' own PhysicalSizeX, written at
         # capture with the actual binning already applied. Re-deriving it from
         # the objective focal length hardcoded binning_size=1, so a binned
         # (2x/4x) capture got half/quarter the true scale -- doubling the tile
-        # pixel spacing and pulling the registered montage apart.
-        first_tile_meta = image_utils.read_postproc_input_metadata(path / df.iloc[0]['Filepath'])
-        pixel_size_um = first_tile_meta['pixel_size_um'] if first_tile_meta else None
-        if pixel_size_um is None or pixel_size_um <= 0:
-            # No PhysicalSizeX on the tiles (older / third-party / pre-metadata
-            # captures) and binning is not recoverable to re-derive the scale, so
-            # the stitchers cannot register by stage position and fall back to
-            # unregistered edge-to-edge placement. Name the cause instead of
-            # emitting a silently-misregistered montage under a generic reason.
+        # pixel spacing and pulling the registered montage apart. Every tile's,
+        # not the first's: tiles at another scale laid out at the first's are
+        # a misregistered montage.
+        pixel_size_um = image_utils.agreed_facts(
+            image_utils.read_file_record(path / name) for name in df['Filepath']
+        ).get('pixel_size_um')
+        if pixel_size_um is None:
+            # No one PhysicalSizeX across the tiles (older / third-party /
+            # pre-metadata captures, or tiles that disagree) and binning is not
+            # recoverable to re-derive the scale, so the stitchers cannot
+            # register by stage position and fall back to unregistered
+            # edge-to-edge placement. Name the cause instead of emitting a
+            # silently-misregistered montage under a generic reason.
             logger.warning(
-                '[Stitch] No pixel size in tile metadata (PhysicalSizeX missing) for well=%s; '
-                'montage will be unregistered edge-to-edge. Re-capture with current LVP or '
-                'supply tiles carrying pixel-size metadata.',
+                '[Stitch] No pixel size every tile states (PhysicalSizeX missing or '
+                'differing) for well=%s; montage will be unregistered edge-to-edge. '
+                'Re-capture with current LVP or supply tiles carrying pixel-size metadata.',
                 df.iloc[0].get('Well', '<unknown>'),
             )
 
@@ -151,15 +169,28 @@ class Stitcher(ProtocolPostProcessor):
             if col in df.columns
         ]
 
-        return PostProcResult.from_group_result(
-            channel_aware_stitcher(
-                path=path,
-                df=df[stitch_columns],
-                pixel_size_um=pixel_size_um,
-                output_file_loc=kwargs.get('output_file_loc'),
-                stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
-            )
+        result = channel_aware_stitcher(
+            path=path,
+            df=df[stitch_columns],
+            pixel_size_um=pixel_size_um,
+            output_file_loc=kwargs.get('output_file_loc'),
+            stitching_mode=kwargs.get('stitching_mode', StitchMode.QUALITY),
+            channel_colors=kwargs['channel_colors'],
         )
+        result.setdefault('metadata', {})['channel_group_id'] = self._stitched_channel_group(df)
+        return PostProcResult.from_group_result(result)
+
+    @staticmethod
+    def _stitched_channel_group(df: pd.DataFrame) -> int:
+        """The channel group a stitch of ``df``'s tiles belongs to: theirs when all share one, else -1.
+
+        A stitch joins one color across positions, so its tiles may come
+        from several Adds; the stitched image belongs to an Add only when
+        every tile does, and a composite of stitched images then groups by
+        it. -1 is no single Add.
+        """
+        group_ids = df['Channel Group ID'].unique()
+        return int(group_ids[0]) if len(group_ids) == 1 else -1
 
     @staticmethod
     def _add_record(
@@ -187,6 +218,7 @@ class Stitcher(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile='',
             custom_step=row0['Custom Step'],
+            channel_group_id=alg_metadata['channel_group_id'],
             **kwargs,
         )
 
@@ -195,14 +227,12 @@ class Stitcher(ProtocolPostProcessor):
         path: pathlib.Path,
         df: pd.DataFrame,
         output_file_loc: pathlib.Path | None = None,
+        *,
+        channel_colors: ChannelColors,
     ):
         return simple_position_stitcher(
             path=path,
             df=df,
             output_file_loc=output_file_loc,
+            channel_colors=channel_colors,
         )
-
-
-if __name__ == '__main__':
-    stitcher = Stitcher(has_turret=False)
-    stitcher.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))

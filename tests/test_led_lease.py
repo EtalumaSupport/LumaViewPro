@@ -18,8 +18,11 @@ import logging
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
+from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
 
 @pytest.fixture
@@ -31,8 +34,7 @@ def scope():
 
 def _lit(scope, ch):
     """Whether the channel at *ch* is currently lit (API source of truth)."""
-    color = scope.illumination.ch2color(ch)
-    return scope.illumination.get_led_state(color)['enabled']
+    return led_reading(scope, ch).state is LedState.LIT
 
 
 def test_acquire_when_unleased_returns_token(scope):
@@ -88,7 +90,7 @@ def test_child_release_returns_control_to_parent(scope):
 
 def test_release_turns_owned_leds_off_by_default(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     assert _lit(scope, 0)
     lease.release()
     assert not _lit(scope, 0)
@@ -96,7 +98,7 @@ def test_release_turns_owned_leds_off_by_default(scope):
 
 def test_release_leave_on_keeps_leds_lit(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     lease.release(leave_on=True)
     assert _lit(scope, 0)
 
@@ -107,7 +109,7 @@ def test_double_release_is_noop(scope):
     # A second release must not raise and must not turn off a LED a later
     # owner has since lit.
     second = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=second)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=second)
     lease.release()
     assert _lit(scope, 0)
     assert scope.illumination.led_lease_purpose == 'autofocus'
@@ -116,7 +118,7 @@ def test_double_release_is_noop(scope):
 
 def test_force_off_bypasses_lease_and_logs(scope, caplog):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         scope.illumination.force_off()
     assert not _lit(scope, 0)
@@ -149,43 +151,51 @@ def test_context_manager_acquires_and_releases(scope):
     assert scope.illumination.led_lease_purpose is None
 
 
-def test_lease_violation_detects_external_writer(scope):
+def test_a_write_by_anyone_but_the_holder_is_refused_naming_the_holder(scope):
     # A lease from an earlier, finished operation: the "another writer" whose
-    # object is not the active holder.
+    # object is not the active holder. Unleased, it writes like anyone.
     stale = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     stale.release()
-    assert scope.illumination._lease_violation(stale) is None  # unleased
-    assert scope.illumination._lease_violation(None) is None  # unleased
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=stale)
+    assert _lit(scope, 0)
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    assert scope.illumination._lease_violation(lease) is None  # the holder
-    assert scope.illumination._lease_violation(stale) == 'protocol'
-    assert scope.illumination._lease_violation(None) == 'protocol'  # bare UI click
-    # The holder's purpose NAME is not a credential: only the object is.
-    assert scope.illumination._lease_violation('protocol') == 'protocol'
+    for writer in (stale, None):  # None: a bare UI click
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.illumination._led_on_impl(1, 100, member='led_on', _lease=writer)
+        assert refused.value.reason == 'exclusive_activity_running'
+        # The activity that took the lease's claim, as the IO lane names it.
+        assert refused.value.holder == 'protocol'
+        assert not _lit(scope, 1)
+    scope.illumination._led_on_impl(1, 100, member='led_on', _lease=lease)
+    assert _lit(scope, 1)
 
 
 def test_external_led_off_during_lease_is_refused(scope):
     # The autofocus-LED-killed shape: a UI off must not turn off a channel a
     # run holds. The protocol lit the channel; a bare UI off is refused.
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
-    scope.illumination.led_off(channel=0)  # live UI off
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.illumination.led_off_by_address(0)  # live UI off
+    assert refused.value.reason == 'exclusive_activity_running'
     assert _lit(scope, 0)
 
 
 def test_owner_write_during_own_lease_is_allowed(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     # Naming the holder's purpose is not holding the lease: refused.
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease='protocol')
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.illumination._led_on_impl(0, 100, member='led_on', _lease='protocol')
+    assert refused.value.reason == 'exclusive_activity_running'
     assert not _lit(scope, 0), 'a write naming the holder was permitted without its lease'
     # Writing as the lease object itself is permitted.
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     assert _lit(scope, 0)
 
 
 def test_force_off_still_works_under_enforcement(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     scope.illumination.force_off()
     assert not _lit(scope, 0)
 
@@ -195,7 +205,7 @@ def test_leds_off_turns_off_during_a_held_lease(scope):
     # holder's lit channel off even while a run holds the lease, so closing the
     # app mid-run cannot leave an LED stuck on.
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     assert _lit(scope, 0)
     scope.illumination.leds_off()
     assert not _lit(scope, 0)
