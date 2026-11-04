@@ -179,17 +179,18 @@ def _get_lvp_logs_dir():
 def _get_capture_dir():
     """Return the capture output directory (from settings or defaults).
 
-    The configured directory is the canonical live_folder key, resolved
+    The configured directory is the canonical live_folder key, read
     current.json-first via _resolve_settings_path -- current.json holds the
-    absolute path microscope_settings resolved at runtime, while settings.json
-    may still carry the unresolved './capture' default.
+    absolute path the load stored, while settings.json may still carry the
+    relative './capture' default, which is the data root's (``stored_path``).
     """
     try:
-        settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
+        data_root = str(_get_lvp_data_dir().parent)
+        settings_file = settings_init._resolve_settings_path(data_root)
         settings = settings_init.read_settings_json(settings_file)
         live_folder = settings.get('live_folder', '')
         if live_folder:
-            resolved = pathlib.Path(live_folder).resolve()
+            resolved = pathlib.Path(settings_init.stored_path(live_folder, data_root))
             if resolved.is_dir():
                 return resolved
     except (FileNotFoundError, settings_init.SettingsFileError, OSError):

@@ -226,6 +226,15 @@ def test_a_remembered_protocol_is_stored_and_forgotten(session):
     assert session.settings['protocol']['filepath'] == ''
 
 
+def test_a_remembered_relative_path_is_the_data_roots(session):
+    # As the shipped default './data/new_default_protocol.tsv' is at load.
+    session.set_protocol_filepath('data/plate.tsv')
+
+    assert session.settings['protocol']['filepath'] == os.path.join(
+        session.scope.source_path, 'data', 'plate.tsv'
+    )
+
+
 def test_a_live_folder_no_file_system_can_name_is_refused(session):
     before = session.get_settings_snapshot()
     with pytest.raises(SettingRefusedError) as refused:

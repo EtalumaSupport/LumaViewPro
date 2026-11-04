@@ -36,6 +36,18 @@ def test_an_opened_protocol_is_on_its_plate_and_remembered(session, tmp_path):
     assert _remembered(session) == str(path)
 
 
+def test_a_protocol_opened_by_a_relative_path_is_remembered_as_the_file_opened(
+    session, tmp_path, monkeypatch
+):
+    # Opened against the working folder, which the next start may not share.
+    path = _protocol_file(tmp_path, FILE_PLATE)
+    monkeypatch.chdir(tmp_path)
+
+    session.open_protocol(path.name)
+
+    assert _remembered(session) == str(path)
+
+
 def test_a_refused_file_leaves_the_remembered_path(session, tmp_path):
     session.set_protocol_filepath(PREVIOUS)
 

@@ -3019,11 +3019,12 @@ Marks: in-process.
 
 Remember `file_path` as the protocol to open at the next start; `''` forgets it.
 
-The one writer of `protocol.filepath`, which the next start opens.
+The one writer of `protocol.filepath`, which the next start opens,
+stored as it is at load.
 
 **Args**
 
-- `file_path`: The protocol file to open at the next start; `''` opens none.
+- `file_path`: The protocol file to open at the next start; one given relative is the data root's, as the shipped default is, and is stored absolute. `''` opens none.
 
 **Raises**
 

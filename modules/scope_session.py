@@ -4591,15 +4591,19 @@ class ScopeSession:
     def set_protocol_filepath(self, file_path: str) -> None:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
 
-        The one writer of ``protocol.filepath``, which the next start opens.
+        The one writer of ``protocol.filepath``, which the next start opens,
+        stored as it is at load.
 
         Args:
-            file_path: The protocol file to open at the next start; ``''``
-                opens none.
+            file_path: The protocol file to open at the next start; one given
+                relative is the data root's, as the shipped default is, and
+                is stored absolute. ``''`` opens none.
 
         Raises:
             Nothing.
         """
+        if file_path:
+            file_path = settings_init.stored_path(file_path, self.scope.source_path)
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
@@ -4633,7 +4637,9 @@ class ScopeSession:
         """
         protocol = self.load_protocol(file_path)
         self.apply_channel_settings(protocol)
-        self.set_protocol_filepath(os.fspath(file_path))
+        # The file opened, by its absolute path: a relative one was opened
+        # against the working folder, which the next start may not share.
+        self.set_protocol_filepath(os.path.abspath(file_path))
         return protocol
 
     @_guarded_write

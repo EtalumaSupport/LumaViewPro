@@ -93,7 +93,11 @@ import lvp_logger
 from modules.app_environment import init_environment
 from drivers import camera_profiles
 from drivers.fx2driver import _FX2Connection
+from modules.settings_init import prepare_settings
 env = init_environment()
+settings, _rejected = prepare_settings(
+    lvp_logger.logger, str(path_utils.get_source_root()), fall_back_to_template=False
+)
 print(json.dumps({
     'data_roots': {
         'launch_root': str(path_utils.launch_root()),
@@ -112,6 +116,7 @@ print(json.dumps({
         ),
         'fx2_hex': _FX2Connection.find_firmware_path(),
     },
+    'remembered_protocol': settings['protocol']['filepath'],
 }))
 """
 
@@ -120,10 +125,22 @@ print(json.dumps({
 def farm(tmp_path):
     """A folder of links into this checkout, with its own copy of version.txt
     naming another version, and a working folder elsewhere holding decoys of
-    the build's files."""
+    the build's files.
+
+    Its data folder links the shipped files one by one, leaving out a
+    checkout's own current.json, so its settings load from the template."""
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'data'):
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib'):
+        (folder / item).symlink_to(REPO / item)
+    (folder / 'data').mkdir()
+    for item in subprocess.run(
+        ['git', 'ls-tree', '--name-only', 'HEAD', 'data/'],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split():
         (folder / item).symlink_to(REPO / item)
     (folder / 'version.txt').write_text('9.9.9-farm\n2026-11-04 00:00\n', encoding='utf-8')
     decoy = tmp_path / 'decoy'
@@ -153,6 +170,8 @@ def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(farm):
         'timing_record': str(REPO / 'data' / 'camera_timing'),
         'fx2_hex': str(REPO / 'firmware' / 'LumascopeClassic.hex'),
     }
+    # The shipped default protocol, a relative path, is the farm's data's.
+    assert answers['remembered_protocol'] == str(folder / 'data' / 'new_default_protocol.tsv')
 
 
 _RESOLVE_IN_CHILD = """

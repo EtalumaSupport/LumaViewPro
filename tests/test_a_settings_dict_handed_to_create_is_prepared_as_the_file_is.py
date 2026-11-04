@@ -52,6 +52,12 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         for path, shipped in _leaf_paths(template):
             if path in given or path.startswith('turret_objectives.'):
                 continue
+            if path == 'protocol.filepath':
+                # The shipped relative path is the data root's, made absolute.
+                assert shipped == './data/new_default_protocol.tsv'
+                shipped = str(
+                    pathlib.Path(session.scope.source_path, 'data', 'new_default_protocol.tsv')
+                )
             assert _value_at(session.settings, path) == shipped, path
         for path, value in given.items():
             assert session.settings[path] == value

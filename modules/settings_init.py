@@ -770,14 +770,30 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
 
 
+def stored_path(path: str, directory: str) -> str:
+    """A path setting as it is stored: a relative path is the data root's, made absolute.
+
+    The one rule for a stored path wherever it enters -- the settings file at
+    load, and the setting's writer after. The shipped template holds
+    relative paths (``live_folder``, ``protocol.filepath``), which mean the
+    installation's; left relative, each reader would open them against the
+    process's working folder, which is whatever folder it was started in.
+    ``directory`` is the data root. Links are not followed, as the data
+    root's own answer does not follow them: a folder of links into a
+    checkout keeps its own data.
+    """
+    if os.path.isabs(path):
+        return path
+    return os.path.abspath(os.path.join(directory, path))
+
+
 def bring_up_live_folder(live_folder: str, directory: str) -> tuple[str, OSError | None]:
-    """The live folder as it is stored: absolute, and created.
+    """The live folder as it is stored: absolute (``stored_path``), and created.
 
     The one rule for the value wherever it enters -- the settings file at
-    load, and ``ScopeSession.set_live_folder`` after. The shipped template
-    holds a relative folder, which means the installation's; left relative,
-    each writer would resolve it against the process's working directory,
-    and an installed build's working directory is not writable.
+    load, and ``ScopeSession.set_live_folder`` after. An installed build's
+    working folder is not writable, so a folder left relative to it could
+    not be created.
 
     Returns:
         The folder as it is stored, and the error that kept it from being
@@ -788,12 +804,9 @@ def bring_up_live_folder(live_folder: str, directory: str) -> tuple[str, OSError
         ValueError: ``live_folder`` is a string no file system can name (a
             NUL byte).
     """
-    folder = pathlib.Path(live_folder)
-    if not folder.is_absolute():
-        folder = (pathlib.Path(directory) / folder).resolve()
-        live_folder = str(folder)
+    live_folder = stored_path(live_folder, directory)
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(live_folder).mkdir(parents=True, exist_ok=True)
     except OSError as e:
         return live_folder, e
     return live_folder, None
@@ -905,7 +918,8 @@ def prepare_loaded(
     ``None`` win over every stored assignment; the keys newer releases
     added are merged in; a stored derived value is made the release's
     derivation; the values are held to the writer's ranges; the
-    live folder is brought up. Run again on its own result it changes
+    live folder is brought up, and the stored relative paths made the data
+    root's (``stored_path``). Run again on its own result it changes
     nothing, so a dict the file's preparation already made usable goes
     through a session's door unchanged.
 
@@ -988,6 +1002,14 @@ def prepare_loaded(
     # replacement over their choice. Captures into it are refused by the
     # capture-location owner, naming it, until it is reachable.
     loaded['live_folder'], unreachable = bring_up_live_folder(loaded['live_folder'], directory)
+    # An empty or null path is no path: no protocol to open, the trace's
+    # default folder.
+    if loaded['protocol']['filepath']:
+        loaded['protocol']['filepath'] = stored_path(loaded['protocol']['filepath'], directory)
+    if loaded['profile_trace_output_dir']:
+        loaded['profile_trace_output_dir'] = stored_path(
+            loaded['profile_trace_output_dir'], directory
+        )
     if unreachable is not None and handed:
         logger.warning(
             f'[Settings ] The live folder {loaded["live_folder"]} could not be created '
