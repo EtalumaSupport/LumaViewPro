@@ -6394,6 +6394,10 @@ class ScopeSession:
         that is not for the hardware's state is a defect, and settles the
         operation with it.
 
+        The motion's end, however it ends, and a skip end bring-up's log
+        window: the serial, camera and api logs are written at VERBOSE until
+        then, and at the session's level after (``log_helpers.end_bring_up``).
+
         ``disable_homing=True`` skips every step: no startup motion on any
         axis. The turret is left where it is, like the stage axes, in no
         known slot -- positioning it without a home would be an absolute
@@ -6419,22 +6423,26 @@ class ScopeSession:
                 ``'exclusive_activity_running'``: something already holds
                 the scope. Nothing was taken.
         """
-        skipped = Operation()
-        concurrent.futures.Future.set_result(skipped, None)
+        from lib import log_helpers
+
+        def skipped(why: str) -> Operation[None]:
+            logger.info(f'startup motion skipped: {why}')
+            log_helpers.end_bring_up()
+            done = Operation()
+            concurrent.futures.Future.set_result(done, None)
+            return done
+
         if disable_homing:
-            logger.info('startup motion skipped: homing disabled; the turret is left where it is')
-            return skipped
+            return skipped('homing disabled; the turret is left where it is')
         if not self.scope.motion_expected:
-            logger.info('startup motion skipped: this scope model has no motor board')
-            return skipped
+            return skipped('this scope model has no motor board')
         from modules.lumascope_api.bring_up import Part
 
         # Bring-up has already reported the missing board once, in its own
         # report; homing it would only have the home refused as "not
         # connected" and show the same absence a second time.
         if any(status.part == Part.MOTOR for status in self.scope.bring_up_record().missing):
-            logger.info('startup motion skipped: the motor board did not come up at bring-up')
-            return skipped
+            return skipped('the motor board did not come up at bring-up')
 
         if home_fn is None:
             home_fn = self.scope.motion.home
@@ -6443,7 +6451,10 @@ class ScopeSession:
 
         @slow_task_budget(STARTUP_MOTION_SLOW_TASK_S)
         def startup_motion() -> None:
-            self._startup_motion(home_fn, turret_fn)
+            try:
+                self._startup_motion(home_fn, turret_fn)
+            finally:
+                log_helpers.end_bring_up()
 
         # The whole motion is one home's taking, so no request lands between
         # its moves; the diagnostics worker carries it, because the moves

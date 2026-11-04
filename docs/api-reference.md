@@ -3391,6 +3391,10 @@ home did not establish; the operation settles with None. A refusal
 that is not for the hardware's state is a defect, and settles the
 operation with it.
 
+The motion's end, however it ends, and a skip end bring-up's log
+window: the serial, camera and api logs are written at VERBOSE until
+then, and at the session's level after (`log_helpers.end_bring_up`).
+
 `disable_homing=True` skips every step: no startup motion on any
 axis. The turret is left where it is, like the stage axes, in no
 known slot -- positioning it without a home would be an absolute

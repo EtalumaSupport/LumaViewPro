@@ -86,6 +86,11 @@ def log_to(*loggers, level: str, message: str) -> None:
 # Each trace logger and the file it writes, whose levels apply_session_level sets.
 _trace_files: dict[logging.Logger, logging.Handler] = {}
 
+# Whether bring-up is still running: until the startup motion has ended, the
+# trace logs are written at VERBOSE whatever the session's level (DEBUG under
+# debug_mode), so a field log holds the board and camera exchanges of every
+# bring-up. A bring-up that never reaches its startup motion leaves it open.
+_bring_up_running = True
 _session_level = logging.INFO
 _levels_lock = threading.Lock()
 
@@ -103,7 +108,8 @@ def apply_session_level(level: int | str) -> None:
 
     The 'LVP' parent (every LVP.* logger without a level of its own: the
     GUI interaction and protocol logs among them) and lvp_logger's own
-    logger take it, as do the trace loggers.
+    logger take it, as do the trace logs' files; while bring-up runs, those
+    files take VERBOSE when the level is above it.
     """
     global _session_level
     level = logging.getLevelName(level.upper()) if isinstance(level, str) else level
@@ -111,6 +117,21 @@ def apply_session_level(level: int | str) -> None:
         _session_level = level
         logging.getLogger('LVP').setLevel(level)
         logger.setLevel(level)
+        written = min(level, VERBOSE) if _bring_up_running else level
         for trace_logger, file_handler in _trace_files.items():
-            trace_logger.setLevel(level)
-            file_handler.setLevel(level)
+            trace_logger.setLevel(written)
+            file_handler.setLevel(written)
+
+
+def end_bring_up() -> None:
+    """Write the trace logs at the session's level from now on; bring-up has ended."""
+    global _bring_up_running
+    with _levels_lock:
+        if not _bring_up_running:
+            return
+        _bring_up_running = False
+    apply_session_level(_session_level)
+    logger.info(
+        f'[Logger    ] Bring-up has ended: the serial, camera and api logs are written at '
+        f'{logging.getLevelName(_session_level)} from here'
+    )

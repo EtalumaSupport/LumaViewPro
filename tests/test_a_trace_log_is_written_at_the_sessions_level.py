@@ -1,11 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The serial, camera and api logs are written at the session's level.
+"""The serial, camera and api logs: written at the session's level, at VERBOSE through bring-up.
 
 Each of these trace logs set a fixed level of its own, so neither
 ``debug_mode`` nor ``logging.default.level`` reached it, and its routine
 per-command lines were INFO: an overnight 1536-well run filled serial.log in
-1.5 h. The session's level is now theirs (``log_helpers.apply_session_level``),
-and the routine lines are VERBOSE.
+1.5 h. The session's level is now its file's (``log_helpers.apply_session_level``);
+until the startup motion has ended the file takes VERBOSE when that level is
+above it, so a field log holds every bring-up's exchanges.
 """
 
 import logging
@@ -50,6 +51,19 @@ def _session(level='INFO', debug_mode=False):
         ),
         simulate=True,
     )
+
+
+def test_bring_up_is_written_at_verbose_and_after_it_the_sessions_level(trace_log):
+    traced, file = trace_log
+    session = _session(level='INFO')
+    try:
+        traced.log(VERBOSE, 'FULLINFO -> answered')
+        session.run_application_session()
+        traced.log(VERBOSE, 'move -> answered')
+        traced.info('port reset')
+    finally:
+        session.shutdown()
+    assert file.lines() == [('VERBOSE', 'FULLINFO -> answered'), ('INFO', 'port reset')]
 
 
 def test_a_written_level_reaches_the_trace_logs(trace_log):
