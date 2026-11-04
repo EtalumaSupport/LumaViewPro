@@ -1166,66 +1166,6 @@ def query_defender_metrics():
         return {}
 
 
-# ---------------------------------------------------------------------------
-# tracemalloc top-N allocators -- TEMPORARY INSTRUMENTATION (2026-04-30)
-#
-# Off by default. Enable via tracemalloc_enabled: true in data/settings.json.
-# When on, tracemalloc is started at first call and a snapshot is taken;
-# top-N allocators are returned. Overhead: ~10-30% process memory. Use only
-# when needed.
-# ---------------------------------------------------------------------------
-
-_tracemalloc_started = False
-
-
-def _read_tracemalloc_gate():
-    # The data root, so an installed build reads its Documents settings as
-    # the logger's debug-mode gate does.
-    from modules import path_utils
-    from modules.settings_init import load_tracemalloc_setting
-
-    return load_tracemalloc_setting(str(path_utils.get_source_root()))
-
-
-# Read once at import from the tracemalloc_enabled setting. This is a
-# diagnostic gate, not the runtime-toggleable debug_mode shape: there is no
-# setter, so flipping the setting takes effect only on the next restart.
-_tracemalloc_enabled = _read_tracemalloc_gate()
-
-
-def query_tracemalloc_top_n(n=5):
-    """Return list of top-N allocators by current size, or [] if disabled.
-
-    Enable via tracemalloc_enabled: true in data/settings.json.
-    """
-    if not _tracemalloc_enabled:
-        return []
-    global _tracemalloc_started
-    try:
-        import tracemalloc
-
-        if not _tracemalloc_started:
-            tracemalloc.start(20)  # 20 frames of context
-            _tracemalloc_started = True
-            return []  # first call has no baseline
-        snap = tracemalloc.take_snapshot()
-        stats = snap.statistics('lineno')
-        out = []
-        for s in stats[:n]:
-            frame = s.traceback[0]
-            out.append(
-                {
-                    'file': frame.filename,
-                    'line': frame.lineno,
-                    'size_kb': s.size / 1024,
-                    'count': s.count,
-                }
-            )
-        return out
-    except Exception:
-        return []
-
-
 # A single persistent Process handle for THIS process. psutil's
 # Process.cpu_percent() reports CPU since the PRIOR call on the SAME object, so a
 # fresh Process per snapshot always reads 0.0 -- no reference point -- which made

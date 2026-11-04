@@ -153,7 +153,6 @@
     "focus_score_enabled": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,
-    "tracemalloc_enabled": false,
     "memory_profile_enabled": false,
     "memory_profile_interval_s": 5.0,
     "preview_host_downscale": false,

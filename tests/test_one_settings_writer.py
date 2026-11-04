@@ -202,7 +202,6 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
         ('debug_mode', True),
         ('cprofile_enabled', True),
         ('profile_trace_enabled', True),
-        ('tracemalloc_enabled', True),
         ('memory_profile_enabled', True),
         ('memory_profile_interval_s', 1),
         ('profiling.handle_trace_enabled', True),

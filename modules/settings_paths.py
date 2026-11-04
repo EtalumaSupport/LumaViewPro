@@ -124,7 +124,6 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
         'debug_mode',
         'cprofile_enabled',
         'profile_trace_enabled',
-        'tracemalloc_enabled',
         'memory_profile_enabled',
         'memory_profile_interval_s',
         'profiling',

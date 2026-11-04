@@ -168,7 +168,6 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'focus_score_enabled',
         'profile_trace_enabled',
         'profile_trace_output_dir',
-        'tracemalloc_enabled',
         'memory_profile_enabled',
         'memory_profile_interval_s',
         'preview_host_downscale',

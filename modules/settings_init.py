@@ -442,6 +442,11 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     ):
         changed = True
 
+    # A second tracemalloc profiler's switch, retired with it: the memory
+    # profiler is the one, and a second start of tracemalloc is ignored.
+    if settings_dict.pop('tracemalloc_enabled', None) is not None:
+        changed = True
+
     # The REST server's host, key and CORS origins, which nothing ever read;
     # where it serves is ``address``. A shipped null key is dropped too, so
     # the test is membership, not the value.
@@ -1121,7 +1126,7 @@ def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
 
     For what a process needs before ``prepare_settings`` can run: the
     instance lock a second launch must meet before it touches the files,
-    and the logger and profilers configured before anything logs.
+    and the logger configured before anything logs.
     Read only, by preparation's own rule: ``current.json`` is live, and the
     shipped ``settings.json`` answers when ``current.json`` is missing,
     unusable (preparation reports that once it runs), or lacks the key (a
@@ -1155,9 +1160,3 @@ def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
     debug_setting, debug_setting_source = read_before_preparation(directory, 'debug_mode')
     return debug_setting
-
-
-def load_tracemalloc_setting(directory: str) -> bool:
-    """tracemalloc_enabled, before preparation; read by modules/common_utils.py at import."""
-    enabled, _ = read_before_preparation(directory, 'tracemalloc_enabled')
-    return bool(enabled)

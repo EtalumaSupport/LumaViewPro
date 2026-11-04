@@ -93,7 +93,9 @@ RETIRED_PER_LAYER = {
 # - autofocus, stage: six shipped keys with no reader; the autofocus
 #   optimisation work adds each back with its reader.
 # - camera_type: no reader; bring-up asks the camera registry.
-RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type'}
+# - tracemalloc_enabled: the switch of a second tracemalloc profiler,
+#   retired with it; the memory profiler is the one.
+RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type', 'tracemalloc_enabled'}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
