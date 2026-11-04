@@ -8,6 +8,7 @@ book:
     - index.qmd
     - setting-up.qmd
     - installing.qmd
+    - incubator.qmd
     - integrators.qmd
 manual-version: "4.x"
 filters:
