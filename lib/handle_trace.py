@@ -27,7 +27,7 @@ A non-zero `+N/call` value pinpoints the leaking site. Zero-delta lines
 rule out a path. Bisection narrows multi-step paths.
 
 Considered alternatives:
-    - tracemalloc (already in modules/memory_profiler.py): tracks PYTHON
+    - tracemalloc (already in lib/memory_profile.py): tracks PYTHON
       allocations, not Windows kernel handles. Won't catch handle leaks
       from ctypes / native SDK calls.
     - per-call logging (no batching): too noisy at protocol scan rates

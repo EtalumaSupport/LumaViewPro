@@ -442,9 +442,11 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     ):
         changed = True
 
-    # A second tracemalloc profiler's switch, retired with it: the memory
+    # Two more tracemalloc profilers' switches, retired with them: the memory
     # profiler is the one, and a second start of tracemalloc is ignored.
     if settings_dict.pop('tracemalloc_enabled', None) is not None:
+        changed = True
+    if isinstance(profiling, dict) and profiling.pop('enabled', None) is not None:
         changed = True
 
     # The REST server's host, key and CORS origins, which nothing ever read;

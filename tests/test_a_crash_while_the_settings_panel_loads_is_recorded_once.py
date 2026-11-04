@@ -19,16 +19,20 @@ import modules.app_context as app_context
 def test_a_raise_in_the_load_reaches_the_caller_and_the_panel_logs_nothing(monkeypatch, caplog):
     from ui.microscope_settings import MicroscopeSettings
 
-    # A store without the profiling section: the body's first read raises.
     monkeypatch.setattr(
         app_context, 'ctx', types.SimpleNamespace(lumaview=None, settings={}), raising=False
     )
 
+    # The failure the old clauses misattributed to the settings file, raised
+    # by the body's first step.
+    def raises():
+        raise FileNotFoundError('not the settings file')
+
     with (
         caplog.at_level(logging.DEBUG, logger='LVP.ui.microscope_settings'),
-        pytest.raises(KeyError, match='profiling'),
+        pytest.raises(FileNotFoundError, match='not the settings file'),
     ):
-        MicroscopeSettings.load_settings(types.SimpleNamespace())
+        MicroscopeSettings.load_settings(types.SimpleNamespace(reconfigure_for_scope=raises))
 
     panel_lines = [
         r

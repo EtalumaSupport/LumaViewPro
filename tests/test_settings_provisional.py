@@ -212,7 +212,7 @@ class TestShapeValidation:
         # that work today.
         def _retype(s):
             s['profiling']['metrics_interval_s'] = 60  # template ships null
-            s['profiling']['enabled'] = 1  # template ships false
+            s['profiling']['open_files_enabled'] = 1  # template ships false
             for layer in ('BF', LED0):
                 if layer in s and isinstance(s[layer], dict):
                     s[layer]['gain_db'] = 3  # template ships a float

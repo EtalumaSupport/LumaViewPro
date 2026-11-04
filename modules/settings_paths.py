@@ -169,7 +169,6 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
         'logging.autofocus',
         'focus_score_enabled',
         'preview_host_downscale',
-        'profiling.enabled',
         'profiling.handle_trace_enabled',
         'profiling.open_files_enabled',
         'video_as_frames',

@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import logging
-import os
 import threading
 from typing import TYPE_CHECKING
 
@@ -13,7 +12,6 @@ import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules import gui_logger, path_utils
 from modules.config_helpers import camera_max_gain_for_ui
-from modules.memory_profiler import MemoryLeakProfiler
 from modules.kivy_utils import schedule_ui_latest
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
@@ -178,13 +176,6 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
 
         # Settings are imported at the very beginning of file
-
-        if settings['profiling']['enabled']:
-            # Joined to the data directory, never CWD-relative: an
-            # installed build cannot write beside its executable.
-            profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')
-            MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
-            logger.info('[LVP Main  ] Memory Profiler started.')
 
         # update GUI values from JSON data:
 

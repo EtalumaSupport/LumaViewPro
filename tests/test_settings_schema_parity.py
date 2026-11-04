@@ -79,13 +79,15 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 # - profiling.stim_profiling: shipped with no reader, removed.
 # - profiling.handle_trace_obj_sample_every: the interval of the handle
 #   trace's object-type sampler, removed with it.
+# - profiling.enabled: the switch of a second tracemalloc profiler (the
+#   deep view), retired with it; the memory profiler is the one.
 # - rest_api.host, api_key, cors_origins: nothing read them; where the
 #   server serves is rest_api.address.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'protocol.autogain': {'max_duration_seconds'},
     'video': {'max_duration_seconds'},
-    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every'},
+    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every', 'enabled'},
     'rest_api': {'host', 'api_key', 'cors_origins'},
 }
 
