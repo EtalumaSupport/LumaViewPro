@@ -530,12 +530,27 @@ def pytest_runtest_makereport(item, call):
 FAILURE_FILES_BANNER = 'failure files'
 
 
+_FAILURE_RUN = pytest.StashKey[tuple[Path, str]]()
+
+
 def _failure_run(config) -> tuple[Path, str]:
-    """The run's failure folder and the commit it ran, the controller's on a worker."""
+    """The run's failure folder and the commit it ran, the controller's on a worker.
+
+    Named here, the first time it is asked for, and kept for the run: the
+    Firmware repo's conftests take ``pytest_runtest_makereport`` from this
+    one by name without its ``pytest_configure``, so what the hook needs is
+    made by the hook's own path.
+    """
     workerinput = getattr(config, 'workerinput', None)
     if workerinput is not None and 'lvp_failure_dir' in workerinput:
         return Path(workerinput['lvp_failure_dir']), workerinput['lvp_failure_commit']
-    return config._failure_run_dir, config._failure_commit
+    if _FAILURE_RUN not in config.stash:
+        named = time.strftime('%Y%m%d-%H%M%S')
+        config.stash[_FAILURE_RUN] = (
+            Path(config.rootpath) / 'build' / 'test_failures' / f'{named}-{os.getpid()}',
+            _head_commit(Path(config.rootpath)),
+        )
+    return config.stash[_FAILURE_RUN]
 
 
 def _write_failure_file(item, report, call) -> None:
@@ -569,8 +584,9 @@ def pytest_configure_node(node):
 
     An xdist hook: optional, so a run without xdist loads this conftest.
     """
-    node.workerinput['lvp_failure_dir'] = str(node.config._failure_run_dir)
-    node.workerinput['lvp_failure_commit'] = node.config._failure_commit
+    folder, commit = _failure_run(node.config)
+    node.workerinput['lvp_failure_dir'] = str(folder)
+    node.workerinput['lvp_failure_commit'] = commit
 
 
 def _head_commit(root: Path) -> str:
@@ -1053,13 +1069,6 @@ def pytest_configure(config):
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
 
-    if getattr(config, 'workerinput', None) is None:
-        started = time.strftime('%Y%m%d-%H%M%S')
-        config._failure_run_dir = (
-            Path(config.rootpath) / 'build' / 'test_failures' / f'{started}-{os.getpid()}'
-        )
-        config._failure_commit = _head_commit(Path(config.rootpath))
-
     config._memcap_started = time.time()
     config._memcap_report_dir = Path(config.rootpath) / 'build'
     threading.Thread(
@@ -1213,7 +1222,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     terminalreporter.line(f'interpreter: Python {platform.python_version()} at {sys.executable}')
 
-    failures = config._failure_run_dir
+    failures, _ = _failure_run(config)
     if failures.is_dir():
         terminalreporter.section(FAILURE_FILES_BANNER, sep='!', red=True)
         terminalreporter.line(
