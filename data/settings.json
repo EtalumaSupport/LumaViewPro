@@ -158,7 +158,7 @@
     "preview_host_downscale": false,
     "fx2_debug_wire_enabled": false,
     "profiling": {
-        "handle_trace_enabled": false,
+        "handle_trace_enabled": true,
         "open_files_enabled": false,
         "metrics_interval_s": null
     },
