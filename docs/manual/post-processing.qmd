@@ -269,9 +269,12 @@ each image:
 
 : The columns of results.csv {#tbl-pp-results tbl-colwidths="[35,65]"}
 
-An earlier `results.csv` in the folder is replaced once the new one is
-complete. The method used is not saved with the results: save it with
-[Save Method As...]{.guilabel} to keep a record of how a count was made.
+Beside it, the count writes `results_method.json`: the method it counted
+by, so you can always tell how a count was made. [Load Method]{.guilabel}
+opens it like any saved method. An earlier `results.csv` and
+`results_method.json` in the folder are replaced once both new ones are
+complete. If either cannot be written, the count says so, and no method
+is left beside results it did not make.
 
 ### Plot {#sec-pp-plot}
 
