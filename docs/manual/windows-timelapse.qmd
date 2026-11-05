@@ -29,11 +29,12 @@ If the computer needs a network during the run:
 
 ## Windows Update {#sec-windows-update}
 
-1. Open Settings, Windows Update, Advanced options (@fig-windows-update).
-2. Under "Choose how updates are installed", clear the box for automatically
-   downloading updates.
-3. Choose Delivery Optimization and set "Allow downloads from other PCs" to
-   Off (@fig-windows-delivery).
+1. Open Settings, Windows Update (@fig-windows-update).
+2. Set Pause updates to a period that covers the whole run, up to five
+   weeks. When the pause ends, Windows installs the pending updates and may
+   restart; start the next run after that.
+3. Choose Advanced options, then Delivery Optimization, and set "Allow
+   downloads from other PCs" to Off (@fig-windows-delivery).
 
 ![Windows Update in Windows 11 Settings](images/windows-update.jpg){#fig-windows-update width=90%}
 
