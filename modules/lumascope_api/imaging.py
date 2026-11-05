@@ -841,7 +841,7 @@ class ImagingAPI:
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback=None,
+        sum_iteration_callback: Callable[[], None] | None = None,
     ) -> CapturedStill:
         """Capture a frame guaranteed to reflect the current hardware state.
 
