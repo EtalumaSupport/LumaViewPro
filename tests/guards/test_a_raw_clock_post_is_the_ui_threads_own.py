@@ -40,6 +40,10 @@ _UI_THREAD = {
         "the window's close, on the UI thread",
     ),
     ('lumaviewpro.py', 'LumaViewProApp._on_resize'): (2, "the window's resize event"),
+    ('lumaviewpro.py', 'LumaViewProApp.build'): (
+        1,
+        "the window's and live image's settled-geometry trigger, built on the UI thread",
+    ),
     ('lumaviewpro.py', 'LumaViewProApp._prompt_objective_if_needed'): (
         1,
         'called from after_the_startup_motion and on_start, both on the Clock',

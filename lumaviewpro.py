@@ -626,6 +626,9 @@ class LumaViewProApp(TooltipMixin, App):
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
+        # A window that opens at its final size sends no resize, so its
+        # geometry is recorded from here.
+        self._geometry_changed()
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
@@ -1025,6 +1028,11 @@ class LumaViewProApp(TooltipMixin, App):
         ScopeSession.set_ui_dispatcher(
             UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
         )
+        # Half a second after the last resize, move, zoom or pan
+        # (``_geometry_changed``), so a drag records where it settled, not
+        # every step. Built before the main loop, the first that delivers one.
+        self._geometry_settled = Clock.create_trigger(self._log_geometry, 0.5)
+        Window.bind(on_move=self._geometry_changed)
 
         # The Session composes the instrument -- the scope (the camera
         # registry picks by priority, Pylon -> IDS -> FX2, reading the
@@ -1113,6 +1121,10 @@ class LumaViewProApp(TooltipMixin, App):
         # Wire UI components now that widget tree exists
         ctx.viewer = lumaview.ids['viewer_id']
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
+        # A zoom, a pan, Fit and 1:1 all change the viewer's transform; a
+        # frame of another shape changes the image's place inside the view.
+        ctx.viewer.bind(transform=self._geometry_changed)
+        ctx.scope_display.bind(texture_size=self._geometry_changed)
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
 
@@ -1202,6 +1214,43 @@ class LumaViewProApp(TooltipMixin, App):
         """Kivy on_resize hook: re-evaluate motion / image settings layout."""
         Clock.schedule_once(ctx.motion_settings.check_settings, 0.1)
         Clock.schedule_once(ctx.image_settings.check_settings, 0.1)
+        self._geometry_changed()
+
+    def _geometry_changed(self, *args) -> None:
+        """Restart the half-second wait before the window's and the live image's geometry is recorded."""
+        # A pending trigger ignores a second call, so a drag would record
+        # every half second; cancelling first restarts the wait.
+        self._geometry_settled.cancel()
+        self._geometry_settled()
+
+    def _log_geometry(self, *args) -> None:
+        """Record where the window is and where the live image is drawn in it.
+
+        The image's rectangle is the contain-fit image inside the live view,
+        carried through the viewer's zoom and pan to window pixels, measured
+        from the window's top left (``gui_logger.window_geometry``, ``gui_logger.view``).
+        """
+        from kivy.core.window import Window
+        from kivy.metrics import Metrics
+
+        display = ctx.scope_display
+        gui_logger.window_geometry(
+            (int(Window.left), int(Window.top)),
+            (int(Window.width), int(Window.height)),
+            Metrics.density,
+            (int(display.width), int(display.height)),
+        )
+        image_w, image_h = display.norm_image_size
+        left, bottom = display.to_window(
+            display.center_x - image_w / 2, display.center_y - image_h / 2
+        )
+        right, top = display.to_window(
+            display.center_x + image_w / 2, display.center_y + image_h / 2
+        )
+        gui_logger.view(
+            ctx.viewer.scale,
+            (round(left), round(Window.height - top), round(right - left), round(top - bottom)),
+        )
 
     def _on_window_close(self, *args) -> None:
         """Kivy on_close hook -- the window is closing for real."""

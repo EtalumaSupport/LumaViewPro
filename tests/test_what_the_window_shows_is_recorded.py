@@ -357,3 +357,35 @@ def test_a_persons_cancel_and_close_are_their_answers(record):
 
     assert record() == ['POPUP_RESPONSE CANCEL | Stitch', 'POPUP_RESPONSE CLOSE | Stitch']
     assert dismissed == [True, True]
+
+
+def test_the_window_is_recorded_once_per_place_and_size_it_settles_at(record):
+    """A display rate is read against the window and live view it was drawn into.
+
+    A settle where the window already was adds nothing; a new size or a new
+    place is a line.
+    """
+    gui_logger.window_geometry((0, 25), (3840, 2054), 1.0, (2000, 1880))
+    gui_logger.window_geometry((0, 25), (3840, 2054), 1.0, (2000, 1880))
+    gui_logger.window_geometry((0, 25), (1920, 1017), 1.0, (1000, 940))
+    gui_logger.window_geometry((300, 200), (1920, 1017), 1.0, (1000, 940))
+
+    assert record() == [
+        'WINDOW geometry pos=0,25 size=3840x2054px density=1.00 live_view=2000x1880px',
+        'WINDOW geometry pos=0,25 size=1920x1017px density=1.00 live_view=1000x940px',
+        'WINDOW geometry pos=300,200 size=1920x1017px density=1.00 live_view=1000x940px',
+    ]
+
+
+def test_where_the_live_image_is_drawn_is_recorded_once_per_place_it_settles_at(record):
+    """An image off centre is read from the record: its zoom and its rectangle in the window."""
+    gui_logger.view(1.0, (502, 0, 1458, 1458))
+    gui_logger.view(1.0, (502, 0, 1458, 1458))
+    gui_logger.view(1.0, (686, 0, 1458, 1458))
+    gui_logger.view(2.5, (686, 0, 1458, 1458))
+
+    assert record() == [
+        'VIEW zoom=1.00 image=502,0 1458x1458px',
+        'VIEW zoom=1.00 image=686,0 1458x1458px',
+        'VIEW zoom=2.50 image=686,0 1458x1458px',
+    ]

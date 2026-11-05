@@ -214,9 +214,54 @@ def window_event(event_name: str, detail: str = '') -> None:
     - ``close`` -- ``on_close`` fired; the window is closing for real.
     - ``minimize`` / ``maximize`` / ``restore`` -- window-state change.
     - ``focus`` -- focus gained or lost. Detail includes ``focused``.
+    - ``geometry`` -- the window settled at a new place or size
+      (``window_geometry``).
     - ``keyboard`` -- a non-widget-consumed key event (Alt-F4 etc.).
       Detail names the key + modifiers.
     """
     detail = (detail or '').strip()
     suffix = f' {detail}' if detail else ''
     _log.info(f'WINDOW {event_name}{suffix}')
+
+
+def window_geometry(
+    position: tuple[int, int],
+    window_px: tuple[int, int],
+    density: float,
+    live_view_px: tuple[int, int],
+) -> None:
+    """Log where the window is and its and the live view's size in pixels, when any changes.
+
+    Every displayed frame repaints the whole window and is scaled to the live
+    view's box, so a display rate read from a bundle depends on both sizes;
+    without this line a field box's window had to be inferred from its panel
+    and how it was launched. ``position`` is the window's top left on the
+    screen, as the window system states it; ``density`` is Kivy's pixels per
+    dp, the display's scaling. Recorded only when it differs from the last
+    one, at INFO, so every bundle carries it.
+    """
+    shown = (
+        f'pos={position[0]},{position[1]} size={window_px[0]}x{window_px[1]}px '
+        f'density={density:.2f} live_view={live_view_px[0]}x{live_view_px[1]}px'
+    )
+    if _shown.get('WINDOW geometry') == shown:
+        return
+    _shown['WINDOW geometry'] = shown
+    window_event('geometry', shown)
+
+
+def view(zoom: float, image_px: tuple[int, int, int, int]) -> None:
+    """Log the live image's zoom and where it is drawn in the window, when either changes.
+
+    ``image_px`` is (left, top, width, height) in window pixels from the
+    window's top left: where a person sees the image after every zoom, pan,
+    Fit, 1:1 and resize, so an image off centre is a number in the record,
+    not a recollection. Recorded only when it differs from the last one, at
+    INFO.
+    """
+    left, top, width, height = image_px
+    shown = f'zoom={zoom:.2f} image={left},{top} {width}x{height}px'
+    if _shown.get('VIEW') == shown:
+        return
+    _shown['VIEW'] = shown
+    _log.info(f'VIEW {shown}')
