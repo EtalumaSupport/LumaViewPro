@@ -14,6 +14,7 @@ book:
     - focus.qmd
     - getting-an-image.qmd
     - protocols.qmd
+    - post-processing.qmd
     - incubator.qmd
     - integrators.qmd
   appendices:
