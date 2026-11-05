@@ -2,7 +2,7 @@
 
 A Lumascope can image inside a cell-culture incubator. Its cables pass
 through the incubator's port (@sec-incubator-port). Clean it before it goes
-in (@sec-sanitising), and set up the computer for a long time-lapse
+in (@sec-sanitizing), and set up the computer for a long time-lapse
 (@sec-windows-timelapse).
 
 ## Putting the microscope into a warm, humid incubator {#sec-incubator-in}

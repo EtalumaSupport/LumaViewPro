@@ -20,14 +20,14 @@ Each LS820, LS850, LS850T and Lumi ships with:
 ## Labware holders {#sec-labware-holders}
 
 The primary labware holder sits in the stage's nest and takes microplates,
-dishes and flasks (@fig-labware-holder). A Lumascope without a motorised XY
+dishes and flasks (@fig-labware-holder). A Lumascope without a motorized XY
 stage comes with the universal labware holder on its manual stage.
 
 ![The primary labware holder, holding a T75 flask](images/labware-holder.jpg){#fig-labware-holder width=60%}
 
 The optional four-slide holder takes four microscope slides side by side,
 held by magnetic clamps (@fig-four-slide-holders). On a scope with a
-motorised XY stage, choose the "Four-Slide Holder" labware in
+motorized XY stage, choose the "Four-Slide Holder" labware in
 LumaViewPro so that each slide is a position the stage can move to.
 
 ![The optional four-slide holders](images/four-slide-holders.jpg){#fig-four-slide-holders width=70%}
@@ -44,7 +44,7 @@ The microscope's ports are on its rear panel (@fig-rear-ls850,
   power supply's cord into an AC outlet.
 - **PHASE ILLUMINATOR**: the AuraPhase accessory's cable
   (@sec-auraphase).
-- **XY STAGE** (a scope with a motorised XY stage): the stage's cable.
+- **XY STAGE** (a scope with a motorized XY stage): the stage's cable.
 
 ![The LS850's rear panel](images/rear-panel-ls850.jpg){#fig-rear-ls850 width=75%}
 

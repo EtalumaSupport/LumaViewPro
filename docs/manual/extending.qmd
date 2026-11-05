@@ -1,8 +1,8 @@
 # Working farther from the microscope {#sec-extending}
 
-The supplied USB cable is 3 metres long, and it cannot be extended or
+The supplied USB cable is 3 meters long, and it cannot be extended or
 replaced (@sec-connecting). When the microscope is in an incubator where the
-computer cannot sit within 3 metres of a convenient place to work, keep the
+computer cannot sit within 3 meters of a convenient place to work, keep the
 computer near the microscope and extend the monitor, keyboard and mouse
 instead: a longer HDMI cable to the monitor, and a Bluetooth keyboard and
 mouse.

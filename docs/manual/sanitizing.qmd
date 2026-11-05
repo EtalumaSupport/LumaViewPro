@@ -1,4 +1,4 @@
-# Sanitising the microscope {#sec-sanitising}
+# Sanitizing the microscope {#sec-sanitizing}
 
 A microscope going into an incubator is usually cleaned first. These are the
 methods Etaluma recommends.
@@ -22,10 +22,10 @@ sodium dichloroisocyanurate). Household bleach holds 5.25% available
 chlorine, 52,500 ppm. It is a strong oxidiser and loses strength quickly, so
 make it fresh and use it the day it is made.
 
-## Hydrogen peroxide vapour (HPV) {#sec-hpv}
+## Hydrogen peroxide vapor (HPV) {#sec-hpv}
 
-Hydrogen peroxide vapour removes biological agents from equipment surfaces,
-including ones hard to sterilise otherwise. Because a vapour reaches every
+Hydrogen peroxide vapor removes biological agents from equipment surfaces,
+including ones hard to sterilize otherwise. Because a vapor reaches every
 surface, it is used for pass-through chambers and for devices in hospitals
 and manufacturing.
 

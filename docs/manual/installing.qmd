@@ -2,7 +2,7 @@
 
 Install LumaViewPro before you connect the microscope to the computer for
 the first time: the installer puts the camera's driver on the computer, so
-the camera is recognised the moment it is plugged in.
+the camera is recognized the moment it is plugged in.
 
 ## Your computer {#sec-computer}
 
@@ -40,11 +40,11 @@ Documents named for the version, for example `Documents\LumaViewPro 4.0.0`.
 
 ## Connecting the microscope {#sec-connecting}
 
-1. Plug the microscope end of the supplied USB cable into the port labelled
+1. Plug the microscope end of the supplied USB cable into the port labeled
    **COMPUTER** on the microscope (@sec-cables), if it is not already.
 2. Plug the other end into a USB3 port on the computer, directly: not into a
    USB hub.
-3. Plug the power supply's barrel connector into the port labelled
+3. Plug the power supply's barrel connector into the port labeled
    **POWER INPUT 24V DC**, and the power supply into an AC outlet.
 
 Place the computer on a flat, stable surface within reach of the 3 metre
@@ -94,7 +94,7 @@ Check, then restart LumaViewPro:
 On a USB2 port the camera does not work: Windows finds it but loads no
 driver for it. In Device Manager it is then listed under "Other devices"
 (@fig-usb2), where on a USB3 port it is listed under "Basler USB3 Vision
-Cameras" (@fig-usb3). Move the cable to a USB3 port, often marked SS or coloured
+Cameras" (@fig-usb3). Move the cable to a USB3 port, often marked SS or colored
 blue, and restart LumaViewPro.
 
 ::: {layout-ncol=2}

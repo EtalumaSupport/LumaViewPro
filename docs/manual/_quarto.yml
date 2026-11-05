@@ -12,7 +12,7 @@ book:
     - incubator.qmd
     - integrators.qmd
   appendices:
-    - sanitising.qmd
+    - sanitizing.qmd
     - windows-timelapse.qmd
     - extending.qmd
 manual-version: "4.x"

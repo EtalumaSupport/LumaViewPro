@@ -47,7 +47,7 @@ closes. When LumaViewPro starts, [Microscope Settings]{.guilabel} is open.
 - [Objective Control]{.guilabel}: focus, autofocus, Z-stacks, the objective
   in use and, on a scope with a turret, the turret.
 - [XY Stage Control]{.guilabel}: moving the XY stage, and the plate map.
-  Shown only on a scope with a motorised XY stage; an LS820 or a Lumi has no
+  Shown only on a scope with a motorized XY stage; an LS820 or a Lumi has no
   such drawer.
 - [Protocol]{.guilabel}: building, saving, loading and running protocols.
 - [Post Processing]{.guilabel}: stitching, composites, Z-projection, video
@@ -69,8 +69,8 @@ The right panel has one drawer for each channel your microscope has
 (@tbl-models), titled with the channel's name: for example
 [Brightfield]{.channel}, [Phase Contrast]{.channel}, [Darkfield]{.channel},
 [488 nm Excitation]{.channel} or [Lumi]{.channel}. A fluorescence channel's
-drawer is named for its excitation wavelength, and its colour swatch is the
-colour that channel is shown in. As on the left, one drawer is open at a
+drawer is named for its excitation wavelength, and its color swatch is the
+color that channel is shown in. As on the left, one drawer is open at a
 time; opening a channel's drawer shows that channel in the live image.
 
 Each drawer holds that channel's own settings: its LED, the camera's gain
@@ -115,5 +115,5 @@ The line along the bottom of the window shows two frame rates: Capture, the
 frames per second the camera delivers, and Display, the frames per second
 the screen shows. With the mouse pointer over the live image it also shows
 the camera pixel under the pointer, as Pixel (x, y), and, on a scope with a
-motorised XY stage and a known objective, that point's position on the
+motorized XY stage and a known objective, that point's position on the
 plate, as Plate (x, y) mm.
