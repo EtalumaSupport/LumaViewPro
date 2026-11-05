@@ -1,0 +1,7 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"press","path":"MicroscopeSettings/btn_advanced_settings","settle_s":2},
+  {"do":"shot","name":"../images/settings-advanced-ls850","path":"AdvancedSettings","note":"an LS850: every row a stage or the camera gates is shown"},
+  {"do":"quit"}
+]

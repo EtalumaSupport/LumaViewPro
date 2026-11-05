@@ -9,6 +9,7 @@ book:
     - setting-up.qmd
     - installing.qmd
     - tour.qmd
+    - settings.qmd
     - incubator.qmd
     - integrators.qmd
   appendices:
