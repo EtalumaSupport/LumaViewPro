@@ -12368,7 +12368,7 @@ tuple.
 
 **Fields**
 
-- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS620 or LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board.
+- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board (an LS560 or LS620).
 - <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).

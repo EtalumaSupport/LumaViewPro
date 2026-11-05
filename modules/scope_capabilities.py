@@ -317,9 +317,9 @@ class ScopeCapabilities:
     tuple.
 
     Attributes:
-        axes: The axes this scope has: ``('Z',)`` for an LS620 or LS820,
+        axes: The axes this scope has: ``('Z',)`` for an LS820,
             ``('X', 'Y', 'Z')`` for an LS850, ``('X', 'Y', 'Z', 'T')`` for
-            an LS850T, ``()`` with no motor board.
+            an LS850T, ``()`` with no motor board (an LS560 or LS620).
         has_focus: True when ``axes`` holds Z.
         has_xy_stage: True when ``axes`` holds X and Y.
         has_turret: Whether this scope has a turret: T in ``axes`` when the
