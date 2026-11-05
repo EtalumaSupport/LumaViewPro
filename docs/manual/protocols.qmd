@@ -184,7 +184,8 @@ protocol again with [New]{.guilabel}, or load the untiled protocol.
 Tiles are named by row and column: `TA1` is the first row's first tile,
 `TA2` the tile beside it, and `TB1` the first tile of the second row. A
 tiled image's name keeps the step's name before it, so the tiles of a well
-or of an added step stay together for stitching.
+or of an added step sort together. Stitching does not read the names: it
+places each tile from the run's record (@sec-pp-stitch).
 
 The tiles are placed from the frame size, the binning and the objective in
 use when the grid is made, and do not move when these are changed
