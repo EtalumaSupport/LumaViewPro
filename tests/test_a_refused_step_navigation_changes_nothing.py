@@ -32,9 +32,9 @@ import pytest
 
 import ui.step_navigation as step_navigation
 import ui.ui_helpers as ui_helpers
-from modules.protocol import Protocol
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import ENQUEUED
 from tests.pool_fakes import run_task_now
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.stock_channels import LED1

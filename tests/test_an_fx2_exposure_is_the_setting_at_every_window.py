@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import fx2driver
-from drivers.fx2driver import FX2Camera
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.fx2driver import FX2Camera
 from tests.case_walk import failing_cases
 
 # tROW = 2 x tPIXCLK x max(W/2 + 450, 486), W = Column_Size + 1 = w + 4 (DS Table 8), in us.
@@ -34,7 +34,7 @@ def _integration_ms(shutter_width: int, w: int) -> float:
 
 @pytest.fixture
 def sim():
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
     sim.connect()

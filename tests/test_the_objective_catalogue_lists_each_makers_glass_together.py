@@ -10,8 +10,8 @@ order in the file.
 
 import json
 
-from modules.objectives_loader import ObjectiveLoader
-from modules.path_utils import resolve_data_file
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.path_utils import resolve_data_file
 
 
 def test_each_makers_objectives_are_listed_together_by_magnification():

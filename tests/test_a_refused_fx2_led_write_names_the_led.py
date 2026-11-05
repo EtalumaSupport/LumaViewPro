@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import BoardPortFailedError
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import BoardPortFailedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 

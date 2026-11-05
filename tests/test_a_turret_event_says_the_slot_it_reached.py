@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from modules.lumascope_api import AxisState, TurretStatus
-from rest.app import build_app
+from _lumascope.modules.lumascope_api import AxisState, TurretStatus
+from _lumascope.rest.app import build_app
 
 
 def test_a_rest_clients_turn_tells_the_listener_the_slot_it_reached(sim_turreted_session):

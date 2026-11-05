@@ -23,16 +23,16 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api._constants import AxisState
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
@@ -225,7 +225,7 @@ def test_a_pulled_cable_refuses_the_move_and_shutdown_closes_clean(make_session,
 
 
 def test_go_to_step_on_a_scope_whose_board_did_not_come_up_is_refused(make_session, monkeypatch):
-    from drivers.null_motorboard import NullMotionBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
 
     session = make_session('LS850')
     monkeypatch.setattr(session.scope, '_motion_driver', NullMotionBoard())
@@ -313,7 +313,7 @@ def _protocol(n_scans: int | None = None, rows=None):
 def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
     make_session, monkeypatch, tmp_path, model
 ):
-    import modules.protocol_step_runner as step_runner
+    import _lumascope.modules.protocol_step_runner as step_runner
 
     # The return between scans fails as a transient scan failure: the run
     # completes regardless, so the return's own outcome is what is read.

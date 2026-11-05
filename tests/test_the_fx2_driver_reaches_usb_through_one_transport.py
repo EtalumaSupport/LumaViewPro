@@ -22,12 +22,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers import fx2driver
-from drivers.camera import ImageHandlerBase
-from drivers.exceptions import CameraNoAnswerError, CameraStreamStartFailedError
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.camera import ImageHandlerBase
+from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraStreamStartFailedError
 from tests.camera_fakes import fx2_stream
 
-DRIVER = Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
+DRIVER = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'fx2driver.py'
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
         def stop(self):
             self.running = False
 
-    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.WinUsbIsoReader', Reader)
     monkeypatch.setattr(
         fx2driver,
         'usb',
@@ -326,9 +326,9 @@ def test_a_windows_start_that_fails_leaves_no_reader_and_the_next_runs_one(monke
         def stop(self):
             self.running = False
 
-    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.WinUsbIsoReader', Reader)
     # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
-    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [])
     monkeypatch.setattr(
         fx2driver,
         'usb',
@@ -375,9 +375,9 @@ def test_a_stream_start_the_fx2_does_not_answer_is_no_answer(monkeypatch):
         def stop(self):
             pass
 
-    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.WinUsbIsoReader', Reader)
     # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
-    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [])
     monkeypatch.setattr(
         fx2driver,
         'usb',

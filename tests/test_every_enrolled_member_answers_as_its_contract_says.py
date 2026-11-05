@@ -14,7 +14,7 @@ their stops and waits, ``frame_at_binning`` and
 - **An injected fault** (``scope.simulation``) answers the class its
   contract names.
 - **Over REST** the same call answers the status and the problem body the
-  server makes of the Python answer (``rest.problems.answered_by_member``).
+  server makes of the Python answer (``_lumascope.rest.problems.answered_by_member``).
 
 An answer its contract does not declare fails the walk: the section is
 where a caller learns what it may be told, so it is fixed with the code.
@@ -39,9 +39,9 @@ import pytest
 import tifffile
 from fastapi.testclient import TestClient
 
-from modules import wire_encoding
-from modules.api_surface import _function_of
-from modules.exceptions import (
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import _function_of
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
@@ -52,11 +52,11 @@ from modules.exceptions import (
     PositionOutOfRangeError,
     PostProcessingRefusedError,
 )
-from modules.cell_count_method import CellCountMethod
-from modules.post_processing_api import Stitch, Video, ZProject
-from modules.scope_session import ScopeSession
-from rest.app import build_app
-from rest.problems import answered_by_member
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.post_processing_api import Stitch, Video, ZProject
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
+from _lumascope.rest.problems import answered_by_member
 from tests.guards.test_every_member_states_its_contract import (
     _ENTRY,
     _ROOT,

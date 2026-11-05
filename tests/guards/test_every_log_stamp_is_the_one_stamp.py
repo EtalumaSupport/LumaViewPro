@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every timestamped log format is made by modules.log_stamp.
+"""Every timestamped log format is made by _lumascope.modules.log_stamp.
 
 Each writer once spelled its own stamp, and LumaViewPro's logs carried five
 forms in three layouts: serial.log, camera.log and api.log had no date, so a
@@ -16,7 +16,7 @@ import ast
 
 from tests.ast_seams import REPO_ROOT, tracked_files
 
-_OWNER = 'modules/log_stamp.py'
+_OWNER = 'src/_lumascope/modules/log_stamp.py'
 
 
 def _name(node: ast.AST) -> str | None:
@@ -49,7 +49,7 @@ def test_no_log_stamp_is_spelled_outside_log_stamp():
         offenders += offenders_in(rel_path, (REPO_ROOT / rel_path).read_text(encoding='utf-8'))
 
     assert not offenders, (
-        'a log format that spells its own timestamp, outside modules/log_stamp.py '
+        'a log format that spells its own timestamp, outside src/_lumascope/modules/log_stamp.py '
         f'(use make_formatter, or now_stamp for a line written by hand): {offenders}'
     )
 

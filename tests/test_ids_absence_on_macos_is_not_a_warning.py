@@ -12,14 +12,14 @@ like it had no camera.
 import logging
 import sys
 
-from modules.lumascope_api import _lumascope
+from _lumascope.modules.lumascope_api import _lumascope
 from tests.log_capture import records_of
 
 
 def _attempt(monkeypatch, caplog, platform):
     """The registration's answer and (level, message) for each line the scope module logged."""
     # The import fails the way it does on a host without the IDS SDK.
-    monkeypatch.setitem(sys.modules, 'drivers.idscamera', None)
+    monkeypatch.setitem(sys.modules, '_lumascope.drivers.idscamera', None)
     caplog.clear()
     with caplog.at_level(logging.INFO):
         camera = _lumascope._register_ids_camera(platform)

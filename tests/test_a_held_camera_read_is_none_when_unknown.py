@@ -21,10 +21,10 @@ import time
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, CameraSettingRejected
-from modules.lumascope_api.camera import CameraAPI, CameraAutoMode
-from modules.scope_capabilities import FrameSize
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError, CameraSettingRejected
+from _lumascope.modules.lumascope_api.camera import CameraAPI, CameraAutoMode
+from _lumascope.modules.scope_capabilities import FrameSize
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 # Every held read that describes the camera; image_mode is the saved one.

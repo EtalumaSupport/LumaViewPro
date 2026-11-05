@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import fx2driver
-from drivers.fx2driver import FX2Camera
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.fx2driver import FX2Camera
 
 # DS Table 15: analog 8-32 with no multiplier (1-4x), analog 17-32 with the
 # multiplier (4.25-8x), analog 32 with the multiplier and digital 1-120
@@ -59,7 +59,7 @@ def _db(reg: int) -> float:
 
 @pytest.fixture
 def sim():
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
     sim.connect()

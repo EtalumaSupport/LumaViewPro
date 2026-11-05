@@ -24,12 +24,17 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
+from _lumascope.modules.protocol import (
+    Protocol,
+    ProtocolFormatError,
+    StepEditRefusedError,
+    StoredNames,
+)
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.case_walk import failing_cases
 from tests.protocol_fixtures import protocol_from_file
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 def _saved(tmp_path, steps) -> pathlib.Path:
@@ -229,7 +234,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol.set_turret_slot',
     }
     writing = set()
-    for qualname, node in walk_defs(parse_module('modules/protocol.py').body):
+    for qualname, node in walk_defs(parse_module('src/_lumascope/modules/protocol.py').body):
         for statement in ast.walk(node):
             targets = getattr(statement, 'targets', None) or [getattr(statement, 'target', None)]
             for target in targets:
@@ -268,7 +273,9 @@ def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_pa
 def test_the_post_processing_reader_keeps_the_stored_names_and_is_not_runnable():
     node = next(
         node
-        for _, node in walk_defs(parse_module('modules/protocol_post_processing_helper.py').body)
+        for _, node in walk_defs(
+            parse_module('src/_lumascope/modules/protocol_post_processing_helper.py').body
+        )
         for node in ast.walk(node)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)

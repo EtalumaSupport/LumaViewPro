@@ -29,9 +29,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers import fx2driver, host_clock
-from drivers.camera import ImageHandlerBase
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import fx2driver, host_clock
+from _lumascope.drivers.camera import ImageHandlerBase
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import fx2_stream
 from tests.settings_fixtures import complete_settings
 from tests.log_capture import messages, records_of
@@ -160,7 +160,7 @@ def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch
         def stop(self):
             pass
 
-    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.WinUsbIsoReader', Reader)
     monkeypatch.setattr(fx2driver._WinUsbTransport, '_release_idle', lambda self: None)
     stream = fx2_stream()
     fx2driver._WinUsbTransport().start_stream(stream, on_gone=lambda: None)
@@ -387,7 +387,7 @@ def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, c
 
 
 def test_a_simulated_unplugs_failed_transfers_reach_the_stream():
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
     sim.connect()

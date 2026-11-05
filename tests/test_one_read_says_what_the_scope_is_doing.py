@@ -17,16 +17,16 @@ import pathlib
 
 import pytest
 
-from modules import live_work, wire_encoding
-from modules.exceptions import ProtocolRunRefusedError
-from modules.lumascope_api import AxisState
+from _lumascope.modules import live_work, wire_encoding
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.lumascope_api import AxisState
 
 COMPLETION_TIMEOUT = 30
 
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -40,7 +40,7 @@ def sim_session(tmp_path):
 
 
 def test_an_idle_session_answers_each_field_from_its_owner(sim_session):
-    from modules.scope_session import Status
+    from _lumascope.modules.scope_session import Status
 
     status = sim_session.status
 

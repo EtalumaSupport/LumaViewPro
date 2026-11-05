@@ -27,7 +27,7 @@ def detached_camera():
     was ever grabbed": with a frame present, only the guard can be the reason
     the read reports no frame.
     """
-    from drivers.camera import Camera
+    from _lumascope.drivers.camera import Camera
 
     handler, parent = bare_image_handler()
     handler._store_frame(
@@ -59,7 +59,7 @@ class TestDetachedDeviceReportsNoFrame:
         """grab pre-checks the removal flag, so it never reaches the guard;
         pinned here so the pre-check is not later removed on the strength
         of the guard alone."""
-        from drivers import camera as camera_mod
+        from _lumascope.drivers import camera as camera_mod
 
         _handler, parent = detached_camera
         assert parent.grab() is None

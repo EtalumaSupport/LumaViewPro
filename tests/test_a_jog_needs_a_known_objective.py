@@ -15,7 +15,7 @@ import ast
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
     ControlSessionRefusedError,
@@ -23,7 +23,7 @@ from modules.exceptions import (
     HomingFailedError,
     ObjectiveUnknownError,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

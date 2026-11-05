@@ -25,10 +25,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-from drivers.camera import Camera
-from drivers.camera_profiles import lookup_profile
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.drivers.camera import Camera
+from _lumascope.drivers.camera_profiles import lookup_profile
 from tests.scope_fakes import build_scope, capabilities_of
 from ui.image_settings import ImageSettings
 

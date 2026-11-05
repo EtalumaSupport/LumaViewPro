@@ -13,7 +13,7 @@ from __future__ import annotations
 from tests.ast_seams import REPO_ROOT, Packages, tracked_files
 
 
-_DIRS = Packages({'ui', 'modules', 'drivers'})
+_DIRS = Packages({'ui', 'src/_lumascope/modules', 'src/_lumascope/drivers'})
 
 
 def test_no_tostring_calls_in_production_source():

@@ -19,9 +19,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
-from modules.lumascope_api.illumination import LedState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0

@@ -10,7 +10,7 @@ reported where it stops, unsolicited, and the next edge draws again.
 
 import ast
 
-from modules.notification_center import notifications
+from _lumascope.modules.notification_center import notifications
 from tests.ast_seams import find_def
 
 

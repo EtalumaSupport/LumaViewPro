@@ -2,7 +2,7 @@
 """Every rotating log handler is made by the one builder that reads LOG_CAPS.
 
 A log's cap -- its size and its number of backups -- has one row in
-``lvp_logger.LOG_CAPS``, and the table's sum is held under the support
+``_lumascope.lvp_logger.LOG_CAPS``, and the table's sum is held under the support
 bundle's budget. A ``RotatingFileHandler`` built anywhere else would spell
 its own cap, outside the table and outside the budget, as every handler
 did before the table existed (the logs then reached about 595 MB).
@@ -14,7 +14,7 @@ import ast
 
 from tests.ast_seams import REPO_ROOT, tracked_files
 
-_BUILDER = ('lvp_logger.py', '_rotating_handler')
+_BUILDER = ('src/_lumascope/lvp_logger.py', '_rotating_handler')
 
 
 def _builds_a_rotating_handler(node: ast.AST) -> bool:
@@ -44,6 +44,6 @@ def test_no_rotating_handler_is_built_outside_the_cap_table_builder():
         ]
 
     assert not offenders, (
-        'a RotatingFileHandler built outside lvp_logger._rotating_handler spells its '
+        'a RotatingFileHandler built outside _lumascope.lvp_logger._rotating_handler spells its '
         f'own cap, outside LOG_CAPS and the bundle budget: {offenders}'
     )

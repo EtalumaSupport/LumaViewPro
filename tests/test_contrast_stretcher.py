@@ -13,7 +13,7 @@ x10, so a near-flat frame's sensor noise is not blown up into flicker.
 
 import numpy as np
 
-from modules.contrast_stretcher import ContrastStretcher
+from _lumascope.modules.contrast_stretcher import ContrastStretcher
 
 
 class TestRollingWindow:

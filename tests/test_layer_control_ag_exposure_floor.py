@@ -30,9 +30,9 @@ import inspect
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.lumascope_api.camera import stored_exposure_after_lock
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.lumascope_api.camera import stored_exposure_after_lock
+from _lumascope.modules.scope_session import ScopeSession
 from tests.stock_channels import LED0
 
 

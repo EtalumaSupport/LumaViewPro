@@ -12,7 +12,7 @@ apply, does the session's settings dict follow, or only the camera?
 import sys
 
 import harness as _common
-from modules import image_mode
+from _lumascope.modules import image_mode
 
 s, live = _common.make_session()
 try:

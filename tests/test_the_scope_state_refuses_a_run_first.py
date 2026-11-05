@@ -16,8 +16,8 @@ Driven through the Session on the simulated scope.
 
 import pytest
 
-from drivers.null_ledboard import NullLEDBoard
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.test_a_step_may_have_no_position import _rewrite_steps, _saved_steps
 

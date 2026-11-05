@@ -14,9 +14,9 @@ import dataclasses
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
-from modules.scope_capabilities import FrameSize
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.scope_capabilities import FrameSize
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED1
 

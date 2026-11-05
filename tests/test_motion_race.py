@@ -66,7 +66,7 @@ class TestRuntimeOrder_618:
         return writes
 
     def _assert_disarmed_at_every_write_and_armed_after(self, scope, writes):
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         assert writes, 'the move wrote no target'
         for state, armed in writes:
@@ -111,7 +111,7 @@ class TestRaceSimulation_618:
     def test_motion_monitor_cannot_falsely_set_idle_during_move(self):
         """A verdict asked for during the target write -- the monitor's IDLE
         on a reached bit -- leaves the axis MOVING with its arrival unset."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')

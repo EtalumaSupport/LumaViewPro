@@ -21,19 +21,19 @@ import time
 import pytest
 
 import tests.ast_seams as ast_seams
-from modules.exceptions import InstallationFileError
+from _lumascope.modules.exceptions import InstallationFileError
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 class TestScopeModelsCatalogue:
     def test_the_shipped_catalogue_loads_its_models(self):
-        from modules.layer_record import load_scope_models
+        from _lumascope.modules.layer_record import load_scope_models
 
         models = load_scope_models()
         assert models['LS850T'].has_turret is True
 
     def test_a_file_without_a_models_section_refuses_by_name(self, tmp_path):
-        from modules.layer_record import load_scope_models
+        from _lumascope.modules.layer_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Layers': []}))
@@ -42,7 +42,7 @@ class TestScopeModelsCatalogue:
         assert info.value.file_path == path
 
     def test_a_models_section_that_is_not_a_dict_refuses(self, tmp_path):
-        from modules.layer_record import load_scope_models
+        from _lumascope.modules.layer_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Models': ['LS850T']}))
@@ -50,7 +50,7 @@ class TestScopeModelsCatalogue:
             load_scope_models(str(path))
 
     def test_an_unreadable_file_refuses_instead_of_returning_empty(self, tmp_path):
-        from modules.layer_record import load_scope_models
+        from _lumascope.modules.layer_record import load_scope_models
 
         with pytest.raises(InstallationFileError):
             load_scope_models(str(tmp_path / 'missing.json'))
@@ -64,7 +64,7 @@ class TestInitializeStaysOnTheCallingThread:
         the lanes would answer: with both lanes refusing work, a dispatched
         safety-off or camera apply would raise.
         """
-        from modules.scope_init_config import ScopeInitConfig
+        from _lumascope.modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
 
         # No turret, so the objective initialize settles is the stored one.
@@ -85,8 +85,8 @@ class TestInitializeStaysOnTheCallingThread:
     def test_no_led_write_without_a_board(self, monkeypatch):
         """With a Null board the bring-up safety-off writes nothing, and
         records no LED change the hardware never saw."""
-        from drivers.null_ledboard import NullLEDBoard
-        from modules.scope_init_config import ScopeInitConfig
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
 
         scope = build_scope(simulate=True, register_atexit=False)

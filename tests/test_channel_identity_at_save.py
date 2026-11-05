@@ -28,10 +28,10 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_save, image_utils
+from _lumascope.modules import image_save, image_utils
 from tests.frame_records import frame_record, plate, write_recorded
 from tests.scope_fakes import bind_settings_like_a_session
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 
 
@@ -103,7 +103,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
     test is the open drawer; the settings are the shipped template with the
     capture written to this test's folder at 8 bits.
     """
-    from modules.manual_capture import ManualCaptureController
+    from _lumascope.modules.manual_capture import ManualCaptureController
     from tests.settings_fixtures import complete_settings
 
     settings = complete_settings(

@@ -33,9 +33,9 @@ import typing
 
 import pytest
 
-from modules import wire_encoding
+from _lumascope.modules import wire_encoding
 from tests import ratchets as _ratchets
-from rest import routes as rest_routes
+from _lumascope.rest import routes as rest_routes
 from tests.ast_seams import MemberNames
 
 # Keyless objects, arrays of nothing said and values of no type, over every
@@ -64,7 +64,8 @@ from tests.ast_seams import MemberNames
 UNTYPED_PIN = 13
 
 _SERVER_MODELS = MemberNames(
-    ('rest/routes.py', 'rest/app.py'), {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'}
+    ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),
+    {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'},
 )
 # A JSON Schema keyword that says what a value is.
 _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
@@ -73,9 +74,9 @@ _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     """The application's description, its member routes, its events' models, and their records."""
-    from modules.scope_session import ScopeSession
-    from rest import events
-    from rest.app import build_app
+    from _lumascope.modules.scope_session import ScopeSession
+    from _lumascope.rest import events
+    from _lumascope.rest.app import build_app
     from tests.settings_fixtures import complete_settings
 
     live = tmp_path_factory.mktemp('live')
@@ -96,7 +97,7 @@ def built(tmp_path_factory):
 
 
 def _url(route: rest_routes.Route) -> str:
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     if route.root is ScopeSession:
         return f'/api/v1/{route.path}'

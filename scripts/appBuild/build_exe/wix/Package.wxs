@@ -112,7 +112,7 @@
 	    catalog.
 
 	    The installer does not bind it. LumaViewPro's Repair runs the driver
-	    step (lvp_fx2_driver_step.exe, modules/fx2_driver_step.py) on the
+	    step (lvp_fx2_driver_step.exe, src/_lumascope/modules/fx2_driver_step.py) on the
 	    person's desktop, where Windows asks whether to install software from
 	    Etaluma; an installer action runs as SYSTEM with no desktop to ask on.
 	    Uninstall runs the step deferred and as SYSTEM, which removing a

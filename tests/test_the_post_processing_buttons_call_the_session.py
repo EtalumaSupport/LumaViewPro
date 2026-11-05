@@ -16,8 +16,8 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
 
 import ui.post_processing as post_processing
 

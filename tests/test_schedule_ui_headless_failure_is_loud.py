@@ -25,8 +25,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import ui_queue
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.scope_session import ScopeSession
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def _boom(_dt):
 
 
 def test_headless_callback_failure_is_logged_with_traceback(monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw)))

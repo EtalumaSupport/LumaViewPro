@@ -16,10 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.scope_session import ScopeSession
-from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
 from tests.settings_fixtures import complete_settings
 from ui.advanced_settings import AdvancedSettings
 

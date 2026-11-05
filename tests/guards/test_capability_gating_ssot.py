@@ -15,10 +15,10 @@ drivers answer from the hardware that is actually attached.
 
 import ast
 
-from drivers.null_motorboard import NullMotionBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.layer_record import UNRESOLVED
-from modules.scope_capabilities import ScopeCapabilities
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.layer_record import UNRESOLVED
+from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import REPO_ROOT, Words, tracked_files
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -81,7 +81,7 @@ class TestUiGatesOnTheDriver:
         stage_src = (REPO_ROOT / 'ui' / 'stage.py').read_text()
         assert 'set_xy_stage_capability' not in stage_src
         assert 'self._has_xy_stage' not in stage_src
-        session_src = (REPO_ROOT / 'modules' / 'scope_session.py').read_text()
+        session_src = (REPO_ROOT / 'src/_lumascope/modules' / 'scope_session.py').read_text()
         assert 'xystage_configured' not in session_src
 
 

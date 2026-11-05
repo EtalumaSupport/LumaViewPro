@@ -18,15 +18,15 @@ import dataclasses
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import wire_encoding
-from modules.api_surface import api, api_fields
-from modules.axes import StageAxis
-from modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError
-from modules.lumascope_api.camera import CameraAutoMode
-from modules.lumascope_api.illumination import LedReading, LedState
-from modules.scope_session import ScopeSession
-from rest.app import build_app
-from rest.routes import routes
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.axes import StageAxis
+from _lumascope.modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
+from _lumascope.rest.routes import routes
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
 from tests.scope_fakes import channel_reading

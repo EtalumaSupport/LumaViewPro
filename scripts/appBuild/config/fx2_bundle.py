@@ -9,7 +9,7 @@ Three kinds of file, each where the frozen app or the installer looks for it:
   ``libusb_package.get_library_path()`` looks only inside its package, and
   the driver runs on that file and no other;
 - the driver step's executable at the root, which the installer runs to
-  bind the FX2's driver (``modules/fx2_driver_step.py``).
+  bind the FX2's driver (``src/_lumascope/modules/fx2_driver_step.py``).
 
 The release spec imports this module, so the build is refused, naming what
 is missing, before PyInstaller runs and again on the tree it produced.

@@ -25,7 +25,7 @@ class TestFuturesMetricsFormat:
     """The metric line names its fields rather than abbreviating to A/P/L."""
 
     def test_old_abbreviated_format_not_present(self):
-        src = (REPO_ROOT / 'modules' / 'config_helpers.py').read_text()
+        src = (REPO_ROOT / 'src/_lumascope/modules' / 'config_helpers.py').read_text()
         # The old format invited Active/Pending/Leaked misread; must not
         # come back in any form.
         assert '=A{' not in src
@@ -37,8 +37,8 @@ class TestPostProcessingEmptyResultMessages:
     """Empty-result popups name the missing capture dimension per PostFunction."""
 
     def test_multi_frame_requirement_covers_each_post_function(self):
-        from modules.common_utils import PostFunction
-        from modules.protocol_post_processor import _MULTI_FRAME_REQUIREMENT
+        from _lumascope.modules.common_utils import PostFunction
+        from _lumascope.modules.protocol_post_processor import _MULTI_FRAME_REQUIREMENT
 
         assert PostFunction.VIDEO in _MULTI_FRAME_REQUIREMENT
         assert 'time point' in _MULTI_FRAME_REQUIREMENT[PostFunction.VIDEO]
@@ -60,7 +60,7 @@ class TestPostProcessingEmptyResultMessages:
 
         import pandas as pd
 
-        from modules.composite_generation import CompositeGeneration
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         comp = CompositeGeneration(has_turret=False)
         comp._post_processing_helper.load_folder = lambda path, tiling_grids: {
@@ -71,7 +71,7 @@ class TestPostProcessingEmptyResultMessages:
         }
         import pytest
 
-        from modules.exceptions import PostProcessingRefusedError
+        from _lumascope.modules.exceptions import PostProcessingRefusedError
 
         with pytest.raises(PostProcessingRefusedError) as refused:
             comp.load_folder(path='run', tiling_grids=shipped_grids())
@@ -81,12 +81,14 @@ class TestPostProcessingEmptyResultMessages:
 
     def test_helper_empty_message_actionable(self):
         # pin-justified: the user-facing message wording is the contract.
-        src = (REPO_ROOT / 'modules' / 'protocol_post_processing_helper.py').read_text()
+        src = (
+            REPO_ROOT / 'src/_lumascope/modules' / 'protocol_post_processing_helper.py'
+        ).read_text()
         assert 'captured scan images' in src
 
     def test_composite_no_channels_message_specific(self):
         # pin-justified: the user-facing message wording is the contract.
-        src = (REPO_ROOT / 'modules' / 'composite_generation.py').read_text()
+        src = (REPO_ROOT / 'src/_lumascope/modules' / 'composite_generation.py').read_text()
         assert 'no channel images' in src
         # The old generic wording must not survive a future merge.
         assert 'Composite Generation Error: No images found"' not in src
@@ -97,8 +99,8 @@ class TestPostProcessingEmptyResultMessages:
         # otherwise. It should not be a literal string anywhere in the
         # post-processing files anymore.
         for rel in (
-            'modules/protocol_post_processor.py',
-            'modules/protocol_post_processing_helper.py',
+            'src/_lumascope/modules/protocol_post_processor.py',
+            'src/_lumascope/modules/protocol_post_processing_helper.py',
         ):
             src = (REPO_ROOT / rel).read_text()
             assert "'No images found'" not in src, rel

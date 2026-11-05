@@ -48,7 +48,7 @@ class TestCoalescingApplier:
         end = text.index('class MicroscopeSettings')
         snippet = (
             'import logging, threading\n'
-            'from modules.notification_center import notifications\n'
+            'from _lumascope.modules.notification_center import notifications\n'
             'logger = logging.getLogger(__name__)\n' + text[start:end]
         )
         ns = {}
@@ -104,7 +104,7 @@ class TestCoalescingApplier:
     def test_later_failures_are_logged_not_dropped(self, monkeypatch):
         # The first failure is raised and shown; each later one in the same
         # drain is reported log-only, so none of them vanishes unrecorded.
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
 
         reported = []
         monkeypatch.setattr(
@@ -286,8 +286,8 @@ class TestTheFramingRedrawShowsTheStore:
         (None when it cannot say one); returns the two label texts."""
         from types import SimpleNamespace
 
-        import modules.app_context as app_context
-        import modules.common_utils as common_utils_real
+        import _lumascope.modules.app_context as app_context
+        import _lumascope.modules.common_utils as common_utils_real
 
         # a stand-in by design: the widget's subject is the display of the
         # scope's answer, which the scope's own test pins on the simulator
@@ -307,7 +307,7 @@ class TestTheFramingRedrawShowsTheStore:
         return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
     def test_the_readout_shows_the_scopes_field_of_view(self, monkeypatch):
-        from modules.scope_capabilities import FieldOfView
+        from _lumascope.modules.scope_capabilities import FieldOfView
 
         fov = FieldOfView(width_um=714.6, height_um=716.2)
         assert self._refresh_fov(monkeypatch, fov) == ('715.0', '716.0')
@@ -330,7 +330,7 @@ class TestSelectBinningHandler:
     @pytest.fixture(autouse=True)
     def _reported(self, monkeypatch):
         """The outcomes the real boundary hands the one reporter, in order."""
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
 
         reported = []
         monkeypatch.setattr(
@@ -341,7 +341,7 @@ class TestSelectBinningHandler:
     def _make_select(self, initializing, settings, preview_refusal=None):
         from types import SimpleNamespace
 
-        import modules.binning as binning_real
+        import _lumascope.modules.binning as binning_real
         from ui.ui_helpers import refused_in_this_input, run_reported
 
         submits = []
@@ -442,7 +442,7 @@ class TestSelectBinningHandler:
         assert applies == [2]
 
     def test_a_refused_preview_is_reported_once_and_sends_no_apply(self, _reported):
-        from modules.exceptions import CameraSettingUnsupportedError
+        from _lumascope.modules.exceptions import CameraSettingUnsupportedError
 
         settings = {'binning': {'size': '1x1'}, 'frame': {'width': 1920, 'height': 1200}}
         refusal = CameraSettingUnsupportedError('binning', 2, [1], message='not offered')
@@ -479,7 +479,7 @@ class TestImageModeMirrorAgreesWithTheStore:
     def _make_redraw(self, stored_mode, shown_mode):
         from types import SimpleNamespace
 
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
         from ui.microscope_settings import IMAGE_MODE_LABELS
 
         settings = {'image_mode': stored_mode}
@@ -510,7 +510,7 @@ class TestImageModeMirrorAgreesWithTheStore:
         # the store carries the template's mode, which every prepared dict
         # has. Both must name the same mode, or the GUI and a headless
         # caller would start out disagreeing.
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
         from tests.settings_fixtures import complete_settings
 
         assert complete_settings()['image_mode'] == image_mode_real.DEFAULT_IMAGE_MODE
@@ -520,7 +520,7 @@ class TestImageModeMirrorAgreesWithTheStore:
         # store moved and the mirror has not yet; after a refusal the store
         # stayed and the selector moved. Either way the mirror follows the
         # store.
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
         from ui.microscope_settings import IMAGE_MODE_LABELS
 
         for stored in image_mode_real._MODE_TABLE:
@@ -676,7 +676,7 @@ class TestTheImageModeSelectorRendersTheApi:
         """The selector lists every mode the API offers, in its order, by label."""
         from types import SimpleNamespace
 
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
         from ui.microscope_settings import IMAGE_MODE_LABELS
 
         spinner = SimpleNamespace(values=None)
@@ -695,7 +695,7 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_every_label_names_one_mode(self):
         """Every mode has a label and the label maps back to that mode, so a
         pick reaches the API as the mode the selector showed."""
-        from modules.image_mode import ImageMode
+        from _lumascope.modules.image_mode import ImageMode
         from ui.microscope_settings import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE
 
         assert set(IMAGE_MODE_LABELS) == set(ImageMode)
@@ -705,7 +705,7 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_every_output_format_has_one_label_and_reads_back_from_it(self):
         """Every format has a label, and the label maps back to it, so a pick
         stores the format the selector showed."""
-        from modules.image_mode import OutputFormat
+        from _lumascope.modules.image_mode import OutputFormat
         from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT, OUTPUT_FORMAT_LABELS
 
         assert set(OUTPUT_FORMAT_LABELS) == set(OutputFormat)
@@ -732,10 +732,10 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_the_jpg_hint_is_the_apis_predicate(self, mode, live, shown):
         from types import SimpleNamespace
 
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
 
         settings = {'image_mode': mode, 'image_output_format': {'live': live, 'sequenced': 'TIFF'}}
-        from modules import gui_logger
+        from _lumascope.modules import gui_logger
 
         fn = _compile_ms_method(
             '_refresh_jpg_depth_hint',
@@ -759,7 +759,7 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
         from types import SimpleNamespace
 
-        import modules.image_mode as image_mode_real
+        import _lumascope.modules.image_mode as image_mode_real
         from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT
 
         settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
@@ -796,7 +796,7 @@ def test_a_mode_redraw_refreshes_the_jpg_hint():
     stored mode asks the API's predicate again."""
     from types import SimpleNamespace
 
-    import modules.image_mode as image_mode_real
+    import _lumascope.modules.image_mode as image_mode_real
     from ui.microscope_settings import IMAGE_MODE_LABELS
 
     settings = {'image_mode': '12bit_scientific'}

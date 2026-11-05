@@ -14,9 +14,9 @@ import json
 
 import pytest
 
-from modules.exceptions import InstallationFileError
-from modules.scope_session import ScopeSession
-from modules.tiling_config import TilingConfig, TilingGrids
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.tiling_config import TilingConfig, TilingGrids
 from tests.installation_fixtures import copy_installation_files
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

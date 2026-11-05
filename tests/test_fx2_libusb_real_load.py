@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parent.parent
 # names every value the child read.
 _PROBE = """
 import usb.backend.libusb1 as ub
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 backend = ub._lib_object
 argtypes = backend.lib.libusb_get_device_descriptor.argtypes
 print('refusal', fx2driver._FX2_GATE.library_refusal)

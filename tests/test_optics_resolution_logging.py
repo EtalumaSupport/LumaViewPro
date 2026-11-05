@@ -20,8 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.config_helpers as config_helpers
 from tests.ast_seams import find_def
 from tests.log_capture import messages, records_of
 
@@ -174,7 +174,7 @@ class TestResolverStaysSilent:
         paths, far more often than the optics change. Logging inside it would
         bury the event it is meant to record.
         """
-        resolver = find_def('modules/common_utils.py', 'get_pixel_size')
+        resolver = find_def('src/_lumascope/modules/common_utils.py', 'get_pixel_size')
         offenders = [
             node.lineno
             for node in ast.walk(resolver)

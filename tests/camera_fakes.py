@@ -17,8 +17,8 @@ import time
 from types import MappingProxyType
 from unittest.mock import MagicMock
 
-from drivers import host_clock
-from drivers.camera import Camera, Frame, ImageHandlerBase
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera import Camera, Frame, ImageHandlerBase
 
 
 def _base_state(cam):
@@ -47,7 +47,7 @@ def bare_pylon_camera():
     no-op while not grabbing, which lets tests count genuine restart
     churn instead of mocking the bounce away.
     """
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     cam = _base_state(pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera))
     cam.active = MagicMock()
@@ -343,7 +343,7 @@ def bare_ids_camera():
     ``update_camera_config()`` runs its no-op bounce. ``data_stream`` is
     required because ``is_grabbing()`` reads it.
     """
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     cam = _base_state(idscamera.IDSCamera.__new__(idscamera.IDSCamera))
     cam.active = True
@@ -377,8 +377,8 @@ def bare_fx2_camera():
     it is not grabbing until ``open_and_start()``. Disconnected when the test
     ends.
     """
-    from drivers import fx2driver
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers import fx2driver
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
     from tests.scope_fakes import disconnect_when_the_test_ends
 
     cam = fx2driver.FX2Camera(connection=SimulatedFX2().connect())
@@ -393,7 +393,7 @@ def bare_image_handler():
     with controllable fake grab results; handler._worker is a MagicMock
     so enqueue decisions are observable and Stage B stays out of scope.
     """
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     parent = bare_pylon_camera()
     parent._schedule_async_teardown = MagicMock()
@@ -405,8 +405,8 @@ def bare_image_handler():
 def bare_grab_worker():
     """_PylonImageGrabWorker with a bare parent and a spied failure
     counter, for driving Stage B classification directly."""
-    from drivers import pyloncamera
-    from drivers.camera import ImageHandlerBase
+    from _lumascope.drivers import pyloncamera
+    from _lumascope.drivers.camera import ImageHandlerBase
 
     parent = bare_pylon_camera()
     base = ImageHandlerBase()
@@ -476,7 +476,7 @@ def fx2_stream(handler: ImageHandlerBase | None = None):
     frame it ends is numbered by that handler's ``hand_over``: the transport
     feeds only a started stream.
     """
-    from drivers import fx2driver
+    from _lumascope.drivers import fx2driver
 
     stream = fx2driver._ByteStream()
     stream.restart((handler if handler is not None else ImageHandlerBase()).hand_over)

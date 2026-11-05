@@ -12,17 +12,17 @@ camera slower than a limit is not a problem.
 
 import pytest
 
-import modules.manual_recording as manual_recording_module
-import modules.stack_builder as stack_builder_module
-import modules.protocol_recording as protocol_recording
-from modules.exceptions import (
+import _lumascope.modules.manual_recording as manual_recording_module
+import _lumascope.modules.stack_builder as stack_builder_module
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules.exceptions import (
     HyperstackRefusedError,
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
 )
-from modules.notification_center import outcome_of
+from _lumascope.modules.notification_center import outcome_of
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.video_step_drives import record_first_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder

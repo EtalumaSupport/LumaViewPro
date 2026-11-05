@@ -27,7 +27,7 @@ try:
         protocol.num_steps() == 1 and protocol.step_row(step_index=0)['Color'] == 'BF',
     )
 
-    from modules.exceptions import ProtocolRunRefusedError
+    from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
     s.settings['BF']['acquire'] = None
     refused = False

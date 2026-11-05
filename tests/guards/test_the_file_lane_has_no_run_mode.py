@@ -21,7 +21,7 @@ import ast
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words, tracked_files
 
 _RUN_MODE_MEMBERS = MemberNames(
-    'modules/sequential_io_executor.py',
+    'src/_lumascope/modules/sequential_io_executor.py',
     {
         'protocol_put',
         'protocol_start',
@@ -35,9 +35,9 @@ _RUN_MODE_MEMBERS = MemberNames(
 # Receivers that name the IO or CAMERA lane.
 _RUN_MODE_LANES = Words({'io_executor', '_io_executor', 'camera_executor'})
 
-_EXECUTOR_SOURCE = 'modules/sequential_io_executor.py'
+_EXECUTOR_SOURCE = 'src/_lumascope/modules/sequential_io_executor.py'
 
-_SOURCES = Packages({'modules', 'ui', 'drivers'})
+_SOURCES = Packages({'src/_lumascope/modules', 'ui', 'src/_lumascope/drivers'})
 
 
 def _receiver_name(node: ast.expr) -> str:
@@ -82,7 +82,19 @@ def test_only_the_io_and_camera_lanes_enter_run_mode():
 def test_the_scan_sees_the_run_mode_calls_that_exist():
     """The guard is not vacuous: it finds the run's own IO and CAMERA calls."""
     found = {(rel, receiver, member) for rel, _line, receiver, member in _run_mode_calls()}
-    assert ('modules/sequenced_capture_runner.py', 'camera_executor', 'protocol_start') in found
-    assert ('modules/sequenced_capture_runner.py', '_io_executor', 'protocol_start') in found
-    assert ('modules/protocol_cleanup.py', 'io_executor', 'protocol_end') in found
-    assert ('modules/sequenced_capture_runner.py', '_io_executor', 'end_protocol_mode') in found
+    assert (
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        'camera_executor',
+        'protocol_start',
+    ) in found
+    assert (
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        '_io_executor',
+        'protocol_start',
+    ) in found
+    assert ('src/_lumascope/modules/protocol_cleanup.py', 'io_executor', 'protocol_end') in found
+    assert (
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        '_io_executor',
+        'end_protocol_mode',
+    ) in found

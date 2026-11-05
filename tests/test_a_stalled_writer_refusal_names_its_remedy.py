@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.caller import Caller, calling
-from modules.exceptions import (
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     ControlSessionRefusedError,
     ProtocolRunRefusedError,
@@ -21,12 +21,12 @@ from modules.exceptions import (
     Remedy,
     RemedyName,
 )
-from modules.image_mode import ImageCaptureConfig
-from modules.notification_center import NotificationCenter, Severity
-from modules.protocol_image_writer import RunWriteBatch
-from modules.scope_session import ScopeSession
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.notification_center import NotificationCenter, Severity
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 

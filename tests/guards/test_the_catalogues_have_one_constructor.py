@@ -18,17 +18,21 @@ import ast
 
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
-_OWNER_MODULE = 'modules/lumascope_api/_lumascope.py'
+_OWNER_MODULE = 'src/_lumascope/modules/lumascope_api/_lumascope.py'
 _OWNER_DEF = 'Lumascope._read_catalogues'
 _CATALOGUES = MemberNames(
-    ('modules/labware_loader.py', 'modules/objectives_loader.py', 'modules/tiling_config.py'),
+    (
+        'src/_lumascope/modules/labware_loader.py',
+        'src/_lumascope/modules/objectives_loader.py',
+        'src/_lumascope/modules/tiling_config.py',
+    ),
     {'WellPlateLoader', 'ObjectiveLoader', 'TilingGrids'},
 )
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools'))
 
 
 def _constructed(node: ast.AST) -> str | None:

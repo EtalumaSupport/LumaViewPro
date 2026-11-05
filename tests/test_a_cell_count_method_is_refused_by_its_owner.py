@@ -5,7 +5,7 @@ A pixels-per-micron of 0 or below counted no cells on an image with two, and
 NaN wrote NaN areas into results.csv; an incomplete method faulted with a
 KeyError; and the only check on any of it was the panel's text box, so a
 method file or a REST caller's dict reached the count unchecked. The method
-is now a record, ``CellCountMethod`` in modules/cell_count_method.py, that
+is now a record, ``CellCountMethod`` in src/_lumascope/modules/cell_count_method.py, that
 refuses, naming the field, as it is built: a method a caller holds is one
 the count can use, wherever it came from.
 """
@@ -17,9 +17,9 @@ import dataclasses
 import numpy as np
 import pytest
 
-from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
-from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing import PostProcessing
+from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.post_processing import PostProcessing
 
 
 def _blobs() -> np.ndarray:

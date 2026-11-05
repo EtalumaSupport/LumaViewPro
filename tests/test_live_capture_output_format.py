@@ -16,7 +16,7 @@ user's Live Image Format choice was silently ignored on snapshots
 Fix
 ---
 The format is read once, from the live entry of the capture config, by the
-one manual-capture path (``modules/manual_capture.py``), which the Capture
+one manual-capture path (``src/_lumascope/modules/manual_capture.py``), which the Capture
 button, scripts and REST all call.
 
 Test approach
@@ -35,7 +35,7 @@ import re
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SRC = REPO / 'modules' / 'manual_capture.py'
+SRC = REPO / 'src/_lumascope/modules' / 'manual_capture.py'
 
 
 def test_source_parses():

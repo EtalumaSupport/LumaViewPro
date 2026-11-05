@@ -18,8 +18,8 @@ import pathlib
 
 import pytest
 
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.stock_channels import LED1, LED2
 from tests.installation_fixtures import shipped_grids
 
@@ -75,7 +75,7 @@ def _well_channel_z(df, well, color):
 
 def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
     """Per-(well, channel) carry-over: each channel keeps its own tuned Z."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     prev = {('A1', 'BF'): 7000.0, ('A1', LED1): 8000.0, ('A1', LED2): 9000.0}
     cfg = _build_input_config(previous_well_z=prev)
@@ -95,7 +95,7 @@ def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
 def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
     """The core #681 guarantee: tuning one channel must not paste its Z onto
     the other channels -- untuned channels keep their own focus default."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     # Only BF tuned in A1; LED 1 / LED 2 were never focused there.
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 7000.0})
@@ -115,7 +115,7 @@ def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
 
 def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
     """No carry-over -> every channel uses its own focus default."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     cfg = _build_input_config()  # no previous_well_z
     df = Protocol.from_config(

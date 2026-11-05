@@ -18,10 +18,10 @@ import threading
 import numpy as np
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
-from modules.lumascope_api.camera import AutoGainConvergence
-from modules.lumascope_api.frame_record import CapturedStill
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.camera import AutoGainConvergence
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0

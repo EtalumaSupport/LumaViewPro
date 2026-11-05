@@ -28,7 +28,7 @@ def _app_owing(
 ) -> list[str]:
     from unittest import mock
 
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
     import ui.sim_walk as sim_walk
     from tests.scope_fakes import build_scope
 

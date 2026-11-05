@@ -15,7 +15,7 @@ import json
 import os
 import pathlib
 
-from modules.finite_number import is_finite_number
+from _lumascope.modules.finite_number import is_finite_number
 
 DEFAULT_SETTLE_S = 0.3
 
@@ -164,8 +164,8 @@ def injectable_faults() -> dict:
     logger, which a walk that injects nothing need not load before the app
     sets up.
     """
-    from modules import api_surface
-    from modules.lumascope_api.simulation import SimulationAPI
+    from _lumascope.modules import api_surface
+    from _lumascope.modules.lumascope_api.simulation import SimulationAPI
 
     return {
         name: member

@@ -1,12 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""modules/ imports no GUI framework and no ui/ code.
+"""src/_lumascope/modules/ imports no GUI framework and no ui/ code.
 
-The layering rule is that modules/ sits below ui/, so a headless or REST
+The layering rule is that src/_lumascope/modules/ sits below ui/, so a headless or REST
 caller can import any of it without a display. That held only by habit: the
 previous guard read source LINE BY LINE, skipped indented lines as "deferred
 imports", guessed at triple-quoted strings, and listed files with a
-non-recursive glob -- so it saw 84 of the 99 files under modules/ and none of
-modules/lumascope_api/, which is the L2 surface the rule most exists to
+non-recursive glob -- so it saw 84 of the 99 files under src/_lumascope/modules/ and none of
+src/_lumascope/modules/lumascope_api/, which is the L2 surface the rule most exists to
 protect. Both real violations in the tree were function-local, so it reported
 a clean sweep while both stood.
 
@@ -22,11 +22,11 @@ from tests.ast_seams import imported_names, iter_package_modules
 
 # No exemption. The one file that held one -- the GUI's event subscriber --
 # now lives in ui/, where its widget writes belong. A ui/ import under
-# modules/ has no legitimate form: the work belongs in ui/, or the host
+# src/_lumascope/modules/ has no legitimate form: the work belongs in ui/, or the host
 # injects what the lower layer needs.
 _UI_IMPORT_EXEMPT: frozenset[str] = frozenset()
 
-# No allowlist. A GUI-framework import in modules/ has no legitimate form:
+# No allowlist. A GUI-framework import in src/_lumascope/modules/ has no legitimate form:
 # the work either belongs in ui/, or it needs a scheduler injected by the
 # host. Enumerating exceptions here would re-admit exactly what the rule
 # forbids.
@@ -35,7 +35,7 @@ _KIVY_IMPORT_EXEMPT: frozenset[str] = frozenset()
 
 def _violations(prefix: str, exempt: frozenset[str]) -> list[str]:
     found = []
-    for rel_path, tree in iter_package_modules(('modules',)):
+    for rel_path, tree in iter_package_modules(('src/_lumascope/modules',)):
         if rel_path in exempt:
             continue
         for lineno, name in imported_names(tree):
@@ -47,38 +47,39 @@ def _violations(prefix: str, exempt: frozenset[str]) -> list[str]:
 def test_modules_imports_no_kivy():
     violations = _violations('kivy', _KIVY_IMPORT_EXEMPT)
     assert not violations, (
-        'modules/ must import no GUI framework -- a headless or REST caller '
+        'src/_lumascope/modules/ must import no GUI framework -- a headless or REST caller '
         'imports these:\n  ' + '\n  '.join(violations)
     )
 
 
 def test_modules_imports_no_ui():
     violations = _violations('ui', _UI_IMPORT_EXEMPT)
-    assert not violations, 'modules/ sits below ui/ and must not import it:\n  ' + '\n  '.join(
-        violations
+    assert not violations, (
+        'src/_lumascope/modules/ sits below ui/ and must not import it:\n  '
+        + '\n  '.join(violations)
     )
 
 
 def test_the_sweep_reaches_the_whole_package():
     """The gap that let both real violations hide.
 
-    The retired guard globbed modules/*.py non-recursively, so the L2 API
+    The retired guard globbed src/_lumascope/modules/*.py non-recursively, so the L2 API
     package was never examined. Pin the walker's reach directly, or a future
     narrowing goes unnoticed exactly the way the last one did.
     """
-    swept = {rel for rel, _ in iter_package_modules(('modules',))}
-    assert 'modules/lumascope_api/__init__.py' in swept or any(
-        rel.startswith('modules/lumascope_api/') for rel in swept
-    ), 'the sweep must reach modules/lumascope_api/'
-    assert any(rel.startswith('modules/plugins/') for rel in swept), (
-        'the sweep must reach modules/plugins/'
+    swept = {rel for rel, _ in iter_package_modules(('src/_lumascope/modules',))}
+    assert 'src/_lumascope/modules/lumascope_api/__init__.py' in swept or any(
+        rel.startswith('src/_lumascope/modules/lumascope_api/') for rel in swept
+    ), 'the sweep must reach src/_lumascope/modules/lumascope_api/'
+    assert any(rel.startswith('src/_lumascope/modules/plugins/') for rel in swept), (
+        'the sweep must reach src/_lumascope/modules/plugins/'
     )
     assert len(swept) > 90, f'expected the whole package, swept only {len(swept)}'
 
 
 def test_the_exemption_is_real():
     """An exemption for a file with nothing to exempt is a stale allowlist."""
-    for rel_path, tree in iter_package_modules(('modules',)):
+    for rel_path, tree in iter_package_modules(('src/_lumascope/modules',)):
         if rel_path not in _UI_IMPORT_EXEMPT:
             continue
         assert any(name == 'ui' or name.startswith('ui.') for _, name in imported_names(tree)), (

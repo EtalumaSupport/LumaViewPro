@@ -18,9 +18,9 @@ import shutil
 
 import pytest
 
-from modules import settings_init, settings_paths
-from modules.exceptions import SettingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init, settings_paths
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings, shipped_template
 from tests.case_walk import failing_cases

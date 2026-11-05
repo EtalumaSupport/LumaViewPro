@@ -49,10 +49,10 @@ for _name, _attr in (
         setattr(_mod, _attr, _StubWidget)
         sys.modules[_name] = _mod
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.protocol_settings as ps
-from modules.notification_center import notifications
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.coord_transformations import PlateLocation
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 

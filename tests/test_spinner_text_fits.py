@@ -39,7 +39,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-from modules import image_mode
+from _lumascope.modules import image_mode
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 KV = REPO / 'ui' / 'lumaviewpro.kv'

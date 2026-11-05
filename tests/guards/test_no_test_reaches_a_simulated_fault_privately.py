@@ -31,12 +31,12 @@ from tests.ast_seams import MemberNames, iter_package_modules
 # the wire sims' port and board, the TMCM-6110 and FX2 simulators).
 _DOOR_NAMES = MemberNames(
     (
-        'drivers/simulated_ledboard.py',
-        'drivers/simulated_motorboard.py',
-        'drivers/simulated_camera.py',
-        'drivers/sim_wire/port.py',
-        'drivers/simulated_tmcm6110.py',
-        'drivers/simulated_fx2.py',
+        'src/_lumascope/drivers/simulated_ledboard.py',
+        'src/_lumascope/drivers/simulated_motorboard.py',
+        'src/_lumascope/drivers/simulated_camera.py',
+        'src/_lumascope/drivers/sim_wire/port.py',
+        'src/_lumascope/drivers/simulated_tmcm6110.py',
+        'src/_lumascope/drivers/simulated_fx2.py',
     ),
     {
         '_fail_on',

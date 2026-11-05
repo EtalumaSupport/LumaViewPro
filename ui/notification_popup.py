@@ -14,11 +14,11 @@ from kivy.uix.popup import Popup
 from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.widget import Widget
 
-from modules import gui_logger
-from modules.ui_queue import schedule_ui
+from _lumascope.modules import gui_logger
+from _lumascope.modules.ui_queue import schedule_ui
 
 if typing.TYPE_CHECKING:
-    from modules.objectives_loader import Objective
+    from _lumascope.modules.objectives_loader import Objective
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -236,7 +236,7 @@ def _open(n):
     remedy = n.remedy
 
     def _take_remedy():
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
         from ui.ui_helpers import submit_reported
 
         session = _app_ctx.ctx.session

@@ -12,17 +12,17 @@ import logging
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ProtocolRunRefusedError,
     RecordingRefusedError,
     Refusal,
     RunCheckFailedError,
 )
-from modules.notification_center import Severity, notifications
+from _lumascope.modules.notification_center import Severity, notifications
 
 
 def _refuse_through_the_runner():
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
     runner = object.__new__(SequencedCaptureRunner)
     runner._refuse(
@@ -32,7 +32,7 @@ def _refuse_through_the_runner():
 
 
 def _refuse_through_the_protocols_api():
-    from modules.lumascope_api.protocols import ProtocolsAPI
+    from _lumascope.modules.lumascope_api.protocols import ProtocolsAPI
 
     api = object.__new__(ProtocolsAPI)
     api._refuse(

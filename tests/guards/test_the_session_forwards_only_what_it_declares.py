@@ -22,7 +22,7 @@ import ast
 
 from tests.ast_seams import MemberNames, parse_module
 
-_SESSION_MODULE = 'modules/scope_session.py'
+_SESSION_MODULE = 'src/_lumascope/modules/scope_session.py'
 _SESSION_CLASS = 'ScopeSession'
 
 # The scope's two lanes, which the host's context, the executor bundle and

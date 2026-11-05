@@ -16,8 +16,8 @@ import logging
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from modules.exceptions import HardwareCommandRefusedError
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

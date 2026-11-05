@@ -23,9 +23,9 @@ observe the public flag from inside and after the run.
 
 from __future__ import annotations
 
-import modules.autofocus_functions as autofocus_functions
-from modules.lumascope_api.illumination import LedState
-from modules.lumascope_api.imaging import ImagingAPI
+import _lumascope.modules.autofocus_functions as autofocus_functions
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from tests.af_drives import af_runner_on, sweep
 
 
@@ -43,7 +43,7 @@ def test_is_focusing_true_while_af_runs(sim_scope, monkeypatch):
         return score(image)
 
     runner = af_runner_on(sim_scope)
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', scoring)
     sweep(runner, sim_scope)
     assert seen and all(value is True for value in seen), (
         'scope.imaging.is_focusing must read True while the AF loop is '

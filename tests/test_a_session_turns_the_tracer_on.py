@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The session a host builds turns the profile tracer on from its settings.
 
-lib/profile_trace reads no setting: ``ScopeSession.create`` opens a run when
+src/_lumascope/lib/profile_trace reads no setting: ``ScopeSession.create`` opens a run when
 its settings hold ``profile_trace_enabled``, into ``profile_trace_output_dir``
 or else the data root's ``logs/profile``, and records the commit the host
 reads. It turns the tracer on only when it is off and never turns it off, so
@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from lib import profile_trace
-from modules import path_utils
-from modules.scope_session import ScopeSession
+from _lumascope.lib import profile_trace
+from _lumascope.modules import path_utils
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings
 
@@ -40,7 +40,7 @@ def _runs(base: Path) -> list[Path]:
 
 
 def test_a_session_whose_settings_say_on_opens_a_run_naming_the_hosts_commit(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys.modules['lvp_logger'], 'git_revision', lambda: 'c0ffee')
+    monkeypatch.setattr(sys.modules['_lumascope.lvp_logger'], 'git_revision', lambda: 'c0ffee')
 
     _create(profile_trace_enabled=True, profile_trace_output_dir=str(tmp_path))
 

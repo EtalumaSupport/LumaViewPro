@@ -3,12 +3,12 @@
 Bug shape: ``Lumascope.led_on(channel, mA, ...)`` is additive at every
 layer (API, driver, firmware). Callers that need exclusive illumination
 (only one channel lit at a time) must establish it explicitly. The
-convention is documented at ``modules/step_navigation.py`` and
-``modules/composite_capture.py``.
+convention is documented at ``src/_lumascope/modules/step_navigation.py`` and
+``src/_lumascope/modules/composite_capture.py``.
 
 Two mode-entry sites were silently skipping the convention:
 
-* ``modules/protocol_run_loop.py::_run_loop_inner`` -- at scan start
+* ``src/_lumascope/modules/protocol_run_loop.py::_run_loop_inner`` -- at scan start
   with a Live-mode LED still on from before the user pressed Scan, the
   first protocol step's image would be lit by both the pre-scan LED and
   the step's own channel. The run loop used to fix this with a nuclear
@@ -18,7 +18,7 @@ Two mode-entry sites were silently skipping the convention:
   path making its channel exclusive (off other channels, leave an
   already-correct channel untouched) -- no leak into step 0, no blink.
 
-* ``modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
+* ``src/_lumascope/modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
   LED on a different channel than the AF channel, additive illumination
   would leave both lit. AF's focus metric would see mixed illumination
   and converge to the wrong Z. AF now makes its channel the only one lit
@@ -38,8 +38,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import AutofocusFailedError
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.exceptions import AutofocusFailedError
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.af_drives import af_runner_on, sweep, z_asked
 from tests.stock_channels import LED1, LED2
 

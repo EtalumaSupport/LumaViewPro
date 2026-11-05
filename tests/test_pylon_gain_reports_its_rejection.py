@@ -37,10 +37,10 @@ from unittest.mock import PropertyMock
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import CameraNoAnswerError
-from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api import Lumascope
-from modules.notification_center import Severity
+from _lumascope.drivers.exceptions import CameraNoAnswerError
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.notification_center import Severity
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 

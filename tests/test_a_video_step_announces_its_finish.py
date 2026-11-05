@@ -15,8 +15,8 @@ still alive while it tells the listener, and must not read busy to it.
 
 import threading
 
-import modules.protocol_recording as protocol_recording
-from modules.activity_claim import ActivityClaim
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules.activity_claim import ActivityClaim
 from tests.protocol_drives import run_identity
 from tests.video_step_drives import ElapsedClock, video_step_on
 

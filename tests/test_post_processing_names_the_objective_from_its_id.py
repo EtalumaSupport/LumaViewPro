@@ -16,11 +16,11 @@ import pathlib
 
 import pytest
 
-from modules import post_derivation
-from modules.common_utils import PostFunction
-from modules.exceptions import InstallationFileError
-from modules.objectives_loader import ObjectiveLoader, objective_short_name
-from modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules import post_derivation
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.objectives_loader import ObjectiveLoader, objective_short_name
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 

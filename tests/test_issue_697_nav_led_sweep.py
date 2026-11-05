@@ -24,7 +24,7 @@ import pathlib
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.scope_fakes import channel_reading
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _run_manual_nav,

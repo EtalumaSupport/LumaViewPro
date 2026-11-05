@@ -98,7 +98,7 @@ def test_a_bundled_site_packages_file_no_distribution_claims_refuses_the_build(t
 def test_a_bundled_file_outside_site_packages_is_no_distribution_s(tmp_path):
     site_packages = tmp_path / 'site-packages'
     numpy = _install(site_packages, 'numpy', ['numpy/__init__.py'], top_level=['numpy'])
-    lvp_module = tmp_path / 'repo' / 'modules' / 'scope_session.py'
+    lvp_module = tmp_path / 'repo' / 'src/_lumascope/modules' / 'scope_session.py'
     lvp_module.parent.mkdir(parents=True)
     lvp_module.write_text('')
 

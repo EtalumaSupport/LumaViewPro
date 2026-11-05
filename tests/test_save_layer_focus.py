@@ -14,14 +14,14 @@ import math
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import direct_call_names, find_def, parse_module, walk_defs
 from tests.settings_fixtures import complete_settings
 
@@ -97,7 +97,9 @@ def test_a_scope_with_no_z_refuses_a_focus(tmp_path):
 
 def test_save_focus_and_apply_to_steps_write_through_the_one_path():
     for member in ('save_focus', 'apply_focus_to_channel_steps', 'save_channel_focus'):
-        node = find_def('modules/scope_session.py', member, class_name='ScopeSession')
+        node = find_def(
+            'src/_lumascope/modules/scope_session.py', member, class_name='ScopeSession'
+        )
         assert '_store_layer_focus' in direct_call_names(node), member
 
 
@@ -106,7 +108,7 @@ def test_no_other_member_writes_a_layers_focus():
     # one hold of the lock, from the live Z focus_z_um has already checked.
     allowed = {'ScopeSession._store_layer_focus', 'ScopeSession.save_all_bookmarks'}
     writers = set()
-    for qualname, fn in walk_defs(parse_module('modules/scope_session.py').body):
+    for qualname, fn in walk_defs(parse_module('src/_lumascope/modules/scope_session.py').body):
         for node in ast.walk(fn):
             if (
                 isinstance(node, ast.Call)
@@ -121,7 +123,7 @@ def test_no_other_member_writes_a_layers_focus():
 
 
 def test_update_settings_on_a_focus_names_the_door(session):
-    from modules.exceptions import SettingRefusedError
+    from _lumascope.modules.exceptions import SettingRefusedError
 
     with pytest.raises(SettingRefusedError) as refused:
         session.update_settings('BF.focus', 1000.0)

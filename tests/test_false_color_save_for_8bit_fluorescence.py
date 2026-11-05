@@ -4,7 +4,7 @@ Bug shape: 8-bit fluorescence z-projection images were saved as
 grayscale even with the false-color toggle on. The 16-bit equivalents
 were correctly false-colored.
 
-Root cause: ``modules/image_utils.py::write_tiff`` gated the
+Root cause: ``src/_lumascope/modules/image_utils.py::write_tiff`` gated the
 add_false_color path on ``data.dtype == np.uint16`` only. uint8 data
 fell through and saved as grayscale. The setting key is
 ``false_color_16bit`` -- legacy name, but the user-facing intent is
@@ -29,8 +29,8 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules.image_utils import write_tiff
-from modules.layer_record import release_color
+from _lumascope.modules.image_utils import write_tiff
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED2
 
 

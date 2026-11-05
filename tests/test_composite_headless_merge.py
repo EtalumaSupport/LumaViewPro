@@ -3,7 +3,7 @@
 
 Blending fluorescence onto a transmitted base needs a per-layer
 brightness threshold. That threshold used to be read from the module-level
-``settings`` object in ``modules.settings_init``, bound at import time.
+``settings`` object in ``_lumascope.modules.settings_init``, bound at import time.
 Only the app bootstrap ever publishes that global, so in a headless or
 REST process it is still None when this module is imported and stays None
 for the life of the process -- and the read crashed exactly when a
@@ -22,12 +22,12 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules.composite_generation import CompositeGeneration
-from modules.exceptions import ConfigError
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.exceptions import ConfigError
 from tests import ast_seams
 
 import pandas as pd
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
 
 
@@ -100,19 +100,19 @@ def test_the_merge_module_binds_no_settings_global():
     reach it. Asserting the import's absence is what stops the pattern
     coming back, since restoring it would fail only on a headless run.
     """
-    tree = ast_seams.parse_module('modules/composite_generation.py')
+    tree = ast_seams.parse_module('src/_lumascope/modules/composite_generation.py')
 
     offenders = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == 'modules.settings_init':
+        if isinstance(node, ast.ImportFrom) and node.module == '_lumascope.modules.settings_init':
             offenders.append([alias.name for alias in node.names])
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith('modules.settings_init'):
+                if alias.name.startswith('_lumascope.modules.settings_init'):
                     offenders.append([alias.name])
 
     assert offenders == [], (
-        f'modules/composite_generation.py imports the settings global again: '
+        f'src/_lumascope/modules/composite_generation.py imports the settings global again: '
         f'{offenders}. The merge runs unattended on a worker thread; every '
         f'value it needs is passed in by the caller that has the settings.'
     )

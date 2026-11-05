@@ -6,7 +6,7 @@ reaches it; every member's signature, marks, route and docstring, a member
 marked ``engineering`` aside -- a bench or support member, outside what a
 researcher's client needs, left out of the public reference; and the
 refusals its ``Raises:`` and its doors declare with the REST status each
-answers (``rest.problems.declared``); every closed set a marked annotation
+answers (``_lumascope.rest.problems.declared``); every closed set a marked annotation
 names, with its values; every outcome class with its kind, reasons, causes
 and status; and the tables a reader looks things up in -- the routes, the
 events, the facts a saved file states. A fact here has its home in the
@@ -31,9 +31,9 @@ import sys
 import types
 import typing
 
-from lib.lumascope_error import Fault, LumascopeError, defined_classes
-from modules import wire_encoding
-from modules.api_surface import (
+from _lumascope.lib.lumascope_error import Fault, LumascopeError, defined_classes
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import (
     IN_PROCESS,
     admitted_by_of,
     event_of,
@@ -48,14 +48,14 @@ from modules.api_surface import (
     sets_of,
     stop_of,
 )
-from modules.exceptions import Notice, Quiet, Refusal
-from modules.image_utils import FILE_FACTS
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
-from rest import problems
-from rest.app import PREFIX, served
-from rest.events import _LIVE_VIEW, _event_name
-from rest.routes import routes
+from _lumascope.modules.exceptions import Notice, Quiet, Refusal
+from _lumascope.modules.image_utils import FILE_FACTS
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest import problems
+from _lumascope.rest.app import PREFIX, served
+from _lumascope.rest.events import _LIVE_VIEW, _event_name
+from _lumascope.rest.routes import routes
 from tests.ast_seams import REPO_ROOT
 from tests.marked_set import Marked
 
@@ -71,7 +71,7 @@ _PREFACE = f"""\
 
 <!-- Generated from the code; do not edit. Regenerate: {REGENERATE} -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`src/_lumascope/modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 """
@@ -257,7 +257,7 @@ def outcome_classes() -> dict[str, type[LumascopeError]]:
         if cls.__name__.startswith('_'):
             continue
         module = sys.modules.get(cls.__module__)
-        if cls.__module__.split('.')[0] not in wire_encoding.PROJECT_PACKAGES | {'lib'}:
+        if cls.__module__.split('.')[0] not in wire_encoding.PROJECT_PACKAGES:
             continue
         if module is None or getattr(module, cls.__qualname__, None) is not cls:
             continue
@@ -576,7 +576,7 @@ def _file_facts_table() -> str:
         for key, fact in FILE_FACTS.items()
     ]
     return (
-        "Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), "
+        "Every fact a saved file's record can state, by its key (`src/_lumascope/modules/image_utils.FILE_FACTS`), "
         'in the order the writer writes them: what it describes (a derived file states a `capture` '
         "fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs "
         "state it), its key in the file's Plane block, the unit written beside it, whether a "

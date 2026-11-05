@@ -45,11 +45,11 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from lvp_logger import logger
-import modules.common_utils as common_utils
-from modules import gui_logger
-from modules.ui_queue import schedule_ui, schedule_ui_latest
-from modules.lumascope_api.illumination import LedState
+from _lumascope.lvp_logger import logger
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules import gui_logger
+from _lumascope.modules.ui_queue import schedule_ui, schedule_ui_latest
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 
 def _microscope(ctx):

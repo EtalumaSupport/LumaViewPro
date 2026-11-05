@@ -27,10 +27,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.microscope_settings as microscope_settings
-from modules import ui_queue
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.microscope_settings import MicroscopeSettings

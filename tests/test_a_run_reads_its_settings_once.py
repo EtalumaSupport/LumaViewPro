@@ -21,11 +21,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
-from modules.image_mode import ImageMode, OutputFormat
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.image_mode import ImageMode, OutputFormat
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
@@ -33,7 +33,7 @@ from tests.test_composite_run_config import _settings as _run_settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.case_walk import failing_cases
 from tests.objective_records import objective
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED1
 
 _POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
@@ -62,7 +62,7 @@ def _edited():
 def _runner_over_a_store_edited_after_the_first_read():
     """A ProtocolRunner whose session answers the first settings read with
     the settings at the start and every later read with an edited store."""
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     reads = []
 

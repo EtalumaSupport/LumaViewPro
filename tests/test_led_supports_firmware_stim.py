@@ -2,7 +2,7 @@
 """Regression tests for LEDBoard.supports_firmware_stim probe + the
 ScopeCapabilities `has_firmware_stim` flag plumbing.
 
-Probe shape (per `drivers/ledboard.py::LEDBoard.supports_firmware_stim`):
+Probe shape (per `src/_lumascope/drivers/ledboard.py::LEDBoard.supports_firmware_stim`):
 - Sends `STIM 0 0 1 2 1\\n` (intentionally invalid mA=0)
 - v3.0.8+ firmware replies with `STIM: mA must be > 0` (parser recognized)
 - Pre-v3.0.8 firmware echoes the command + returns `Command not recognized`
@@ -23,8 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.ledboard import LEDBoard
-from drivers.sim_wire.backend import SimWireBackend
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.sim_wire.backend import SimWireBackend
 from tests.scope_fakes import capabilities_of
 from tests.wire_boards import led_on_the_wire
 
@@ -49,7 +49,7 @@ class TestSupportsFirmwareStimProbe:
         what `self.driver.readline()` returns, one per call. Empty bytes
         keeps the probe-loop polling; non-empty bytes is parsed.
         """
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
         led._lock = threading.RLock()
@@ -98,7 +98,7 @@ class TestSupportsFirmwareStimProbe:
         on this board takes the echo line, and the answer behind it still
         arrives): not an answer, so nothing is cached and the next call asks
         the firmware again, which answers it has no STIM."""
-        from drivers.exceptions import BoardNoReplyError
+        from _lumascope.drivers.exceptions import BoardNoReplyError
 
         led, sim = led_on_the_wire()
         sim.delay_next_reply(3.0)
@@ -112,7 +112,7 @@ class TestSupportsFirmwareStimProbe:
 
     def test_lines_that_are_neither_answer_are_unreadable_and_not_cached(self):
         """A board that talks but never says STIM or not-recognized gave no answer."""
-        from drivers.exceptions import BoardReplyUnreadableError
+        from _lumascope.drivers.exceptions import BoardReplyUnreadableError
 
         led = self._make_led([b'>>> \r\n', b'Traceback (most recent call last):\r\n'])
         with pytest.raises(BoardReplyUnreadableError, match=r'^STIM 0 0 1 2 1: the board answered'):
@@ -124,7 +124,7 @@ class TestSupportsFirmwareStimProbe:
         # the port between the probe's write and its read
         import serial
 
-        from drivers.exceptions import BoardNoReplyError
+        from _lumascope.drivers.exceptions import BoardNoReplyError
 
         led = self._make_led([])
         led.driver.readline = MagicMock(side_effect=serial.SerialException('device gone'))
@@ -145,7 +145,7 @@ class TestSupportsFirmwareStimProbe:
     def test_a_closed_port_is_the_port_failure_not_no_stim(self, caplog):
         """No LED board on the bus -> no driver -> the port's failure, never
         asked of the wire and nothing cached."""
-        from drivers.exceptions import BoardPortFailedError
+        from _lumascope.drivers.exceptions import BoardPortFailedError
 
         led = LEDBoard(backend=SimWireBackend(None, None))
         assert led.driver is None
@@ -165,14 +165,14 @@ class TestSimulatedLEDBoardParityStub:
 
     def test_sim_default_is_false(self):
         """Default sim board reports no STIM support (matches pre-v3.0.8)."""
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         sim = SimulatedLEDBoard()
         assert sim.supports_firmware_stim() is False
 
     def test_sim_configurable_true(self):
         """Constructor flag injects STIM support for tests that need it."""
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         sim = SimulatedLEDBoard(supports_firmware_stim=True)
         assert sim.supports_firmware_stim() is True
@@ -184,7 +184,7 @@ class TestNullLEDBoardParityStub:
     AttributeError. No-hardware = no STIM support."""
 
     def test_null_returns_false(self):
-        from drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
 
         null = NullLEDBoard()
         assert null.supports_firmware_stim() is False
@@ -195,21 +195,21 @@ class TestScopeCapabilitiesPlumbing:
     and exposes the result via .has_firmware_stim."""
 
     def test_has_firmware_stim_true_when_driver_reports_true(self):
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=True))
         assert caps.has_firmware_stim is True
         assert caps.has_firmware_stim is True
 
     def test_has_firmware_stim_false_when_driver_reports_false(self):
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=False))
         assert caps.has_firmware_stim is False
         assert caps.has_firmware_stim is False
 
     def test_has_firmware_stim_false_for_null_led_board(self):
-        from drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
 
         caps = capabilities_of(led=NullLEDBoard())
         assert caps.has_firmware_stim is False

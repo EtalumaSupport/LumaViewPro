@@ -3,7 +3,7 @@
 
 ``pathlib``'s ``glob`` and ``rglob``, ``os.walk``, and a prefix filter of
 ``git ls-files`` all answer a missing folder with nothing, so a guard that
-lists ``drivers/`` itself passes over no files the day ``drivers/`` moves.
+lists ``src/_lumascope/drivers/`` itself passes over no files the day ``src/_lumascope/drivers/`` moves.
 ``tests/ast_seams.py`` ``tracked_files`` refuses such a folder by name;
 this holds every guard to it. Keyed on the listing call, not on where its
 path came from, which an AST cannot follow across the spellings of the
@@ -98,7 +98,7 @@ def test_the_instrument_finds_every_listing_call_and_no_tree_walk():
         'import ast as _ast, glob, os, subprocess\n'
         'from subprocess import run\n'
         "(REPO_ROOT / 'ui').rglob('*.py')\n"
-        "REPO_ROOT.glob('modules/*.py')\n"
+        "REPO_ROOT.glob('src/_lumascope/modules/*.py')\n"
         'os.walk(root)\n'
         'os.listdir(root)\n'
         "glob.iglob('x/*')\n"

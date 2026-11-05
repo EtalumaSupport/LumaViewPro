@@ -26,11 +26,11 @@ import threading
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CaptureFailedError
-from modules.lumascope_api.illumination import LedState
-from modules.notification_center import Severity, notifications
-from modules.run_events import RunEvents
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.run_events import RunEvents
 
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run

@@ -14,11 +14,11 @@ import inspect
 
 import pytest
 
-from modules import live_work
-from modules.api_surface import IN_PROCESS, mark_of
-from modules.exceptions import RunWaitExpiredError
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.protocol_runner import ProtocolRunner
+from _lumascope.modules import live_work
+from _lumascope.modules.api_surface import IN_PROCESS, mark_of
+from _lumascope.modules.exceptions import RunWaitExpiredError
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.protocol_runner import ProtocolRunner
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _protocol, _step
 

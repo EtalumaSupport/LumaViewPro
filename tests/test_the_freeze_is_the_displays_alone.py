@@ -34,10 +34,10 @@ def _real_base_module(name, **attrs):
 # not the uix submodules, and a bare MagicMock cannot be subclassed.
 _real_base_module('kivy.uix.floatlayout', FloatLayout=_StubWidget)
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.main_display as main_display
-from modules.lumascope_api.illumination import LedState
-from modules.scope_display_thread import ScopeDisplayThread
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_display_thread import ScopeDisplayThread
 import ui.listener_bridge as listener_bridge
 from ui.scope_display import ScopeDisplay
 from tests.stock_channels import LED0

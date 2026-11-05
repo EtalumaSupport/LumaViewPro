@@ -2,7 +2,7 @@
 """A run records who started it and a stop says who stopped it, from the host's stamp.
 
 No caller passes provenance: each host stamps the threads its calls arrive
-on (``modules.caller``) -- the GUI where it hands a request to a worker or
+on (``_lumascope.modules.caller``) -- the GUI where it hands a request to a worker or
 a lane, the REST server on each call's own thread -- and a thread nobody
 stamped is an in-process caller. A run records the stamp on the thread
 that starts it; a refusal it causes publishes it as ``holder_trigger``, on
@@ -17,14 +17,14 @@ import threading
 
 import pytest
 
-from modules.caller import Caller, calling, current_caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_runner import ProtocolRunner
-from modules.scope_session import ScopeSession
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
-from rest import problems
-from rest.jobs import JobRegistry
+from _lumascope.modules.caller import Caller, calling, current_caller
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.rest import problems
+from _lumascope.rest.jobs import JobRegistry
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings

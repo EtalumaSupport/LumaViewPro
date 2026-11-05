@@ -18,8 +18,8 @@ import av
 import numpy as np
 import pytest
 
-from modules.video_writer import VideoWriter
-from modules.layer_record import release_color
+from _lumascope.modules.video_writer import VideoWriter
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED2
 
 # A 5-frame recording with a 1.5 s delivery stall between the third and

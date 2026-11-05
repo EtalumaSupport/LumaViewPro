@@ -72,7 +72,7 @@ installed app, or a server started from the source. You need `bash`, `curl`
    - **From the source.** In the LumaViewPro folder:
 
      ```
-     python -m rest --simulate
+     python -m _lumascope.rest --simulate
      ```
 
      It serves until you press Ctrl-C.

@@ -24,9 +24,9 @@ import time
 
 import pytest
 
-from drivers.exceptions import MotionInterlockError, MotionNotCompletedError
-from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import MotionInterlockError, MotionNotCompletedError
+from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from _lumascope.modules.exceptions import (
     HARDWARE_STATE_REASONS,
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
@@ -36,8 +36,8 @@ from modules.exceptions import (
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from modules.lumascope_api import AxisState, Interlock
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.lumascope_api import AxisState, Interlock
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.case_walk import failing_cases
 

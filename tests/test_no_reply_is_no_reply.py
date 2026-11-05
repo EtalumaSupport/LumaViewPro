@@ -15,13 +15,13 @@ Each test runs the production driver over the firmware-backed simulator
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError, HardwareError
-from drivers.firmware_updater import BOARD_CONFIGS, BoardType, _run_post_update_test
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
-from modules.lumascope_api.diagnostics import NO_REPLY, DiagnosticsAPI
+from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
+from _lumascope.drivers.firmware_updater import BOARD_CONFIGS, BoardType, _run_post_update_test
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
+from _lumascope.modules.lumascope_api.diagnostics import NO_REPLY, DiagnosticsAPI
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tools import firmware_tools
 
@@ -130,7 +130,7 @@ def test_a_version_query_with_no_reply_is_recorded_as_not_responding(motor):
 
 
 def test_a_version_query_on_a_closed_port_is_the_port_s_failure(motor):
-    from drivers.exceptions import BoardPortFailedError
+    from _lumascope.drivers.exceptions import BoardPortFailedError
 
     board, _sim = motor
     board._close_driver()

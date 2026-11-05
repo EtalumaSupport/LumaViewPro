@@ -11,7 +11,7 @@ and autofocus step is a relative move.
 
 import pytest
 
-from modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.exceptions import PositionOutOfRangeError
 from tests.scope_fakes import build_scope, home_sim_scope
 
 

@@ -16,9 +16,9 @@ import enum
 import math
 import pathlib
 
-from modules.api_surface import api_fields
-from modules.lumascope_api.protocols import TurretSlotQuestion
-from modules.operation import Operation
+from _lumascope.modules.api_surface import api_fields
+from _lumascope.modules.lumascope_api.protocols import TurretSlotQuestion
+from _lumascope.modules.operation import Operation
 from tests.stock_channels import LED0
 
 

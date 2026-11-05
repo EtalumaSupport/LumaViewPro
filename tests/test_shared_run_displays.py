@@ -13,11 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
-from modules import live_work
-from modules.live_work import LiveWork, WorkItem
-from modules.scope_session import ControlsLock
+from _lumascope.modules import live_work
+from _lumascope.modules.live_work import LiveWork, WorkItem
+from _lumascope.modules.scope_session import ControlsLock
 
 
 @pytest.fixture

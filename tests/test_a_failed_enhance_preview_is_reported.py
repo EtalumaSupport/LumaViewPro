@@ -14,9 +14,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.post_processing as post_processing
-from modules.notification_center import notifications
+from _lumascope.modules.notification_center import notifications
 
 
 def test_a_failed_hold_is_reported_unasked(monkeypatch):

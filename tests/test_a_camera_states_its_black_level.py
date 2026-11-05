@@ -14,15 +14,15 @@ import numpy as np
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import CameraReadFailedError, HardwareError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
+from _lumascope.modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
 

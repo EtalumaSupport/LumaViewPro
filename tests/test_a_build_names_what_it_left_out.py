@@ -21,14 +21,14 @@ import pathlib
 import numpy as np
 import pytest
 
-from modules import image_utils
-from modules.exceptions import (
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
-from modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED0, LED1
 
 _COLUMNS = [
@@ -59,7 +59,7 @@ def _step(tile: str, color: str) -> list[str]:
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -183,8 +183,8 @@ def test_a_folder_of_composites_alone_is_refused_with_the_route(session, run_fol
 
 def test_a_build_with_a_failed_group_still_names_what_it_left_out(session, run_folder, monkeypatch):
     """A group that fails does not silence the files never tried."""
-    from modules.protocol_post_processing_result import PostProcResult
-    from modules.stitcher import Stitcher
+    from _lumascope.modules.protocol_post_processing_result import PostProcResult
+    from _lumascope.modules.stitcher import Stitcher
 
     session.post_processing.composite(run_folder)
     # a stand-in by design: the simulator cannot yet make a stitch group fail.

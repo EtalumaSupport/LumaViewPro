@@ -16,15 +16,15 @@ in; their own run is the Windows bench (5E).
 
 import pytest
 
-from drivers.usb_driver_binding import FX2_FIRMWARE
-from modules import fx2_driver_step
-from modules.exceptions import (
+from _lumascope.drivers.usb_driver_binding import FX2_FIRMWARE
+from _lumascope.modules import fx2_driver_step
+from _lumascope.modules.exceptions import (
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
     CameraNotAvailableError,
 )
-from modules.path_utils import AppRuntime, launch_root
-from modules.scope_session import ScopeSession
+from _lumascope.modules.path_utils import AppRuntime, launch_root
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

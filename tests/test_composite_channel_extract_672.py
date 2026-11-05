@@ -5,7 +5,7 @@ Bug shape: the beta tester's 2026-05-25 bundle showed 12-bit fluorescence
 composites coming out "mostly green" + the 8-bit composite being
 LARGER than the 12-bit (18 MB vs 8 MB). Root cause traced to two
 ``cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)`` sites in
-``modules/composite_generation.py`` that collapsed source TIFFs to
+``src/_lumascope/modules/composite_generation.py`` that collapsed source TIFFs to
 mono via luminance weighting (Y = 0.299R + 0.587G + 0.114B).
 
 After the #669 cluster fix shipped (LVP `3e2c8b9`), per-channel
@@ -34,7 +34,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modules.image_utils import rgb_image_to_gray
+from _lumascope.modules.image_utils import rgb_image_to_gray
 
 
 def _single_plane_falsecolor(value, channel_index, shape=(8, 8), dtype=np.uint8):
@@ -118,7 +118,9 @@ class TestRgbImageToGrayPathDocumentedInCompositeGeneration:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'composite_generation.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'composite_generation.py'
         ).read_text(encoding='utf-8')
         # Allow the pattern inside comments / docstrings (the file
         # documents the prior bug shape in commit-message commentary,
@@ -139,7 +141,9 @@ class TestRgbImageToGrayPathDocumentedInCompositeGeneration:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'composite_generation.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'composite_generation.py'
         ).read_text(encoding='utf-8')
         assert 'image_utils.rgb_image_to_gray' in src, (
             'composite_generation.py must collapse 3-channel TIFFs via '

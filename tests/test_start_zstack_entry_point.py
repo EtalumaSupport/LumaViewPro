@@ -15,13 +15,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.illumination import LedEndPolicy
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 
 # Mid-travel in Z, so a stack around it is inside the travel the build judges.
 _POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=5000.0)
@@ -41,7 +41,7 @@ def _zstack_settings(**overrides):
 
 
 def _runner():
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     session = MagicMock()
     session.settings = _zstack_settings()
@@ -146,7 +146,7 @@ class TestTheStackIsNotFlattenedByAnAutofocus:
     def test_the_method_offers_no_way_to_turn_it_on(self):
         import inspect
 
-        from modules.protocol_runner import ProtocolRunner
+        from _lumascope.modules.protocol_runner import ProtocolRunner
 
         params = inspect.signature(ProtocolRunner.start_zstack).parameters
         assert 'autofocus' not in params
@@ -171,7 +171,7 @@ class TestTheStackIsConfiguredFromSettings:
         Stated rather than inherited silently -- if the API should carry
         only the enabled ones, this test is what changes with it.
         """
-        import modules.config_helpers as config_helpers
+        import _lumascope.modules.config_helpers as config_helpers
 
         runner = _runner()
         runner.start_zstack(channel='BF')
@@ -201,7 +201,7 @@ class TestTheConfigActuallyBuildsASliceEach:
     """
 
     def _protocol(self, zstack=None):
-        import modules.config_helpers as config_helpers
+        import _lumascope.modules.config_helpers as config_helpers
 
         settings = _zstack_settings()
         if zstack is not None:
@@ -221,7 +221,7 @@ class TestTheConfigActuallyBuildsASliceEach:
             use_zstacking=True,
             stim_config={},
         )
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(), simulate=True)

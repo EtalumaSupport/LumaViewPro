@@ -31,9 +31,9 @@ import time
 import pytest
 import tifffile as tf
 
-from modules.caller import Caller, calling
-from modules.image_mode import OutputFormat
-from modules.run_events import RunEvents
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
@@ -101,7 +101,7 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     states it here rather than composing a second session shape beside
     this one.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     session = ScopeSession.create(
         settings, source_path=source_path, engineering_mode=engineering_mode, simulate=True
@@ -227,7 +227,7 @@ class TestCompositeRunEndToEnd:
         # that skips the wait finds a channel the run captured not yet in
         # the folder, and fails for it -- a composite lost for a frame that
         # was only late, the failure the bound exists to prevent.
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         real_save = piw.save_image
 
@@ -358,8 +358,8 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        import modules.layer_record as layer_record
-        from modules.composite_builder import (
+        import _lumascope.modules.layer_record as layer_record
+        from _lumascope.modules.composite_builder import (
             CompositeChannel,
             TransmittedBase,
             brightness_cutoff_from_percent,
@@ -410,7 +410,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
 def test_a_composite_runs_merge_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):
     # The merge is the session's builds' work, on their lane, as a caller's
     # composite is: a run's end does not merge on a thread of its own.
-    from modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.composite_generation import CompositeGeneration
 
     merged_on = []
     real_load = CompositeGeneration.load_folder
@@ -464,7 +464,7 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
                 artifact.touch()
                 return {'status': True, 'message': 'Success.', 'artifact_paths': [str(artifact)]}
 
-        import modules.composite_generation as composite_generation
+        import _lumascope.modules.composite_generation as composite_generation
 
         monkeypatch.setattr(
             composite_generation, 'CompositeGeneration', _RecordingCompositeGeneration

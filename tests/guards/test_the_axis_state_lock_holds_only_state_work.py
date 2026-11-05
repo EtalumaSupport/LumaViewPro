@@ -23,7 +23,7 @@ import re
 
 from tests.ast_seams import parse_module
 
-_MOTION = 'modules/lumascope_api/motion.py'
+_MOTION = 'src/_lumascope/modules/lumascope_api/motion.py'
 
 _STATE_WORK = frozenset(
     {

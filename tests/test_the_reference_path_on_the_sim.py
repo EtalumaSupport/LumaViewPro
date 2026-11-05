@@ -15,9 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.vertical_control as vc
-from modules.notification_center import Severity
+from _lumascope.modules.notification_center import Severity
 from tests.scope_fakes import home_sim_scope
 from tests.test_the_gui_displays_the_turret import _Stand, session, stand  # noqa: F401 -- fixtures
 from tests.protocol_drives import run_identity
@@ -88,7 +88,7 @@ def test_a_refused_answer_is_shown_and_the_startup_question_still_resolves(
 
 def _jog_from_the_gui(session, monkeypatch, axis):
     """Press a fine jog button for ``axis`` and wait until the lane has answered it."""
-    from modules.sequential_io_executor import IOTask
+    from _lumascope.modules.sequential_io_executor import IOTask
     from ui import motion_settings
 
     ctx = _app_ctx.AppContext.over_session(session, lumaview=SimpleNamespace(scope=session.scope))

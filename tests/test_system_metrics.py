@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from modules import common_utils
+from _lumascope.modules import common_utils
 
 
 def _waiting_generator():

@@ -22,9 +22,13 @@ import logging
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError, HardwareError
-from modules.exceptions import HardwareCommandRefusedError, MissingPart, MoveNotCompletedError
-from modules.lumascope_api._constants import AxisState
+from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
+from _lumascope.modules.exceptions import (
+    HardwareCommandRefusedError,
+    MissingPart,
+    MoveNotCompletedError,
+)
+from _lumascope.modules.lumascope_api._constants import AxisState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
@@ -136,7 +140,7 @@ def test_a_present_axis_answers_its_read(make_session):
 
 
 def test_a_move_whose_arrival_is_never_read_ends_status_unread(make_session, centre_posts, caplog):
-    from modules.notification_center import Severity
+    from _lumascope.modules.notification_center import Severity
 
     scope = make_session('LS850').scope
     motion = scope.motion
@@ -172,7 +176,7 @@ def test_a_home_whose_switch_read_fails_still_homes(make_session):
 
 
 def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, monkeypatch):
-    import modules.lumascope_api.motion as motion_module
+    import _lumascope.modules.lumascope_api.motion as motion_module
 
     session = make_session('LS850', homed=False)
     scope = session.scope

@@ -15,7 +15,7 @@ from kivy.graphics import Color, InstructionGroup, Rectangle, Line
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.label import Label
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 
 
 class Tooltip(Label):

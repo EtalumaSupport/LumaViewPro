@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.coord_transformations import StageOffset
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
-from modules.tiling_config import TilingGrids
+from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.tiling_config import TilingGrids
 from tests.test_zstack_group_identity import _WIDE_XY
 from tests.installation_fixtures import shipped_grids
 
@@ -196,7 +196,7 @@ class TestTileCentersWithoutScale:
         assert tiles == {'': {'x': 0.0, 'y': 0.0}}
 
     def test_real_grid_still_refuses_without_field_of_view(self):
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         tiling_config = shipped_grids()
         with pytest.raises(ProtocolRunRefusedError, match='pixel size') as refused:

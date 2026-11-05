@@ -22,7 +22,7 @@ import pathlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.protocol_step_runner import ProtocolStepRunner
+from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 from tests.ast_seams import tracked_files
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent

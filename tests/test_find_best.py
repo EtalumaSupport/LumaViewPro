@@ -11,7 +11,7 @@ stands in. The final pass refuses an untrusted pick
 import numpy as np
 import pandas as pd
 
-from modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.autofocus_runner import AutofocusRunner
 
 
 def _make_gaussian_curve(center, sigma, z_min, z_max, step, noise_std=0.0):

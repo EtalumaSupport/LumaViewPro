@@ -6,8 +6,8 @@ built with the plain word holds the member, and the record's plain and wire
 form carry the value (``'preview'``), not the member's name.
 """
 
-from modules.frame_validity import Counter, Credit
-from modules.wire_encoding import plain
+from _lumascope.modules.frame_validity import Counter, Credit
+from _lumascope.modules.wire_encoding import plain
 
 
 def test_a_credit_built_with_the_plain_word_holds_the_member_and_answers_its_value():

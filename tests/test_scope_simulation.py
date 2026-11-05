@@ -17,9 +17,13 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from drivers import tmcm6110
-from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
-from modules.exceptions import (
+from _lumascope.drivers import tmcm6110
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
@@ -27,10 +31,10 @@ from modules.exceptions import (
     MotorStopFailedError,
     MoveNotCompletedError,
 )
-from modules.caller import Caller, calling
-from modules.lumascope_api.simulation import InjectedFault
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.lumascope_api.simulation import InjectedFault
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 

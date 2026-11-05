@@ -20,9 +20,9 @@ import pathlib
 
 import pytest
 
-from modules import settings_init
-from modules.path_utils import read_installation_file
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init
+from _lumascope.modules.path_utils import read_installation_file
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import (
     SHIPPED_DATA,
     non_stock_block,

@@ -23,7 +23,7 @@ import pathlib
 
 import pytest
 
-from modules.layer_record import release_old_names
+from _lumascope.modules.layer_record import release_old_names
 from tests.settings_fixtures import shipped_template
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]

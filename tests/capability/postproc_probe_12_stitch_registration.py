@@ -63,10 +63,10 @@ def _run_folders(corpus):
 
 def _load_set(session, folder):
     """A set's tiles at stage, and today's two floods, through the stitch's own path."""
-    import modules.image_utils as image_utils
-    from modules.common_utils import PostFunction
-    from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
-    from modules.stitching_core import overlap_stitcher
+    import _lumascope.modules.image_utils as image_utils
+    from _lumascope.modules.common_utils import PostFunction
+    from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+    from _lumascope.modules.stitching_core import overlap_stitcher
 
     loaded = ProtocolPostProcessingHelper().load_folder(
         path=folder, tiling_grids=session.scope.protocols.tiling_grids()

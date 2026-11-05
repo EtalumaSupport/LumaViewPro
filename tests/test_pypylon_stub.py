@@ -38,20 +38,20 @@ class TestDriverHandlersConstructible:
     """The seam the whole F-PYLON conversion family depends on."""
 
     def _make_parent(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         # a stand-in by design: the subject is the stub the handler classes build on
         parent = PylonCamera.__new__(PylonCamera)
         return parent
 
     def test_image_handler_instantiates(self):
-        from drivers.pyloncamera import ImageHandler
+        from _lumascope.drivers.pyloncamera import ImageHandler
 
         handler = ImageHandler(self._make_parent())
         assert isinstance(handler, pylon.ImageEventHandler)
 
     def test_camera_removal_handler_instantiates_and_fires(self):
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         parent = self._make_parent()
         parent._mark_disconnected = MagicMock()

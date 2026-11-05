@@ -15,11 +15,11 @@ end from the recording's manifest.
 
 import json
 
-import modules.manual_recording as manual_recording_module
-from modules.activity_claim import ActivityClaim
-from modules.layer_record import release_colors
-from modules.manual_recording import ManualRecordingController
-from modules.scheduler import ThreadingTimerScheduler
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 from tests.video_step_drives import video_step_on
@@ -33,7 +33,7 @@ def _the_manifest(folder):
 
 
 def test_a_video_steps_last_frame_held_on_its_way_is_kept(sim_scope, tmp_path, monkeypatch):
-    import modules.protocol_recording as protocol_recording
+    import _lumascope.modules.protocol_recording as protocol_recording
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
     sim_scope.simulation.delay_delivery(BACKLOG_FRAMES)

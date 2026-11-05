@@ -21,8 +21,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.notification_center import notifications
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.notification_center import notifications
 from ui.layer_control import LayerControl
 from tests.gesture_fakes import inline_submit_reported
 from tests.settings_fixtures import settings_writer

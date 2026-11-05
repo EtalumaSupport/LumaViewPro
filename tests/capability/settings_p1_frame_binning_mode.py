@@ -9,8 +9,8 @@ GUI entry points probed headlessly:
 import sys
 
 import harness as _common
-from modules.lumascope_api._constants import *  # noqa: F403  (no-op if absent)
-from modules.scope_capabilities import FrameSize
+from _lumascope.modules.lumascope_api._constants import *  # noqa: F403  (no-op if absent)
+from _lumascope.modules.scope_capabilities import FrameSize
 
 s, live = _common.make_session()
 im_camera = s.scope.camera
@@ -37,7 +37,10 @@ try:
     print('frame_size            :', im_camera.frame_size.to_dict())
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
-    from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingUnsupportedError
+    from _lumascope.modules.exceptions import (
+        CameraSettingOutOfRangeError,
+        CameraSettingUnsupportedError,
+    )
 
     try:
         out = im_camera.set_frame_size(13414, 13414)
@@ -84,7 +87,7 @@ try:
     im_camera.set_binning(1)
 
     # --- pixel format, chosen by the image mode -------------------------
-    from modules import image_mode
+    from _lumascope.modules import image_mode
 
     fmts = caps.camera_pixel_formats
     if fmts:

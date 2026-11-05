@@ -20,7 +20,7 @@ def main():
         check('turret-model session reports has_turret', caps.has_turret, 'model=LS850T')
 
         # --- before any turret command the slot, so the objective, is unknown ---
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         try:
             s.scope.runtime_state.resolve_current_objective()
@@ -29,7 +29,7 @@ def main():
             check('the objective is unknown before any turret command', True, e.reason)
 
         m.home('ALL')
-        from modules.exceptions import HomingFailedError
+        from _lumascope.modules.exceptions import HomingFailedError
 
         try:
             m.home('T')

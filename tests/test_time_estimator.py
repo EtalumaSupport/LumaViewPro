@@ -9,9 +9,9 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
 
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
-from modules.protocol_time_estimator import (
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.protocol_time_estimator import (
     ProtocolTimeEstimator,
     StepTimeEstimate,
     XY_SPEED_UM_PER_S,
@@ -98,7 +98,9 @@ OBJ_10X = objective(
 def _mock_objectives():
     mock_loader = MagicMock()
     mock_loader.get_objective_info.return_value = OBJ_10X
-    with patch('modules.protocol_time_estimator.ObjectiveLoader', return_value=mock_loader):
+    with patch(
+        '_lumascope.modules.protocol_time_estimator.ObjectiveLoader', return_value=mock_loader
+    ):
         yield mock_loader
 
 

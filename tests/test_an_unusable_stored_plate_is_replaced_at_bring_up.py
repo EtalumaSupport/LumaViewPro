@@ -19,10 +19,10 @@ import shutil
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import ConfigurationDefectError, StoredSettingReplacedNotice
-from modules.lumascope_api._lumascope import Lumascope
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import ConfigurationDefectError, StoredSettingReplacedNotice
+from _lumascope.modules.lumascope_api._lumascope import Lumascope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 REPO = pathlib.Path(__file__).resolve().parents[1]

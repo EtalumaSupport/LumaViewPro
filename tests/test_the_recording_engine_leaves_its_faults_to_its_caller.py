@@ -17,14 +17,14 @@ the run's fatal funnel, so the popup and the run's ending say the same thing.
 import inspect
 import pathlib
 
-import modules.manual_recording as manual_recording_module
-import modules.protocol_recording as protocol_recording
-from drivers import host_clock
+import _lumascope.modules.manual_recording as manual_recording_module
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.drivers import host_clock
 from tests.video_step_drives import record_first_frame
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
-from modules.notification_center import outcome_of
-from modules.video_recording import VideoRecordingEngine
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
+from _lumascope.modules.notification_center import outcome_of
+from _lumascope.modules.video_recording import VideoRecordingEngine
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.test_video_recording_contract import make_config
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub

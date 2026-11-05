@@ -69,7 +69,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report, void
-from drivers import host_clock
+from _lumascope.drivers import host_clock
 
 EXPOSURE_MS = 5
 WINDOW_S = 10

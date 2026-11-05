@@ -20,12 +20,12 @@ import threading
 
 import pytest
 
-import modules.lumascope_api._lumascope as lumascope_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from modules import layer_record
-from modules.exceptions import InstallationFileError, ScopeModelUnknownError
-from modules.lumascope_api import Lumascope
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.modules import layer_record
+from _lumascope.modules.exceptions import InstallationFileError, ScopeModelUnknownError
+from _lumascope.modules.lumascope_api import Lumascope
 from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 from tests.settings_fixtures import installation_of_its_own
 

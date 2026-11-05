@@ -22,8 +22,8 @@ from collections import deque
 from types import SimpleNamespace
 
 
-from modules.frame_validity import Counter, FrameValidity
-from modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.frame_validity import Counter, FrameValidity
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from ui.scope_display import (
     FRAME_SPIKE_MIN_SAMPLES,
     FRAME_SPIKE_WINDOW,

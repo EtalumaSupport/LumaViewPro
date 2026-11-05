@@ -10,9 +10,9 @@ the server keeps answering each with its own status.
 
 import pytest
 
-from modules.exceptions import RefusalCause, ServerRefusedError
-from modules.notification_center import OutcomeKind, outcome_of
-from rest import problems
+from _lumascope.modules.exceptions import RefusalCause, ServerRefusedError
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.rest import problems
 
 REQUEST, STATE, RESTART = RefusalCause.REQUEST, RefusalCause.STATE, RefusalCause.RESTART
 

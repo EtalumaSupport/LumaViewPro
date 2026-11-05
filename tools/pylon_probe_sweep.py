@@ -48,15 +48,15 @@ from pathlib import Path
 
 import numpy as np
 
-# Add LumaViewPro root to path so imports work when run as script
+# This checkout's own API, whatever lumascope.pth the interpreter holds.
 _LVP_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_LVP_ROOT))
+sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
-from drivers.exceptions import CameraUsbOpenFailedError
-from drivers.pyloncamera import PylonCamera
-from lvp_logger import logger
-from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api import Lumascope
+from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.drivers.pyloncamera import PylonCamera
+from _lumascope.lvp_logger import logger
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.lumascope_api import Lumascope
 
 
 def _print_environment_header() -> None:
@@ -95,14 +95,14 @@ def _route_lvp_logging_to_stdout() -> None:
     """Wire LVP loggers to stdout so connect / cell-apply failures are diagnostic.
 
     The probe sweep is a CLI tool; without explicit handler attachment, log
-    records from ``drivers.pyloncamera`` and ``modules.lumascope_api`` go
+    records from ``_lumascope.drivers.pyloncamera`` and ``_lumascope.modules.lumascope_api`` go
     nowhere. Without their output, ``connect() failed`` is opaque.
     """
     fmt = logging.Formatter('[%(levelname)s %(name)s] %(message)s')
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(fmt)
     handler.setLevel(logging.DEBUG)
-    # `lvp_logger` is the logger drivers/* import via `from lvp_logger import logger`.
+    # `lvp_logger` is the logger src/_lumascope/drivers/* import via `from _lumascope.lvp_logger import logger`.
     # `LVP` is the parent for `LVP.camera` / `LVP.serial` / `LVP.autofocus`.
     for name in ('lvp_logger', 'LVP'):
         log = logging.getLogger(name)
@@ -403,8 +403,8 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     ``scope.camera`` alias used at the ``update_camera_config()`` +
     ``active`` callsites in this tool.
     """
-    from modules.lumascope_api.imaging import ImagingAPI
-    from modules.lumascope_api.diagnostics import DiagnosticsAPI
+    from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+    from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera

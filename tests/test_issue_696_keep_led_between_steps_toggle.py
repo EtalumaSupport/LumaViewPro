@@ -26,9 +26,9 @@ import ast
 import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-RUNNER_SRC = REPO / 'modules' / 'sequenced_capture_runner.py'
-PSR_SRC = REPO / 'modules' / 'protocol_step_runner.py'
-PROTO_RUNNER_SRC = REPO / 'modules' / 'protocol_runner.py'
+RUNNER_SRC = REPO / 'src/_lumascope/modules' / 'sequenced_capture_runner.py'
+PSR_SRC = REPO / 'src/_lumascope/modules' / 'protocol_step_runner.py'
+PROTO_RUNNER_SRC = REPO / 'src/_lumascope/modules' / 'protocol_runner.py'
 
 
 def _tree(path: pathlib.Path) -> ast.Module:

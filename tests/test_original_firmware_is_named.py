@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api.diagnostics import ORIGINAL_FIRMWARE
+from _lumascope.modules.lumascope_api.diagnostics import ORIGINAL_FIRMWARE
 from tests.scope_fakes import build_scope
 
 
@@ -60,7 +60,7 @@ def test_the_original_led_firmware_is_named_with_its_date(scope):
 def test_a_scope_with_no_motor_board_reports_no_firmware(scope):
     # An LS620 or LS560 runs the null motor board: no version and no date,
     # each None, unknown -- never an empty string read as a version.
-    from drivers.null_motorboard import NullMotionBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
 
     scope._motion_driver = NullMotionBoard()
     info = scope.diagnostics.get_motor_info()

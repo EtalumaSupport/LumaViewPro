@@ -25,9 +25,9 @@ import httpx
 import pytest
 import uvicorn
 
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

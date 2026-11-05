@@ -58,9 +58,9 @@ for _name, _attr in (
 
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
-from modules.notification_center import notifications
-from modules.acquire_mode import AcquireMode
-from modules.protocol import Protocol
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.protocol import Protocol
 from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import home_sim_scope
 
@@ -307,7 +307,7 @@ class TestTheStoredScheduleHasTwoWriters:
     def test_no_gui_or_module_writes_a_stored_period_or_duration(self):
         writers = []
         for path in [
-            *[REPO / rel for rel in tracked_files(('ui', 'modules'))],
+            *[REPO / rel for rel in tracked_files(('ui', 'src/_lumascope/modules'))],
             REPO / 'lumaviewpro.py',
         ]:
             for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):

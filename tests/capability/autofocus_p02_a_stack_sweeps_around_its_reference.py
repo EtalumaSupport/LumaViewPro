@@ -92,8 +92,8 @@ def main():
     af_log.addHandler(lines)
     try:
         with session_cm as (session, runner):
-            from modules.coord_transformations import PlateLocation
-            from modules.zstack_config import ZStackReference
+            from _lumascope.modules.coord_transformations import PlateLocation
+            from _lumascope.modules.zstack_config import ZStackReference
 
             live = session.get_current_plate_position()
             z = args.z

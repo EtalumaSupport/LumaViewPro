@@ -19,21 +19,21 @@ import threading
 
 import pytest
 
-from modules import executor_registry
-from modules.exceptions import HardwareCommandRefusedError
-from modules.frame_validity import FrameValidity
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.simulation import (
+from _lumascope.modules import executor_registry
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.frame_validity import FrameValidity
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.lumascope_api.simulation import (
     SimulatedModelAnswer,
     SimulatedScope,
     SimulatedStall,
     SimulationAPI,
 )
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.settings_saver import SettingsSaver
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.settings_saver import SettingsSaver
 from tests.settings_fixtures import complete_settings
 
 # How long a stopped thread may take to end: each joins its owner's stop.

@@ -14,8 +14,8 @@ failure path takes the stage back to where the sweep started.
 import pandas as pd
 import pytest
 
-from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import AutofocusFailedError
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.exceptions import AutofocusFailedError
 from tests.af_drives import PARKED_Z_UM, af_runner_on, settled_z, sweep, z_asked
 
 # The LS720's sweep with no sample, 2026-10-14 (20x with collar, range 40,
@@ -53,7 +53,7 @@ def _an_empty_field(scope, monkeypatch):
     """Score every frame as the LS720's empty field scored: within about 1%
     of each other, in no order the fit can trust, whatever Z it was made at."""
     monkeypatch.setattr(
-        'modules.autofocus_functions.autofocus_score',
+        '_lumascope.modules.autofocus_functions.autofocus_score',
         lambda image: 1.75e7 + 2e5 * ((scope.motion.get_current_position('Z') * 7.31) % 1.0),
     )
 

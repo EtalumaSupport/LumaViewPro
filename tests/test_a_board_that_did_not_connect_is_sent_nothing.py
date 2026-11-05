@@ -17,15 +17,15 @@ import logging
 import pytest
 from serial.serialutil import SerialException
 
-import drivers.ledboard as ledboard_mod
-import drivers.motorboard as motorboard_mod
-import drivers.null_ledboard  # noqa: F401 -- registers the LED fallback
-import drivers.null_motorboard  # noqa: F401 -- registers the motor fallback
-import drivers.serialboard as serialboard_mod
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.registry import led_registry, motor_registry
-from drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
+import _lumascope.drivers.ledboard as ledboard_mod
+import _lumascope.drivers.motorboard as motorboard_mod
+import _lumascope.drivers.null_ledboard  # noqa: F401 -- registers the LED fallback
+import _lumascope.drivers.null_motorboard  # noqa: F401 -- registers the motor fallback
+import _lumascope.drivers.serialboard as serialboard_mod
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.registry import led_registry, motor_registry
+from _lumascope.drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
 from tests.log_capture import records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 

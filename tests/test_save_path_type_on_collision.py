@@ -15,7 +15,7 @@ from tests.stock_channels import LED0
 
 @pytest.mark.parametrize('output_format', ['TIFF', 'OME-TIFF', 'JPG'])
 def test_increment_collision_returns_a_path(tmp_path, output_format):
-    from modules.image_save import generate_image_save_path
+    from _lumascope.modules.image_save import generate_image_save_path
 
     kwargs = {
         'save_folder': tmp_path,
@@ -34,7 +34,7 @@ def test_increment_collision_returns_a_path(tmp_path, output_format):
 
 
 def test_next_save_path_returns_a_path(tmp_path):
-    from modules.image_save import get_next_save_path
+    from _lumascope.modules.image_save import get_next_save_path
 
     nxt = get_next_save_path(tmp_path / f'live_A1_{LED0}_000001.ome.tiff')
 

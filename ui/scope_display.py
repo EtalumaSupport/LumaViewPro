@@ -19,7 +19,7 @@ Copy budget:
 Threading model (Stage B1):
   - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()
     blit textures posted from the worker as states (ui_queue.schedule_ui_latest).
-  - scope_display_thread (modules/scope_display_thread.py): owns the
+  - scope_display_thread (src/_lumascope/modules/scope_display_thread.py): owns the
     FPS-paced loop; calls _render_one_frame(...) per iteration.
   - Generation counter (owned by the thread; mirrored via _current_generation())
     prevents stale callbacks after stop()/start() cycles.
@@ -41,16 +41,16 @@ from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
-from lib.build_files import build_file
-from modules import capture_overlays
-from modules.contrast_stretcher import ContrastStretcher
-from modules import gui_logger
-import modules.image_mode as image_mode
-import modules.autofocus_functions as autofocus_functions
-import modules.image_utils as image_utils
-import modules.app_context as _app_ctx
-from modules.frame_validity import FrameValidity
-from modules.ui_queue import schedule_ui_latest
+from _lumascope.lib.build_files import build_file
+from _lumascope.modules import capture_overlays
+from _lumascope.modules.contrast_stretcher import ContrastStretcher
+from _lumascope.modules import gui_logger
+import _lumascope.modules.image_mode as image_mode
+import _lumascope.modules.autofocus_functions as autofocus_functions
+import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.frame_validity import FrameValidity
+from _lumascope.modules.ui_queue import schedule_ui_latest
 
 logger = logging.getLogger('LVP.ui.scope_display')
 
@@ -106,7 +106,7 @@ class ScopeDisplay(Image):
         # paused / _display_running / _display_generation / _min_frame_interval /
         # _protocol_hold_until / _cycle_start_time all retired from this widget.
         # Lifecycle + pacing state now owned by ScopeDisplayThread
-        # (modules/scope_display_thread.py). The widget keeps only render-side
+        # (src/_lumascope/modules/scope_display_thread.py). The widget keeps only render-side
         # state (texture cache, _last_rendered_frame for listener fan-out,
         # frame-interval history for metrics).
 
@@ -701,7 +701,7 @@ class ScopeDisplay(Image):
         pause); the timing instruments exclude it so intended freezes are
         not reported as latency.
         """
-        from modules.scope_display_thread import (
+        from _lumascope.modules.scope_display_thread import (
             STATUS_OK,
             STATUS_EMPTY,
             STATUS_DUPLICATE,
@@ -1140,7 +1140,7 @@ class ScopeDisplay(Image):
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
-        import modules.image_utils as _image_utils
+        import _lumascope.modules.image_utils as _image_utils
 
         arr = image
         if arr.dtype != np.uint8:

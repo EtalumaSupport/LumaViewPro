@@ -17,9 +17,9 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import InstallationFileError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID, ObjectiveLoader
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID, ObjectiveLoader
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 

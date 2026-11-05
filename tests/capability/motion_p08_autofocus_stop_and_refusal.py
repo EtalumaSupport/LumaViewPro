@@ -7,9 +7,9 @@ start returned.
 """
 
 from harness import REPO, check, run
-from modules.caller import Caller
-from modules.protocol_runner import ProtocolRunner
-from modules.run_events import RunEvents
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.run_events import RunEvents
 
 
 def body(s):
@@ -65,7 +65,7 @@ def body(s):
     )
 
     # --- no clock of its own: the GUI's 15 s stuck-AF timer is gone, and
-    #     nothing under modules/ or ui/ carries one. Every wait inside a
+    #     nothing under src/_lumascope/modules/ or ui/ carries one. Every wait inside a
     #     sweep is a move the motion monitor judges or a bounded capture.
     #     Source only: a stale __pycache__ entry compiled from the file that
     #     carried the timer still holds its name (a 3.12 .pyc beside the 3.13
@@ -78,14 +78,14 @@ def body(s):
             '-rln',
             '--include=*.py',
             'AF_SAFETY_TIMEOUT_S',
-            str(REPO / 'modules'),
+            str(REPO / 'src/_lumascope/modules'),
             str(REPO / 'ui'),
         ],
         capture_output=True,
         text=True,
     ).stdout.split()
     check(
-        'no stuck-AF timer under modules/ or ui/: a sweep has no clock of its own',
+        'no stuck-AF timer under src/_lumascope/modules/ or ui/: a sweep has no clock of its own',
         not hits,
         f'hits: {hits}',
     )

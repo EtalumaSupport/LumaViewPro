@@ -32,11 +32,11 @@ sys.path.insert(0, str(REPO))
 import numpy as np
 import pytest
 
-from modules import common_utils
-from modules.exceptions import CaptureFailedError
+from _lumascope.modules import common_utils
+from _lumascope.modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope
 from tests.stock_channels import LED0
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record
 
 
@@ -84,7 +84,7 @@ class TestSeamBehaviour:
     """The illumination API is the one place a colour becomes a channel."""
 
     def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
@@ -113,9 +113,9 @@ class TestTaskFailureNotificationWording:
     """
 
     def _fire(self, centre_posts, *, protocol: bool):
-        from modules.notification_center import Severity
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+        from _lumascope.modules.notification_center import Severity
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
         executor = SequentialIOExecutor(
             closed_answer=scope_lane_closed, max_workers=1, name='TEST_WORDING'
@@ -256,7 +256,7 @@ class TestCaptureAbortWording:
     def _run_abort(centre_posts, *, color, led_connected, channel):
         from unittest.mock import MagicMock
 
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
 
         writer = _bare_protocol_writer()

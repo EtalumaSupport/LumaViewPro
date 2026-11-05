@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from kivy.graphics.texture import Texture
 
-import modules.image_utils as image_utils
+import _lumascope.modules.image_utils as image_utils
 
 
 def image_to_texture(image, existing: Texture | None = None) -> Texture:

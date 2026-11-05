@@ -27,11 +27,15 @@ if sys.version_info < (3, 12):  # noqa: UP036 -- runtime check is load-bearing U
     print(f'ERROR: {_msg}', file=sys.stderr)
     sys.exit(1)
 
+# This checkout's own API, whatever lumascope.pth the interpreter holds; the
+# link is not followed, so a link farm stays its own launch folder.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
 # The IDS camera stack must initialize while the process is still nearly
 # empty: its image-processing DLL fails initialization once the full DLL
 # population (matplotlib->numpy, Kivy/SDL, cv2, pylon) is resident, so the
 # preload precedes every heavy import.
-from modules.app_environment import preload_camera_sdks
+from _lumascope.modules.app_environment import preload_camera_sdks
 
 preload_camera_sdks()
 
@@ -51,14 +55,14 @@ if __name__ == '__main__':
     no_engineering = '--no-engineering' in sys.argv
     if no_engineering:
         sys.argv.remove('--no-engineering')
-    from modules.app_environment import take_sim_launch_value
+    from _lumascope.modules.app_environment import take_sim_launch_value
 
     def _take_stall(flag):
         try:
             value = take_sim_launch_value(sys.argv, flag, simulate=simulate_mode)
             if value is None:
                 return None
-            from drivers.simulated_camera import SimulatedStall
+            from _lumascope.drivers.simulated_camera import SimulatedStall
 
             _after, _for = value.split(',')
             return SimulatedStall(after_s=float(_after), for_s=float(_for))
@@ -98,7 +102,7 @@ if __name__ == '__main__':
             sys.argv, 'sim-refused-camera-write', simulate=simulate_mode
         )
         if _refused is not None:
-            from modules.lumascope_api.simulation import (
+            from _lumascope.modules.lumascope_api.simulation import (
                 CameraWriteAnswer,
                 CameraWriteNode,
                 SimulatedCameraWriteRefusal,
@@ -128,7 +132,7 @@ if __name__ == '__main__':
     # real scope is given none.
     simulated_scope = None
     if simulate_mode:
-        from modules.lumascope_api.simulation import SimulatedScope
+        from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 
         simulated_scope = SimulatedScope(
             refused_camera_writes=sim_refused_camera_writes,
@@ -154,7 +158,7 @@ if __name__ == '__main__':
     live_view_fps = 30
 
     # Environment setup -- paths, version, platform detection
-    from modules.app_environment import init_environment
+    from _lumascope.modules.app_environment import init_environment
 
     _env = init_environment()
     source_path = _env.source_path
@@ -168,7 +172,7 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, install_crash_hooks, log_dir, logger
+    from _lumascope.lvp_logger import debug, install_crash_hooks, log_dir, logger
 
     # LumaViewPro's crash policy: an uncaught exception is recorded in the
     # log, before settings, Kivy, the plugins or the app can raise one.
@@ -179,7 +183,7 @@ if __name__ == '__main__':
     # The installer logs to the user TEMP folder, which no support bundle
     # collects and Windows eventually sweeps -- so an install that failed
     # to replace a file cannot be told apart from an application defect.
-    from modules.app_environment import capture_installer_logs
+    from _lumascope.modules.app_environment import capture_installer_logs
 
     capture_installer_logs(log_dir)
 
@@ -192,23 +196,23 @@ if __name__ == '__main__':
     # escaping: the crash hook logs it, and the packaged build's bootloader
     # shows its message. Never a SystemExit here, which the bootloader treats
     # as a deliberate stop and shows nothing for.
-    from modules.settings_init import load_lvp_settings
+    from _lumascope.modules.settings_init import load_lvp_settings
 
     load_lvp_settings(logger, source_path)
 
-    from modules.settings_init import settings
+    from _lumascope.modules.settings_init import settings
 
-    import modules.app_context as app_context
-    import modules.common_utils as common_utils
-    import modules.lvp_lock as lvp_lock
-    import modules.profiling_utils as profiling_utils
-    from modules.app_context import AppContext
-    from modules.scope_session import ScopeSession
+    import _lumascope.modules.app_context as app_context
+    import _lumascope.modules.common_utils as common_utils
+    import _lumascope.modules.lvp_lock as lvp_lock
+    import _lumascope.modules.profiling_utils as profiling_utils
+    from _lumascope.modules.app_context import AppContext
+    from _lumascope.modules.scope_session import ScopeSession
 
     global profiling_helper
     profiling_helper = None
 
-    from modules.path_utils import app_runtime
+    from _lumascope.modules.path_utils import app_runtime
 
     if app_runtime().frozen:
         import pyi_splash  # type: ignore
@@ -420,7 +424,7 @@ if __name__ == '__main__':
 
 else:
     # Subprocess/worker compatibility -- Kivy not available
-    from modules.subprocess_stubs import (
+    from _lumascope.modules.subprocess_stubs import (
         AccordionItem,
         App,
         BoxLayout,
@@ -460,18 +464,18 @@ else:
 # Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
-from lib.build_files import build_file
-from modules import gui_logger, live_work
-from modules.ui_queue import schedule_ui, schedule_ui_latest
-from modules.app_config import (
+from _lumascope.lib.build_files import build_file
+from _lumascope.modules import gui_logger, live_work
+from _lumascope.modules.ui_queue import schedule_ui, schedule_ui_latest
+from _lumascope.modules.app_config import (
     load_mode as _load_mode,
 )
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     ObjectiveUnknownError,
     ScopeModelUnknownError,
 )
-from modules.settings_init import fall_back_to_template
+from _lumascope.modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
 # (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
@@ -559,7 +563,7 @@ class LumaViewProApp(TooltipMixin, App):
     # forgets.
     _close_thread = None
 
-    # The REST server served beside the window (``rest.server.Server``), or
+    # The REST server served beside the window (``_lumascope.rest.server.Server``), or
     # None while none has been started; every close ends the session
     # through it.
     _rest_server = None
@@ -766,7 +770,7 @@ class LumaViewProApp(TooltipMixin, App):
             # so every Lumascope user gets the same safety net automatically.
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            from modules.exceptions import LaneCallStillRunningError, SessionClosingError
+            from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
 
             # The window's close began, in this tick or an earlier one.
             if self._closing_begun:
@@ -839,7 +843,7 @@ class LumaViewProApp(TooltipMixin, App):
         walk's answer, not by bring-up: a walk of that question is the
         one that answers it, so a popup up is bring-up waiting on the walk.
         """
-        from modules.lumascope_api.bring_up import Part
+        from _lumascope.modules.lumascope_api.bring_up import Part
         from ui.sim_walk import open_popups
 
         owed = []
@@ -1023,7 +1027,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Kivy runs on.
         from kivy.clock import Clock
 
-        from modules.ui_queue import UiDispatcher
+        from _lumascope.modules.ui_queue import UiDispatcher
 
         ScopeSession.set_ui_dispatcher(
             UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
@@ -1097,7 +1101,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.
-        from modules.manual_recording import sweep_recording_scratch
+        from _lumascope.modules.manual_recording import sweep_recording_scratch
 
         sweep_recording_scratch(settings['live_folder'])
 
@@ -1173,7 +1177,7 @@ class LumaViewProApp(TooltipMixin, App):
         # exists. Each registered (name, mount, builder) tuple is
         # invoked here; builder() returns the Kivy widget which is
         # added to the named mount point.
-        from modules.plugins import UIMountPoint
+        from _lumascope.modules.plugins import UIMountPoint
 
         motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
         for plugin_name, mount_point, builder in ctx.session.plugins.ui.mounts():
@@ -1425,7 +1429,7 @@ class LumaViewProApp(TooltipMixin, App):
         # doesn't see 30+ error toasts as queued IO tasks fail against
         # disconnecting hardware. Log lines still fire for post-mortem.
         try:
-            from modules.notification_center import notifications
+            from _lumascope.modules.notification_center import notifications
 
             notifications.set_shutting_down(True)
         except Exception as e:  # grain: ignore NAKED_EXCEPT
@@ -1451,7 +1455,7 @@ class LumaViewProApp(TooltipMixin, App):
         """Serve the API beside the window, on its own session, unless ``rest_api.enabled`` is false.
 
         On ``rest_api.address`` and ``rest_api.port`` (shipped this computer
-        only), on a thread and loop of its own; ``python -m rest`` is the
+        only), on a thread and loop of its own; ``python -m _lumascope.rest`` is the
         headless way. Where it serves is logged, and shown in Advanced
         Settings.
         Only false leaves it off: any other value is the server's to judge,
@@ -1459,7 +1463,7 @@ class LumaViewProApp(TooltipMixin, App):
         """
         if ctx.session.get_setting('rest_api.enabled') is False:
             return
-        from rest.server import serve_beside
+        from _lumascope.rest.server import serve_beside
 
         self._rest_server = serve_beside(ctx.session, shut_down=self._shut_the_session_down)
         logger.info(f'[LVP Main  ] REST server serving {self._rest_server.reach}')
@@ -1486,9 +1490,9 @@ class LumaViewProApp(TooltipMixin, App):
     def _shut_the_session_down(self) -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
         logger.info('[LVP Main  ] ctx.session.shutdown()')
-        from modules.caller import Caller, calling
-        from modules.exceptions import ScopeDisconnectError
-        from modules.notification_center import notifications
+        from _lumascope.modules.caller import Caller, calling
+        from _lumascope.modules.exceptions import ScopeDisconnectError
+        from _lumascope.modules.notification_center import notifications
 
         try:
             # On the close's own thread, or the Kivy thread from on_stop: the GUI's close.
@@ -1524,7 +1528,7 @@ class LumaViewProApp(TooltipMixin, App):
 # ============================================================================
 
 if __name__ == '__main__':
-    from modules.caller import Caller, calling
+    from _lumascope.modules.caller import Caller, calling
 
     # Every call the Kivy thread makes is the GUI's; the GUI stamps the
     # threads it hands work to where it hands it (ui/ui_helpers.py).

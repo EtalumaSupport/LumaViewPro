@@ -61,10 +61,10 @@ for _name, _attr in (
 import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
-from modules.acquire_mode import AcquireMode
-from modules.exceptions import ProtocolError
-from modules.coord_transformations import PlateLocation
-from modules.scope_session import ScopeSession
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.exceptions import ProtocolError
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.stock_channels import LED0, LED2
 
@@ -256,7 +256,7 @@ def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monk
     The protocol's refusal is the answer; the panel hands it to the one
     reporter under the gesture's label and writes no popup of its own.
     """
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(
@@ -275,7 +275,7 @@ def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monk
 
 @pytest.fixture
 def refusals(monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(

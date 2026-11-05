@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 
-from modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.camera import CameraAPI
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )

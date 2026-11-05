@@ -20,8 +20,8 @@ import math
 
 import pytest
 
-from modules.coord_transformations import PlateLocation
-from modules.exceptions import ArgumentRefusedError, RefusalCause
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.exceptions import ArgumentRefusedError, RefusalCause
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
 

@@ -13,7 +13,7 @@ scan summary whose wording is unconditionally "completed".
 import pathlib
 import re
 
-import modules.protocol_run_loop as protocol_run_loop
+import _lumascope.modules.protocol_run_loop as protocol_run_loop
 
 
 def _source() -> str:

@@ -4,7 +4,7 @@
 Verifies that the full protocol execution chain runs without Kivy.
 This test ensures Rule 15 (executors must be GUI-agnostic) holds at
 the import and runtime level:
-  1. No module under modules/ imports Kivy directly (image_utils_kivy
+  1. No module under src/_lumascope/modules/ imports Kivy directly (image_utils_kivy
      used to live there as an exception; it now lives at
      ui/image_utils_kivy.py per Rule 15).
   2. A full protocol can be executed through SequencedCaptureRunner
@@ -48,18 +48,18 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
-from modules.activity_claim import ActivityClaim
-from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_runner import (
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
-from modules.ui_queue import schedule_ui
-from modules.scope_session import ScopeSession
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.ui_queue import schedule_ui
+from _lumascope.modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
 # kivy stubs once, before any file was collected, and every later-collected
@@ -67,7 +67,7 @@ from modules.scope_session import ScopeSession
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 install_mock_deps()
 
@@ -96,17 +96,17 @@ def _kivy_purged():
 
 
 class TestHeadlessImports:
-    """Verify modules/ imports don't load Kivy."""
+    """Verify src/_lumascope/modules/ imports don't load Kivy."""
 
     def test_protocol_imports_do_not_load_kivy(self):
         """After importing the protocol execution chain, Kivy must not be loaded."""
         with _kivy_purged():
             # Re-import the protocol chain (modules already in sys.modules will
             # be a no-op, so reload their state by dropping them first if needed)
-            import modules.lumascope_api  # noqa: F401 -- loaded for the no-kivy assertion below
-            import modules.sequenced_capture_runner  # noqa: F401 -- loaded for the no-kivy assertion below
-            import modules.protocol  # noqa: F401 -- loaded for the no-kivy assertion below
-            import modules.ui_queue  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
+            import _lumascope.modules.lumascope_api  # noqa: F401 -- loaded for the no-kivy assertion below
+            import _lumascope.modules.sequenced_capture_runner  # noqa: F401 -- loaded for the no-kivy assertion below
+            import _lumascope.modules.protocol  # noqa: F401 -- loaded for the no-kivy assertion below
+            import _lumascope.modules.ui_queue  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
             # Verify no kivy module is in sys.modules
             kivy_loaded = [
@@ -150,7 +150,7 @@ class TestHeadlessProtocolExecution:
     """Verify a full protocol runs end-to-end without Kivy loaded."""
 
     def _make_executors(self):
-        from modules.protocol_thread import ProtocolThread
+        from _lumascope.modules.protocol_thread import ProtocolThread
 
         names = ['io', 'file_io', 'camera', 'autofocus']
         execs = {

@@ -31,8 +31,8 @@ import logging
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from lib.log_helpers import VERBOSE
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.lib.log_helpers import VERBOSE
 from tests.wire_boards import motor_on_the_wire
 
 pytestmark = pytest.mark.firmware_tier

@@ -15,11 +15,11 @@ import logging
 
 import pytest
 
-import drivers.registry as registry_module
-import modules.lumascope_api._lumascope as lumascope_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverRegistry
+import _lumascope.drivers.registry as registry_module
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.registry import DriverRegistry
 from tests.log_capture import records_of
 from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 

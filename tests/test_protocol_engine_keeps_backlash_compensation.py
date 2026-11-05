@@ -13,7 +13,7 @@ a place and says nothing of how.
 
 from types import SimpleNamespace
 
-from modules.protocol_step_runner import ProtocolStepRunner
+from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 
 
 def _runner_capturing_moves(captured: list):

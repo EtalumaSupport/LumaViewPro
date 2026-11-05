@@ -323,8 +323,8 @@ ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
 # A gesture that waits on a lane, standing in for a turret pick or a build:
 # a real lane, one sleeping task per press, its end recorded in wall time.
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
 lane.start()
 def busy(seconds):
@@ -374,7 +374,7 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
 # The scope's simulator, standing in. A stand-in by design: the subject is
 # the driver's call of a fault and its stop at a refusal; the faults
 # themselves are tests/test_scope_simulation.py's, on the simulated scope.
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError
 class _Simulation:
     def unplug(self, board):
         if board == 'camera':

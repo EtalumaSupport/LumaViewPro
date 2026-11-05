@@ -15,7 +15,7 @@ import pathlib
 
 import pytest
 
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 from tests.test_audit_fixes import _run_cleanup_kwargs
 
 
@@ -41,7 +41,7 @@ class _HeldFileLane:
         self.held = []
 
     def put(self, task, return_future=False):
-        from modules.sequential_io_executor import ENQUEUED
+        from _lumascope.modules.sequential_io_executor import ENQUEUED
 
         self.held.append(task)
         return ENQUEUED
@@ -58,10 +58,10 @@ def _end_the_run(kwargs, events, run_dir):
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
-    from modules.protocol_cleanup import send_run_ended
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.protocol_cleanup import send_run_ended
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
-    from modules.run_outcome import EndingLatch
+    from _lumascope.modules.run_outcome import EndingLatch
 
     runner = SimpleNamespace(
         _disable_saving_artifacts=True,
@@ -86,7 +86,7 @@ def _end_the_run(kwargs, events, run_dir):
 
 class TestBothCompletionLegsCarryTheDirectory:
     def test_the_drained_leg_hands_the_directory_to_both_events(self, fired, monkeypatch):
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         run_dir = pathlib.Path('/tmp/the_finished_run')
         events = _events(fired)
@@ -100,8 +100,8 @@ class TestBothCompletionLegsCarryTheDirectory:
         assert fired == [('run_ended', run_dir), ('files_written', run_dir)]
 
     def test_the_draining_leg_hands_the_directory_to_the_deferred_event(self, fired):
-        from modules.protocol_cleanup import run_cleanup
-        from modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
         run_dir = pathlib.Path('/tmp/the_finished_run')
         events = _events(fired)
@@ -125,7 +125,7 @@ class TestBothCompletionLegsCarryTheDirectory:
         """A run that failed at start nulls its directory before cleanup;
         the dispatch returns early on the None rather than inventing a
         path."""
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         events = _events(fired, files=False)
         kwargs = _run_cleanup_kwargs()
@@ -140,9 +140,9 @@ class TestTheRunnerHandsOverItsOwnDirectory:
     def test_cleanup_is_given_the_directory_the_run_created(self, fired, monkeypatch):
         """The runner reads its own field once, on the cleanup path, with
         the claim still held -- not later, when run_ended is sent."""
-        from modules.protocol_image_writer import RunWriteBatch
-        from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import EngineRun
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.run_outcome import PendingRunOutcome
+        from _lumascope.modules.sequenced_capture_runner import EngineRun
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         run_dir = pathlib.Path('/tmp/this_runs_dir')
@@ -165,8 +165,10 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         # directory rides the run's run_ended, captured by value in cleanup
         # and sent once the run has let go and its outcome has settled.
         monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
-        monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', lambda **kw: True)
-        from modules.run_outcome import RunEnding
+        monkeypatch.setattr(
+            '_lumascope.modules.sequenced_capture_runner.run_cleanup', lambda **kw: True
+        )
+        from _lumascope.modules.run_outcome import RunEnding
 
         after_end = []
         runner._cleanup_inner(

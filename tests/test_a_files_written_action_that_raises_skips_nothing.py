@@ -11,11 +11,11 @@ logged. Each is now contained on its own, and reported.
 
 import time
 
-from modules import live_work
-import modules.protocol_cleanup as protocol_cleanup
-import modules.run_events as run_events
-from modules.notification_center import notifications
-from modules.run_events import RunEvents
+from _lumascope.modules import live_work
+import _lumascope.modules.protocol_cleanup as protocol_cleanup
+import _lumascope.modules.run_events as run_events
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -84,7 +84,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
 def test_the_batch_reports_a_completion_action_that_raises_and_still_completes(monkeypatch):
     from unittest.mock import MagicMock
 
-    from modules.protocol_image_writer import RunWriteBatch
+    from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append(ex))

@@ -14,11 +14,11 @@ reaches the upload and looks for the file.
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import CameraFirmwareMissingError
-from drivers.registry import DriverRegistry
-from drivers.simulated_fx2 import SimulatedFX2Device, SimulatedFX2Transport
-from modules.lumascope_api._lumascope import _camera_failure_cause
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import CameraFirmwareMissingError
+from _lumascope.drivers.registry import DriverRegistry
+from _lumascope.drivers.simulated_fx2 import SimulatedFX2Device, SimulatedFX2Transport
+from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 
 
 @pytest.fixture

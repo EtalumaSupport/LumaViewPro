@@ -19,11 +19,11 @@ import contextlib
 
 import pytest
 
-from modules import ui_queue
-from modules.exceptions import ProtocolRunRefusedError, RunCleanupFailedError
-from modules.notification_center import notifications
-from modules.run_events import RunEvents, deliver
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.exceptions import ProtocolRunRefusedError, RunCleanupFailedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.run_events import RunEvents, deliver
+from _lumascope.modules.scope_session import ScopeSession
 
 
 @pytest.fixture

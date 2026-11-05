@@ -63,7 +63,7 @@ def _direct_writes(fn: ast.AST) -> set[int]:
 
 
 def _guarded_modules():
-    yield from iter_package_modules(('ui', 'modules/plugins', 'tools'))
+    yield from iter_package_modules(('ui', 'src/_lumascope/modules/plugins', 'tools'))
     yield 'lumaviewpro.py', parse_module('lumaviewpro.py')
 
 
@@ -113,7 +113,7 @@ def test_inside_the_session_only_its_writer_writes_the_live_settings():
     member that subscripts ``self.settings`` itself is a write that place
     never sees.
     """
-    tree = parse_module('modules/scope_session.py')
+    tree = parse_module('src/_lumascope/modules/scope_session.py')
     found = {
         qualname: sorted(lines)
         for qualname, fn in walk_defs(tree.body)

@@ -12,9 +12,9 @@ decides its state.
 
 import pytest
 
-import drivers.simulated_motorboard as simulated_motorboard
-from modules.exceptions import AxisStateUnknownError
-from modules.lumascope_api.motion import AxisState
+import _lumascope.drivers.simulated_motorboard as simulated_motorboard
+from _lumascope.modules.exceptions import AxisStateUnknownError
+from _lumascope.modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope
 
 

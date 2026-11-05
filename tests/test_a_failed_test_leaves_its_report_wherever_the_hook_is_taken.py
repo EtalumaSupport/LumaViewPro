@@ -25,7 +25,7 @@ def test_a_run_that_takes_only_the_report_hook_writes_the_failure_file(tmp_path)
         encoding='utf-8',
     )
     (tmp_path / 'test_red.py').write_text('def test_red():\n    assert 1 == 2\n', encoding='utf-8')
-    env = {**os.environ, 'PYTHONPATH': str(_LVP_ROOT)}
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(_LVP_ROOT / 'src'), str(_LVP_ROOT)])}
 
     run = subprocess.run(
         [sys.executable, '-m', 'pytest', '-p', 'no:cacheprovider', '-p', 'no:xdist', 'test_red.py'],

@@ -18,9 +18,9 @@ import threading
 
 import pytest
 
-from modules import live_work
-from modules.protocol_image_writer import RunWriteBatch
-from modules.protocol_state_machine import ProtocolState
+from _lumascope.modules import live_work
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import run_identity
 
 COMPLETION_TIMEOUT = 30
@@ -28,7 +28,7 @@ COMPLETION_TIMEOUT = 30
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -199,7 +199,7 @@ def test_each_state_is_read_in_the_records(sim_session, monkeypatch):
 def test_no_retired_read_is_reached_on_the_wire(sim_session):
     from fastapi.testclient import TestClient
 
-    from rest.app import build_app
+    from _lumascope.rest.app import build_app
 
     with TestClient(build_app(sim_session)) as client:
         assert client.get('/api/v1/status').status_code == 200

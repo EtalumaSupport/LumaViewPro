@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import pathlib
 
-from modules.coord_transformations import AxisLimits
+from _lumascope.modules.coord_transformations import AxisLimits
 from tests.test_issue_524_extra_z_step_on_objective_change import (
     _add_layer_config,
     _empty_protocol_for_add,
 )
 from tests.test_protocol_roundtrip import _build_protocol, _make_step, _save_and_reload
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent

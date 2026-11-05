@@ -13,11 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import DisconnectPart, MotorStopFailedError, ScopeDisconnectError
-from modules.lumascope_api import Lumascope
-from modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import DisconnectPart, MotorStopFailedError, ScopeDisconnectError
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
@@ -89,8 +89,8 @@ def test_a_camera_that_answers_false_is_not_a_failed_part(sim_scope):
     'stop_error', [MotorStopFailedError(), RuntimeError('bus gone')], ids=['stop', 'other']
 )
 def test_a_failed_stop_does_not_skip_the_board_teardown(sim_scope, monkeypatch, stop_error):
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
+    from _lumascope.drivers.null_ledboard import NullLEDBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
 
     monkeypatch.setattr(sim_scope.motion, '_stop', MagicMock(side_effect=stop_error))
 
@@ -129,7 +129,7 @@ def _disconnect_then_fail(monkeypatch):
 
 
 def _record_reports(monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(

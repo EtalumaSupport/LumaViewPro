@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-import modules.binning as binning
-import modules.common_utils as common_utils
-import modules.layer_record as layer_record
-from modules import gui_logger, path_utils
-from modules.config_helpers import camera_max_gain_for_ui
-from modules.ui_queue import schedule_ui_latest
-from modules.notification_center import notifications
-import modules.image_mode as image_mode
-from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.binning as binning
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules import gui_logger, path_utils
+from _lumascope.modules.config_helpers import camera_max_gain_for_ui
+from _lumascope.modules.ui_queue import schedule_ui_latest
+from _lumascope.modules.notification_center import notifications
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from ui.ui_helpers import (
     refused_in_this_input,
     run_reported,

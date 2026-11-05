@@ -5,7 +5,7 @@
 member handing out an image array, a table or a thread passed it, and a
 wire client would have been offered something no wire carries. This guard
 walks the API from the Session along every wire-marked member and field
-(``modules.wire_encoding.wire_gaps``) and fails on a type with no form, on
+(``_lumascope.modules.wire_encoding.wire_gaps``) and fails on a type with no form, on
 a callable anywhere but a parameter, and on a wire-marked method of a
 record, which has no address to call it at. It is shown to catch each on a
 fixture, and to reach the real API by flipping one in-process member back
@@ -20,9 +20,9 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
-from modules import wire_encoding
-from modules.api_surface import MARK_ATTRIBUTE, api, api_fields
-from modules.operation import Operation
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import MARK_ATTRIBUTE, api, api_fields
+from _lumascope.modules.operation import Operation
 
 
 @pytest.fixture(scope='module')
@@ -36,18 +36,18 @@ def aliases():
 
 
 def test_the_session_has_no_wire_edge_without_a_form(classes, aliases):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     gaps = wire_encoding.wire_gaps(ScopeSession, classes, aliases)
     assert not gaps, (
-        'A wire edge has no form: give the type one in modules/wire_encoding.py, or mark '
+        'A wire edge has no form: give the type one in src/_lumascope/modules/wire_encoding.py, or mark '
         'the member @api(in_process=True):\n  ' + '\n  '.join(gaps)
     )
 
 
 def test_a_member_put_back_on_the_wire_is_caught(classes, aliases, monkeypatch):
-    from modules.lumascope_api.imaging import ImagingAPI
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+    from _lumascope.modules.scope_session import ScopeSession
 
     monkeypatch.setattr(ImagingAPI.get_image, MARK_ATTRIBUTE, 'api')
 
@@ -165,8 +165,8 @@ def test_an_optional_live_object_no_member_hands_out_is_not_sent():
 
 
 def test_a_member_taking_a_loader_put_on_the_wire_is_caught(classes, aliases, monkeypatch):
-    from modules.protocol import Protocol
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.protocol import Protocol
+    from _lumascope.modules.scope_session import ScopeSession
 
     monkeypatch.setattr(Protocol.validate_for_run, MARK_ATTRIBUTE, 'api', raising=False)
 

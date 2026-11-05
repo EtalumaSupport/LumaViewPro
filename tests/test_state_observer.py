@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -276,7 +276,7 @@ class TestCameraSaveRestore:
         assert abs(scope.camera.read_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
-        from modules.exceptions import ArgumentTypeRefusedError
+        from _lumascope.modules.exceptions import ArgumentTypeRefusedError
 
         scope.camera.set_gain_db(5.0)
         # No snapshot is not a snapshot: the member takes a dict.

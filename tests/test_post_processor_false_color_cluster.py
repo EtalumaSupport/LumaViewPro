@@ -14,9 +14,9 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
-from modules.stitcher import Stitcher
-from modules.zprojector import ZProjector
-from modules.layer_record import release_colors
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.zprojector import ZProjector
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 
 

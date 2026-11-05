@@ -67,7 +67,7 @@ class TestResolveStepRename:
 
     @staticmethod
     def _resolve(raw: str):
-        from modules.common_utils import resolve_step_rename
+        from _lumascope.modules.common_utils import resolve_step_rename
 
         return resolve_step_rename(raw)
 

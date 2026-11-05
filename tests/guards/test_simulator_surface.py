@@ -14,12 +14,12 @@ import inspect
 
 import pytest
 
-from drivers.camera import Camera
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.camera import Camera
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from tests import ratchets as _ratchets
 from tests.ast_seams import iter_package_modules
 
@@ -150,7 +150,7 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
 # `if simulate:` the driver provably is a SimulatedCamera, and the
 # simulation sub-API, which reaches a board only after dispatching on its
 # simulated type. Keyed by (file, name).
-_SIMULATION = 'modules/lumascope_api/simulation.py'
+_SIMULATION = 'src/_lumascope/modules/lumascope_api/simulation.py'
 _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'unplug'),
     (_SIMULATION, 'replug'),
@@ -226,7 +226,7 @@ def test_no_production_code_calls_simulator_only_names(label, real, sim):
     virtual-specimen modeling, image-cycle loading -- so demanding an
     empty sim-only set would mean a large allowlist whose upkeep exceeds
     its signal. The hazard worth guarding is narrower and exact: code
-    under `modules/` or `ui/` that calls a name only the simulator has
+    under `src/_lumascope/modules/` or `ui/` that calls a name only the simulator has
     works in every test and fails on hardware.
 
     Tests are excluded on purpose. Driving simulator-only affordances is
@@ -235,7 +235,7 @@ def test_no_production_code_calls_simulator_only_names(label, real, sim):
     sim_only = _sim_only_names(real, sim)
 
     hits = []
-    for rel_path, tree in iter_package_modules(('modules', 'ui')):
+    for rel_path, tree in iter_package_modules(('src/_lumascope/modules', 'ui')):
         for node in ast.walk(tree):
             if not isinstance(node, ast.Attribute) or node.attr not in sim_only:
                 continue

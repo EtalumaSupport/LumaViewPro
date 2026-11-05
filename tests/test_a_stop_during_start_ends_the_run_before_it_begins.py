@@ -20,8 +20,8 @@ import time
 
 import pytest
 
-from modules import sequenced_capture_runner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules import sequenced_capture_runner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     _make_autogain_settings,

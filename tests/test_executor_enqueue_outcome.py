@@ -16,9 +16,9 @@ None, and a caller asking for a waiter still gets a waiter.
 import logging
 import threading
 
-import modules.sequential_io_executor as sio
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import (
+import _lumascope.modules.sequential_io_executor as sio
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import (
     ENQUEUED,
     IOTask,
     SequentialIOExecutor,

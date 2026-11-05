@@ -26,11 +26,11 @@ import time
 
 import pytest
 
-from modules import ui_queue
-from modules.exceptions import RunCleanupFailedError
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.exceptions import RunCleanupFailedError
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -304,7 +304,7 @@ class TestInsideItsOwnRunEnded:
 
 class TestARaisingRunEnded:
     def test_still_settles_and_is_reported_once_as_itself(self, scope, monkeypatch):
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
 
         runner, runs = scope
         reported = []
@@ -345,7 +345,7 @@ class TestTheFilesSettleWhenCleanupRaised:
     def test_a_cleanup_that_raised_before_the_build_still_settles_the_files(
         self, scope, monkeypatch
     ):
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         runner, runs = scope
 

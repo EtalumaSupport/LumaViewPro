@@ -16,8 +16,8 @@ own cleanup calls it on every path out, before the run ends.
 import threading
 import time
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 def test_end_protocol_mode_restores_normal_queue_service():

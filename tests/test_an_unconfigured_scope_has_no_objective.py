@@ -12,7 +12,7 @@ turret is in no known slot, so its objective is unknown.
 
 import pytest
 
-from modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.exceptions import ObjectiveUnknownError
 from tests.scope_fakes import build_scope
 
 

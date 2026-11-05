@@ -19,10 +19,10 @@ import psutil
 import pytest
 import serial
 
-from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.port import EmulatedPort
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.port import EmulatedPort
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier

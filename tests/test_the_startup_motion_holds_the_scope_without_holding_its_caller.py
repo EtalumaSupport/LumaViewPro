@@ -18,9 +18,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0

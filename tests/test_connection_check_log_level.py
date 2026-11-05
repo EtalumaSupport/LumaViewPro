@@ -16,8 +16,8 @@ from contextlib import contextmanager
 
 import pytest
 
-from modules.lumascope_api import _lumascope as lumascope_mod
-from modules.lumascope_api.bring_up import Part
+from _lumascope.modules.lumascope_api import _lumascope as lumascope_mod
+from _lumascope.modules.lumascope_api.bring_up import Part
 from tests.scope_fakes import build_scope
 
 

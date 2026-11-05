@@ -24,7 +24,7 @@ import traceback
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentTypeRefusedError,
     CatalogueNameRefusedError,
     ConfigError,
@@ -32,7 +32,7 @@ from modules.exceptions import (
     PositionOutOfRangeError,
     RefusalCause,
 )
-from rest.app import build_app
+from _lumascope.rest.app import build_app
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

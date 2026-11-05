@@ -14,8 +14,8 @@ listeners.
 
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
-from modules.notification_center import Severity
+from _lumascope.modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
+from _lumascope.modules.notification_center import Severity
 from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
     _standalone_config,
     sim_scope,
@@ -23,7 +23,7 @@ from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
 
 
 def _report(error):
-    from modules import notification_center
+    from _lumascope.modules import notification_center
 
     notification_center.notifications.report_outcome(error, solicited=True, category='UI:TEST')
 
@@ -55,7 +55,7 @@ def test_the_motion_refusal_is_shown_once_however_often_it_is_reported(sim_scope
 
 
 def test_the_sessions_listeners_hear_a_run_return_to_idle(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(

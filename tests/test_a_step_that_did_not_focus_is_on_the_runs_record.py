@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-import modules.autofocus_functions as autofocus_functions
-from modules.exceptions import AutofocusFailedError
-from modules.image_utils import read_file_record
-from modules.run_outcome import PendingRunOutcome, RunEnding
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
+import _lumascope.modules.autofocus_functions as autofocus_functions
+from _lumascope.modules.exceptions import AutofocusFailedError
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -119,7 +119,7 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
 
 
 def test_every_settle_path_carries_the_focus_failures():
-    from modules.run_outcome import FocusFailure
+    from _lumascope.modules.run_outcome import FocusFailure
 
     failures = (FocusFailure(scan_index=0, step_index=1, step_name='B', cause='flat'),)
     ending = RunEnding('completed', 'completed', 'm')

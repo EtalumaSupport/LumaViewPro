@@ -9,7 +9,7 @@ datas = [
     # The Python itself ships in the frozen archive. Of the source folders,
     # the app opens exactly two files from disk at run time: the Kivy
     # layout (lumaviewpro.py loads 'ui/lumaviewpro.kv' by path) and the
-    # simulator version pin (drivers/sim_wire/backend.py reads it at
+    # simulator version pin (src/_lumascope/drivers/sim_wire/backend.py reads it at
     # import, and the session imports the backend to resolve the tier on
     # every simulated start). Loose .py copies beside the archive were
     # never read -- and because PyInstaller puts the app folder on
@@ -17,7 +17,9 @@ datas = [
     # analysis missed and hide the missing hidden import. The gate after
     # COLLECT keeps them out.
     ('ui/lumaviewpro.kv', 'ui'),
-    ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
+    # Beside the backend module, where it is read: the package is collected by
+    # its import name, so its destination drops the source tree's src/.
+    ('src/_lumascope/drivers/sim_wire/runtime/MICROPYTHON_PIN', '_lumascope/drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
@@ -33,7 +35,6 @@ datas = [
     ('docs/api_examples/README.md', 'docs/api_examples'),
     ('version.txt', '.'),
     ('.git_archival.txt', '.'),
-    ('lvp_logger.py', '.'),
 ]
 
 # imagecodecs uses lazy submodule imports for each compression
@@ -49,7 +50,7 @@ hiddenimports = [
     'win32timezone',
     # FX2 (LVC) USB driver imports — pyusb + libusb1 dynamic submodules
     # that PyInstaller can't follow statically. Listed unconditionally
-    # because drivers/fx2driver.py guards their import with try/except
+    # because src/_lumascope/drivers/fx2driver.py guards their import with try/except
     # (_FX2_AVAILABLE flag), so absence of the libraries at install
     # time degrades to "FX2 not available" rather than a crash.
     'usb',
@@ -95,7 +96,7 @@ if _os.path.exists('build_id.txt'):
 
 # Every ids_peak* package is collected WHOLESALE, never left to inference:
 # afl/icv are reached only through runtime probes that build the import
-# path from strings (drivers/idscamera.py), so static analysis never sees
+# path from strings (src/_lumascope/drivers/idscamera.py), so static analysis never sees
 # them at all; and for the graph-visible base packages, binary-dependency
 # inference is NON-DETERMINISTIC for secondary DLLs -- one build included
 # ids_peak's log4cpp DLL and the next silently dropped it, which on a
@@ -110,7 +111,7 @@ for _ids_pkg in ('ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv'):
 
 a = Analysis(
     ['lumaviewpro.py'],
-    pathex=['.'],
+    pathex=['.', 'src'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -241,12 +242,12 @@ exe = EXE(
     icon=['data\\icons\\icon.ico'],
 )
 
-# The FX2 driver step (modules/fx2_driver_step.py), which the installer runs
+# The FX2 driver step (src/_lumascope/modules/fx2_driver_step.py), which the installer runs
 # elevated at install and uninstall: its own small executable, without the
 # app's splash, in the same folder so it shares the app's binaries.
 driver_step = Analysis(
     ['lvp_fx2_driver_step.py'],
-    pathex=['.'],
+    pathex=['.', 'src'],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -379,13 +380,13 @@ for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
                 _os.path.join(_dirpath, _fname), _dist_root))
 
 # Source-folder gate. The two files in datas are what the app opens from
-# disk; everything else under modules/, ui/ and drivers/ runs from the
+# disk; everything else under _lumascope/ and ui/ runs from the
 # frozen archive. A loose .py under those folders at the app root means a
 # datas entry grew back, and would let a string-built import the analysis
 # missed resolve from disk instead of failing the build.
 _opened_from_disk = (
     _os.path.join('ui', 'lumaviewpro.kv'),
-    _os.path.join('drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN'),
+    _os.path.join('_lumascope', 'drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN'),
 )
 for _rel in _opened_from_disk:
     if not _os.path.exists(_os.path.join(_dist_root, _rel)):
@@ -395,7 +396,7 @@ for _rel in _opened_from_disk:
         )
 _loose_py = [
     _os.path.relpath(_os.path.join(_dirpath, _fname), _dist_root)
-    for _folder in ('modules', 'ui', 'drivers')
+    for _folder in ('_lumascope', 'ui')
     for _dirpath, _dirnames, _filenames in _os.walk(_os.path.join(_dist_root, _folder))
     for _fname in _filenames
     if _fname.endswith('.py')

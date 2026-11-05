@@ -11,8 +11,11 @@ import copy
 
 import pytest
 
-from drivers.tmcm6110_config import SECTION, Tmcm6110Config, usteps_per_s, usteps_per_s2
-from modules.scope_capabilities import _resolve_lens_focal_length_mm, _resolve_pixel_size_um
+from _lumascope.drivers.tmcm6110_config import SECTION, Tmcm6110Config, usteps_per_s, usteps_per_s2
+from _lumascope.modules.scope_capabilities import (
+    _resolve_lens_focal_length_mm,
+    _resolve_pixel_size_um,
+)
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 

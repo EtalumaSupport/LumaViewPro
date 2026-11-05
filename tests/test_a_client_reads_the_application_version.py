@@ -11,12 +11,12 @@ bundle or an installed build, from ``path_utils.app_runtime``.
 
 import pytest
 
-from modules import path_utils
+from _lumascope.modules import path_utils
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

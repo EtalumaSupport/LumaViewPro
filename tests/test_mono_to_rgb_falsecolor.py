@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 import tifffile
 
-from modules import image_utils
-from modules.image_utils import mono_to_rgb_falsecolor
-from modules.layer_record import GREY, parse_display_color, release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.image_utils import mono_to_rgb_falsecolor
+from _lumascope.modules.layer_record import GREY, parse_display_color, release_color
 from tests.stock_channels import LED0, LED1, LED2
 
 

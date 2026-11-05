@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, MissingPart
-from modules.lumascope_api.diagnostics import DiagnosticsAPI
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session, _spy_wire
 from tests.test_tsr_cluster_fix import _make_motor_with_responses
 
@@ -89,6 +89,6 @@ def test_a_controller_with_fan_control_takes_the_write(make_session, monkeypatch
 
 
 def _bound(board, name):
-    from drivers.motorboard import MotorBoard
+    from _lumascope.drivers.motorboard import MotorBoard
 
     return getattr(MotorBoard, name).__get__(board, type(board))

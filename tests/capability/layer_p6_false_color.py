@@ -19,8 +19,8 @@ try:
     print('1: session.get_layer_configs sees:', s.get_layer_configs([LED0])[LED0]['false_color'])
 
     # 2) does it change the bytes on disk?
-    from modules.image_save import save_image
-    from modules.layer_record import release_colors
+    from _lumascope.modules.image_save import save_image
+    from _lumascope.modules.layer_record import release_colors
 
     arr = (np.arange(64 * 64, dtype=np.uint16).reshape(64, 64) % 4096).astype(np.uint16)
     outs = {}

@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from tests.camera_fakes import bare_pylon_camera
 
 _WRITES = frozenset({'SetValue', 'SetIntValue', 'Execute'})
@@ -159,7 +159,7 @@ def _answered(answer, call, cam):
 
 def _writers_inside_a_try() -> set[str]:
     """PylonCamera methods with a node write inside a ``try`` that has handlers."""
-    source = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+    source = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
     tree = ast.parse(source.read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'PylonCamera')
     found = set()

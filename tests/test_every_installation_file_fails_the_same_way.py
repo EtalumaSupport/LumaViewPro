@@ -14,8 +14,8 @@ import logging
 
 import pytest
 
-from modules.exceptions import ConfigError, InstallationFileError
-from modules.path_utils import read_installation_file
+from _lumascope.modules.exceptions import ConfigError, InstallationFileError
+from _lumascope.modules.path_utils import read_installation_file
 
 CASES = [
     ('missing', None),

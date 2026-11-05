@@ -23,7 +23,7 @@ import sys
 
 import harness as _common
 
-from modules.exceptions import SettingRefusedError
+from _lumascope.modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
@@ -114,7 +114,7 @@ try:
         s.update_settings(key, good)
 
     # tiling overlap: is there a validator a script can reach?
-    from modules.tiling_config import TilingGrids
+    from _lumascope.modules.tiling_config import TilingGrids
 
     try:
         TilingGrids.validate_overlap_percent(999)

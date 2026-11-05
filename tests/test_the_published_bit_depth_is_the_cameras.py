@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.image_mode import ImageMode
-from modules.scope_session import ScopeSession
+from _lumascope.modules.image_mode import ImageMode
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

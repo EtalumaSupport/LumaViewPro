@@ -21,10 +21,10 @@ import ast
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules
 
 _POSTS = MemberNames(
-    'modules/notification_center.py',
+    'src/_lumascope/modules/notification_center.py',
     {'notify', 'debug', 'info', 'notice', 'warning', 'error', 'critical'},
 )
-_EXEMPT_FILES = frozenset({'modules/notification_center.py'})
+_EXEMPT_FILES = frozenset({'src/_lumascope/modules/notification_center.py'})
 
 # (file, enclosing function) -> (direct posts in it, the open work that moves
 # them). The count, so a new post in a listed function is not waved through
@@ -36,7 +36,7 @@ def _below_the_gui():
     for rel_path, tree in production_modules():
         if not rel_path.startswith('ui/'):
             yield rel_path, tree
-    yield from iter_package_modules(('drivers', 'lib'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'src/_lumascope/lib'))
 
 
 def _is_centre(node: ast.expr) -> bool:

@@ -12,9 +12,9 @@ import logging
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import messages, records_of
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

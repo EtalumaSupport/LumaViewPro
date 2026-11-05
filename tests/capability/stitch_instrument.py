@@ -28,7 +28,7 @@ from collections.abc import Callable
 import cv2
 import numpy as np
 
-from modules.stitch_algorithms import (
+from _lumascope.modules.stitch_algorithms import (
     _correction_range,
     _grid_keys,
     _overlap_views,

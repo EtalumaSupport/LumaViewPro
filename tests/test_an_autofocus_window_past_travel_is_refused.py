@@ -19,11 +19,11 @@ import time
 
 import pytest
 
-import modules.autofocus_runner as autofocus_runner_module
-from modules.autofocus_runner import AutofocusRunner
-from modules.autofocus_thread import AutofocusThread
-from modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
-from modules.notification_center import OutcomeKind, outcome_of
+import _lumascope.modules.autofocus_runner as autofocus_runner_module
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.autofocus_thread import AutofocusThread
+from _lumascope.modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 from tests.af_drives import af_runner_on, park_z, sweep, z_asked
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope
@@ -42,7 +42,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
     shows, so where the sweep goes is decided by the curve alone.
     """
     monkeypatch.setattr(
-        'modules.autofocus_functions.autofocus_score',
+        '_lumascope.modules.autofocus_functions.autofocus_score',
         lambda image: 1e6 - abs(scope.motion.get_current_position('Z') - peak),
     )
     scope.motion.move_z(z)
@@ -132,7 +132,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypa
     floor = sim_scope.motion.get_axis_limits('Z').min_um
     peak = floor + 2.0
     monkeypatch.setattr(
-        'modules.autofocus_functions.autofocus_score',
+        '_lumascope.modules.autofocus_functions.autofocus_score',
         lambda image: (
             1e6 * math.exp(-(((sim_scope.motion.get_current_position('Z') - peak) / 15.0) ** 2))
         ),
@@ -176,7 +176,7 @@ def test_an_unexpected_failure_is_raised_as_the_failure_it_reported(
         raise RuntimeError('focus measure broke')
 
     runner = af_runner_on(sim_scope)
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', broken)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', broken)
 
     with pytest.raises(AutofocusFailedError) as raised:
         sweep(runner, sim_scope)

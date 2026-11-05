@@ -31,7 +31,10 @@ from pathlib import Path
 
 import psutil
 
-from modules.log_stamp import LOG_DATEFMT
+# This checkout's own API, whatever lumascope.pth the interpreter holds.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
+
+from _lumascope.modules.log_stamp import LOG_DATEFMT
 from tools.profiling.aggregate import compute_absolute_cpu, parse_folded
 
 # The samplers are sampling profilers: a low rate is cheap but coarse, a long window
@@ -45,7 +48,7 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-# The launch banner's lines (lvp_logger.log_environment_banner), by label. The
+# The launch banner's lines (_lumascope.lvp_logger.log_environment_banner), by label. The
 # banner opens with Version and closes with Git. The round-trip test writes a
 # banner with the real function and reads it back here, so a relabelled banner
 # fails a test rather than every artifact. One log file holds launches of

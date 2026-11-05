@@ -11,7 +11,7 @@ from harness import make_session, banner
 
 session, live = make_session('newp', home=True)
 try:
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     settings = session.settings
     banner('create_protocol with NO channel enabled')
@@ -33,7 +33,7 @@ try:
         print(f'RAISED {type(e).__name__}: {e}')
 
     banner('does running an empty protocol get refused at the API?')
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     runner = ProtocolRunner(session)
     try:
@@ -47,7 +47,7 @@ try:
 
     banner('is the objective-addressability rule asked on create/load?')
     import pathlib
-    import modules.lumascope_api.protocols as pmod
+    import _lumascope.modules.lumascope_api.protocols as pmod
 
     src = pathlib.Path(pmod.__file__).read_text(encoding='utf-8')
     print(

@@ -15,12 +15,12 @@ exactly the state a failed home leaves every axis in.
 
 import pytest
 
-from modules.exceptions import AxisStateUnknownError
-from modules.lumascope_api import AxisState
-from modules.notification_center import Severity
+from _lumascope.modules.exceptions import AxisStateUnknownError
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
-from modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_color
 
 
 @pytest.fixture
@@ -163,7 +163,7 @@ def test_the_well_label_of_an_unknown_position_is_none_not_a_stale_well(unhomed_
 
 
 def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):
-    from modules.image_utils import build_hyperstack_output_metadata
+    from _lumascope.modules.image_utils import build_hyperstack_output_metadata
 
     nan = float('nan')
     metadata = build_hyperstack_output_metadata(

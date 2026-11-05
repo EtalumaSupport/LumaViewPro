@@ -5,6 +5,10 @@ repo = "lumaviewpro"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The checkout's own API first, before any conftest imports it, whatever
+# lumascope.pth the interpreter holds; tests/conftest.py exports the same
+# folder in PYTHONPATH for the processes the suite starts.
+pythonpath = ["src"]
 addopts = "--tb=short -q --durations=50 --dist loadgroup --max-worker-restart 0"
 # A dead xdist worker ends the run red. A replacement worker deadlocks the
 # loadgroup scheduler (pytest-xdist 3.8.0): the dead worker's whole workload
@@ -29,7 +33,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["modules", "drivers", "ui"]
+source = ["src/_lumascope/modules", "src/_lumascope/drivers", "ui"]
 omit = [
     "*/test_*",
     "*/__pycache__/*",
@@ -153,13 +157,13 @@ ignore = [
     # the import block documents the grep-the-.kv-first removal rule.
     "F401",
 ]
-"drivers/sim_wire/mp/*.py" = [
+"src/_lumascope/drivers/sim_wire/mp/*.py" = [
     # These files run inside the simulator's MicroPython, whose oldest
     # runtime (1.19, the field firmware's) has no f-string conversion flags:
     # `{x!r}` is a SyntaxError there, so they write `{repr(x)}`.
     "RUF010",
 ]
-"drivers/camera_profiles.py" = [
+"src/_lumascope/drivers/camera_profiles.py" = [
     # Profile globals are named after the exact camera model strings
     # (e.g. _daA3840_45um for the Basler daA3840-45um) so a profile is
     # greppable by the model name the camera reports.
@@ -176,24 +180,24 @@ ignore = [
     # for readability (which issue / finding the class covers).
     "N801",
 ]
-"drivers/*.py" = [
+"src/_lumascope/drivers/*.py" = [
     # Drivers have hardware register reads/writes with magic numbers; ruff
     # PLR2004 would flag every byte. (Re-evaluate per-driver if PLR is enabled.)
     # Win32 ctypes Structure subclasses (winusb_iso.py) must match the API
     # struct names exactly -- same justification as the N803/N806 HW names.
     "N801",
 ]
-"modules/common_utils.py" = [
+"src/_lumascope/modules/common_utils.py" = [
     # _PDH_FMT_COUNTERVALUE is a ctypes Structure mirroring the Win32 PDH
     # struct name exactly; cannot be renamed to CapWords.
     "N801",
 ]
-"lvp_logger.py" = [
+"src/_lumascope/lvp_logger.py" = [
     # Logging-bootstrap module: appdata-path resolution and logger setup
     # must run before the subsequent imports by design.
     "E402",
 ]
-"modules/lumascope_api/motion.py" = [
+"src/_lumascope/modules/lumascope_api/motion.py" = [
     # AxisState import placement is documented in-file as module-top-safe
     # (circular-import ordering); the import follows that explanatory code.
     "E402",

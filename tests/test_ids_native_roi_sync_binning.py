@@ -28,7 +28,7 @@ invariant, exercised with the pure binning functions the fixed code calls.
 import ast
 import pathlib
 
-import modules.binning as binning
+import _lumascope.modules.binning as binning
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'

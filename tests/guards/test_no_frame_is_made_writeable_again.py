@@ -56,7 +56,7 @@ def _writeable_again(tree: ast.Module) -> list[int]:
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'rest', 'tools'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'src/_lumascope/rest', 'tools'))
 
 
 def test_no_production_module_makes_an_array_writeable_again():

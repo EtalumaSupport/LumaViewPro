@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import iter_package_modules
 from tests.scope_fakes import home_sim_scope
 from ui.listener_bridge import UIListenerBridge
@@ -194,7 +194,7 @@ def test_an_xy_change_draws_the_stage_and_not_the_z_display(bridge):
 def test_the_engine_names_no_display_hook():
     retired = {'move_position', 'ui_update_func', 'z_ui_update_func', 'af_ui_update_func'}
     found = []
-    for rel_path, tree in iter_package_modules(('modules',)):
+    for rel_path, tree in iter_package_modules(('src/_lumascope/modules',)):
         for node in ast.walk(tree):
             name = (
                 node.arg

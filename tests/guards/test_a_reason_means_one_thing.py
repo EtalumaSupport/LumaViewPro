@@ -5,7 +5,7 @@ A client branches on the reason alone: a REST problem's type is the bare
 string, so two classes carrying one string under two kinds or two causes
 answered one URN with two statuses, and nothing that read one class at a
 time could see it. Every outcome class declares its reasons as ``causes``,
-each mapped to its cause, and the root (``lib.lumascope_error``) checks the
+each mapped to its cause, and the root (``_lumascope.lib.lumascope_error``) checks the
 declaration against every outcome class Python holds when the class is
 defined: one kind and one cause per string, and a string another class
 carries is the same fact only when the class names that class in
@@ -28,8 +28,8 @@ from typing import ClassVar
 
 import pytest
 
-from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
-from modules.exceptions import (
+from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
+from _lumascope.modules.exceptions import (
     CameraSettingOutOfRangeError,
     CellCountScaleDroppedNotice,
     CompositeFailedError,
@@ -44,11 +44,11 @@ from modules.exceptions import (
     SessionClosingError,
     SettingRefusedError,
 )
-from modules.lumascope_api.bring_up import CAUSE_PHRASES
-from modules.path_utils import CaptureLocationError
-from modules.plugins import PluginRegistrationError
-from modules.run_outcome import ENDINGS, EndingKind
-from rest.problems import outcome_classes
+from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
+from _lumascope.modules.path_utils import CaptureLocationError
+from _lumascope.modules.plugins import PluginRegistrationError
+from _lumascope.modules.run_outcome import ENDINGS, EndingKind
+from _lumascope.rest.problems import outcome_classes
 from tests.case_walk import failing_cases
 from tests.guards.test_every_outcome_joins_the_root import RAISABLE
 
@@ -283,9 +283,9 @@ def test_a_class_with_one_reason_answers_it_from_the_class_itself():
 
 
 def test_no_outcome_class_carries_a_status():
-    """An outcome is what happened; how HTTP sends it is ``rest.problems``'s. A
+    """An outcome is what happened; how HTTP sends it is ``_lumascope.rest.problems``'s. A
     member's refusal answers the status its cause says, and the server's own
-    refusals the status ``rest.problems`` gives each reason."""
+    refusals the status ``_lumascope.rest.problems`` gives each reason."""
     own = [cls.__qualname__ for cls in RAISABLE if {'_STATUSES', 'status'} & set(vars(cls))]
     assert own == [], f'an outcome class carrying a status: {own}'
 

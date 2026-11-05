@@ -30,8 +30,8 @@ import datetime
 import numpy as np
 import pytest
 import tifffile as tf
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -74,7 +74,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
     value preserved exactly and the other planes zero (the R/B-swap and
     wrong-channel-on-video defects guard against an ordering regression).
     """
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'blue.tiff'
     data = np.full((8, 8), 42000, dtype=np.uint16)
@@ -120,7 +120,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     pytest.importorskip('av')
     import av
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     # One mono input TIFF (post-1d input shape).
     input_dir = tmp_path / 'tiff_in'
@@ -184,7 +184,7 @@ def _rgb_step(index: int, color: str) -> list[str]:
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -202,7 +202,7 @@ def rgb_run_folder(tmp_path):
 def _write_rgb_run_folder(tmp_path, *, ome: bool):
     """One position imaged in LED 2, LED 1 and LED 0 (red, green, blue), each a flat 8-bit frame
     of its own value, as a run of this release saves it: OME-TIFF when ``ome``, else plain."""
-    from modules import image_utils
+    from _lumascope.modules import image_utils
 
     folder = tmp_path / 'live' / 'ProtocolData' / '20261013_120000'
     folder.mkdir(parents=True)
@@ -279,7 +279,7 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
     plane. Catches asymmetries in the layer-color lookup (a historical
     Red-specific R/B swap motivates the parametrize).
     """
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / f'{color.lower()}.tiff'
     data = np.full((8, 8), 30000, dtype=np.uint16)
@@ -328,7 +328,7 @@ def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
     plain. It once hardcoded ome=False.
     """
     import pandas as pd
-    from modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.composite_generation import CompositeGeneration
 
     for ch in (LED2, LED1, LED0):
         tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))

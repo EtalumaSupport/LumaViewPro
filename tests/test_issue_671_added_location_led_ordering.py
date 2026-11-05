@@ -38,7 +38,7 @@ This test is expected to FAIL until #671 is fixed.
 """
 
 from __future__ import annotations
-from lib.log_helpers import VERBOSE
+from _lumascope.lib.log_helpers import VERBOSE
 from tests.protocol_drives import no_post_run_builds
 
 import datetime
@@ -49,21 +49,21 @@ from unittest.mock import MagicMock
 import pytest
 
 
-from modules.activity_claim import ActivityClaim
-from modules.image_mode import ImageCaptureConfig
-from modules.layer_record import release_colors
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.layer_record import release_colors
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import (
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
 
@@ -118,7 +118,7 @@ def _build_tsv_only_protocol():
     """Build the 8-step TSV (no user-added location yet)."""
     import pandas as pd
 
-    tiling_configs = pytest.importorskip('modules.tiling_config')  # noqa: F841
+    tiling_configs = pytest.importorskip('_lumascope.modules.tiling_config')  # noqa: F841
 
     rows = []
     idx = 0
@@ -201,7 +201,7 @@ def scope():
 
 @pytest.fixture
 def executors():
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO'),

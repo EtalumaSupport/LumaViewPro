@@ -20,21 +20,21 @@ import threading
 
 import pytest
 
-from drivers import host_clock
-from modules import settings_init
-from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
-from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.scope_session import ScopeSession
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-from modules.lumascope_api.frame_record import TimestampSource
-from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from _lumascope.drivers import host_clock
+from _lumascope.modules import settings_init
+from _lumascope.modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
+from _lumascope.modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api.frame_record import TimestampSource
+from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import run_identity
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 _WAIT_S = 2.0
 
@@ -299,7 +299,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
     def test_frame_size_and_objective_are_read_while_the_recording_holds(
         self, tmp_path, monkeypatch, post_processing
     ):
-        from modules.manual_recording import ManualRecordingController
+        from _lumascope.modules.manual_recording import ManualRecordingController
         from tests.test_manual_recording_controller import (
             FakeClock,
             ManualFireScheduler,

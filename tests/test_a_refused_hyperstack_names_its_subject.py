@@ -12,8 +12,8 @@ import pathlib
 
 import pandas as pd
 
-from modules.stack_builder import StackBuilder
-from modules.layer_record import release_colors
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1
 
 

@@ -22,13 +22,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
-import modules.sequenced_capture_runner as scr
-from modules.exceptions import HardwareCommandRefusedError
-from modules.run_outcome import RunEnding
-from modules.run_events import RunEvents
-from modules.sequential_io_executor import IOTask
+import _lumascope.modules.sequenced_capture_runner as scr
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.run_outcome import RunEnding
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.protocol_drives import held_run_claim
 from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHold, lane_session  # noqa: F401
 from tests.test_protocol_cleanup_extinguish import _make_runner_stub
@@ -96,7 +96,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -227,9 +227,9 @@ def test_a_write_under_an_ended_run_is_refused_on_an_idle_scope():
     is made under the run's taking after the run has released the scope,
     and nothing else holds it -- the write must still be refused, not move
     the stage or light the sample of a scope the run no longer has."""
-    from modules.activity_claim import ActivityClaim, acting
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.activity_claim import ActivityClaim, acting
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
     lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
@@ -286,7 +286,7 @@ def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypa
     under the sweep's taking, and the retry is what gets scored."""
     import numpy as np
 
-    import modules.autofocus_functions as autofocus_functions
+    import _lumascope.modules.autofocus_functions as autofocus_functions
     from tests.af_drives import af_runner_on, sweep
 
     # The field is dark for the sweep's first grab, then shows the target.
@@ -308,7 +308,7 @@ def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypa
         scored.append((len(grabs), float(np.mean(image))))
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', _score)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', _score)
 
     sweep(runner, sim_scope)
 
@@ -323,9 +323,9 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     """A run borrowed inside a diagnostic holds the lane's protocol door. The
     diagnostic still holds the scope, but its own work is not the run's
     and is refused at the door until the run ends."""
-    from modules.activity_claim import ActivityClaim, acting
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.activity_claim import ActivityClaim, acting
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
     lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
@@ -356,7 +356,7 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
 def test_a_step_darken_the_lane_refuses_falls_to_the_safety_off():
     from types import SimpleNamespace
 
-    from modules.protocol_step_runner import ProtocolStepRunner
+    from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 
     illumination = MagicMock()
     parent = SimpleNamespace(
@@ -377,7 +377,7 @@ def test_a_step_darken_the_lane_refuses_falls_to_the_safety_off():
 
 
 def test_the_run_takes_a_standing_arm_through_the_public_member():
-    from modules.protocol_state_machine import SequencedCaptureRunMode
+    from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
     from tests.protocol_drives import bare_capture_runner
 
     runner = bare_capture_runner()

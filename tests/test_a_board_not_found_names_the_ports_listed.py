@@ -12,8 +12,8 @@ import logging
 
 from serial.tools.list_ports_common import ListPortInfo
 
-import drivers.serialboard as serialboard
-from drivers.serialboard import SerialBoard
+import _lumascope.drivers.serialboard as serialboard
+from _lumascope.drivers.serialboard import SerialBoard
 from tests.log_capture import records_of
 
 

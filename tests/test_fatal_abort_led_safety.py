@@ -23,17 +23,22 @@ import pathlib
 import threading
 from unittest.mock import MagicMock
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState, LedTransition
-from modules.exceptions import RecordIncompleteError
-from modules.notification_center import Severity
-from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.protocol_state_machine import ProtocolState
-from modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.lumascope_api.illumination import (
+    LedEndPolicy,
+    LedReading,
+    LedState,
+    LedTransition,
+)
+from _lumascope.modules.exceptions import RecordIncompleteError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+from _lumascope.modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_protocol_modules import _FakeExecutor
 
-_MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
+_MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'src/_lumascope/modules'
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +46,7 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 # ---------------------------------------------------------------------------
 
 
-from modules.run_outcome import RunEnding
+from _lumascope.modules.run_outcome import RunEnding
 from tests.scope_fakes import swap_lanes
 from tests.stock_channels import LED2
 
@@ -62,8 +67,8 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch, centre_post
     # The writer is stuck: the backlog is full (a bound of 0 is full at
     # once) past the stall budget, and the write in flight is stalled, so
     # the run's batch answers the submit wedged.
-    monkeypatch.setattr('modules.protocol_image_writer.WRITE_BACKLOG_BOUND', 0)
-    monkeypatch.setattr('modules.protocol_image_writer.WRITE_STALL_FATAL_S', 0.0)
+    monkeypatch.setattr('_lumascope.modules.protocol_image_writer.WRITE_BACKLOG_BOUND', 0)
+    monkeypatch.setattr('_lumascope.modules.protocol_image_writer.WRITE_STALL_FATAL_S', 0.0)
     file_io_executor = MagicMock()
     file_io_executor.in_flight_task_stalled.return_value = True
     file_io_executor.describe_running_task.return_value = "write_capture 'x' 32s in flight"
@@ -151,7 +156,7 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 
 
 def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
-    from modules.protocol_cleanup import run_cleanup
+    from _lumascope.modules.protocol_cleanup import run_cleanup
 
     applied = []
     state = [ProtocolState.RUNNING]

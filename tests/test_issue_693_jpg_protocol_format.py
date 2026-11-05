@@ -21,11 +21,11 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules import config_helpers
+from _lumascope.modules import config_helpers
 from tests.settings_fixtures import complete_settings
-from modules.composite_generation import CompositeGeneration
-from modules.exceptions import PostProcessingRefusedError
-from modules.image_mode import OutputFormat
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.image_mode import OutputFormat
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
 

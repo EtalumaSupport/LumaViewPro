@@ -10,9 +10,9 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.properties import BooleanProperty, NumericProperty
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.ui_queue import schedule_ui
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.ui_queue import schedule_ui
 from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
 from ui.composite_capture import CompositeCapture
 

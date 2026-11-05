@@ -16,13 +16,13 @@ import threading
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-from modules.caller import Caller
-from modules.live_work import WorkKind
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.live_work import WorkKind
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 class TestTheClaimCarriesTheRun:
@@ -160,7 +160,7 @@ class TestTheRunnerReadsTheClaim:
         else: every runner takes the claim its session holds."""
         from unittest.mock import MagicMock
 
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
         from tests.scope_fakes import spec_scope
 
         with pytest.raises(TypeError, match='activity_claim'):
@@ -216,9 +216,9 @@ class TestTheFlagAndTheClaimEndTogether:
         runner._held_claim = held
         # The run start() would have committed, with its writes: the
         # cleanup names it, and closes its batch on the way out.
-        from modules.protocol_image_writer import RunWriteBatch
-        from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import EngineRun
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.run_outcome import PendingRunOutcome
+        from _lumascope.modules.sequenced_capture_runner import EngineRun
 
         runner._run_outcome = PendingRunOutcome()
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
@@ -228,10 +228,10 @@ class TestTheFlagAndTheClaimEndTogether:
         def _boom(**_kwargs):
             raise RuntimeError('cleanup died before it cleared the run flag')
 
-        monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', _boom)
+        monkeypatch.setattr('_lumascope.modules.sequenced_capture_runner.run_cleanup', _boom)
         monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
 
-        from modules.run_outcome import RunEnding
+        from _lumascope.modules.run_outcome import RunEnding
 
         with pytest.raises(RuntimeError, match='cleanup died'):
             runner._cleanup_inner(RunEnding('aborted', 'stopped', 'Stopped by test'), run, [])

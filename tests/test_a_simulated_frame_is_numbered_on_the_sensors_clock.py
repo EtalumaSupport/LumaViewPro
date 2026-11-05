@@ -21,8 +21,8 @@ import time
 
 import numpy as np
 
-from drivers import host_clock
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 PERIOD_S = 1.0 / SimulatedCamera._MAX_DELIVERY_FPS

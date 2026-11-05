@@ -13,7 +13,7 @@ import types
 
 import pytest
 
-import modules.app_context as app_context
+import _lumascope.modules.app_context as app_context
 
 
 def test_a_raise_in_the_load_reaches_the_caller_and_the_panel_logs_nothing(monkeypatch, caplog):

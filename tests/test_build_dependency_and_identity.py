@@ -42,7 +42,7 @@ import pytest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD_PS1 = REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1'
 MIN_VERSION_FILE = REPO_ROOT / 'scripts' / 'appBuild' / 'MIN_BUILD_SCRIPT_VERSION'
-LVP_LOGGER = REPO_ROOT / 'lvp_logger.py'
+LVP_LOGGER = REPO_ROOT / 'src/_lumascope/lvp_logger.py'
 
 
 def _build_ps1_text() -> str:

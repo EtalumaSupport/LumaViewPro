@@ -91,7 +91,7 @@ print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 `.sh` twin that does the same over REST with `curl`. Its
 [README](api_examples/README.md) says how to run them: a script from
 LumaViewPro's source, a twin against the installed app or
-`python -m rest --simulate`.
+`python -m _lumascope.rest --simulate`.
 
 | Example | What it shows |
 |---|---|
@@ -163,7 +163,7 @@ scope, a command from anyone else that would change what it is doing is
 refused, naming the holder (see [Who may act](#who-may-act)).
 
 **What is API.** A member is API when it carries the `@api` mark, and a field
-when its class names it in `@api_fields` (`modules.api_surface`); the
+when its class names it in `@api_fields` (`_lumascope.modules.api_surface`); the
 [reference](api-reference.md) lists exactly those. A member marked *in-process*
 is for a Python caller only -- it takes a callback, returns a live object, or
 blocks -- and has no route. Anything unmarked is not API, whatever its name: it
@@ -187,7 +187,7 @@ repaired, and completed with keys newer releases added. Settings are an argument
 of `create`, never read behind your back.
 
 ```python
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 
 root = '.'                                   # the LumaViewPro source folder, which holds data/
 settings = ScopeSession.load_user_settings(root)
@@ -274,7 +274,7 @@ assert session.live_work.closed
 ## Outcomes
 
 Everything the API does ends in a return or an outcome, and every outcome is an
-exception class under `LumascopeError` (`modules.exceptions`). An outcome
+exception class under `LumascopeError` (`_lumascope.modules.exceptions`). An outcome
 raised to you is yours to report; the API has not shown or logged it as a
 failure on your behalf. An outcome nobody asked for -- a camera stream that
 stalls, a run's file writer that stops -- reaches the outcome listeners
@@ -294,7 +294,7 @@ program branches on, and every refusal a `cause`: whether the same request
 could succeed later.
 
 ```python
-from modules.exceptions import PositionOutOfRangeError, RefusalCause
+from _lumascope.modules.exceptions import PositionOutOfRangeError, RefusalCause
 
 try:
     scope.motion.move_z(1_000_000)          # far beyond Z's travel
@@ -525,7 +525,7 @@ move X and Y on the selected plate; Z stays in stage micrometres, so a
 `PlateLocation` for `move_to_plate` gives Z as None.
 
 ```python
-from modules.lumascope_api.motion import PlateLocation
+from _lumascope.modules.lumascope_api.motion import PlateLocation
 
 scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
@@ -739,7 +739,7 @@ the frame size is floored to even sides and refused outside
 lacks a binning factor or a feature refuses it `CameraSettingUnsupportedError`.
 
 ```python
-from modules.image_mode import ImageMode
+from _lumascope.modules.image_mode import ImageMode
 
 print(scope.camera.set_binning(2))
 print(scope.camera.set_frame_size(960, 600))
@@ -963,7 +963,7 @@ duration (hours), the plate and the capture root, then a table of steps whose
 columns are `Protocol.CURRENT_COLUMNS`:
 
 ```python
-from modules.protocol import Protocol
+from _lumascope.modules.protocol import Protocol
 
 print(Protocol.CURRENT_VERSION, Protocol.CURRENT_COLUMNS)
 ```
@@ -988,7 +988,7 @@ when the file is read, and refused when a run starts.
 | `start_composite(...)` | one capture per acquiring channel, merged |
 
 ```python
-from modules.run_outcome import RunStatus
+from _lumascope.modules.run_outcome import RunStatus
 
 runner = session.protocol_runner()
 started = runner.start_single_scan(protocol, sequence_name='guide')
@@ -1018,7 +1018,7 @@ operation. In-process each run also has a waiting form, `run_single_scan`,
 
 ```python
 import threading
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 
 ended = threading.Event()
 events = RunEvents(run_ended=lambda outcome, run_dir, protocol: ended.set())
@@ -1085,7 +1085,7 @@ registration on; read the current value first.
 ### Serving it
 
 ```bash
-python -m rest --simulate      # a simulated scope; leave out --simulate for the hardware
+python -m _lumascope.rest --simulate      # a simulated scope; leave out --simulate for the hardware
 ```
 
 The server brings the scope up as LumaViewPro does -- the user's settings, the
@@ -1104,7 +1104,7 @@ set in its settings (shipped `false`). To serve a session your own program has
 brought up, build its server, the one every host serves through:
 
 ```python norun
-from rest.server import build_server
+from _lumascope.rest.server import build_server
 
 server = build_server(session, shut_down=session.shutdown)
 server.run()    # until Ctrl-C, whose close shuts the session down
@@ -1115,9 +1115,9 @@ if not server.close_begun:    # it stopped before it served
 The server reads `rest_api` from the session's settings. A `rest_api` setting
 it cannot use, or an address and port it cannot take, is refused with
 `RestServerNotStartedError` before anything is served, from every host:
-LumaViewPro shows it and runs on without a server, and `python -m rest`
+LumaViewPro shows it and runs on without a server, and `python -m _lumascope.rest`
 prints it and exits `1`. While it serves, `server.reach` says where and to
-whom (`python -m rest` prints it, and LumaViewPro shows it in Advanced
+whom (`python -m _lumascope.rest` prints it, and LumaViewPro shows it in Advanced
 Settings). The settings are read from the file as written, and LumaViewPro
 writes its whole settings file back as it runs, so edit `rest_api` with
 LumaViewPro closed.

@@ -32,7 +32,7 @@ def iter_package_modules(packages):
     """Yield ``(rel_path, ast.Module)`` for every ``.py`` under ``packages``.
 
     The one walker for whole-package AST scans, so guards that sweep
-    `modules/` + `ui/` share it instead of each hand-rolling a
+    `src/_lumascope/modules/` + `ui/` share it instead of each hand-rolling a
     `rglob` + `ast.parse` loop. Paths are POSIX-relative to the repo
     root and sorted, so failure messages are stable across platforms.
     A package git tracks nothing under is refused (``tracked_files``).
@@ -127,9 +127,13 @@ def module_name(rel_path: str) -> str:
 
     A package is imported by its own name: as ``<package>.__init__`` it
     would load a second time and define every class in it twice, which a
-    guard reading classes by name then sees as two classes.
+    guard reading classes by name then sees as two classes. A file under
+    ``src/`` is imported from there, so ``src`` is no part of its name, for
+    the same reason.
     """
     parts = Path(rel_path).with_suffix('').parts
+    if parts[0] == 'src':
+        parts = parts[1:]
     return '.'.join(parts[:-1] if parts[-1] == '__init__' else parts)
 
 
@@ -140,7 +144,7 @@ def production_modules():
     lives in the top-level ``lumaviewpro.py`` -- the one module a
     package-only sweep would miss.
     """
-    yield from iter_package_modules(('modules', 'ui'))
+    yield from iter_package_modules(('src/_lumascope/modules', 'ui'))
     yield 'lumaviewpro.py', parse_module('lumaviewpro.py')
 
 

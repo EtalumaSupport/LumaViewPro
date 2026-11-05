@@ -24,9 +24,9 @@ from collections import defaultdict
 
 import pytest
 
-from modules import app_context, config_helpers
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.scope_session import ScopeSession
+from _lumascope.modules import app_context, config_helpers
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 

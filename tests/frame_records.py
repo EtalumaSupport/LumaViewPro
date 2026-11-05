@@ -8,15 +8,15 @@ description here, so a field added to the record is added once.
 
 import datetime
 
-from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import (
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.lumascope_api.frame_record import (
     FrameRecord,
     FrameTime,
     LightTiming,
     SettingSource,
     TimestampSource,
 )
-from modules.recording_frames import FrameFact
+from _lumascope.modules.recording_frames import FrameFact
 
 # A frame's time, host local with its offset as every frame time is.
 A_FRAME_TIME = datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone()
@@ -96,8 +96,8 @@ def write_recorded(
     """Write ``image`` as a recorded frame through the one writer
     (``image_save.write_recorded_frame``), on ``scope``'s catalogue and
     identity; a uint16 frame is 12-bit unless ``record`` says otherwise."""
-    from modules.image_save import write_recorded_frame
-    from modules.layer_record import release_colors
+    from _lumascope.modules.image_save import write_recorded_frame
+    from _lumascope.modules.layer_record import release_colors
 
     if record is None:
         record = recorded_record(frame_significant_bits=8 if image.dtype.itemsize == 1 else 12)

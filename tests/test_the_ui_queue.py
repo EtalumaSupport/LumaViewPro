@@ -4,7 +4,7 @@
 The live display posted each update to the UI thread as a fresh callback,
 so a UI thread held up for four days held every one of them: 8.7 GB,
 replayed in full when it ran again. The dispatcher's queue
-(``modules/ui_queue.py``) holds two kinds of entry: an event
+(``src/_lumascope/modules/ui_queue.py``) holds two kinds of entry: an event
 (``schedule_ui``) runs once, in post order; a state (``schedule_ui_latest``)
 keeps one entry per key, moved to the back with its newest value, so a
 held-up UI thread holds one entry per state however long it waits, and a
@@ -17,9 +17,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import BlockingCallRefusedError
-from modules.ui_queue import UiDispatcher, schedule_ui, schedule_ui_latest, ui_backlog
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import BlockingCallRefusedError
+from _lumascope.modules.ui_queue import UiDispatcher, schedule_ui, schedule_ui_latest, ui_backlog
+from _lumascope.modules.scope_session import ScopeSession
 
 
 class _Held:
@@ -155,7 +155,7 @@ def test_a_swap_hands_the_waiting_entries_to_the_new_dispatcher_in_order(held):
 
 
 def test_a_swap_to_none_runs_the_waiting_entries_here_and_reports_a_raise(held, monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append(ex))

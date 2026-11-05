@@ -14,10 +14,14 @@ NOT MEASURED, only a board's reply is timed, and the LED board's command set
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
-from drivers.simulated_fx2 import SimulatedFX2
-from modules.lumascope_api.diagnostics import (
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReportedError,
+    LedFirmwareWedgedError,
+)
+from _lumascope.drivers.simulated_fx2 import SimulatedFX2
+from _lumascope.modules.lumascope_api.diagnostics import (
     ERROR_PREFIX,
     LedCommandSet,
     NO_REPLY,
@@ -25,10 +29,10 @@ from modules.lumascope_api.diagnostics import (
     NOT_CONNECTED,
     is_board_reply,
 )
-from modules.scope_session import ScopeSession
-from modules import tech_support_report
-from modules.exceptions import HardwareCommandRefusedError, SessionClosingError
-from modules.tech_support_report import FirmwareDiagnostics, TechSupportReport
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules import tech_support_report
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, SessionClosingError
+from _lumascope.modules.tech_support_report import FirmwareDiagnostics, TechSupportReport
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import complete_settings
 

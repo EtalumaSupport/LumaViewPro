@@ -20,10 +20,10 @@ import threading
 
 import pytest
 
-from drivers import host_clock
-from lib.log_helpers import VERBOSE
-from modules import wall_time
-from modules.lumascope_api.frame_record import (
+from _lumascope.drivers import host_clock
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.modules import wall_time
+from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
     FrameTime,
     TimestampSource,

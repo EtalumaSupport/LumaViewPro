@@ -7,9 +7,9 @@ from kivy.properties import Property
 from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
-from lvp_logger import logger
-from modules import gui_logger
-from modules.ui_queue import schedule_ui, schedule_ui_latest
+from _lumascope.lvp_logger import logger
+from _lumascope.modules import gui_logger
+from _lumascope.modules.ui_queue import schedule_ui, schedule_ui_latest
 
 
 class _PopupProxy:

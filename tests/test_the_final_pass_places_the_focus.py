@@ -19,7 +19,7 @@ import math
 
 import pytest
 
-from modules.autofocus_runner import focus_of_the_final_pass
+from _lumascope.modules.autofocus_runner import focus_of_the_final_pass
 from tests.af_drives import af_runner_on, park_z, sweep
 
 # 2026-10-22, an LS850T at 40x on one field, swept three times; step 1 um.
@@ -115,7 +115,7 @@ def test_a_curve_on_a_floor_focuses_at_its_summit(sim_scope, monkeypatch):
         z = sim_scope.motion.get_current_position('Z')
         return 1e7 * (0.6 + math.exp(-(((z - summit) / 50.0) ** 2) / 2))
 
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', score)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', score)
     park_z(sim_scope, start)
 
     focus = sweep(runner, sim_scope, objective_id='4x Oly')

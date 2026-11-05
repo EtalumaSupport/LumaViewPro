@@ -1,12 +1,12 @@
 # Copyright Etaluma, Inc.
-"""Tests for modules/composite_builder.py -- shared composite image builder."""
+"""Tests for src/_lumascope/modules/composite_builder.py -- shared composite image builder."""
 
 import numpy as np
 import pytest
 
-import modules.image_utils as image_utils
-import modules.layer_record as layer_record
-from modules.composite_builder import CompositeChannel, TransmittedBase, build_composite
+import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.composite_builder import CompositeChannel, TransmittedBase, build_composite
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -290,8 +290,8 @@ def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
 
     script = (
         'import tracemalloc, numpy as np\n'
-        'import modules.layer_record as layer_record\n'
-        'from modules.composite_builder import CompositeChannel, build_composite\n'
+        'import _lumascope.modules.layer_record as layer_record\n'
+        'from _lumascope.modules.composite_builder import CompositeChannel, build_composite\n'
         'rng = np.random.default_rng(0)\n'
         'side = 1000\n'
         'def peak_per_pixel(keys):\n'

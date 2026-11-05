@@ -18,12 +18,12 @@ import time
 import pytest
 import serial
 
-from drivers.exceptions import HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire import backend as sim_backend
-from drivers.sim_wire import port as sim_port
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.mp import tmc5072
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire import backend as sim_backend
+from _lumascope.drivers.sim_wire import port as sim_port
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.mp import tmc5072
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -288,7 +288,7 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
     script = textwrap.dedent(
         """
         import sys, time
-        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+        from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
         b = SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT')))
         p = b.open(port=b.comports()[0].device, baudrate=115200, timeout=0.5)
         while True:  # the firmware is running, not still starting
@@ -302,7 +302,7 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
     host = subprocess.Popen(
         [sys.executable, '-c', script],
         cwd=REPO_ROOT,
-        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT)),
+        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT / 'src')),
         stdout=subprocess.PIPE,
         text=True,
     )

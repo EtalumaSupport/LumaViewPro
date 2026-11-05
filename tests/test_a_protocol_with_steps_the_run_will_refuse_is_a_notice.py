@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.notification_center import notifications
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.notification_center import notifications
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
 

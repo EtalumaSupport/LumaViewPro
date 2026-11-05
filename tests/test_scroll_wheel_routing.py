@@ -284,7 +284,7 @@ class TestWheelDirectionIsConsistent:
         import sys
         import types
 
-        from modules.sequential_io_executor import IOTask
+        from _lumascope.modules.sequential_io_executor import IOTask
         from ui import shader
 
         # No running app: the controls are not locked, as on a scope nothing holds.

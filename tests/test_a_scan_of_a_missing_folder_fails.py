@@ -2,8 +2,8 @@
 """A scan of a source folder fails, naming it, when git tracks nothing there.
 
 ``tests/ast_seams.py`` ``tracked_files`` is the one lister of the
-repository's files. A guard asserting "no file under ``drivers/`` does X"
-must not pass over no files when ``drivers/`` has moved. The lister is
+repository's files. A guard asserting "no file under ``src/_lumascope/drivers/`` does X"
+must not pass over no files when ``src/_lumascope/drivers/`` has moved. The lister is
 driven over a ``git init``-ed tree of its own, so no file is planted in
 the checkout the other workers scan.
 """
@@ -58,4 +58,4 @@ def test_an_untracked_file_is_not_listed(tree):
 
 def test_the_package_walker_refuses_a_package_that_is_not_there():
     with pytest.raises(FileNotFoundError, match=r"'no_such_package'"):
-        list(iter_package_modules(('modules', 'no_such_package')))
+        list(iter_package_modules(('src/_lumascope/modules', 'no_such_package')))

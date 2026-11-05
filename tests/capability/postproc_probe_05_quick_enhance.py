@@ -33,7 +33,7 @@ def main() -> int:
             print('PROBE RESULT: no run folder produced')
             return 2
 
-        from modules.exceptions import CaptureError
+        from _lumascope.modules.exceptions import CaptureError
 
         source = sorted(folder.glob('*.tiff'))[0]
         progress = []

@@ -14,16 +14,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
-from modules.operation import Operation
+from _lumascope.modules.operation import Operation
 from tests.pool_fakes import run_task_now
 
 
 @pytest.fixture
 def stop(monkeypatch, centre_posts):
     """Submit a Stop of *run* to a pool that runs it at once; return the redraws."""
-    from modules.sequential_io_executor import ENQUEUED
+    from _lumascope.modules.sequential_io_executor import ENQUEUED
 
     pool = MagicMock()
 

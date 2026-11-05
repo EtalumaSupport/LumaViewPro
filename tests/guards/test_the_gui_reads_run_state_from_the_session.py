@@ -17,10 +17,10 @@ GUI_MODULES = ('lumaviewpro.py', 'ui/step_navigation.py', 'ui/vertical_control.p
 # What the Session already answers, read below it.
 BELOW_THE_SESSION = MemberNames(
     (
-        'modules/sequenced_capture_runner.py',
-        'modules/manual_recording.py',
-        'modules/protocol_recording.py',
-        'modules/sequential_io_executor.py',
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        'src/_lumascope/modules/manual_recording.py',
+        'src/_lumascope/modules/protocol_recording.py',
+        'src/_lumascope/modules/sequential_io_executor.py',
     ),
     {'run_in_progress', 'video_drain_busy', 'is_busy'},
 )

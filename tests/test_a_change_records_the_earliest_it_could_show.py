@@ -15,9 +15,9 @@ import time
 
 import pytest
 
-from drivers import host_clock
-from drivers.simulated_camera import SimulatedCamera
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.settings_fixtures import complete_settings
 

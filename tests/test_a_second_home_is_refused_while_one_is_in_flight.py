@@ -18,8 +18,8 @@ import threading
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, HomingFailedError
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
@@ -28,7 +28,7 @@ HOME_S = 60.0
 
 @pytest.fixture(params=['LS720', 'LS850', 'LS850T'])
 def scope(request, tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     # Not homed first: the home under test is the scope's first.
     session = ScopeSession.create(
@@ -126,7 +126,7 @@ class TestTheClaimEndsWithItsHome:
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 

@@ -16,8 +16,8 @@ import subprocess
 
 import pytest
 
-from modules import tech_support_report
-from modules.scope_session import ScopeSession
+from _lumascope.modules import tech_support_report
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

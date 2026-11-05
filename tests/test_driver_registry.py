@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for `drivers/registry.py` (audit B2).
+"""Tests for `src/_lumascope/drivers/registry.py` (audit B2).
 
 The registry replaces the hardcoded if/elif driver selection chains in
 Lumascope.__init__. These tests cover:
@@ -20,7 +20,7 @@ import threading
 
 import pytest
 
-from drivers.registry import (
+from _lumascope.drivers.registry import (
     DeclinedDriver,
     DriverFallback,
     DriverNotLiveError,
@@ -30,7 +30,7 @@ from drivers.registry import (
     led_registry,
     camera_registry,
 )
-from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from tests.scope_fakes import build_scope
 
 
@@ -130,7 +130,7 @@ class TestDriverRegistryUnit:
     def test_the_fallback_names_its_cause_beside_the_null_driver(self):
         """A null driver says only that nothing is connected; the verdict
         beside it says why, so a record of the bring-up can carry it."""
-        from drivers.registry import DriverFallback
+        from _lumascope.drivers.registry import DriverFallback
 
         reg = DriverRegistry('fake')
 
@@ -156,7 +156,7 @@ class TestDriverRegistryUnit:
         assert fallback == DriverFallback('port_in_use', ('Unfound', 'Held'))
 
     def test_a_driver_that_raised_is_the_fallback_s_detail(self):
-        from drivers.registry import DriverFallback
+        from _lumascope.drivers.registry import DriverFallback
 
         reg = DriverRegistry('fake')
 
@@ -178,7 +178,7 @@ class TestDriverRegistryUnit:
         """The LED registry holds the FX2 driver wherever pyusb is installed, and
         it raises when no FX2 is attached; that raise must not hide what the
         EL-0940 board said about itself (its port held by another program)."""
-        from drivers.registry import DriverFallback
+        from _lumascope.drivers.registry import DriverFallback
 
         reg = DriverRegistry('fake')
 
@@ -468,9 +468,9 @@ class TestLumascopeUsesRegistry:
     via the registry, not via hardcoded class references."""
 
     def test_simulate_true_yields_simulated_drivers(self):
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-        from drivers.simulated_ledboard import SimulatedLEDBoard
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
 
         scope = build_scope(simulate=True)
         assert isinstance(scope._motion_driver, SimulatedMotorBoard)
@@ -492,7 +492,7 @@ class TestLumascopeUsesRegistry:
         Motor and LED have full coverage (rp2040 / sim / null) on any
         platform. Camera 'ids' is optional -- it only registers if the
         `ids_peak` SDK is installed (Windows/Linux with IDS drivers).
-        On macOS the scope never imports `drivers.idscamera` (IDS peak
+        On macOS the scope never imports `_lumascope.drivers.idscamera` (IDS peak
         has no macOS build; `_register_ids_camera` in `_lumascope.py`),
         and elsewhere a failed import skips it, so the decorator never
         runs and 'ids' is absent from the registry. That's correct
@@ -511,7 +511,7 @@ class TestLumascopeUsesRegistry:
 
         assert 'pylon' in camera_registry.registered_names()
         assert 'sim' in camera_registry.registered_names()
-        ids_loaded = 'drivers.idscamera' in sys.modules
+        ids_loaded = '_lumascope.drivers.idscamera' in sys.modules
         assert ('ids' in camera_registry.registered_names()) == ids_loaded
 
 

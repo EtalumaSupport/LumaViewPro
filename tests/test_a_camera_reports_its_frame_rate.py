@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import HardwareError
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.settings_fixtures import complete_settings
 

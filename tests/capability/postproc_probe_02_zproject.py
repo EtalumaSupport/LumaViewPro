@@ -39,7 +39,7 @@ def main() -> int:
         folder = candidates[0].parent
         print('tiffs in folder:', sorted(p.name for p in folder.rglob('*.tif*')))
 
-        from modules.exceptions import CaptureError
+        from _lumascope.modules.exceptions import CaptureError
 
         try:
             result = session.post_processing.zproject(folder, method='Max')

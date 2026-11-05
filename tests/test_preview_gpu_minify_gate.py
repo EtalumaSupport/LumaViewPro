@@ -52,7 +52,7 @@ for _name in (
 _real_base_module('kivy.uix.image', Image=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
-import modules.app_context as app_context
+import _lumascope.modules.app_context as app_context
 from ui.scope_display import ScopeDisplay
 
 

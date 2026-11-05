@@ -15,7 +15,7 @@ import threading
 
 import pytest
 
-from modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState
 from tests.scope_fakes import build_scope
 
 KNOWN = (AxisState.IDLE, AxisState.MOVING)

@@ -24,12 +24,12 @@ import time
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-import modules.video_cadence as video_cadence
-from modules.exceptions import CameraStreamStalledError
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.notification_center import Severity, notifications
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+import _lumascope.modules.video_cadence as video_cadence
+from _lumascope.modules.exceptions import CameraStreamStalledError
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 STALL_TITLE = CameraStreamStalledError.title

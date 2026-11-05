@@ -21,8 +21,8 @@ import pathlib
 import shutil
 import tempfile
 
-from modules import settings_init, settings_paths
-from modules.python_values import python_values
+from _lumascope.modules import settings_init, settings_paths
+from _lumascope.modules.python_values import python_values
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _TEMPLATE = _REPO_ROOT / 'data' / 'settings.json'

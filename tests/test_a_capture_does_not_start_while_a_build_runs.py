@@ -15,9 +15,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import RecordingRefusedError, RefusalCause
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.exceptions import RecordingRefusedError, RefusalCause
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
 
 

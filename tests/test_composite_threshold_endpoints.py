@@ -21,16 +21,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import modules.layer_record as layer_record
-from modules.composite_builder import (
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.composite_builder import (
     CompositeChannel,
     TransmittedBase,
     brightness_cutoff_from_percent,
     build_composite,
 )
-from modules.composite_generation import CompositeGeneration
-from modules.exceptions import ConfigError
-from modules.layer_record import release_colors
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.exceptions import ConfigError
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED2
 
 

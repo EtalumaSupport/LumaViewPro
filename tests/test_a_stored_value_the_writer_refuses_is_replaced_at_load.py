@@ -16,7 +16,7 @@ import shutil
 
 import pytest
 
-from modules import settings_init
+from _lumascope.modules import settings_init
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE = REPO / 'data' / 'settings.json'

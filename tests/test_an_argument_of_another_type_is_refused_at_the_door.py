@@ -18,9 +18,13 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from modules.api_surface import api
-from modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError, RefusalCause
-from modules.scope_session import ScopeSession
+from _lumascope.modules.api_surface import api
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    ArgumentTypeRefusedError,
+    RefusalCause,
+)
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.test_run_refusal_contract import _make_single_step_protocol
 
@@ -205,6 +209,6 @@ def test_a_static_and_a_class_member_are_still_reached_through_the_class(tmp_pat
 def test_a_marked_module_function_holds_its_first_parameter_too():
     """A function marked at a module's top level has no ``self``: its first
     parameter is an argument, held at the door like any other."""
-    from rest.app import build_app
+    from _lumascope.rest.app import build_app
 
     _refused(lambda: build_app(MagicMock()), 'build_app', 'session')

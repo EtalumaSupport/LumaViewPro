@@ -22,8 +22,8 @@ import pytest
 # mock so the real SDK can load here. When the flag is NOT set, this
 # import succeeds against the conftest mock and the marker below skips
 # the tests at collection time.
-from drivers.idscamera import IDSCamera
-from modules.image_utils import convert_to_8bit
+from _lumascope.drivers.idscamera import IDSCamera
+from _lumascope.modules.image_utils import convert_to_8bit
 
 
 @pytest.mark.ids_hardware
@@ -295,7 +295,7 @@ class TestIDS(unittest.TestCase):
         pixel fits in the low significant_bits of the uint16. If the SDK
         left-aligns instead, pixel values ride in the high bits and overflow
         that range -- the assertion below catches it, settling the #1
-        undocumented unpack unknown. drivers/ids_unpack.py is the cross-check
+        undocumented unpack unknown. src/_lumascope/drivers/ids_unpack.py is the cross-check
         for the expected layout.
 
         Needs light on the sensor: a near-dark frame can't distinguish the two
@@ -466,7 +466,7 @@ class TestIDS(unittest.TestCase):
                 pass
             return ' '.join(parts)
 
-        from lvp_logger import logger as _cap_log
+        from _lumascope.lvp_logger import logger as _cap_log
 
         def _emit(line):
             # Print for the -s terminal AND log through the driver logger so the
@@ -579,12 +579,12 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
     """
 
     def test_exact_match(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(IDSCamera._resolve_logical_format_name('Mono8', ('Mono8',)), 'Mono8')
 
     def test_mono8_prefix_match(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._resolve_logical_format_name(
@@ -594,14 +594,14 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
         )
 
     def test_mono8_no_family_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertIsNone(
             IDSCamera._resolve_logical_format_name('Mono8', ('Mono10g40IDS', 'Mono12g24IDS'))
         )
 
     def test_mono12_prefix_match(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._resolve_logical_format_name('Mono12', ('Mono8', 'Mono12g24IDS')),
@@ -609,7 +609,7 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
         )
 
     def test_mono12_falls_back_to_mono10(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._resolve_logical_format_name('Mono12', ('Mono8', 'Mono10g40IDS')),
@@ -617,7 +617,7 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
         )
 
     def test_camera_native_name_passes_through(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._resolve_logical_format_name('Mono10g40IDS', ('Mono8', 'Mono10g40IDS')),
@@ -625,12 +625,12 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
         )
 
     def test_unknown_logical_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertIsNone(IDSCamera._resolve_logical_format_name('Mono99', ('Mono8',)))
 
     def test_empty_supported_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertIsNone(IDSCamera._resolve_logical_format_name('Mono8', ()))
 
@@ -645,7 +645,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
     """
 
     def test_prefers_mono8_when_present(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         # A body that exposes Mono8 (e.g. Basler-style) starts there -- lowest
         # bandwidth for the live preview.
@@ -655,7 +655,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
         )
 
     def test_imx676_packed_only_picks_mono10(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         # No Mono8 (the IMX676 bodies): 10-bit packed beats 12-bit packed.
         self.assertEqual(
@@ -664,7 +664,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
         )
 
     def test_mono12_only_picks_mono12(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._select_default_pixel_format(('Mono12g24IDS',)),
@@ -672,7 +672,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
         )
 
     def test_colour_only_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         # This driver's pipeline is mono-only; a colour body has no valid
         # default here (returning a Bayer/RGB entry would feed a mosaic to the
@@ -680,7 +680,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
         self.assertIsNone(IDSCamera._select_default_pixel_format(('BayerRG8', 'RGB8')))
 
     def test_prefers_packed_over_unpacked_same_depth(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         # Same 10-bit depth: the packed IDS entry (fewer bytes on the wire) beats
         # the unpacked one, so connect does not double USB bandwidth by default.
@@ -690,7 +690,7 @@ class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
         )
 
     def test_empty_supported_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertIsNone(IDSCamera._select_default_pixel_format(()))
 
@@ -705,7 +705,7 @@ class TestIDSGainSelectorSelection(unittest.TestCase):
     """
 
     def test_preferred_present(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._select_gain_selector_name(('All', 'AnalogAll', 'DigitalAll'), 'AnalogAll'),
@@ -713,7 +713,7 @@ class TestIDSGainSelectorSelection(unittest.TestCase):
         )
 
     def test_preferred_absent_picks_analog_variant(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._select_gain_selector_name(('All', 'AnalogGain'), 'AnalogAll'),
@@ -721,7 +721,7 @@ class TestIDSGainSelectorSelection(unittest.TestCase):
         )
 
     def test_no_analog_falls_back_to_all(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._select_gain_selector_name(('All', 'DigitalAll'), 'AnalogAll'),
@@ -729,7 +729,7 @@ class TestIDSGainSelectorSelection(unittest.TestCase):
         )
 
     def test_unknown_only_falls_back_to_first(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertEqual(
             IDSCamera._select_gain_selector_name(('Tap1', 'Tap2'), 'AnalogAll'),
@@ -737,7 +737,7 @@ class TestIDSGainSelectorSelection(unittest.TestCase):
         )
 
     def test_empty_returns_none(self):
-        from drivers.idscamera import IDSCamera
+        from _lumascope.drivers.idscamera import IDSCamera
 
         self.assertIsNone(IDSCamera._select_gain_selector_name((), 'AnalogAll'))
 
@@ -748,7 +748,7 @@ class TestIDSDefaultProfile(unittest.TestCase):
     capability fields are filled from the live nodemap at connect."""
 
     def test_is_ids_driver_with_empty_capability_fields(self):
-        from drivers.camera_profiles import ids_default_profile
+        from _lumascope.drivers.camera_profiles import ids_default_profile
 
         p = ids_default_profile('U3-99XYZ-M')
         self.assertEqual(p.driver, 'ids')

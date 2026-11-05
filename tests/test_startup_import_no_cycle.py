@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Startup import-cycle guard.
 
-lvp_logger imports load_debug_setting from modules.settings_init at its module
-top -- before lvp_logger.logger is defined further down the file. If
-settings_init pulls in modules.image_mode at ITS module top, and image_mode
-imports lvp_logger.logger at top, the chain resolves `from lvp_logger import
+lvp_logger imports load_debug_setting from _lumascope.modules.settings_init at its module
+top -- before _lumascope.lvp_logger.logger is defined further down the file. If
+settings_init pulls in _lumascope.modules.image_mode at ITS module top, and image_mode
+imports _lumascope.lvp_logger.logger at top, the chain resolves `from _lumascope.lvp_logger import
 logger` against a half-initialized lvp_logger and raises ImportError, so the app
 never launches.
 
@@ -33,7 +33,7 @@ def _fresh_import(statement: str) -> subprocess.CompletedProcess:
 
 def test_lvp_logger_imports_in_a_fresh_interpreter():
     # The exact app-startup path: lumaviewpro.py imports lvp_logger first.
-    result = _fresh_import('import lvp_logger')
+    result = _fresh_import('import _lumascope.lvp_logger')
     assert result.returncode == 0, (
         f'fresh import of lvp_logger failed (startup import cycle?):\n{result.stderr}'
     )
@@ -42,7 +42,9 @@ def test_lvp_logger_imports_in_a_fresh_interpreter():
 def test_settings_init_and_image_mode_import_together():
     # The other end of the cycle: settings_init defers the image_mode import,
     # so loading both (in either order) must stay clean.
-    result = _fresh_import('import modules.settings_init; import modules.image_mode')
+    result = _fresh_import(
+        'import _lumascope.modules.settings_init; import _lumascope.modules.image_mode'
+    )
     assert result.returncode == 0, (
         f'fresh import of settings_init + image_mode failed (import cycle?):\n{result.stderr}'
     )

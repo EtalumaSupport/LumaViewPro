@@ -21,8 +21,8 @@ import threading
 # The installation folder, importable when the script is run by its path.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 
 WELLS = ('B2', 'B3', 'B4')
 

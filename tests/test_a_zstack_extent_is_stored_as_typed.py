@@ -18,10 +18,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.zstack as zstack_module
-from modules.exceptions import SettingRefusedError
-from modules.notification_center import notifications
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.notification_center import notifications
 from ui.zstack import ZStack
 from tests.settings_fixtures import settings_writer
 

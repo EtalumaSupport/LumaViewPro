@@ -21,15 +21,15 @@ import os
 import numpy as np
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules import post_derivation
-from modules import image_utils
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules import post_processing
-from modules.post_processing import PostProcessing
-from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules import post_derivation
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from _lumascope.modules import post_processing
+from _lumascope.modules.post_processing import PostProcessing
+from _lumascope.modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 from tests.installation_fixtures import shipped_grids
 
@@ -281,7 +281,7 @@ def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_pat
 
 
 def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tmp_path):
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     _write_tiff(tmp_path / 'one.tif')
     texts = []
@@ -303,7 +303,7 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
 def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     import cv2
 
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     source = tmp_path / 'image.tif'
     source.write_bytes(b'decoded by the stand-in below')
@@ -324,8 +324,8 @@ def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
 def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_refuses_it(
     tmp_path,
 ):
-    from modules.post_processing import read_cell_count_image
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing import read_cell_count_image
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     source = tmp_path / 'broken.tif'
     source.write_bytes(b'not a tiff')
@@ -346,9 +346,9 @@ class _ScriptedBuild:
     def make(name):
         import pandas as pd
 
-        from modules.common_utils import PostFunction
-        from modules.protocol_post_processing_result import PostProcResult
-        from modules.protocol_post_processor import ProtocolPostProcessor
+        from _lumascope.modules.common_utils import PostFunction
+        from _lumascope.modules.protocol_post_processing_result import PostProcResult
+        from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 
         def _groups(self, df):
             return [(key, group) for key, group in df.groupby('GroupKey')]
@@ -425,7 +425,7 @@ def test_a_stitchs_time_estimate_counts_the_group_now_starting(tmp_path, monkeyp
     import itertools
     from types import SimpleNamespace
 
-    import modules.protocol_post_processor as protocol_post_processor
+    import _lumascope.modules.protocol_post_processor as protocol_post_processor
 
     # Every group takes 10 s by the build's own clock: the module's own name
     # for time, so no other thread reads these ticks.
@@ -445,7 +445,7 @@ def test_a_stitchs_time_estimate_counts_the_group_now_starting(tmp_path, monkeyp
 def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatch):
     import pandas as pd
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     seen = {}
 

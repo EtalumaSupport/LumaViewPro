@@ -25,7 +25,7 @@ DELIVERY_WINDOW_S = 5.0
 @contextlib.contextmanager
 def _ls620_simulator():
     """An LS620 on the simulator: the production FX2 drivers over a simulated FX2."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     from tests.settings_fixtures import complete_settings
 

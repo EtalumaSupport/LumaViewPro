@@ -18,12 +18,12 @@ import time
 
 import pytest
 
-import modules.video_cadence as video_cadence
-from drivers.exceptions import CameraStreamStartFailedError
-from modules.exceptions import CameraStreamStalledError
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
+import _lumascope.modules.video_cadence as video_cadence
+from _lumascope.drivers.exceptions import CameraStreamStartFailedError
+from _lumascope.modules.exceptions import CameraStreamStalledError
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

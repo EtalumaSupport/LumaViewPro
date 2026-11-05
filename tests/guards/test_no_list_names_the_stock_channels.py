@@ -20,20 +20,20 @@ from __future__ import annotations
 
 import ast
 
-from modules.layer_record import stored_channel_names
+from _lumascope.modules.layer_record import stored_channel_names
 from tests.ast_seams import iter_package_modules, production_modules, walk_defs
 
 _MINIMUM = 3
 
 _FOREIGN_FILE_TABLES = {
-    ('modules/quick_enhance.py', 'QuickEnhancer._legacy_false_color_channel'),
-    ('modules/quick_enhance.py', 'QuickEnhancer._source_channel'),
+    ('src/_lumascope/modules/quick_enhance.py', 'QuickEnhancer._legacy_false_color_channel'),
+    ('src/_lumascope/modules/quick_enhance.py', 'QuickEnhancer._source_channel'),
 }
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'rest'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'src/_lumascope/rest'))
 
 
 def _named_keys(node: ast.AST, keys: frozenset[str]) -> set[str]:

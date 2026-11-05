@@ -34,7 +34,7 @@ class TestLEDSerialBenchmark:
 
     @pytest.fixture
     def led(self):
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         board = LEDBoard()
         if not board.found:
@@ -127,7 +127,7 @@ class TestMotorSerialBenchmark:
 
     @pytest.fixture
     def motor(self):
-        from drivers.motorboard import MotorBoard
+        from _lumascope.drivers.motorboard import MotorBoard
 
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         if not board.found:
@@ -199,7 +199,7 @@ class TestConcurrentSerialAccess:
 
     @pytest.fixture
     def led(self):
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         board = LEDBoard()
         if not board.found:

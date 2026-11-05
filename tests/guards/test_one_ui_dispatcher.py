@@ -18,8 +18,8 @@ import re
 
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
-_STORE_MODULE = 'modules/ui_queue.py'
-_DOOR_MODULE = 'modules/scope_session.py'
+_STORE_MODULE = 'src/_lumascope/modules/ui_queue.py'
+_DOOR_MODULE = 'src/_lumascope/modules/scope_session.py'
 _DOOR_DEF = 'ScopeSession.set_ui_dispatcher'
 _WRITER = '_set_ui_dispatcher'
 # The door's own name is how every caller reaches the store; the writer's
@@ -31,7 +31,7 @@ _HOLDER = re.compile(r'(?<![a-z])ui_dispatch')
 
 def _every_module():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'tests'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'tests'))
 
 
 def _names(node: ast.AST) -> list[str]:

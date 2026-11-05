@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from drivers import fx2driver
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import fx2driver
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.log_capture import records_of
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_refused_step_navigation_changes_nothing import (  # noqa: F401 -- nav_env is a fixture
     ON_TURRET,
     _navigate,

@@ -13,9 +13,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers import host_clock
-from modules.caller import Caller
-from modules.exceptions import (
+from _lumascope.drivers import host_clock
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.exceptions import (
     ClaimStillLentError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
@@ -28,7 +28,7 @@ from tests.protocol_drives import run_identity
 @pytest.fixture
 def sim_session(tmp_path):
     """A simulated turreted scope with a known objective in the live slot."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 
@@ -102,8 +102,8 @@ class TestTheDiagnosticHoldsTheScope:
         assert sim_session.scope.runtime_state.get_current_objective_id() == '10x Oly'
 
     def test_a_recording_start_is_refused_naming_it(self):
-        from modules.exceptions import RecordingRefusedError
-        from modules.video_recording import VideoRecordingEngine
+        from _lumascope.modules.exceptions import RecordingRefusedError
+        from _lumascope.modules.video_recording import VideoRecordingEngine
 
         session = session_on_a_simulated_scope()
         engine = VideoRecordingEngine(
@@ -158,7 +158,7 @@ class TestALentClaim:
     """Work inside a diagnostic acts under its claim and cannot end it."""
 
     def test_a_borrowing_holds_while_its_lender_holds(self):
-        from modules.activity_claim import ActivityClaim
+        from _lumascope.modules.activity_claim import ActivityClaim
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
@@ -171,7 +171,7 @@ class TestALentClaim:
 
     def test_a_borrowing_lends_onward_under_the_same_lender(self):
         """A run inside a diagnostic lends its claim to its own recordings."""
-        from modules.activity_claim import ActivityClaim
+        from _lumascope.modules.activity_claim import ActivityClaim
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
@@ -184,7 +184,7 @@ class TestALentClaim:
         held.release()
 
     def test_the_lender_is_not_in_its_own_borrowers_way(self):
-        from modules.activity_claim import ActivityClaim
+        from _lumascope.modules.activity_claim import ActivityClaim
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
@@ -202,7 +202,7 @@ class TestALentClaim:
 
 def _end_the_run(runner, monkeypatch):
     """The run's cleanup: the runner back to IDLE, the session told, the kept claim released."""
-    from modules.protocol_state_machine import ProtocolState
+    from _lumascope.modules.protocol_state_machine import ProtocolState
 
     monkeypatch.setattr(runner, '_state', ProtocolState.IDLE)
     runner._on_run_idle()
@@ -210,7 +210,7 @@ def _end_the_run(runner, monkeypatch):
 
 class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
     def test_a_run_still_live_past_the_wait_keeps_the_claim_until_it_ends(self, monkeypatch):
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
@@ -237,7 +237,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         """A raise at the block's end would replace the block's own exception,
         the one its caller is owed: in exactly the case the wait is for, a
         caller that raised between starting a run and waiting on it."""
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
@@ -255,7 +255,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
     def test_a_clean_block_inside_a_callers_except_still_raises_the_kept_claim(self, monkeypatch):
         """Whether the block raised is the block's own fact, not the thread's
         exception state: a caller handling an exception is not a block that raised."""
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner

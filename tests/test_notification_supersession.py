@@ -25,7 +25,7 @@ import pytest
 from tests.ast_seams import parse_module
 
 import ui.notification_popup as notification_popup
-from modules.notification_center import Notification, Severity
+from _lumascope.modules.notification_center import Notification, Severity
 
 
 class _FakePopup:
@@ -160,7 +160,7 @@ class TestBothEndsNameTheSameOperation:
         Walks the AST rather than the text, so a reformatted or line-wrapped
         call still counts and a mention inside a comment does not.
         """
-        tree = parse_module('modules/stack_builder.py')
+        tree = parse_module('src/_lumascope/modules/stack_builder.py')
         (boundary,) = [
             node
             for node in ast.walk(tree)
@@ -227,7 +227,7 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
 
     @staticmethod
     def _refusal(title, *, monotonic_s, remedy=None):
-        from modules.notification_center import REFUSAL_OPERATION_KEY
+        from _lumascope.modules.notification_center import REFUSAL_OPERATION_KEY
 
         return Notification(
             severity=Severity.WARNING,
@@ -246,7 +246,7 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         """The confirm hands the remedy to the session, which decides: with no
         write stuck, its recover refuses (``FileWriterNotStuckError``)."""
         import ui.ui_helpers as ui_helpers
-        from modules.exceptions import FileWriterNotStuckError, Remedy
+        from _lumascope.modules.exceptions import FileWriterNotStuckError, Remedy
 
         remedy = Remedy(
             member='recover_file_writer',
@@ -275,7 +275,7 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
             call()
 
     def test_the_next_refusal_replaces_the_offer(self, offers, popup_surface):
-        from modules.exceptions import Remedy
+        from _lumascope.modules.exceptions import Remedy
 
         remedy = Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait')
         notification_popup.notification_popup_bridge(

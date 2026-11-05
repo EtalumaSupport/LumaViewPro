@@ -19,16 +19,16 @@ from __future__ import annotations
 
 import pytest
 
-import modules.autofocus_functions as autofocus_functions
-import modules.manual_recording as manual_recording_module
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
-from modules.layer_record import release_colors
-from modules.manual_recording import ManualRecordingController
-from modules.notification_center import NotificationCenter, Severity
-from modules.protocol import Protocol
-from modules.scheduler import ThreadingTimerScheduler
-from modules.scope_session import ScopeSession
+import _lumascope.modules.autofocus_functions as autofocus_functions
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.notification_center import NotificationCenter, Severity
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scheduler import ThreadingTimerScheduler
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import bind_settings_like_a_session, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
@@ -130,7 +130,7 @@ def test_two_autofocus_runs_that_did_not_focus_both_say_so(session, centre_posts
 
 def test_two_composites_missing_a_channel_both_say_so(tmp_path, centre_posts):
     """The merge's own failure, then the run's shortfall, for each run."""
-    from modules.exceptions import CaptureError
+    from _lumascope.modules.exceptions import CaptureError
 
     settings = headless_settings(tmp_path, acquiring=('BF', LED0))
     with open_composite_session(settings) as (session, runner):
@@ -148,8 +148,8 @@ def test_two_composites_missing_a_channel_both_say_so(tmp_path, centre_posts):
 
 def test_two_composites_whose_merge_raised_both_say_so(tmp_path, centre_posts, monkeypatch):
     """A raise from outside the root, told under the merge's "Composite Failed"."""
-    from modules.composite_generation import CompositeGeneration
-    from modules.exceptions import CaptureError
+    from _lumascope.modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.exceptions import CaptureError
 
     def _explode(self, path, **kwargs):
         raise RuntimeError('synthetic merge crash')

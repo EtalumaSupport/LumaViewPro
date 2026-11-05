@@ -22,11 +22,11 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
-from modules.protocol_image_writer import RunWriteBatch
-import modules.app_context as _app_ctx
-from modules.image_mode import ImageCaptureConfig
-from modules.protocol_image_writer import ProtocolImageWriter
-from modules.run_events import RunEvents
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
+from _lumascope.modules.run_events import RunEvents
 from tests.ast_seams import iter_package_modules, parse_module
 from tests.scope_fakes import spec_scope
 
@@ -37,9 +37,9 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
     sys.modules.setdefault(_name, MagicMock())
 
 
-from modules.run_outcome import EndingLatch
-from modules.layer_record import release_colors
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.run_outcome import EndingLatch
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 def _writer(events):
@@ -165,8 +165,8 @@ class TestFrameCapturedCarriesTheSavedFrame:
         """A frame the handler cannot show -- here one deeper than its declared
         depth -- is reported once, unasked, as the exception it is, under the
         event's name, and the capture's write is still submitted."""
-        from modules.exceptions import FrameDepthError
-        from modules.notification_center import notifications
+        from _lumascope.modules.exceptions import FrameDepthError
+        from _lumascope.modules.notification_center import notifications
 
         reported = []
         monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
@@ -188,7 +188,7 @@ class TestTheGuiHandlerLooksTheDisplayUpLate:
         """A run that starts before the display is built: the handler's late
         read fails inside the event's delivery, which reports it once,
         unasked, and the save goes on."""
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
         from ui.ui_helpers import show_captured_frame
 
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace())
@@ -266,34 +266,38 @@ class TestEveryGuiRunStarterSubscribesTheHandler:
                     return True
             return False
 
-        hits = [rel for rel, tree in iter_package_modules(('modules', 'ui')) if _names_it(tree)]
+        hits = [
+            rel
+            for rel, tree in iter_package_modules(('src/_lumascope/modules', 'ui'))
+            if _names_it(tree)
+        ]
         if _names_it(parse_module('lumaviewpro.py')):
             hits.append('lumaviewpro.py')
         assert not hits, f'update_scope_display survives in {hits}'
 
     def test_the_writer_reads_no_context(self):
         """Structural: the display hold was the writer's last context read."""
-        tree = parse_module('modules/protocol_image_writer.py')
+        tree = parse_module('src/_lumascope/modules/protocol_image_writer.py')
         offenders = [
             node.lineno
             for node in ast.walk(tree)
             if (
                 isinstance(node, ast.Import)
-                and any(a.name == 'modules.app_context' for a in node.names)
+                and any(a.name == '_lumascope.modules.app_context' for a in node.names)
             )
             or (
                 isinstance(node, ast.ImportFrom)
                 and (
-                    node.module == 'modules.app_context'
+                    node.module == '_lumascope.modules.app_context'
                     or (
-                        node.module == 'modules'
+                        node.module == '_lumascope.modules'
                         and any(a.name == 'app_context' for a in node.names)
                     )
                 )
             )
         ]
         assert not offenders, (
-            f'modules/protocol_image_writer.py imports the application context at {offenders}'
+            f'src/_lumascope/modules/protocol_image_writer.py imports the application context at {offenders}'
         )
 
 

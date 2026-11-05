@@ -26,7 +26,7 @@ def test_protocol_logger_defined_non_propagating():
     to protocol.log and does not propagate into the main log."""
     # pin-justified: conftest mocks lvp_logger wholesale, so the real
     # logger configuration never executes in pytest (see module docstring).
-    src = _src('lvp_logger.py')
+    src = _src('src/_lumascope/lvp_logger.py')
     assert 'PROTOCOL_LOG_FILE' in src and "'protocol.log'" in src, (
         'lvp_logger must define PROTOCOL_LOG_FILE pointing at protocol.log'
     )
@@ -44,8 +44,8 @@ def test_protocol_image_writer_uses_protocol_logger():
     through the dedicated protocol logger, not the root logger."""
     # pin-justified: import-binding contract; conftest mocks lvp_logger
     # wholesale, so the binding cannot be observed at runtime in pytest.
-    src = _src('modules/protocol_image_writer.py')
-    assert 'from lvp_logger import protocol_logger as logger' in src, (
+    src = _src('src/_lumascope/modules/protocol_image_writer.py')
+    assert 'from _lumascope.lvp_logger import protocol_logger as logger' in src, (
         'protocol_image_writer must bind its module logger to '
         'protocol_logger so its per-step detail lands in protocol.log'
     )
@@ -63,7 +63,7 @@ def test_protocol_log_file_created_lazily():
     """
     # pin-justified: handler construction; conftest mocks lvp_logger
     # wholesale, so the real handler never instantiates in pytest.
-    src = _src('lvp_logger.py')
+    src = _src('src/_lumascope/lvp_logger.py')
     idx = src.find('protocol_file_handler = _rotating_handler')
     assert idx != -1, 'lvp_logger must construct protocol_file_handler'
     window = src[idx : idx + 300]

@@ -22,8 +22,8 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.exceptions import ProtocolError
-from modules.protocol import Protocol
+from _lumascope.modules.exceptions import ProtocolError
+from _lumascope.modules.protocol import Protocol
 from tests.test_protocol_execution import _make_single_step_protocol
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.protocol_fixtures import protocol_from_file, protocol_of

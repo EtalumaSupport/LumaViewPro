@@ -13,8 +13,8 @@ the mark, and `path_utils.data_folder_name` is the one derivation.
 import ast
 import pathlib
 
-from modules import path_utils
-from modules.path_utils import data_folder_name, read_version
+from _lumascope.modules import path_utils
+from _lumascope.modules.path_utils import data_folder_name, read_version
 from tests.ast_seams import parse_module
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -60,9 +60,13 @@ def _names_the_folder_itself(rel_path: str) -> list[int]:
 
 
 def test_no_reader_of_the_folder_builds_its_name_itself():
-    for rel_path in ('lvp_logger.py', 'modules/app_environment.py', 'modules/path_utils.py'):
+    for rel_path in (
+        'src/_lumascope/lvp_logger.py',
+        'src/_lumascope/modules/app_environment.py',
+        'src/_lumascope/modules/path_utils.py',
+    ):
         lines = _names_the_folder_itself(rel_path)
-        if rel_path == 'modules/path_utils.py':
+        if rel_path == 'src/_lumascope/modules/path_utils.py':
             assert len(lines) == 1, f'path_utils builds the name once, in data_folder_name: {lines}'
         else:
             assert lines == [], f'{rel_path} builds the folder name itself at {lines}'
@@ -72,7 +76,7 @@ def test_the_logger_reads_the_version_through_the_one_reader():
     # The logger runs at import, before any test can stand in for its file,
     # so its read is asked of its source: a module-level call of read_version,
     # and no open() of version.txt at module level.
-    tree = parse_module('lvp_logger.py')
+    tree = parse_module('src/_lumascope/lvp_logger.py')
     module_level = [n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.ClassDef))]
     calls = {
         getattr(c.func, 'id', getattr(c.func, 'attr', None))

@@ -12,9 +12,9 @@ import time
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier

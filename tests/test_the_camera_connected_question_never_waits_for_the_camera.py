@@ -24,9 +24,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.lumascope_api import Lumascope
-from drivers.exceptions import CameraUsbOpenFailedError
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
@@ -146,7 +146,7 @@ class TestTheOneToOneScale:
 
 class TestTheRemovalHandlerIsRequired:
     def test_a_connect_whose_removal_handler_cannot_register_is_refused(self, monkeypatch):
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         cam = bare_pylon_camera()
         # a stand-in by design: pylon refusing a registration is a fault the simulator cannot yet produce (it has no pylon)

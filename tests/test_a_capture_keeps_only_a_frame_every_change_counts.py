@@ -13,9 +13,9 @@ import dataclasses
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CaptureFailedError
-from modules.frame_validity import FrameValidity
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.frame_validity import FrameValidity
 
 AUTO_GAIN = {
     'target_brightness': 0.5,

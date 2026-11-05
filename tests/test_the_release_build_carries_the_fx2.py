@@ -29,7 +29,7 @@ import pathlib
 
 import pytest
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / 'scripts' / 'appBuild' / 'config'
@@ -140,7 +140,7 @@ def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
 
 
 def test_repair_runs_the_driver_step_the_build_ships():
-    from modules import fx2_driver_step
+    from _lumascope.modules import fx2_driver_step
 
     assert fx2_driver_step.DRIVER_STEP_EXE == fx2_bundle.DRIVER_STEP_EXE
 

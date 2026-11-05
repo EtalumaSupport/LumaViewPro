@@ -79,7 +79,7 @@ def _row(scope, label):
 
 
 def _largest_frame(scope, cam, label):
-    from modules.exceptions import CameraSettingOutOfRangeError
+    from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 
     limits = scope.capabilities.camera_limits
     largest = limits.frame_max if limits is not None else None

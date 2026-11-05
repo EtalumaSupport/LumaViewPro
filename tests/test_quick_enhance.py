@@ -10,11 +10,15 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_utils
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
-from modules.layer_record import GREY, release_color
-from modules.layer_record import release_colors
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from _lumascope.modules.quick_enhance import (
+    QUANTITATIVE_USE_WARNING,
+    QuickEnhanceSettings,
+    QuickEnhancer,
+)
+from _lumascope.modules.layer_record import GREY, release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -189,7 +193,7 @@ def test_illumination_plane_avoids_full_resolution_coordinate_grids(monkeypatch)
             columns = np.arange(column_slice.start, column_slice.stop, column_slice.step)
             return np.meshgrid(rows, columns, indexing='ij')
 
-    monkeypatch.setattr('modules.quick_enhance.np.mgrid', RejectFullResolutionGrid())
+    monkeypatch.setattr('_lumascope.modules.quick_enhance.np.mgrid', RejectFullResolutionGrid())
     plane = QuickEnhancer()._global_illumination_plane(np.ones((1000, 1000), dtype=np.float32))
 
     assert plane.shape == (1000, 1000)

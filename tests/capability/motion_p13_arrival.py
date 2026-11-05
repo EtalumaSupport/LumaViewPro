@@ -28,7 +28,7 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
-from modules.exceptions import MoveStoppedError
+from _lumascope.modules.exceptions import MoveStoppedError
 from tests.motion_moves import axis_move, start_axis_move
 
 # How far below the top, and above the lowest leg target, the full-travel

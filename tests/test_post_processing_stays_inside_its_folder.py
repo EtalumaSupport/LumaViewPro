@@ -15,13 +15,13 @@ import datetime
 import numpy as np
 import pytest
 
-from modules import image_utils
-from modules.exceptions import PostProcessingRefusedError
-from modules.zprojector import ZProjector
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.zprojector import ZProjector
 from tests.installation_fixtures import shipped_grids
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
-from modules.zproject_method import ZProjectMethod
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.zproject_method import ZProjectMethod
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',

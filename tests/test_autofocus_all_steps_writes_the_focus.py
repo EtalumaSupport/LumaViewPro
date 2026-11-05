@@ -24,11 +24,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import FocusNotWrittenError, Refusal
-from modules.run_outcome import PendingRunOutcome, RunEnding
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import EngineRun
+from _lumascope.modules.exceptions import FocusNotWrittenError, Refusal
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import EngineRun
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -58,7 +58,7 @@ def _focusing_session(tmp_path):
 @contextlib.contextmanager
 def _reports_of(outcome_type):
     """Every outcome of *outcome_type* reported while the block runs."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     report = notifications.report_outcome

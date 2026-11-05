@@ -22,10 +22,10 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-import modules.stack_builder as stack_builder
-from modules.common_utils import PostFunction
-from modules.exceptions import (
+from _lumascope.modules import post_derivation
+import _lumascope.modules.stack_builder as stack_builder
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.exceptions import (
     CaptureError,
     HyperstackRefusedError,
     Notice,
@@ -33,11 +33,11 @@ from modules.exceptions import (
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
-from modules.notification_center import NotificationCenter, Severity, notifications
-from modules.protocol_post_processor import ProtocolPostProcessor
-from modules.protocol_post_processing_result import PostProcResult
+from _lumascope.modules.notification_center import NotificationCenter, Severity, notifications
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from tests.installation_fixtures import shipped_grids
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 class _Processor(ProtocolPostProcessor):
@@ -333,7 +333,7 @@ def test_a_gui_build_that_raises_is_told_once_as_the_persons_request(monkeypatch
 def test_the_stitcher_plugin_answers_a_typed_failure_in_its_words_with_its_outputs(
     tmp_path,
 ):
-    from modules.plugins.builtin import stitcher_plugin
+    from _lumascope.modules.plugins.builtin import stitcher_plugin
 
     fault = PostProcessingFailedError(
         operation='Stitch',
@@ -353,7 +353,7 @@ def test_the_stitcher_plugin_answers_a_typed_failure_in_its_words_with_its_outpu
 
 
 def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
-    import modules.composite_generation as composite_generation
+    import _lumascope.modules.composite_generation as composite_generation
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     def _refuse(self, path, **kwargs):
@@ -379,7 +379,7 @@ def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
 
 
 def _manual_video(monkeypatch, tmp_path, video_result):
-    import modules.video_builder as video_builder
+    import _lumascope.modules.video_builder as video_builder
 
     builder = video_builder.VideoBuilder(has_turret=False)
     monkeypatch.setattr(

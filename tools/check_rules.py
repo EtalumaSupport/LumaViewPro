@@ -12,7 +12,7 @@ Run as a pre-commit hook (via tools/install_hooks.py) or directly:
 
     python tools/check_rules.py --staged
     python tools/check_rules.py --staged --all
-    python tools/check_rules.py --paths drivers/foo.py drivers/bar.py
+    python tools/check_rules.py --paths src/_lumascope/drivers/foo.py src/_lumascope/drivers/bar.py
 
 Default mode in --staged is diff-only: violations are reported only when
 they appear on lines added by the staged commit. Pre-existing violations
@@ -40,7 +40,7 @@ Checks implemented (universal -- both repos):
                 `PERFORMANCE_BUDGETS.md` cite in the same file
 
 LumaViewPro-only (kv_ascii + cv2_channel + rule_37 families):
-    rule_37  -- a PUBLIC function in modules/, drivers/, or a top-level
+    rule_37  -- a PUBLIC function in src/_lumascope/modules/, src/_lumascope/drivers/, or a top-level
                 script that a staged commit adds or touches must carry
                 full type hints (params + return); the untouched legacy
                 backlog is never demanded (ratchet RULED 2026-08-24)
@@ -512,10 +512,10 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
 
 _POST_PROCESSOR_WRITE_PATHS = frozenset(
     {
-        'modules/zprojector.py',
-        'modules/stitcher.py',
-        'modules/composite_generation.py',
-        'modules/stack_builder.py',
+        'src/_lumascope/modules/zprojector.py',
+        'src/_lumascope/modules/stitcher.py',
+        'src/_lumascope/modules/composite_generation.py',
+        'src/_lumascope/modules/stack_builder.py',
     }
 )
 
@@ -529,31 +529,31 @@ _FALSE_COLOR_HELPER_NAMES = frozenset(
     }
 )
 
-_CV2_CHANNEL_IO_PATH_SCOPE = ('modules/', 'ui/')
+_CV2_CHANNEL_IO_PATH_SCOPE = ('src/_lumascope/modules/', 'ui/')
 _CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
     {
         # image_utils.py owns image_file_to_image (multi-format L1 file
         # loader called from the post-processing UI + Kivy display path)
         # plus the imread_color / imwrite_color / videowriter_color
         # capability-flag wrappers. cv2 use is by definition boundary code.
-        'modules/image_utils.py',
+        'src/_lumascope/modules/image_utils.py',
         # video_writer.py owns the cv2.VideoWriter XVID fallback for the
         # canonical VideoWriter class -- the wrapper that surrounding
         # callers consume; direct cv2.VideoWriter outside this class swaps
         # BGR / RGB at the file boundary.
-        'modules/video_writer.py',
+        'src/_lumascope/modules/video_writer.py',
     }
 )
 _CV2_CHANNEL_IO_BANNED_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
 
-_CV2_CHANNEL_TIFF_READ_PATH_SCOPE = ('modules/', 'ui/')
+_CV2_CHANNEL_TIFF_READ_PATH_SCOPE = ('src/_lumascope/modules/', 'ui/')
 _CV2_CHANNEL_TIFF_READ_FILE_EXEMPT = frozenset(
     {
         # image_utils.py owns load_pixels -- the one reader that returns the
         # pixels AND their significant-bit depth together -- plus the
         # read_tiff_with_legacy_collapse helper it calls. tifffile.imread here
         # is the boundary implementation, so the depth cannot be dropped.
-        'modules/image_utils.py',
+        'src/_lumascope/modules/image_utils.py',
     }
 )
 
@@ -565,14 +565,14 @@ _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
         # not at the storage edge -- mono fluorescence saves keep the
         # layer as TIFF metadata.
         'ui/main_display.py',
-        'modules/video_capture.py',
+        'src/_lumascope/modules/video_capture.py',
         # Sanctioned save-layer exception: the user-opt-in false-color image
         # mode (default OFF) deliberately widens 16-bit fluorescence to
         # 3-channel RGB so it renders in color in Windows Preview, which
         # cannot read the TIFF-metadata color path. maybe_apply_false_color
         # is the single canonical gate for that opt-in; it no-ops when the
         # setting is off, preserving the mono-native default everywhere else.
-        'modules/image_utils.py',
+        'src/_lumascope/modules/image_utils.py',
     }
 )
 
@@ -642,7 +642,7 @@ def _check_cv2_channel_tiff_write(tree: ast.AST, path: str) -> list[Violation]:
 
 def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
     """Block bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
-    in production ``modules/`` and ``ui/`` outside the canonical owner
+    in production ``src/_lumascope/modules/`` and ``ui/`` outside the canonical owner
     files.
 
     Bug shape this prevents: callers reach for ``cv2.imread`` /
@@ -652,11 +652,11 @@ def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
     the file boundary and silently corrupts color order. The canonical
     routes are the ``image_utils.imread_color`` /
     ``image_utils.imwrite_color`` / ``image_utils.videowriter_color``
-    capability-flag wrappers (which live in ``modules/image_utils.py``)
-    plus the ``modules.video_writer.VideoWriter`` wrapper class
+    capability-flag wrappers (which live in ``src/_lumascope/modules/image_utils.py``)
+    plus the ``_lumascope.modules.video_writer.VideoWriter`` wrapper class
     (which owns the cv2.VideoWriter XVID fallback).
 
-    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-
+    Path scope: only fires on ``src/_lumascope/modules/`` and ``ui/`` sources. File-
     level exempt for the canonical owner files in
     ``_CV2_CHANNEL_IO_FILE_EXEMPT``. Test files exempt via
     ``_is_test_path``.
@@ -686,10 +686,10 @@ def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
                     node.lineno,
                     node.col_offset,
                     'cv2_channel_io',
-                    f'bare cv2.{f.attr} in modules/ or ui/; route through '
+                    f'bare cv2.{f.attr} in src/_lumascope/modules/ or ui/; route through '
                     f'image_utils.imread_color / imwrite_color / '
                     f'videowriter_color (capability-flag wrappers) or the '
-                    f'canonical modules.video_writer.VideoWriter class. '
+                    f'canonical _lumascope.modules.video_writer.VideoWriter class. '
                     f'cv2 is BGR-native and bare calls swap channels at '
                     f'the file boundary.',
                 )
@@ -699,7 +699,7 @@ def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
 
 def _check_cv2_channel_tiff_read(tree: ast.AST, path: str) -> list[Violation]:
     """Block bare ``tf.imread`` / ``tifffile.imread`` in production
-    ``modules/`` and ``ui/`` outside the canonical depth-carrying reader.
+    ``src/_lumascope/modules/`` and ``ui/`` outside the canonical depth-carrying reader.
 
     Bug shape this prevents: a caller reads saved pixels via
     ``tifffile.imread`` and gets the array with no significant-bit depth.
@@ -710,7 +710,7 @@ def _check_cv2_channel_tiff_read(tree: ast.AST, path: str) -> list[Violation]:
     significant_bits)`` in one call so the pixels and their depth cannot be
     obtained apart.
 
-    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-level
+    Path scope: only fires on ``src/_lumascope/modules/`` and ``ui/`` sources. File-level
     exempt for the reader owner in ``_CV2_CHANNEL_TIFF_READ_FILE_EXEMPT``.
     Test files exempt via ``_is_test_path``. The write side (depth-less
     ``write_tiff``) is already impossible by signature --
@@ -739,7 +739,7 @@ def _check_cv2_channel_tiff_read(tree: ast.AST, path: str) -> list[Violation]:
                     node.lineno,
                     node.col_offset,
                     'cv2_channel_tiff_read',
-                    f'bare {f.value.id}.imread in modules/ or ui/; route '
+                    f'bare {f.value.id}.imread in src/_lumascope/modules/ or ui/; route '
                     f'through image_utils.load_pixels, which returns '
                     f'(image, significant_bits) together. A bare read hands '
                     f'back pixels with no depth; a right-aligned 12-bit frame '
@@ -1285,9 +1285,9 @@ _RULE_37_ARG_EXEMPT = {'self', 'cls'}
 
 
 def _is_rule_37_path(path: str) -> bool:
-    """Rule 37's stated scope: modules/, drivers/, top-level scripts."""
+    """Rule 37's stated scope: src/_lumascope/modules/, src/_lumascope/drivers/, top-level scripts."""
     p = path.replace('\\', '/')
-    if p.startswith(('modules/', 'drivers/')):
+    if p.startswith(('src/_lumascope/modules/', 'src/_lumascope/drivers/')):
         return True
     return '/' not in p and p.endswith('.py')
 
@@ -1301,7 +1301,7 @@ def _check_rule_37(content: str, path: str, added: set[int] | None) -> list[Viol
     whose span intersects the staged diff; the legacy backlog is never
     demanded, so this check is diff-aware only (no added lines -> no
     violations, including under --all). Scope is the rule's own text:
-    modules/, drivers/, top-level scripts; underscore helpers (dunders
+    src/_lumascope/modules/, src/_lumascope/drivers/, top-level scripts; underscore helpers (dunders
     included) exempt. Named params need annotations (self/cls and bare
     *args/**kwargs exempt) and the return needs one. Nested functions are
     not public surfaces.

@@ -14,8 +14,8 @@ the consecutive-failure cascade. OnGrabError logs and returns; it never latches.
 
 import logging
 
-from drivers import pyloncamera
-from drivers.pyloncamera import _CameraRemovalHandler
+from _lumascope.drivers import pyloncamera
+from _lumascope.drivers.pyloncamera import _CameraRemovalHandler
 from tests.camera_fakes import bare_pylon_camera
 from tests.log_capture import records_of
 

@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """One process drives an installation's scope, and a process drives one real scope.
 
-``modules.lvp_lock.take_instance_lock`` is a host's take, made before the
+``_lumascope.modules.lvp_lock.take_instance_lock`` is a host's take, made before the
 GUI or the REST server loads anything that opens the scope: another
-process's take is answered None, so ``python -m rest`` (``rest.__main__``)
+process's take is answered None, so ``python -m _lumascope.rest`` (``_lumascope.rest.__main__``)
 refuses to start while one is held. Every real scope takes the same lock
 where its hardware opens (``take_scope_lock``, from ``_init_minimal``),
 however it is built: refused with ``ScopeInUseError`` while another process
@@ -24,12 +24,16 @@ import threading
 
 import pytest
 
-import modules.lumascope_api._lumascope as lumascope_module
-from modules.exceptions import InstallationFileError, ScopeDisconnectError, ScopeInUseError
-from modules.lumascope_api import Lumascope
-from modules.lvp_lock import take_instance_lock
-from modules.path_utils import get_source_root
-from modules.scope_session import ScopeSession
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.modules.exceptions import (
+    InstallationFileError,
+    ScopeDisconnectError,
+    ScopeInUseError,
+)
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lvp_lock import take_instance_lock
+from _lumascope.modules.path_utils import get_source_root
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 # The server's test takes the installation's own lock, so the file runs on
@@ -289,8 +293,8 @@ def test_a_simulated_scope_takes_no_lock(no_hardware):
 
 
 def test_the_server_does_not_start_beside_a_holder(capsys):
-    from modules.app_config import get_lvp_lock_port
-    from rest.__main__ import main
+    from _lumascope.modules.app_config import get_lvp_lock_port
+    from _lumascope.rest.__main__ import main
 
     with _held_by_another_process(get_lvp_lock_port(get_source_root())):
         assert main(['--simulate']) == 1
@@ -298,7 +302,7 @@ def test_the_server_does_not_start_beside_a_holder(capsys):
 
 
 def test_the_server_takes_no_host():
-    from rest.__main__ import main
+    from _lumascope.rest.__main__ import main
 
     with pytest.raises(SystemExit) as refused:
         main(['--host', '0.0.0.0'])

@@ -24,7 +24,7 @@ import ast
 from tests.ast_seams import MemberNames, iter_package_modules
 
 _WAITED = MemberNames(
-    'modules/lumascope_api/motion.py',
+    'src/_lumascope/modules/lumascope_api/motion.py',
     {'move_xy', 'move_xy_by', 'move_z', 'move_z_by', 'move_to_plate', 'move_to_well'},
 )
 

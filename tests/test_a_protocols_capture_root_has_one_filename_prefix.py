@@ -14,7 +14,7 @@ import ast
 
 import pandas as pd
 
-from modules.protocol import Protocol
+from _lumascope.modules.protocol import Protocol
 from tests.ast_seams import REPO_ROOT
 from tests.locale_fixtures import a_latin1_locale
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW
@@ -108,7 +108,10 @@ def _calls(path, attribute):
 
 
 def test_both_filename_builders_read_the_prefix_and_not_the_root():
-    for path in ('modules/protocol_image_writer.py', 'modules/protocol_post_processor.py'):
+    for path in (
+        'src/_lumascope/modules/protocol_image_writer.py',
+        'src/_lumascope/modules/protocol_post_processor.py',
+    ):
         assert _calls(path, 'capture_prefix'), f'{path} must name files with capture_prefix()'
         assert not _calls(path, 'capture_root'), (
             f'{path} reads capture_root(): the typed root is not a filename prefix'

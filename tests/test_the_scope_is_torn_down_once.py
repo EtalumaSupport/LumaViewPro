@@ -20,8 +20,8 @@ import time
 
 import pytest
 
-from modules.lumascope_api import Lumascope
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import disconnectable_pylon_camera
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

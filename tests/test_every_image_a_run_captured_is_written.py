@@ -20,11 +20,11 @@ import time
 
 import pytest
 
-from modules.lumascope_api.bring_up import Part
-from modules import live_work
-import modules.protocol_image_writer as protocol_image_writer
-import modules.protocol_run_loop as protocol_run_loop
-from modules.run_events import RunEvents
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules import live_work
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+import _lumascope.modules.protocol_run_loop as protocol_run_loop
+from _lumascope.modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -176,7 +176,7 @@ class TestAnErrorAbort:
         so its record is reconciled against them -- once, after the last
         write lands and before the files are reported done -- and a
         shortfall is never left unreported for the ending it had."""
-        from modules.protocol_execution_record import ProtocolExecutionRecord
+        from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 
         run_parent = tmp_path / 'runs'
         release, _started = _hold_saves(monkeypatch)
@@ -269,7 +269,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
     def test_it_is_refused_until_they_land_and_admitted_the_moment_they_do(
         self, tmp_path, monkeypatch
     ):
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         run_parent = tmp_path / 'runs'
         release, started = _hold_saves(monkeypatch)
@@ -322,7 +322,7 @@ class TestTheRunsWritesCloseBeforeItEnds:
         closed -- draining or done -- never open and not yet asked. Read
         at the instant of each edge, since the window is too short to catch
         from outside."""
-        from modules.sequenced_capture_runner import ProtocolState
+        from _lumascope.modules.sequenced_capture_runner import ProtocolState
 
         release, started = _hold_saves(monkeypatch)
         seen = {}
@@ -367,7 +367,7 @@ class TestACleanupThatRaises:
     ):
         """A cleanup that raised before sending its run end used to leave it
         unsent -- and the run's auto-run with it."""
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         def _raises(**kwargs):
             raise RuntimeError('cleanup fell over')

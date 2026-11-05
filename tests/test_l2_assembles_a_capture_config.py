@@ -13,7 +13,7 @@ config wrappers it already carried.
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -48,7 +48,7 @@ def test_the_caller_states_tiling_and_zstacking(session):
 def test_assembling_it_never_touches_the_app_context(session, monkeypatch):
     """The point of the entry point: nothing reaches for the running app.
 
-    The GUI lane answers this question through modules.app_context, whose
+    The GUI lane answers this question through _lumascope.modules.app_context, whose
     ctx carries the live widget tree. A caller that is not the app has no
     such tree, so any reach for it is the config becoming unassemblable
     outside LVP.exe. Asserting no Kivy import would not catch this -- the
@@ -59,7 +59,7 @@ def test_assembling_it_never_touches_the_app_context(session, monkeypatch):
         def __getattr__(self, name):
             raise AssertionError(f'assembling the config reached the app context for {name!r}')
 
-    import modules.app_context as app_context
+    import _lumascope.modules.app_context as app_context
 
     monkeypatch.setattr(app_context, 'ctx', NoAppHere())
 

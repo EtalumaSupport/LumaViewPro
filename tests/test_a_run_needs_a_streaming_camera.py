@@ -18,8 +18,8 @@ from concurrent.futures import Future
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import _run, _settings

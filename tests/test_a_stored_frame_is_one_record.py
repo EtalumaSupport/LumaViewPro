@@ -14,7 +14,7 @@ import threading
 import numpy as np
 import pytest
 
-from drivers.camera import ImageHandlerBase
+from _lumascope.drivers.camera import ImageHandlerBase
 
 
 def _store(handler, value, *, chunks=None, handed_over=None):

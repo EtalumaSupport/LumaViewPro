@@ -22,11 +22,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.settings_init as settings_init
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from drivers.exceptions import BoardNoReplyError
-from modules.scope_session import ObjectiveQuestion, ScopeSession
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
     direct_call_names,
@@ -253,7 +253,7 @@ class TestSingleFlight:
         """A question the Session fails BEFORE the popup exists -- one
         reported outcome, no modal -- must not leave the flag set with no
         popup to clear it."""
-        from modules.exceptions import ConfigurationDefectError
+        from _lumascope.modules.exceptions import ConfigurationDefectError
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
@@ -350,7 +350,7 @@ class TestTheFlagCannotStrand:
         """The answer is applied AFTER dismiss and a failure applying it
         is shown, not raised -- so it cannot leave the app unable to ever
         ask again, nor exit it from the popup's callback."""
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
@@ -496,11 +496,16 @@ class TestOneOpenerOneMessage:
         may carry one.
 
         Scoped to ui/ plus the Session that now owns the chain: the string
-        legitimately appears in modules/lumascope_api/runtime_state.py
+        legitimately appears in src/_lumascope/modules/lumascope_api/runtime_state.py
         docstring examples.
         """
         modules = list(iter_package_modules(['ui']))
-        modules.append(('modules/scope_session.py', parse_module('modules/scope_session.py')))
+        modules.append(
+            (
+                'src/_lumascope/modules/scope_session.py',
+                parse_module('src/_lumascope/modules/scope_session.py'),
+            )
+        )
         offenders = [
             rel_path
             for rel_path, module in modules

@@ -11,9 +11,9 @@ and each saves no frame while it is unknown.
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CameraSettingRejected
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from modules.coord_transformations import AxisLimits
-from modules.protocol import Protocol
+from _lumascope.modules.coord_transformations import AxisLimits
+from _lumascope.modules.protocol import Protocol
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
 

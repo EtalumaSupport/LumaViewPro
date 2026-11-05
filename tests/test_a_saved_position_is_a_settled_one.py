@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import AxisMovingError
-from modules.lumascope_api.motion import AxisState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import AxisMovingError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

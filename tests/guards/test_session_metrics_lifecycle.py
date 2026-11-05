@@ -18,7 +18,7 @@ Also here: the ctx.metrics_logger absence sweep. The retired
 AppContext mirror has no runtime guard (AppContext is a plain
 dataclass; nothing reds if future code recreates the field), so the
 sweep is the creep-back guard -- and it must include lumaviewpro.py
-explicitly, because the package walker only sees modules/ and ui/
+explicitly, because the package walker only sees src/_lumascope/modules/ and ui/
 while the only realistic creep-back site is exactly lumaviewpro.py.
 """
 
@@ -29,8 +29,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import tests.ast_seams as ast_seams
-from modules.exceptions import AlreadyStartedError, RefusalCause
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import AlreadyStartedError, RefusalCause
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import session_on_a_simulated_scope
 
 
@@ -48,7 +48,7 @@ def _make_session(**kwargs):
     defaults.update(kwargs)
     # The session builds its own metrics logger; a stand-in shows what the
     # session asks of it.
-    with patch('modules.scope_session.MetricsLogger'):
+    with patch('_lumascope.modules.scope_session.MetricsLogger'):
         return session_on_a_simulated_scope(**defaults)
 
 
@@ -126,7 +126,7 @@ class TestCtxMirrorStaysRetired:
                 if is_ctx or is_ctx_attr:
                     offenders.append(f'{rel_path}:{node.lineno}')
 
-        for rel_path, tree in ast_seams.iter_package_modules(('modules', 'ui')):
+        for rel_path, tree in ast_seams.iter_package_modules(('src/_lumascope/modules', 'ui')):
             scan(rel_path, tree)
         scan('lumaviewpro.py', ast_seams.parse_module('lumaviewpro.py'))
 

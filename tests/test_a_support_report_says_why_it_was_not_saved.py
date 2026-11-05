@@ -17,9 +17,13 @@ import threading
 
 import pytest
 
-from modules.exceptions import SupportReportNotSavedError
-from modules.notification_center import notifications
-from modules.tech_support_report import SupportReportKind, SupportReportSaved, TechSupportReport
+from _lumascope.modules.exceptions import SupportReportNotSavedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.tech_support_report import (
+    SupportReportKind,
+    SupportReportSaved,
+    TechSupportReport,
+)
 from tests.ast_seams import tracked_files
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -27,7 +31,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -104,7 +108,7 @@ def test_a_stop_does_not_wait_behind_a_report(session):
 
 
 def _task(action):
-    from modules.sequential_io_executor import IOTask
+    from _lumascope.modules.sequential_io_executor import IOTask
 
     return IOTask(action=action)
 
@@ -122,7 +126,7 @@ def test_the_gui_neither_builds_nor_words_a_report(words):
 
 
 def test_the_diagnostics_executor_is_reported_and_stopped_with_the_bundle(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -139,7 +143,7 @@ def test_the_panel_submits_the_report_with_the_members_budget(monkeypatch):
     # declared budget and a report that takes minutes is not a slow task.
     import types
 
-    import modules.app_context as app_context
+    import _lumascope.modules.app_context as app_context
     import ui.microscope_settings as panel
     import ui.progress_popup as progress_popup
 

@@ -20,11 +20,11 @@ import threading
 
 import pandas as pd
 
-import modules.common_utils as common_utils
-import modules.protocol_image_writer as protocol_image_writer
-from modules.image_utils import read_pixel_size_um
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.image_utils import read_pixel_size_um
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.protocol_fixtures import protocol_of

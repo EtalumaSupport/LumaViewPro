@@ -19,8 +19,8 @@ import enum
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import wire_encoding
-from modules.api_surface import (
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import (
     API,
     api,
     IN_PROCESS,
@@ -31,16 +31,16 @@ from modules.api_surface import (
     reads_of,
     sets_of,
 )
-from modules.coord_transformations import StageOffset
-from modules.exceptions import ConfigurationDefectError
-from modules.frame_validity import FrameRule, FrameValiditySource
-from modules.lumascope_api.illumination import LedReading, LedState
-from modules.notification_center import UNTYPED_FAULT_TITLE
-from modules.operation import Operation
-from modules.scope_session import ScopeSession
-import rest.app
-from rest.app import SERVER_SEGMENTS, build_app
-from rest.routes import routes
+from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.exceptions import ConfigurationDefectError
+from _lumascope.modules.frame_validity import FrameRule, FrameValiditySource
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.notification_center import UNTYPED_FAULT_TITLE
+from _lumascope.modules.operation import Operation
+from _lumascope.modules.scope_session import ScopeSession
+import _lumascope.rest.app
+from _lumascope.rest.app import SERVER_SEGMENTS, build_app
+from _lumascope.rest.routes import routes
 from tests.scope_fakes import led_reading
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
@@ -95,7 +95,7 @@ def _wire_routes(session) -> set[tuple[str, str]]:
         for name in reads:
             value = getattr(obj, name)
             if (
-                type(value).__module__.startswith('modules')
+                type(value).__module__.startswith('_lumascope.modules')
                 and not is_record(type(value))
                 and not isinstance(value, enum.Enum)
             ):
@@ -156,7 +156,9 @@ def test_every_engineering_member_is_in_process_and_served_nowhere(client, sessi
                     reads.append(name)
         for name in reads:
             child = getattr(obj, name)
-            if type(child).__module__.startswith('modules') and not is_record(type(child)):
+            if type(child).__module__.startswith('_lumascope.modules') and not is_record(
+                type(child)
+            ):
                 walk(child)
 
     walk(session)
@@ -559,7 +561,7 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
 def test_a_session_member_named_as_a_server_route_fails_the_build(session, monkeypatch):
     """A Session member the server's own route would shadow is a program defect, found when the server is built."""
     # ScopeSession.app_version is served at /api/v1/app_version.
-    monkeypatch.setattr(rest.app, 'SERVER_SEGMENTS', SERVER_SEGMENTS | {'app_version'})
+    monkeypatch.setattr(_lumascope.rest.app, 'SERVER_SEGMENTS', SERVER_SEGMENTS | {'app_version'})
     with pytest.raises(ConfigurationDefectError) as refused:
         build_app(session)
     assert refused.value.reason == 'route_shadowed'

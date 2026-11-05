@@ -57,8 +57,8 @@ def _methods(cls: ast.ClassDef) -> set[str]:
 
 def test_neither_sub_api_holds_or_sets_one():
     for path, name in (
-        ('modules/lumascope_api/runtime_state.py', 'RuntimeState'),
-        ('modules/lumascope_api/imaging.py', 'ImagingAPI'),
+        ('src/_lumascope/modules/lumascope_api/runtime_state.py', 'RuntimeState'),
+        ('src/_lumascope/modules/lumascope_api/imaging.py', 'ImagingAPI'),
     ):
         cls = _class(path, name)
         assert not _self_attributes(cls) & _HELD_NOWHERE, name
@@ -82,7 +82,7 @@ def _reaches_the_scope(func: ast.expr) -> bool:
 
 
 def test_no_session_member_calls_the_scope_under_the_settings_lock():
-    tree = parse_module('modules/scope_session.py')
+    tree = parse_module('src/_lumascope/modules/scope_session.py')
     calls = [
         inner.lineno
         for with_node in ast.walk(tree)

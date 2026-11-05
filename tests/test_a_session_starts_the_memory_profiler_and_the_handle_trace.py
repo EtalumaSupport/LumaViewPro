@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The session a program builds starts the memory profiler and the handle trace.
 
-Both are process-wide and lib/ reads no setting, so ``ScopeSession.create``
+Both are process-wide and src/_lumascope/lib/ reads no setting, so ``ScopeSession.create``
 decides them from its prepared settings, for every program that brings a
 scope up: the GUI, the headless server, a script. The session also takes the
 profiler's two startup snapshots, ``post_homing`` after a home that
@@ -16,10 +16,10 @@ them is the behaviour pinned.
 
 import pytest
 
-from lib import handle_trace, memory_profile
-from modules.exceptions import HomingFaultError
-from modules.scope_session import COLD_START_SNAPSHOT_DELAY_S, ScopeSession
-from modules.scheduler import ThreadingTimerScheduler
+from _lumascope.lib import handle_trace, memory_profile
+from _lumascope.modules.exceptions import HomingFaultError
+from _lumascope.modules.scope_session import COLD_START_SNAPSHOT_DELAY_S, ScopeSession
+from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.settings_fixtures import complete_settings
 
 

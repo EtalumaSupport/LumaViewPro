@@ -48,17 +48,17 @@ for _name, _attr in (
         setattr(_mod, _attr, _StubWidget)
         sys.modules[_name] = _mod
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
-from modules import common_utils, live_work
-from modules.coord_transformations import PlateLocation
-from modules.caller import Caller, current_caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.live_work import LiveWork, WorkItem
-from modules.run_outcome import PendingRunOutcome
-from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import EngineRun, RunProgress
+from _lumascope.modules import common_utils, live_work
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.caller import Caller, current_caller
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.live_work import LiveWork, WorkItem
+from _lumascope.modules.run_outcome import PendingRunOutcome
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
 from tests.protocol_fixtures import protocol_of
 
@@ -143,7 +143,7 @@ def held():
 
 @pytest.fixture
 def app_ctx(session, held, tmp_path, monkeypatch):
-    from modules.sequential_io_executor import ENQUEUED
+    from _lumascope.modules.sequential_io_executor import ENQUEUED
 
     saved = getattr(_app_ctx, 'ctx', None)
     pool = MagicMock()
@@ -318,7 +318,7 @@ def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine
 
 
 def test_a_second_press_stops_its_own_run_ahead_of_queued_work(app_ctx, engine):
-    from modules.sequential_io_executor import PRIORITY_HIGH
+    from _lumascope.modules.sequential_io_executor import PRIORITY_HIGH
 
     panel = _Panel()
     run = _run(engine)
@@ -399,7 +399,7 @@ def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engin
     """
     import logging
 
-    from modules import gui_logger
+    from _lumascope.modules import gui_logger
 
     gui_logger._shown.clear()
     caplog.set_level(logging.DEBUG, logger='LVP.gui_interactions')

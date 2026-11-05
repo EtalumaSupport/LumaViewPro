@@ -23,10 +23,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from lib.build_files import build_file
-from modules.ui_queue import UiDispatcher, ui_backlog
-from modules.lumascope_api._lumascope import Lumascope
-from modules.scope_session import ScopeSession
+from _lumascope.lib.build_files import build_file
+from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
+from _lumascope.modules.lumascope_api._lumascope import Lumascope
+from _lumascope.modules.scope_session import ScopeSession
 from ui.scope_display import ScopeDisplay
 
 _FRAMES = 30

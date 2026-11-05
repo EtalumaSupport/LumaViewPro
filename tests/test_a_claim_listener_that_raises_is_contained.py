@@ -11,8 +11,8 @@ at the claim and reported where it happened.
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-from modules.notification_center import notifications
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.notification_center import notifications
 from tests.protocol_drives import run_identity
 
 

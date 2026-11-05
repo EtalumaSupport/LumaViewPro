@@ -13,8 +13,8 @@ still accepts legacy JSON, and ignores non-protocol files of either type.
 
 import pytest
 
-from modules import tech_support_report
-from modules.protocol import Protocol
+from _lumascope.modules import tech_support_report
+from _lumascope.modules.protocol import Protocol
 
 
 @pytest.fixture

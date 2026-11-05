@@ -22,11 +22,11 @@ from kivy.app import App
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.popup import Popup
 
-import modules.app_context as _app_ctx
-from lvp_logger import logger
-from modules import gui_logger
-from modules.config_helpers import get_manual_video_max_duration
-from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.lvp_logger import logger
+from _lumascope.modules import gui_logger
+from _lumascope.modules.config_helpers import get_manual_video_max_duration
+from _lumascope.modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
 from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 
@@ -406,9 +406,9 @@ class AdvancedSettings(Popup):
 
 kv = Builder.load_string(
     """
-#:import build_file lib.build_files.build_file
-#:import LIVE_VIEW_FPS_LIMIT modules.settings_paths.LIVE_VIEW_FPS_LIMIT
-#:import VIDEO_MAX_FPS_LIMIT modules.settings_paths.VIDEO_MAX_FPS_LIMIT
+#:import build_file _lumascope.lib.build_files.build_file
+#:import LIVE_VIEW_FPS_LIMIT _lumascope.modules.settings_paths.LIVE_VIEW_FPS_LIMIT
+#:import VIDEO_MAX_FPS_LIMIT _lumascope.modules.settings_paths.VIDEO_MAX_FPS_LIMIT
 
 <SectionHeader@Label>:
     font_size: '13sp'

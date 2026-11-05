@@ -27,16 +27,16 @@ import threading
 
 from serial.serialutil import SerialException
 
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import (
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import (
     LED_DEVICE,
     MOTOR_DEVICE,
     LedBoardSpec,
     MotorBoardSpec,
     SimWireBackend,
 )
-from drivers.sim_wire.port import EmulatedPort
+from _lumascope.drivers.sim_wire.port import EmulatedPort
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import _TEARDOWNS
 

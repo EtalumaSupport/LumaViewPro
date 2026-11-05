@@ -16,10 +16,10 @@ import threading
 
 import pytest
 
-from modules.exceptions import MotorStopFailedError
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
-from modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.exceptions import MotorStopFailedError
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings

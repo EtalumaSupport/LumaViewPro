@@ -10,9 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import numpy as np
 import pytest
-from drivers import host_clock
-from modules.exceptions import CaptureFailedError
-from modules.frame_validity import Counter, FrameValidity
+from _lumascope.drivers import host_clock
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.frame_validity import Counter, FrameValidity
 
 
 class _Frames:
@@ -438,7 +438,7 @@ class TestCaptureTimeChunkVerification:
 
     def test_chunkless_camera_skips_verification(self):
         """Cameras without chunk support rely on skip-count settling alone."""
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         # The Classic's FX2 frames carry no chunks.

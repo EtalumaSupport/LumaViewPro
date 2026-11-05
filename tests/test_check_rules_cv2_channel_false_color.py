@@ -2,7 +2,7 @@
 
 cv2_channel_false_color blocks ``add_false_color`` callsites outside the display /
 encode boundary. The boundary owners are ``ui/main_display.py``
-(manual record path) and ``modules/video_capture.py`` (protocol
+(manual record path) and ``src/_lumascope/modules/video_capture.py`` (protocol
 video capture).
 
 The guard prevents regression on the mono-native pipeline: mono
@@ -30,30 +30,30 @@ def _violations(content: str, path: str) -> list:
 class TestRule31bBlocksAddFalseColorOutsideBoundary:
     def test_attribute_call_in_modules_blocks(self):
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def save(arr):
     rgb = image_utils.add_false_color(array=arr, color='Blue')
     return rgb
 """
-        violations = _violations(src, 'modules/some_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/some_processor.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_false_color'
         assert violations[0].line == 5
 
     def test_bare_name_call_in_modules_blocks(self):
         src = """
-from modules.image_utils import add_false_color
+from _lumascope.modules.image_utils import add_false_color
 
 def save(arr):
     return add_false_color(arr, 'Red')
 """
-        violations = _violations(src, 'modules/some_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/some_processor.py')
         assert len(violations) == 1
 
     def test_attribute_call_in_ui_blocks(self):
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def render(arr):
     return image_utils.add_false_color(arr, 'Green')
@@ -67,18 +67,18 @@ class TestRule31bExemptsBoundaryPaths:
         # Protocol video capture applies false-color at the encode
         # boundary -- the canonical use of the helper.
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def capture(arr, color):
     return image_utils.add_false_color(array=arr, color=color)
 """
-        assert _violations(src, 'modules/video_capture.py') == []
+        assert _violations(src, 'src/_lumascope/modules/video_capture.py') == []
 
     def test_main_display_py_is_exempt(self):
         # Manual record path applies false-color at the encode
         # boundary -- the canonical use of the helper.
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def record(arr, color):
     return image_utils.add_false_color(arr, color)
@@ -93,7 +93,7 @@ def record(arr, color):
 def maybe_apply_false_color(data, color):
     return add_false_color(data, color)
 """
-        assert _violations(src, 'modules/image_utils.py') == []
+        assert _violations(src, 'src/_lumascope/modules/image_utils.py') == []
 
 
 class TestRule31bScopedToProductionPaths:
@@ -101,7 +101,7 @@ class TestRule31bScopedToProductionPaths:
         # Test files exercise the helper directly via the AST scan
         # fixtures or via fixture builders.
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def test_helper(arr):
     return image_utils.add_false_color(arr, 'Blue')
@@ -115,7 +115,7 @@ def test_helper(arr):
 def add_false_color(array, color, output=None):
     pass
 """
-        assert _violations(src, 'modules/image_utils.py') == []
+        assert _violations(src, 'src/_lumascope/modules/image_utils.py') == []
 
 
 class TestRule31bIgnoresUnrelatedNames:
@@ -129,15 +129,15 @@ def _get_false_color_bufs(arr):
 def use():
     return _get_false_color_bufs(some_array)
 """
-        assert _violations(src, 'modules/protocol_image_writer.py') == []
+        assert _violations(src, 'src/_lumascope/modules/protocol_image_writer.py') == []
 
     def test_mono_to_rgb_falsecolor_does_not_fire(self):
         # The canonical boundary helper has a different name and is
         # allowed everywhere.
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def render(arr):
     return image_utils.mono_to_rgb_falsecolor(arr, 'Blue')
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []

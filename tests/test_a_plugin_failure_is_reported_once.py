@@ -21,9 +21,9 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.exceptions import PluginFailedError, PluginNotLoadedError
-from modules.notification_center import Severity
-from modules.plugins import PluginSpec, ProcessorResult
+from _lumascope.modules.exceptions import PluginFailedError, PluginNotLoadedError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.plugins import PluginSpec, ProcessorResult
 from tests.ast_seams import REPO_ROOT, find_def
 from tests.plugin_test_harness import harness_ctx  # noqa: F401 -- pytest fixture
 

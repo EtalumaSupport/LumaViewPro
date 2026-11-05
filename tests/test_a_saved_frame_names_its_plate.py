@@ -7,7 +7,7 @@ name: the catalogue name of the plate handed to the save, never the
 microscope's model.
 """
 
-from modules import image_save
+from _lumascope.modules import image_save
 from tests.frame_records import frame_record, plate
 
 

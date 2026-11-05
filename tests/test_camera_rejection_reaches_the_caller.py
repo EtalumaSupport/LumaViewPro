@@ -23,10 +23,14 @@ is refused naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py
 
 import pytest
 
-from drivers.exceptions import CameraWriteFailedError
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
-from modules.notification_center import Severity
-from modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.modules.exceptions import (
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}

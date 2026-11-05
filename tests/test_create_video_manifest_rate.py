@@ -17,8 +17,8 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
-from modules.layer_record import release_colors
+from _lumascope.modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
+from _lumascope.modules.layer_record import release_colors
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
@@ -127,7 +127,7 @@ def test_frames_without_any_manifest_warn_loudly(tmp_path, caplog):
     # quietly produced a colorless video at the default rate. The reader
     # now says so in the log (log-only: a pre-manifest legacy folder
     # takes the same path legitimately, so a popup would misfire).
-    import modules.video_builder as video_builder_module
+    import _lumascope.modules.video_builder as video_builder_module
 
     builder = VideoBuilder(has_turret=False)
     with caplog.at_level(logging.WARNING):

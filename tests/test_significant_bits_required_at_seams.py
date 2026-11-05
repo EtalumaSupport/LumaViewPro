@@ -17,9 +17,9 @@ import inspect
 import numpy as np
 import pytest
 
-from modules import image_save, image_utils
-from modules.cell_count import CellCount
-from modules.post_processing import PostProcessing
+from _lumascope.modules import image_save, image_utils
+from _lumascope.modules.cell_count import CellCount
+from _lumascope.modules.post_processing import PostProcessing
 
 
 def _significant_bits_param(func):

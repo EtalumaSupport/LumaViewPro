@@ -25,7 +25,7 @@ import pytest
 
 from tests.ast_seams import find_def, iter_package_modules, parse_module
 
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_multi_step_protocol,
     executors,
@@ -97,7 +97,7 @@ class TestTheGuiNoLongerKeepsItsOwnCopy:
         one character, and only one of them is the dead one.
         """
         offenders = []
-        for rel_path, tree in iter_package_modules(('modules', 'ui')):
+        for rel_path, tree in iter_package_modules(('src/_lumascope/modules', 'ui')):
             for node in ast.walk(tree):
                 if not (isinstance(node, ast.Attribute) and node.attr == 'protocol'):
                     continue
@@ -114,7 +114,7 @@ class TestTheGuiNoLongerKeepsItsOwnCopy:
 
     def test_the_field_is_gone_from_the_context(self):
         """The declaration itself, not just its uses."""
-        tree = parse_module('modules/app_context.py')
+        tree = parse_module('src/_lumascope/modules/app_context.py')
         declared = {
             node.target.id
             for node in ast.walk(tree)

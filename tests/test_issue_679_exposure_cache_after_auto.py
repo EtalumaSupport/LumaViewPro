@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 
 class TestSetAutoExposureRefreshesCacheAtAutoOff:

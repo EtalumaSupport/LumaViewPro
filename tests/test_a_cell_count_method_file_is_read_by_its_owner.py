@@ -20,9 +20,14 @@ from types import SimpleNamespace
 import pytest
 
 import ui.post_processing as panel_module
-from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds, saved_form
-from modules.exceptions import LiveFolderPathRefusedError, PostProcessingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.cell_count_method import (
+    CellCountFilters,
+    CellCountMethod,
+    FilterBounds,
+    saved_form,
+)
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError, PostProcessingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

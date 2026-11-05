@@ -26,8 +26,8 @@ import shutil
 
 import pytest
 
-from modules import protocol_time_estimator
-from modules.protocol_time_estimator import ProtocolTimeEstimator
+from _lumascope.modules import protocol_time_estimator
+from _lumascope.modules.protocol_time_estimator import ProtocolTimeEstimator
 from tests.af_drives import af_runner_on, park_z, sweep
 from tests.ast_seams import REPO_ROOT
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -116,7 +116,7 @@ def swept(tmp_path_factory):
                     zs.append(z)
                     return 1e7 * math.exp(-(((z - centre) / width) ** 2) / 2)
 
-                mp.setattr('modules.autofocus_functions.autofocus_score', score)
+                mp.setattr('_lumascope.modules.autofocus_functions.autofocus_score', score)
                 park_z(scope, START_Z_UM)
                 sweep(runner, scope, objective_id=objective.id)
                 scored[numbers] = _passes(zs)
@@ -183,7 +183,7 @@ def test_a_first_pass_that_is_no_whole_number_of_steps_stays_in_its_window(sim_s
         scored.append(z)
         return 1e7 * math.exp(-(((z - start) / 250.0) ** 2) / 2)
 
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', score)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', score)
     park_z(sim_scope, start)
 
     focus = sweep(runner, sim_scope, objective_id='2x Oly')

@@ -22,12 +22,12 @@ from unittest.mock import MagicMock
 import pytest
 import serial
 
-from drivers import ledboard as ledboard_module
-from drivers.exceptions import BoardNoReplyError, HardwareError
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire import backend as sim_backend
-from drivers.sim_wire.backend import (
+from _lumascope.drivers import ledboard as ledboard_module
+from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire import backend as sim_backend
+from _lumascope.drivers.sim_wire.backend import (
     LED_DEVICE,
     LED_ENABLE_PINS,
     LED_PID,
@@ -39,11 +39,11 @@ from drivers.sim_wire.backend import (
     MotorBoardSpec,
     SimWireBackend,
 )
-from drivers.sim_wire.port import RegisterWrite
-from drivers.sim_wire.mp import tmc5072
+from _lumascope.drivers.sim_wire.port import RegisterWrite
+from _lumascope.drivers.sim_wire.mp import tmc5072
 from tests.sim_wire_bench import FRESH, led_on_args
 
-sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
+sys.path.insert(0, str(pathlib.Path('src/_lumascope/drivers/sim_wire/mp').resolve()))
 import dac80508
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -530,7 +530,7 @@ class TestTheConsole:
 def _console(dialect, typed):
     """What `input('P> ')` prints and answers on a dialect's runtime with the
     board's console in place, given the bytes typed at it."""
-    mp = pathlib.Path('drivers/sim_wire/mp').resolve()
+    mp = pathlib.Path('src/_lumascope/drivers/sim_wire/mp').resolve()
     result = subprocess.run(
         [
             str(sim_backend.runtime_path(dialect)),

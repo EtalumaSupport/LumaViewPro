@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from modules import gui_logger
+from _lumascope.modules import gui_logger
 
 
 @pytest.fixture
@@ -316,8 +316,8 @@ def test_a_background_builds_outcome_lands_behind_its_progress(record):
     """The proxy a build thread writes through puts the outcome up after the progress it follows."""
     import ui.progress_popup as progress_popup
 
-    from modules.ui_queue import UiDispatcher
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.ui_queue import UiDispatcher
+    from _lumascope.modules.scope_session import ScopeSession
 
     queued = []
     ScopeSession.set_ui_dispatcher(

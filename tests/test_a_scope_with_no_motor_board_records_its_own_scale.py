@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers.null_motorboard import NullMotionBoard
-from modules import common_utils
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.modules import common_utils
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 # 20x Oly's focal length in objectives.json.
@@ -82,7 +82,7 @@ def test_a_logs_only_report_reads_the_serial_without_a_motor_configuration(
     # The report's first serial source is the motor configuration; with no
     # motor board there is none, and asking it anyway logged an exception
     # on every report from such a scope before FULLINFO answered.
-    from modules.tech_support_report import TechSupportReport
+    from _lumascope.modules.tech_support_report import TechSupportReport
 
     report = TechSupportReport.__new__(TechSupportReport)
     report._meta = {}

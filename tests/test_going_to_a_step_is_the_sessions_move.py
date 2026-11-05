@@ -25,15 +25,15 @@ import logging
 import pandas as pd
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api.illumination import LedState
-from modules.protocol import Protocol, StepNotFoundError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.protocol import Protocol, StepNotFoundError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import parse_module, production_modules, walk_defs
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -279,7 +279,7 @@ class TestTheRefusals:
         refused at the door, in-process and over the wire alike."""
         from fastapi.testclient import TestClient
 
-        from rest.app import build_app
+        from _lumascope.rest.app import build_app
 
         objective = '20x Oly'
         slot = next(s for s, o in TEST_TURRET_OBJECTIVES.items() if o == objective)
@@ -306,7 +306,10 @@ class TestOneTargetComputation:
     file retired, free to drift from the other again.
     """
 
-    _CALLERS = ('modules/protocol_step_runner.py', 'modules/scope_session.py')
+    _CALLERS = (
+        'src/_lumascope/modules/protocol_step_runner.py',
+        'src/_lumascope/modules/scope_session.py',
+    )
     _OWN = frozenset({'plate_to_stage'})
 
     @staticmethod
@@ -326,7 +329,7 @@ class TestOneTargetComputation:
         assert not failed, failed
 
     def test_the_session_converts_no_plate_coordinate_itself(self):
-        called = self._called_attrs(parse_module('modules/scope_session.py'))
+        called = self._called_attrs(parse_module('src/_lumascope/modules/scope_session.py'))
         assert 'plate_to_stage' not in called
 
     def test_only_the_one_conversion_converts_a_step_position(self):
@@ -351,8 +354,8 @@ class TestOneTargetComputation:
             )
         ]
         assert set(callers) == {
-            'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets',
-            'modules/lumascope_api/motion.py::MotionAPI._plate_target_to_stage',
+            'src/_lumascope/modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets',
+            'src/_lumascope/modules/lumascope_api/motion.py::MotionAPI._plate_target_to_stage',
         }, callers
 
     def test_the_gui_navigation_moves_no_axis_itself(self):

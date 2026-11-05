@@ -9,7 +9,7 @@ those columns and counts its images, whichever build made it.
 
 import pytest
 
-import modules.protocol_post_processor as protocol_post_processor
+import _lumascope.modules.protocol_post_processor as protocol_post_processor
 from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pytest fixture
     turret_in_a_known_slot,
 )

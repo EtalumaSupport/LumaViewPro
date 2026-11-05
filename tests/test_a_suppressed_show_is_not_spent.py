@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import MoveFaultError
-from modules.notification_center import NotificationCenter, Severity
+from _lumascope.modules.exceptions import MoveFaultError
+from _lumascope.modules.notification_center import NotificationCenter, Severity
 
 
 @pytest.fixture

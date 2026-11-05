@@ -71,7 +71,7 @@ def test_the_step_prints_the_real_drivers_readiness_line(tmp_path):
             [
                 sys.executable,
                 '-c',
-                'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())',
+                'from _lumascope.drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())',
             ],
             cwd=REPO,
             capture_output=True,

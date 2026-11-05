@@ -5,8 +5,8 @@
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.null_motorboard import NullMotionBoard
 
 
 class TestNullMotionBoardInterface:

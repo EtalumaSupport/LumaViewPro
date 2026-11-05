@@ -62,7 +62,7 @@ def _tiles(folder):
 
 
 def _one_set(session, runner, live, args, overlap, here):
-    from modules.exceptions import CaptureError
+    from _lumascope.modules.exceptions import CaptureError
 
     name = f'{args.specimen}_{args.tiling}_{overlap:g}pct'
     session.update_settings('tiling_overlap_percent', overlap)
@@ -121,7 +121,7 @@ def main():
         else headless_session(live, acquiring=(args.layer, harness.LED0))
     )
     with session_cm as (session, runner):
-        from modules.acquire_mode import AcquireMode
+        from _lumascope.modules.acquire_mode import AcquireMode
 
         motion = session.scope.motion
         if args.objective is not None and not HARDWARE:

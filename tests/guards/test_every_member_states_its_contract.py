@@ -40,8 +40,8 @@ from __future__ import annotations
 import inspect
 import re
 
-from lib.lumascope_error import LumascopeError
-from modules.api_surface import (
+from _lumascope.lib.lumascope_error import LumascopeError
+from _lumascope.modules.api_surface import (
     QUOTED_REASON,
     RAISES_ENTRY,
     RAISES_SECTION,
@@ -49,7 +49,7 @@ from modules.api_surface import (
     api,
     raises_of,
 )
-from modules.exceptions import Refusal
+from _lumascope.modules.exceptions import Refusal
 from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES, UMBRELLAS
 from tests.marked_set import Marked, marked_members, marked_set
 
@@ -194,7 +194,10 @@ def test_every_refusal_with_several_reasons_names_its_reason():
 
 def test_every_member_has_a_section():
     sections = list(_sections())
-    functions = {'rest.app.build_app', 'modules.notification_center.outcome_of'}
+    functions = {
+        '_lumascope.rest.app.build_app',
+        '_lumascope.modules.notification_center.outcome_of',
+    }
     assert functions <= {name for name, _ in sections}, 'the walk lost the functions'
     without = _without_a_section(sections)
     assert without == [], 'say what each raises, or Nothing.:\n' + '\n'.join(without)

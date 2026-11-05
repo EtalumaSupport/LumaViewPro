@@ -20,8 +20,8 @@ already declares for gain rather than at a second number chosen locally.
 
 from types import SimpleNamespace
 
-from modules import common_utils
-from modules.config_helpers import DEFAULT_MAX_GAIN_DB, camera_max_gain_for_ui
+from _lumascope.modules import common_utils
+from _lumascope.modules.config_helpers import DEFAULT_MAX_GAIN_DB, camera_max_gain_for_ui
 
 # The value a real Basler daA3840-45um published for a 48 dB gain node.
 REPORTED_TAIL_CAP = 48.00000004350822

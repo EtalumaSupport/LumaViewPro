@@ -18,7 +18,7 @@ scope's own camera.
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
+from _lumascope.modules.exceptions import CameraSettingRejected
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 # Inside the simulated camera's declared exposure range, so the request

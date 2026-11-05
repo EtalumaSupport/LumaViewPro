@@ -26,13 +26,17 @@ import threading
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
-from modules.lumascope_api import camera as camera_api
-from modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.lumascope_api import camera as camera_api
+from _lumascope.modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 # BF's stored values differ from those the simulated camera starts at (its

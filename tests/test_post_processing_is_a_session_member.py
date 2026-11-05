@@ -15,16 +15,16 @@ import time
 
 import pytest
 
-import modules.sequential_io_executor as sie
-from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from modules.post_processing_api import CellCountResult, DegradedOutput, Stitch, ZProject
-from modules.stitch_mode import StitchAlgorithm, StitchMode
-from modules.zproject_method import ZProjectMethod
+import _lumascope.modules.sequential_io_executor as sie
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from _lumascope.modules.post_processing_api import CellCountResult, DegradedOutput, Stitch, ZProject
+from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
+from _lumascope.modules.zproject_method import ZProjectMethod
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -56,10 +56,16 @@ def _spy_build(monkeypatch, cls, method_name):
 @pytest.mark.parametrize(
     ('member', 'module', 'cls', 'method', 'kwargs'),
     [
-        ('stitch', 'modules.stitcher', 'Stitcher', 'load_folder', {}),
-        ('zproject', 'modules.zprojector', 'ZProjector', 'load_folder', {}),
-        ('composite', 'modules.composite_generation', 'CompositeGeneration', 'load_folder', {}),
-        ('video', 'modules.video_builder', 'VideoBuilder', 'build_from_folder', {}),
+        ('stitch', '_lumascope.modules.stitcher', 'Stitcher', 'load_folder', {}),
+        ('zproject', '_lumascope.modules.zprojector', 'ZProjector', 'load_folder', {}),
+        (
+            'composite',
+            '_lumascope.modules.composite_generation',
+            'CompositeGeneration',
+            'load_folder',
+            {},
+        ),
+        ('video', '_lumascope.modules.video_builder', 'VideoBuilder', 'build_from_folder', {}),
     ],
 )
 def test_a_build_runs_on_its_lane_with_the_installations_tiling(
@@ -99,8 +105,8 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
 def test_the_composite_takes_the_users_thresholds(session, monkeypatch, tmp_path):
     # Its format is its channels', never the settings'
     # (tests/test_a_derived_file_follows_its_inputs_format.py).
-    import modules.config_helpers as config_helpers
-    from modules.composite_generation import CompositeGeneration
+    import _lumascope.modules.config_helpers as config_helpers
+    from _lumascope.modules.composite_generation import CompositeGeneration
 
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
     session.post_processing.composite(tmp_path)
@@ -179,7 +185,7 @@ def test_a_degraded_output_names_its_algorithms_by_the_set(tmp_path):
 
 
 def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatch, tmp_path):
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
     session.post_processing.video(tmp_path, frame_rate_fps='12', timestamp_overlay=True)
@@ -192,7 +198,7 @@ def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatc
 def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
     session, monkeypatch, tmp_path
 ):
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
     session.post_processing.video(tmp_path)
@@ -201,8 +207,8 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
 
 
 def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch, tmp_path):
-    from modules.cell_count_method import CellCountMethod
-    from modules.post_processing import PostProcessing
+    from _lumascope.modules.cell_count_method import CellCountMethod
+    from _lumascope.modules.post_processing import PostProcessing
 
     seen = {}
 
@@ -243,8 +249,8 @@ def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(sessio
     """A script or REST client starts from the method the panel starts from, and counts with it."""
     from fastapi.testclient import TestClient
 
-    from modules.cell_count_method import CellCountMethod
-    from rest.app import build_app
+    from _lumascope.modules.cell_count_method import CellCountMethod
+    from _lumascope.rest.app import build_app
 
     method = session.post_processing.default_cell_count_method()
     assert method == CellCountMethod()
@@ -274,7 +280,7 @@ def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(sessio
 
 
 def test_the_session_lists_and_stops_the_post_processing_lane(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -293,8 +299,8 @@ def test_the_session_lists_and_stops_the_post_processing_lane(tmp_path):
 def test_the_stitcher_plugin_stitches_through_the_session(session, monkeypatch, tmp_path):
     import functools
 
-    from modules.plugins.builtin import stitcher_plugin
-    from modules.stitcher import Stitcher
+    from _lumascope.modules.plugins.builtin import stitcher_plugin
+    from _lumascope.modules.stitcher import Stitcher
 
     seen = _spy_build(monkeypatch, Stitcher, 'load_folder')
     processor = functools.partial(stitcher_plugin._stitcher_processor, session.post_processing)

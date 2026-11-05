@@ -10,7 +10,7 @@ with no objective assigned -- the build is refused and nothing is built.
 
 import pytest
 
-from modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.exceptions import ObjectiveUnknownError
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 

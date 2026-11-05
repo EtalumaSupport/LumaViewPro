@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import logging
 
-from modules.exceptions import ObjectiveUnknownError
-from modules.notification_center import Severity
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # The notification centre also writes an INFO forensic line of what the
 # user was shown; it records the popup, not the refusal.

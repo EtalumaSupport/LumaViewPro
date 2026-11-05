@@ -37,9 +37,9 @@ _WRITES = {
 }
 
 _OWNERS = (
-    ('modules/scope_session.py', 'ScopeSession'),
-    ('modules/lumascope_api/camera.py', 'CameraAPI'),
-    ('modules/manual_recording.py', 'ManualRecordingController'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession'),
+    ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI'),
+    ('src/_lumascope/modules/manual_recording.py', 'ManualRecordingController'),
 )
 
 # Public members that reach a write unguarded, each with why that is right.
@@ -164,7 +164,7 @@ def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
     given: every ``@api`` Session member that takes a ``Protocol`` is marked
     a read or is guarded, whatever its edit is named.
     """
-    tree = parse_module('modules/scope_session.py')
+    tree = parse_module('src/_lumascope/modules/scope_session.py')
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ScopeSession')
     unguarded = []
     for fn in cls.body:
@@ -188,7 +188,7 @@ def test_every_fault_injection_is_a_guarded_write():
     that is not marked a read is guarded, in-process or on the wire, and a
     fault added unguarded fails here.
     """
-    tree = parse_module('modules/lumascope_api/simulation.py')
+    tree = parse_module('src/_lumascope/modules/lumascope_api/simulation.py')
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SimulationAPI')
     unguarded, walked = [], 0
     for fn in cls.body:

@@ -11,7 +11,7 @@ trickle degradation is the wall cap's and the metrics surface's job.
 
 import pytest
 
-from modules.video_cadence import (
+from _lumascope.modules.video_cadence import (
     STALL_FLOOR_S,
     STALL_INTERVAL_MULTIPLE,
     StallWatch,

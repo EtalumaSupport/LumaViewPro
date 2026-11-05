@@ -13,15 +13,15 @@ import logging
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     ProtocolError,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api import AxisState
-from modules.scope_session import SavedFocus, ScopeSession
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.scope_session import SavedFocus, ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0

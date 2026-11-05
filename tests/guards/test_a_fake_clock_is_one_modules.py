@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A test fakes the clock of the module it tests, never the process's.
 
-``mock.patch('modules.protocol_run_loop.time.sleep', fake)`` reads like a
-patch of one module, but ``modules.protocol_run_loop.time`` IS the time
+``mock.patch('_lumascope.modules.protocol_run_loop.time.sleep', fake)`` reads like a
+patch of one module, but ``_lumascope.modules.protocol_run_loop.time`` IS the time
 module, so the patch replaces ``time.sleep`` for every thread in the pytest
 worker. A thread left over from an earlier test then sleeps on the fake: it
 spins hot, and when the fake advances a clock, it advances the clock under

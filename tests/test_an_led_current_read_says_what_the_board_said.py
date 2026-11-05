@@ -19,8 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
-from drivers.ledboard import LEDBoard
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
+from _lumascope.drivers.ledboard import LEDBoard
 
 
 def _v2_board(answer):

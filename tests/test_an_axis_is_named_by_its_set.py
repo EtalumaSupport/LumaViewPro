@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An axis is named by its set, in what the scope answers as in what it takes.
 
-The axis names are string enums (``modules.axes``): ``Axis`` (X, Y, Z, T)
+The axis names are string enums (``_lumascope.modules.axes``): ``Axis`` (X, Y, Z, T)
 and ``StageAxis`` (X, Y, Z), the axes with a position. What the scope
 answers names its axes by those members -- the positions, the targets, the
 unknown positions, the capabilities, the status, a position event -- so a
@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.axes import Axis, StageAxis
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.axes import Axis, StageAxis
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState, TurretStatus
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, HomingFaultError, MissingPart
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, HomingFaultError, MissingPart
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

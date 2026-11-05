@@ -42,8 +42,8 @@ from unittest.mock import MagicMock
 import pytest
 
 # Re-export PluginSpec / ProcessorResult so plugin authors can build
-# specs in their tests without importing modules.plugins directly.
-from modules.plugins import (
+# specs in their tests without importing _lumascope.modules.plugins directly.
+from _lumascope.modules.plugins import (
     PluginRegistry,
     PluginSpec,
     PluginRegistrationError,

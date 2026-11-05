@@ -11,9 +11,9 @@ cannot use as a colour is refused where it is written, never stored.
 import pytest
 import tifffile
 
-from modules import layer_record
-from modules.exceptions import SettingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import layer_record
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_manual_capture_member import _files, _open_session, _settings
 from tests.stock_channels import LED0, LED2

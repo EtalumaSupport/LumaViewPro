@@ -6,10 +6,10 @@ from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle, Ellipse, Fbo
 from kivy.uix.widget import Widget
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
 from ui.step_navigation import go_to_step
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from ui.ui_helpers import find_nearest_step, move_to_plate, run_unasked, xy_gestures_offered
 
 logger = logging.getLogger('LVP.ui.stage')
@@ -106,7 +106,7 @@ class Stage(Widget):
         if self._xy_stage_present():
             motion = ctx.scope.motion
             return (motion.get_axis_limits('X').max_um, motion.get_axis_limits('Y').max_um)
-        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
+        from _lumascope.modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
         return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])
 

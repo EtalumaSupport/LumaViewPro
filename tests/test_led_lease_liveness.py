@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
@@ -49,7 +49,7 @@ def _af_runner(scope):
     """Real AutofocusRunner on the real simulated scope; the focus loop is
     stubbed out because these tests only exercise the lease-refusal path,
     which must abort before any focus iteration runs."""
-    from modules.autofocus_runner import AutofocusRunner
+    from _lumascope.modules.autofocus_runner import AutofocusRunner
 
     home_sim_scope(scope)
     park_z(scope, 5000.0)
@@ -125,8 +125,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     its own run: AutofocusAborted raised, no focus sweep, no Z walk, camera
     state restored, in-progress flags cleared, nothing posted -- and the
     live holder's lease and lit channel are untouched."""
-    from modules.exceptions import AutofocusAborted, RefusalCause
-    from modules.notification_center import OutcomeKind, outcome_of
+    from _lumascope.modules.exceptions import AutofocusAborted, RefusalCause
+    from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 
     ill = scope.illumination
     # AF is handed the lease of a run that already ended; the live holder
@@ -209,8 +209,8 @@ def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(sco
     fallback Z, so the refusal is the only word of it, reported once by the
     autofocus worker under its own title.
     """
-    from modules.exceptions import AutofocusAborted, RefusalCause
-    from modules.notification_center import OutcomeKind, outcome_of
+    from _lumascope.modules.exceptions import AutofocusAborted, RefusalCause
+    from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 
     ill = scope.illumination
     run = ill.acquire_led_lease('protocol', claim=held_run_claim())

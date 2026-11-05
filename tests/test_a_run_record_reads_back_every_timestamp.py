@@ -13,10 +13,10 @@ given to a row that states none.
 import datetime
 import pathlib
 
-from modules import post_derivation
-from modules.common_utils import PostFunction
-from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.protocol_post_record import ProtocolPostRecord
+from _lumascope.modules import post_derivation
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 
 # A stitched output's derivation, as a Quality stitch of raw tiles records it.
 _STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()

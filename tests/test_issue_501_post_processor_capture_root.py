@@ -30,21 +30,21 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from modules.common_utils import build_step_name, step_components
+from _lumascope.modules.common_utils import build_step_name, step_components
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 POST_PROCESSORS = {
-    'CompositeGeneration': REPO / 'modules' / 'composite_generation.py',
-    'Stitcher': REPO / 'modules' / 'stitcher.py',
-    'ZProjector': REPO / 'modules' / 'zprojector.py',
-    'VideoBuilder': REPO / 'modules' / 'video_builder.py',
-    'StackBuilder': REPO / 'modules' / 'stack_builder.py',
+    'CompositeGeneration': REPO / 'src/_lumascope/modules' / 'composite_generation.py',
+    'Stitcher': REPO / 'src/_lumascope/modules' / 'stitcher.py',
+    'ZProjector': REPO / 'src/_lumascope/modules' / 'zprojector.py',
+    'VideoBuilder': REPO / 'src/_lumascope/modules' / 'video_builder.py',
+    'StackBuilder': REPO / 'src/_lumascope/modules' / 'stack_builder.py',
 }
 
-BASE_PATH = REPO / 'modules' / 'protocol_post_processor.py'
-COMMON_UTILS_PATH = REPO / 'modules' / 'common_utils.py'
+BASE_PATH = REPO / 'src/_lumascope/modules' / 'protocol_post_processor.py'
+COMMON_UTILS_PATH = REPO / 'src/_lumascope/modules' / 'common_utils.py'
 
 
 def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.FunctionDef:

@@ -11,7 +11,7 @@ pitch beyond the outer well centres is off the grid and names none.
 
 import pytest
 
-from modules.labware_loader import WellPlateLoader
+from _lumascope.modules.labware_loader import WellPlateLoader
 
 
 @pytest.fixture

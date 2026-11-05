@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules.exceptions import LiveFolderPathRefusedError
-from modules.post_processing import (
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+from _lumascope.modules.post_processing import (
     read_cell_count_image,
     save_cell_count_method,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

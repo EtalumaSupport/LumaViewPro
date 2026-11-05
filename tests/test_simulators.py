@@ -21,19 +21,23 @@ import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from drivers import host_clock
-from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, CameraWriteFailedError
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_specimen import DRIFT_STEPS, Specimen
-from lib.log_helpers import VERBOSE
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    CameraWriteFailedError,
+)
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, Specimen
+from _lumascope.lib.log_helpers import VERBOSE
 from tests.camera_fakes import grab_a_frame_made_after_now
 
-# Imported for its side effect too: drivers/motorboard.py installs the
+# Imported for its side effect too: src/_lumascope/drivers/motorboard.py installs the
 # AMAX/DMAX probe-warning filter at import time, and
 # test_amax_dmax_probe_warning_suppressed measures that filter.
-from drivers.motorboard import MotorBoard
+from _lumascope.drivers.motorboard import MotorBoard
 from tests.scope_fakes import build_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -99,8 +103,8 @@ def test_a_simulated_exchange_logs_its_true_duration_on_a_coarse_clock(monkeypat
     (Windows under Python 3.12 reads it 15.6 ms a step; a second here, so
     a duration read from it is 0 or a whole second). The fast tier's 1 ms
     command delay is the duration."""
-    import drivers.simulated_ledboard as led_module
-    import drivers.simulated_motorboard as motor_module
+    import _lumascope.drivers.simulated_ledboard as led_module
+    import _lumascope.drivers.simulated_motorboard as motor_module
 
     for module in (led_module, motor_module):
         monkeypatch.setattr(
@@ -135,7 +139,7 @@ class TestSimulatedMotorBoard:
     def test_a_home_raises_as_the_driver_does(self, method, monkeypatch):
         """SimulatedMotorBoard mirrors the MotorBoard exception contract
         so sim-backed tests exercise the same raise path as production."""
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         command = method.upper()
         board = SimulatedMotorBoard(
@@ -279,7 +283,7 @@ class TestSimulatedMotorBoard:
     def test_amax_dmax_probe_warning_suppressed(self, caplog):
         """Legacy firmware probe failures for AMAXX/DMAXX/AMAXY/DMAXY
         are filtered out of LVP.serial WARNING records.
-        drivers/motorboard.py installs the filter at import time."""
+        src/_lumascope/drivers/motorboard.py installs the filter at import time."""
         import logging
 
         serial_log = logging.getLogger('LVP.serial')
@@ -612,7 +616,7 @@ class TestMotorConfigDefaults:
         assert f.is_file()
 
     def test_defaults_load(self):
-        from drivers.motorconfig import MotorConfig
+        from _lumascope.drivers.motorconfig import MotorConfig
 
         mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         assert mc.model() in ('LS850', 'LS850T')
@@ -624,7 +628,7 @@ class TestMotorConfigDefaults:
         assert mc.pixel_size() == 2.0
 
     def test_update_from_board_overrides(self):
-        from drivers.motorconfig import MotorConfig
+        from _lumascope.drivers.motorconfig import MotorConfig
 
         mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
@@ -633,7 +637,7 @@ class TestMotorConfigDefaults:
         assert mc.travel_limit_mm('X') == 120
 
     def test_missing_section_returns_default(self):
-        from drivers.motorconfig import MotorConfig
+        from _lumascope.drivers.motorconfig import MotorConfig
 
         mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         # Non-existent section should return default without crashing
@@ -643,8 +647,8 @@ class TestMotorConfigDefaults:
     def test_optics_raises_when_no_optics_declared(self):
         import pytest
 
-        from drivers.exceptions import HardwareError
-        from drivers.motorconfig import MotorConfig
+        from _lumascope.drivers.exceptions import HardwareError
+        from _lumascope.drivers.motorconfig import MotorConfig
 
         # A config with no Optics section cannot report a scale. The accessors
         # raise rather than substitute a fabricated default; the capability
@@ -1133,7 +1137,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_focus_score_peaks_at_focal_z(self):
         """Vollath F4 focus score should be highest at the focal point."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
@@ -1152,7 +1156,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_focus_score_decreases_with_defocus(self):
         """Focus score should decrease as we move away from focal point."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
@@ -1179,7 +1183,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_focus_curve_is_symmetric(self):
         """Focus scores should be roughly symmetric around focal point."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
@@ -1216,7 +1220,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_the_specimen_is_sharpest_at_the_focal_plane(self):
         """The specimen a live view shows blurs with defocus, so a sweep's
         best score is at the sample's focal plane, from either side."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         dof = 4.0
         cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: dof)
@@ -1234,7 +1238,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_a_shallower_depth_of_field_falls_off_faster(self):
         """The same distance from focus blurs a high-NA objective more."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         def score_10_um_off(dof):
             cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: dof)
@@ -1433,7 +1437,7 @@ def _held_by_the_specimen() -> int:
     """
     import tracemalloc
 
-    import drivers.simulated_specimen as specimen_module
+    import _lumascope.drivers.simulated_specimen as specimen_module
 
     snapshot = tracemalloc.take_snapshot().filter_traces(
         [tracemalloc.Filter(True, specimen_module.__file__)]
@@ -1538,7 +1542,7 @@ class TestTheSpecimenField:
 
     def test_the_drift_does_not_move_a_focus_score(self):
         """A sweep's scores differ by focus, not by which drift step a frame was."""
-        from modules.autofocus_functions import focus_vollath4_original
+        from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: 4.0)
         cam.set_focal_z(5000.0)
@@ -1559,10 +1563,10 @@ class TestTheSpecimenField:
 
 
 class TestCameraProfiles:
-    """Tests for drivers/camera_profiles.py lookup and defaults."""
+    """Tests for src/_lumascope/drivers/camera_profiles.py lookup and defaults."""
 
     def test_lookup_known_pylon_model(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('daA3840-45um')
         assert p.model_name == 'daA3840-45um'
@@ -1573,7 +1577,7 @@ class TestCameraProfiles:
         assert p.exposure_max_us == 1_000_000
 
     def test_lookup_known_ace2_model(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('a2A3536-31umBAS')
         assert p.sensor == 'Sony IMX676-AAMR1-C'
@@ -1581,7 +1585,7 @@ class TestCameraProfiles:
         assert p.gain.analog_max_db == 30.0
 
     def test_lookup_known_ids_model(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('U3-34L0XCP-M')
         assert p.driver == 'ids'
@@ -1597,14 +1601,14 @@ class TestCameraProfiles:
         assert p.exposure_max_us == 2_000_000
 
     def test_lookup_simulated(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('SimulatedCamera-3840x2160')
         assert p.driver == 'simulated'
         assert p.gain.total_min_db == 0.0
 
     def test_lookup_unknown_returns_default(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('TotallyUnknownCamera-XYZ')
         assert p.model_name == 'TotallyUnknownCamera-XYZ'
@@ -1613,13 +1617,13 @@ class TestCameraProfiles:
         assert p.binning_sizes == [1]
 
     def test_lookup_none_returns_default(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile(None)
         assert p.driver == 'unknown'
 
     def test_lookup_substring_match(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         # Model name might have extra text from SDK
         p = lookup_profile('Basler daA3840-45um (12345678)')
@@ -1627,7 +1631,7 @@ class TestCameraProfiles:
 
     def test_lookup_returns_copy(self):
         """Modifying a returned profile should not affect the registry."""
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p1 = lookup_profile('daA3840-45um')
         p1.exposure_max_us = 99_000
@@ -1638,7 +1642,7 @@ class TestCameraProfiles:
         assert p2.gain.total_min_db is None  # Not modified
 
     def test_dynamic_fields_initially_none(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         p = lookup_profile('daA3840-45um')
         # exposure_max_us has a static default per profile entry; it's
@@ -1649,7 +1653,7 @@ class TestCameraProfiles:
         assert p.gain.total_max_db is None
 
     def test_profile_dataclass_defaults(self):
-        from drivers.camera_profiles import CameraProfile
+        from _lumascope.drivers.camera_profiles import CameraProfile
 
         p = CameraProfile()
         assert p.model_name == ''
@@ -1733,7 +1737,7 @@ class TestTimingModes:
         """
         import types
 
-        import drivers.simulated_motorboard as simulated_motorboard
+        import _lumascope.drivers.simulated_motorboard as simulated_motorboard
 
         waits = []
         clock = types.SimpleNamespace(sleep=waits.append, monotonic=time.monotonic)
@@ -1929,7 +1933,7 @@ class TestTheCamerasFaultDoors:
     def test_a_write_the_camera_does_not_answer_raises_and_keeps_the_camera(self):
         # A timed-out write: the camera may answer the next one, so it is
         # not taken for gone, and nothing moved.
-        from drivers.exceptions import CameraNoAnswerError
+        from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         cam = SimulatedCamera()
         cam.gain(2.0)

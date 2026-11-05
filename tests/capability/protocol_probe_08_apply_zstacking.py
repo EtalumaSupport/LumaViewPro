@@ -9,7 +9,7 @@ from harness import make_session, banner
 ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'center'}
 session, live = make_session('applyzs', home=True, zstack=dict(ZS))
 try:
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     settings = session.settings
     cfg = config_helpers.get_sequenced_capture_config_from_settings(

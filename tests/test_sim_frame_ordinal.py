@@ -38,7 +38,7 @@ from tests.camera_fakes import grab_a_frame_made_after_now
 
 
 def _cam():
-    from drivers.simulated_camera import SimulatedCamera
+    from _lumascope.drivers.simulated_camera import SimulatedCamera
 
     cam = SimulatedCamera(width=32, height=24)
     cam.start_grabbing()
@@ -164,7 +164,7 @@ class TestFieldsSurviveConcurrentStores:
     how pixels get a number that outranks them."""
 
     def test_pixels_and_ordinal_come_from_the_same_frame(self, monkeypatch):
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
 
         cam = SimulatedCamera(width=32, height=24)
         cam.exposure_t(1.0)  # the delivery ceiling: as many stores as it makes
@@ -231,7 +231,7 @@ class TestThePreviewPollCanRetireASettleCount:
     frames and a hardware write can actually settle in sim."""
 
     def test_preview_polls_settle_a_write(self):
-        from modules.frame_validity import Counter, FrameValidity
+        from _lumascope.modules.frame_validity import Counter, FrameValidity
 
         cam = _cam()
         try:

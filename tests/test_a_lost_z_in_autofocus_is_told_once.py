@@ -17,7 +17,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     AutofocusFailedError,
     AutofocusZNotRestoredError,
     MoveFaultError,
@@ -63,7 +63,7 @@ def _stall_the_sweeps_z(monkeypatch, session):
 
 
 def _record_reports(monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     real = notifications.report_outcome

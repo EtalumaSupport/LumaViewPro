@@ -27,18 +27,18 @@ import datetime
 import threading
 
 
-from modules.activity_claim import ActivityClaim
-from modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_mode import ImageCaptureConfig
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
-from modules.protocol import Protocol
-from modules.sequenced_capture_runner import SequencedCaptureRunner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
-from modules.run_events import RunEvents
-from modules.layer_record import release_colors
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.layer_record import release_colors
 from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
@@ -91,9 +91,9 @@ def _make_af_step_protocol():
 
 class TestStandaloneAfDeliversCharacterizationData:
     def test_af_run_delivers_characterization_data_to_disk(self, tmp_path):
-        from modules.autofocus_runner import AutofocusRunner
-        from modules.autofocus_thread import AutofocusThread
-        from modules.protocol_thread import ProtocolThread
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.protocol_thread import ProtocolThread
 
         # The data root is the scope's, given at construction; a runner over a
         # bare scope reads its catalogues and tiling config from it.

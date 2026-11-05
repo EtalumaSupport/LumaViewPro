@@ -64,7 +64,7 @@ def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
     import logging
     from types import SimpleNamespace
 
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
     from tests.settings_fixtures import complete_settings, settings_writer
     from ui.advanced_settings import AdvancedSettings
 
@@ -105,9 +105,9 @@ def test_scan_config_carries_the_persisted_overlap():
     settings = shipped_template()
     settings['tiling_overlap_percent'] = 25.0
 
-    from modules.config_helpers import get_sequenced_capture_config_from_settings
-    from modules.labware_loader import WellPlateLoader
-    from modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.config_helpers import get_sequenced_capture_config_from_settings
+    from _lumascope.modules.labware_loader import WellPlateLoader
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     config = get_sequenced_capture_config_from_settings(
         settings,

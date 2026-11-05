@@ -1,8 +1,8 @@
 """Tests for tools/check_rules.py cv2_channel_tiff_read.
 
 cv2_channel_tiff_read blocks bare ``tf.imread`` / ``tifffile.imread`` in production
-``modules/`` and ``ui/`` outside the canonical reader. The one sanctioned
-reader is ``modules/image_utils.load_pixels``, which returns the pixels
+``src/_lumascope/modules/`` and ``ui/`` outside the canonical reader. The one sanctioned
+reader is ``src/_lumascope/modules/image_utils.load_pixels``, which returns the pixels
 AND their significant-bit depth together; ``image_utils.py`` is the only
 file allowed to call tifffile.imread directly (load_pixels and the
 legacy-collapse helper live there).
@@ -40,7 +40,7 @@ import tifffile as tf
 def load(path):
     return tf.imread(str(path))
 """
-        violations = _violations(src, 'modules/some_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/some_processor.py')
         assert len(violations) == 1
         assert violations[0].line == 5
 
@@ -51,7 +51,7 @@ import tifffile
 def load(path):
     return tifffile.imread(path)
 """
-        violations = _violations(src, 'modules/another_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/another_processor.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_tiff_read'
 
@@ -72,7 +72,7 @@ import tifffile as tf
 def load_two(a, b):
     return tf.imread(a), tf.imread(b)
 """
-        violations = _violations(src, 'modules/stitcher.py')
+        violations = _violations(src, 'src/_lumascope/modules/stitcher.py')
         assert len(violations) == 2
 
 
@@ -87,7 +87,7 @@ import tifffile as tf
 def read_tiff_with_legacy_collapse(path):
     return tf.imread(str(path))
 """
-        assert _violations(src, 'modules/image_utils.py') == []
+        assert _violations(src, 'src/_lumascope/modules/image_utils.py') == []
 
 
 class TestRule31dScopedToProductionPaths:
@@ -102,7 +102,7 @@ def test_helper(path):
         assert _violations(src, 'tests/test_image_utils.py') == []
 
     def test_top_level_script_does_not_fire(self):
-        # Files outside modules/ and ui/ are not in scope.
+        # Files outside src/_lumascope/modules/ and ui/ are not in scope.
         src = """
 import tifffile as tf
 
@@ -123,7 +123,7 @@ import tifffile as tf
 def save(arr, path):
     tf.imwrite(path, arr)
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []
 
     def test_cv2_imread_does_not_fire(self):
         # cv2.imread is cv2_channel_io's domain, not cv2_channel_tiff_read's.
@@ -133,15 +133,15 @@ import cv2
 def load(path):
     return cv2.imread(path, cv2.IMREAD_UNCHANGED)
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []
 
     def test_load_pixels_callsite_does_not_fire(self):
         # The sanctioned reader call carries depth with the pixels.
         src = """
-import modules.image_utils as image_utils
+import _lumascope.modules.image_utils as image_utils
 
 def load(path):
     image, significant_bits = image_utils.load_pixels(path)
     return image
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []

@@ -14,7 +14,7 @@ from tools import ratchet_history as rh
 
 
 def _boom():
-    raise FileNotFoundError('modules/config_ui_getters.py')
+    raise FileNotFoundError('src/_lumascope/modules/config_ui_getters.py')
 
 
 def test_a_detector_that_cannot_run_records_none_never_zero(monkeypatch, tmp_path):
@@ -127,7 +127,7 @@ def test_the_test_ratchets_measure_the_sampled_tree(tmp_path):
         'from unittest.mock import MagicMock\n'
         '\n'
         'def test_a():\n'
-        "    assert 'x' in Path('modules/x.py').read_text()\n"
+        "    assert 'x' in Path('src/_lumascope/modules/x.py').read_text()\n"
         '\n'
         'def test_b():\n'
         '    scope = MagicMock()\n'
@@ -221,7 +221,7 @@ _BODY_PIN = (
     'from pathlib import Path\n'
     '\n'
     'def test_a():\n'
-    "    assert 'x' in Path('modules/x.py').read_text()\n"
+    "    assert 'x' in Path('src/_lumascope/modules/x.py').read_text()\n"
 )
 
 

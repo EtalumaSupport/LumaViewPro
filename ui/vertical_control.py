@@ -5,14 +5,14 @@ from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.debounce import debounce
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.debounce import debounce
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.operation import Operation
-from modules.run_events import RunEvents
+    from _lumascope.modules.operation import Operation
+from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     go_to_bookmark,
     jog,

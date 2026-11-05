@@ -7,7 +7,7 @@ from kivy.graphics import Color, Mesh
 from kivy.properties import ObjectProperty
 from kivy.uix.widget import Widget
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.histogram')
 

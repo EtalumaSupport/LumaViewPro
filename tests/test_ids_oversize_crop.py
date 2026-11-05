@@ -20,8 +20,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from drivers.camera import FrameWindow, ImageHandlerBase
-from drivers.camera_profiles import CameraProfile
+from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
+from _lumascope.drivers.camera_profiles import CameraProfile
 from tests.camera_fakes import bare_ids_camera, delivered_frame
 
 # Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
@@ -319,7 +319,7 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
     """The unpack worker hands on the whole converted frame, a contiguous copy;
     storing it crops it to the recorded window, so the frame that leaves the
     driver is exactly the requested size."""
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
     parent = bare_ids_camera()
@@ -390,7 +390,7 @@ def test_grab_new_capture_times_out_without_touching_stream():
 
 def test_unpack_passes_the_whole_frame_through(monkeypatch):
     """The unpack worker returns the full converted frame; it never crops."""
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
     parent = bare_ids_camera()

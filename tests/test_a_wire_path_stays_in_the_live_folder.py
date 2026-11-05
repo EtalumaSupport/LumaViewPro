@@ -16,8 +16,8 @@ import shutil
 
 import pytest
 
-from modules.exceptions import LiveFolderPathRefusedError, Refusal
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError, Refusal
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

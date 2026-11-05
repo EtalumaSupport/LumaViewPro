@@ -5,7 +5,7 @@ The kv file and every icon reached Kivy as a path relative to nothing, and
 Kivy's ``resource_find`` returns ``abspath(filename)`` when that exists
 before it searches its own paths: started from inside another checkout, the
 GUI ran that checkout's kv file and icons. Every shipped file the GUI names
-is now ``lib.build_files.build_file('<path under the build root>')``, in
+is now ``_lumascope.lib.build_files.build_file('<path under the build root>')``, in
 Python and in kv (each kv source with its own ``#:import``, since an import
 is process-wide and a source leaning on another's would load only by
 order). This scan refuses a relative path to a shipped file (``data/``,
@@ -87,7 +87,7 @@ def test_the_gui_names_no_shipped_file_by_a_relative_path():
 
 
 def test_each_kv_source_that_calls_the_helper_imports_it():
-    import_line = f'#:import {_HELPER} lib.build_files.{_HELPER}'
+    import_line = f'#:import {_HELPER} _lumascope.lib.build_files.{_HELPER}'
     kv_texts = [
         (rel_path, (REPO_ROOT / rel_path).read_text(encoding='utf-8'))
         for rel_path in tracked_files(['ui'], pattern='*.kv')

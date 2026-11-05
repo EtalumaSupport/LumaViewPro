@@ -6,8 +6,8 @@ start_jog -> the move_z_by / move_xy_by body).
 """
 
 from harness import check, run
-from modules.exceptions import PositionOutOfRangeError
-from modules.lumascope_api.motion import MOTOR_POSITION_LIMIT
+from _lumascope.modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.lumascope_api.motion import MOTOR_POSITION_LIMIT
 
 
 def body(s):

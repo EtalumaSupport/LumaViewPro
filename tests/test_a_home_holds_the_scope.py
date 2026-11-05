@@ -15,8 +15,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0

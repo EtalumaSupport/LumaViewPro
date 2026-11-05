@@ -18,7 +18,7 @@ import ast
 
 from tests.ast_seams import MemberNames, parse_module, tracked_files, walk_defs
 
-_OWNER_MODULE = 'modules/lumascope_api/frame_record.py'
+_OWNER_MODULE = 'src/_lumascope/modules/lumascope_api/frame_record.py'
 _OWNER_DEFS = MemberNames(_OWNER_MODULE, {'grab_record', 'delivered_frame_record'})
 _TEST_DESCRIPTION = 'tests/frame_records.py'
 

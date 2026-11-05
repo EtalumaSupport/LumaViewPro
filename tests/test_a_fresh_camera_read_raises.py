@@ -21,11 +21,15 @@ import os
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
-from modules.lumascope_api.camera import CameraAPI
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.exceptions import (
+    CaptureFailedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 # (the read, the simulator's node for it)

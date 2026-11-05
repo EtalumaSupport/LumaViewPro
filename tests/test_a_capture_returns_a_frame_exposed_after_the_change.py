@@ -31,8 +31,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from modules.exceptions import CaptureFailedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.settings_fixtures import complete_settings
 

@@ -19,8 +19,8 @@ driver's real error handling runs.
 
 import pytest
 
-from modules.exceptions import HomingFailedError
-from modules.lumascope_api import AxisState
+from _lumascope.modules.exceptions import HomingFailedError
+from _lumascope.modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
 
 

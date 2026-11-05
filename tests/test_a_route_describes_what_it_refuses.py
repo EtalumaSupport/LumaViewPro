@@ -20,11 +20,11 @@ from typing import ClassVar
 import pytest
 from fastapi.testclient import TestClient
 
-from lib.lumascope_error import Fault
-from modules.exceptions import HardwareCommandRefusedError, ProtocolRunRefusedError
-from modules.scope_session import ScopeSession
-from rest import problems
-from rest.app import build_app
+from _lumascope.lib.lumascope_error import Fault
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, ProtocolRunRefusedError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest import problems
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 

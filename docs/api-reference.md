@@ -2,7 +2,7 @@
 
 <!-- Generated from the code; do not edit. Regenerate: LVP_WRITE_API_REFERENCE=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`src/_lumascope/modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
@@ -153,9 +153,9 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`VideoProgress`](#VideoProgress)
 - [`WorkItem`](#WorkItem)
 - [`ZProject`](#ZProject)
-- [`modules.notification_center`](#modules.notification_center)
-- [`rest.app`](#rest.app)
-- [`rest.server`](#rest.server)
+- [`_lumascope.modules.notification_center`](#_lumascope.modules.notification_center)
+- [`_lumascope.rest.app`](#_lumascope.rest.app)
+- [`_lumascope.rest.server`](#_lumascope.rest.server)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
 - [Routes](#routes)
@@ -166,7 +166,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 ## `ScopeSession`
 
 Made by [`ScopeSession.create`](#ScopeSession.create); every member below is on the wire under `/api/v1/` unless it is in-process.  
-Taken by: [`rest.app.build_app`](#rest.app.build_app), [`rest.server.build_server`](#rest.server.build_server).
+Taken by: [`_lumascope.rest.app.build_app`](#_lumascope.rest.app.build_app), [`_lumascope.rest.server.build_server`](#_lumascope.rest.server.build_server).
 
 Owns the shared, GUI-independent state for one microscope session.
 
@@ -2079,7 +2079,7 @@ Route: `GET /api/v1/plugin_api_level`.
 
 What this LumaViewPro does that a plugin may rely on.
 
-`modules.plugins.PLUGIN_API_LEVEL`; each level's additions are
+`_lumascope.modules.plugins.PLUGIN_API_LEVEL`; each level's additions are
 listed in plugin-tutorial.md, "The plugin API level".
 
 **Raises**
@@ -4786,7 +4786,7 @@ The parts this scope needs that are not connected.
 Each term is the one the matching single-board question asks, so
 a run gate and a per-board gate cannot disagree about the same
 hardware. Each term reads its driver's own flags, with no exchange
-with the board or the camera (`drivers/protocols.py`,
+with the board or the camera (`src/_lumascope/drivers/protocols.py`,
 `Camera.is_connected`).
 
 A scope whose model has no motor board is not asked for one: a
@@ -6519,7 +6519,7 @@ The supplied handler is wrapped in a budget enforcer
 over-budget or raising invocations remove it, reported once as a
 `FrameHandlerRemovedError` warning). Callback
 signature is `cb(frame)`, the camera's `Frame` record
-(`modules.lumascope_api.Frame`: `image`, `seq`,
+(`_lumascope.modules.lumascope_api.Frame`: `image`, `seq`,
 `timestamp`, `arrived_ns`, `significant_bits`, `chunks`);
 runs on the SDK
 callback thread (Pylon `PylonImageGrab` / IDS grab loop /
@@ -9789,7 +9789,7 @@ client, a plugin, the GUI -- can act as the holder.
 
 - <a id="ControlSession.name"></a>`name`: `str` -- The name the client took it with, for the person at the scope.
 - <a id="ControlSession.taken_at_epoch_s"></a>`taken_at_epoch_s`: `float` -- When it was taken, as `time.time()`.
-- <a id="ControlSession.taken_by"></a>`taken_by`: `Caller` -- The host the take came through (`modules.caller`).
+- <a id="ControlSession.taken_by"></a>`taken_by`: `Caller` -- The host the take came through (`_lumascope.modules.caller`).
 
 <a id="ControlsLock"></a>
 ## `ControlsLock`
@@ -10866,7 +10866,7 @@ still): a stop that arrives late never touches another operation.
 ## `Outcome`
 
 A record: it crosses the wire as its data.  
-Returned by: [`modules.notification_center.outcome_of`](#modules.notification_center.outcome_of).
+Returned by: [`_lumascope.modules.notification_center.outcome_of`](#_lumascope.modules.notification_center.outcome_of).
 
 What an exception's type says it is, read once for every host that answers it.
 
@@ -13096,13 +13096,13 @@ A z-projection, as `build` takes it: each Z-stack to one image.
 
 - <a id="ZProject.method"></a>`method`: `ZProjectMethod` -- How each stack's slices are reduced.
 
-<a id="modules.notification_center"></a>
-## `modules.notification_center`
+<a id="_lumascope.modules.notification_center"></a>
+## `_lumascope.modules.notification_center`
 
 Functions of the module; each is in-process, since the wire routes only a class's members.
 
-<a id="modules.notification_center.outcome_of"></a>
-### `modules.notification_center.outcome_of`
+<a id="_lumascope.modules.notification_center.outcome_of"></a>
+### `_lumascope.modules.notification_center.outcome_of`
 
 ```python
 def outcome_of(exception: BaseException) -> Outcome
@@ -13120,13 +13120,13 @@ What *exception* is, as its type says: the one reading of an outcome's kind and 
 
 Nothing.
 
-<a id="rest.app"></a>
-## `rest.app`
+<a id="_lumascope.rest.app"></a>
+## `_lumascope.rest.app`
 
 Functions of the module; each is in-process, since the wire routes only a class's members.
 
-<a id="rest.app.build_app"></a>
-### `rest.app.build_app`
+<a id="_lumascope.rest.app.build_app"></a>
+### `_lumascope.rest.app.build_app`
 
 ```python
 def build_app(session: ScopeSession) -> fastapi.FastAPI
@@ -13160,13 +13160,13 @@ never from a header naming another.
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `route_shadowed`
 - [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
-<a id="rest.server"></a>
-## `rest.server`
+<a id="_lumascope.rest.server"></a>
+## `_lumascope.rest.server`
 
 Functions of the module; each is in-process, since the wire routes only a class's members.
 
-<a id="rest.server.build_server"></a>
-### `rest.server.build_server`
+<a id="_lumascope.rest.server.build_server"></a>
+### `_lumascope.rest.server.build_server`
 
 ```python
 def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Server
@@ -13177,7 +13177,7 @@ Marks: in-process.
 The one way to serve *session*'s API: judged, bound and configured here, served by `run()`.
 
 Every host serves through it -- the GUI (`serve_beside`),
-`python -m rest`, and a program serving a session it brought up
+`python -m _lumascope.rest`, and a program serving a session it brought up
 itself. Where it serves and whom it admits are *session*'s
 `rest_api` settings, judged first: one address of this computer, and
 when `allowed_clients` lists any, only a client at an address in it
@@ -16493,7 +16493,7 @@ prints it prints what the GUI shows.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
-- `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
+- `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`_lumascope.modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 - `remedy`: The action that answers this refusal, or None. A stalled file writer has one (recover it); a writer still making progress does not, since its files will land.
 
 `holder` and `holder_trigger` are published, so a REST problem
@@ -16502,7 +16502,7 @@ carries who holds the scope beside the words.
 **Fields**
 
 - <a id="ProtocolRunRefusedError.holder"></a>`holder`: `Holder | None` -- What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
-- <a id="ProtocolRunRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
+- <a id="ProtocolRunRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`_lumascope.modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16808,7 +16808,7 @@ A fault; bases `Fault`, `Exception`.
 
 The REST server was not started: a `rest_api` setting cannot be used, or its port could not be taken.
 
-Raised by `rest.server.build_server`, through which every host serves,
+Raised by `_lumascope.rest.server.build_server`, through which every host serves,
 before anything is served. A setting that cannot be used is named with
 why; a port that could not be taken is chained from the `OSError` of
 the bind, so the words name the address and the operating system's own
@@ -17217,10 +17217,10 @@ A refusal; bases `Refusal`, `Exception`.
 
 A request the REST server itself answers: it never reached a member.
 
-Raised by `rest/` for a request it answers itself: from its request
+Raised by `src/_lumascope/rest/` for a request it answers itself: from its request
 reader, its handle and job stores, its idempotency keys, its live view
 and its close. What the refusal is lives here; how it is sent -- each
-reason's status, the `Retry-After` header -- is `rest.problems`'s,
+reason's status, the `Retry-After` header -- is `_lumascope.rest.problems`'s,
 read from this record.
 
 **Attributes**
@@ -17842,7 +17842,7 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 
 ## Saved-file facts
 
-Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
+Every fact a saved file's record can state, by its key (`src/_lumascope/modules/image_utils.FILE_FACTS`), in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
 
 | Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
 |---|---|---|---|---|---|

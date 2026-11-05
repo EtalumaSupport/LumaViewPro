@@ -22,9 +22,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-import modules.image_save as image_save
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.image_save as image_save
 from tests.ast_seams import parse_module
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
@@ -139,25 +139,25 @@ class TestTheHelperFamilyReachesNoContext:
     def test_common_utils_imports_no_context(self):
         """Structural, at every scope: the two function-local imports inside
         the resolver family were the module's only reach for the context."""
-        tree = parse_module('modules/common_utils.py')
+        tree = parse_module('src/_lumascope/modules/common_utils.py')
         offenders = [
             node.lineno
             for node in ast.walk(tree)
             if (
                 isinstance(node, ast.Import)
-                and any(a.name == 'modules.app_context' for a in node.names)
+                and any(a.name == '_lumascope.modules.app_context' for a in node.names)
             )
             or (
                 isinstance(node, ast.ImportFrom)
                 and (
-                    node.module == 'modules.app_context'
+                    node.module == '_lumascope.modules.app_context'
                     or (
-                        node.module == 'modules'
+                        node.module == '_lumascope.modules'
                         and any(a.name == 'app_context' for a in node.names)
                     )
                 )
             )
         ]
         assert not offenders, (
-            f'modules/common_utils.py imports the application context at {offenders}'
+            f'src/_lumascope/modules/common_utils.py imports the application context at {offenders}'
         )

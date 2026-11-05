@@ -48,6 +48,8 @@ import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+# This checkout's own API, whatever lumascope.pth the interpreter holds.
+sys.path.insert(0, str(REPO / 'src'))
 
 from tests import ast_seams as _seams
 from tests.guards import test_a_scope_is_the_simulator_not_a_stand_in as _stand_ins
@@ -130,7 +132,7 @@ def sample_points(since, until, every_days, branch):
 # a series spanning the move stays one series.
 SIZE_FOLDERS = (
     ('ui', 'ui_files', 'ui_lines'),
-    ('modules', 'modules_files', 'modules_lines'),
+    ('src/_lumascope/modules', 'modules_files', 'modules_lines'),
     ('tests', 'tests_files', 'tests_lines'),
 )
 

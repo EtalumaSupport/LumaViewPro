@@ -21,9 +21,9 @@ import pathlib
 import re
 import time
 
-from modules import tech_support_report
-from modules.protocol import Protocol
-from modules.tech_support_report import TechSupportReport
+from _lumascope.modules import tech_support_report
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.tech_support_report import TechSupportReport
 
 
 def _write_protocol(path: pathlib.Path, marker: str, mtime: float) -> None:

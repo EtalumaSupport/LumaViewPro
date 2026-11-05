@@ -12,8 +12,8 @@ writes what the drivers cached at connect, and the camera step still runs.
 
 import pytest
 
-from modules.caller import Caller, calling
-from modules.tech_support_report import TechSupportReport
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.tech_support_report import TechSupportReport
 from tests.scope_fakes import session_on_a_simulated_scope
 
 WRITING_STEPS = ('_step_firmware_tests', '_step_led_checks', '_step_fan_test', '_step_homing_test')
@@ -135,8 +135,8 @@ def test_under_another_hold_the_bandwidth_test_is_skipped_and_the_report_saved(
     import threading
     import zipfile
 
-    from modules import tech_support_report
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules import tech_support_report
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     # The host's USB inventory lists this machine's real serial ports, which

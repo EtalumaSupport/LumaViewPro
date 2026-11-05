@@ -1,0 +1,167 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Shared constants for the lumascope_api package.
+
+Module-level home for values that both `_lumascope.Lumascope` and the
+sub-API modules (motion.py, etc.) need to read. Lifting them here
+breaks the import cycle that would otherwise force lazy imports in
+the sub-API files.
+
+`_lumascope` re-exports `AxisState` under its own module, where
+callers import it from.
+"""
+
+import dataclasses
+import enum
+import numbers
+
+from _lumascope.modules.exceptions import (
+    AccelerationLimitRefusedError,
+    ArgumentRefusedError,
+    PositionOutOfRangeError,
+)
+from _lumascope.modules.api_surface import api_fields
+
+# The simulated boards a simulated scope can be built on: a Python
+# stand-in with no timing; the production driver against the real firmware
+# in a MicroPython process, its motors moving at once; and the same
+# firmware with its motors moving at the ramp fitted to bench moves, so a
+# move or a home takes seconds rather than none. A home starts with the
+# axes mid-travel, so it is shorter than a stage's (an LS850's 5 s against
+# under 20 s). The session validates the setting against this tuple and
+# the constructor dispatches on it.
+SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
+
+# Absolute position bounds in um -- generous outer limits. Per-axis
+# travel is the API's to refuse (MotionAPI.get_axis_limits).
+MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
+
+# The turret's four positions. Unlike X/Y/Z this is not travel and not um:
+# the T axis publishes no limits, so the um-based range check cannot refuse
+# anything for it and the motor's answer to a nonsense slot is to drive
+# there -- 99 is 24.5 revolutions. Both refusal sites in motion.py read this
+# rather than spelling the range twice: they guard the same illegal state at
+# two depths of one call chain, and drifting apart would leave one door open.
+TURRET_SLOT_MIN = 1
+TURRET_SLOT_MAX = 4
+
+# The acceleration limit a caller may ask for, as a percentage of the
+# firmware's own maximum. The API refuses outside it before any board is
+# commanded: held in the real motor driver alone, the simulated and absent
+# boards took any number and the Session stored it.
+ACCELERATION_PCT_MIN = 1
+ACCELERATION_PCT_MAX = 100
+
+
+def refuse_acceleration_pct(val_pct: object) -> None:
+    """Refuse an acceleration limit no board may be given.
+
+    The one check of the range, for every place a limit enters: the motion
+    API's setter, a stored value at load and a settings dict handed to a
+    session.
+
+    Raises:
+        AccelerationLimitRefusedError: ``val_pct`` is not a whole number,
+            or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+            A ValueError, so a caller catching a bad argument keeps working.
+    """
+    # bool is excluded by name: True is an int. A fraction is refused: every
+    # board takes a whole percent.
+    if (
+        isinstance(val_pct, bool)
+        or not isinstance(val_pct, numbers.Integral)
+        or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
+    ):
+        raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
+
+
+def refuse_inverted_gain_range(settings: dict, argument: str) -> None:
+    """Refuse an auto-gain range whose minimum gain is above its maximum.
+
+    The one check of the pair, for every place it is judged: an arm of
+    auto-gain and a stored pair at load. Not at the settings write: each
+    bound is written alone, so a write judging the pair would make a client
+    order its two writes.
+
+    Raises:
+        ArgumentRefusedError: ``'gain_range_inverted'``, naming both bounds.
+    """
+    if settings['min_gain_db'] > settings['max_gain_db']:
+        raise ArgumentRefusedError(
+            'gain_range_inverted',
+            argument=argument,
+            value={key: settings[key] for key in ('min_gain_db', 'max_gain_db')},
+        )
+
+
+def is_turret_slot(slot: object) -> bool:
+    """Whether ``slot`` is a turret slot.
+
+    A bool is excluded explicitly: it is an int in Python, so ``True``
+    would otherwise pass as slot 1.
+    """
+    return (
+        isinstance(slot, int)
+        and not isinstance(slot, bool)
+        and TURRET_SLOT_MIN <= slot <= TURRET_SLOT_MAX
+    )
+
+
+def refuse_unless_turret_slot(slot: object) -> None:
+    """Refuse ``slot`` unless it is a turret slot.
+
+    The one refusal of a slot, for every member that takes one, so a bad
+    slot reads the same whether it was sent to move the turret, to assign
+    an objective, or as the preferred slot at bring-up.
+
+    Raises:
+        PositionOutOfRangeError: ``slot`` is not a whole number 1-4.
+    """
+    if not is_turret_slot(slot):
+        raise PositionOutOfRangeError(
+            'T',
+            slot,
+            TURRET_SLOT_MIN,
+            TURRET_SLOT_MAX,
+            bound='turret slots',
+            quantity='slot',
+        )
+
+
+class AxisState(enum.StrEnum):
+    """Possible states for a motion axis."""
+
+    UNKNOWN = 'unknown'  # Not homed / state not known
+    IDLE = 'idle'  # At known position, not moving
+    MOVING = 'moving'  # Move commanded, not yet arrived
+    HOMING = 'homing'  # Homing sequence in progress
+
+
+@api_fields('position_um', 'state')
+@dataclasses.dataclass(frozen=True)
+class AxisPosition:
+    """One stage axis's state and its position, read together: X, Y or Z.
+
+    ``position_um`` is None unless the axis is IDLE or MOVING: an axis whose
+    reference is lost or still being established keeps answering the last
+    number it reported, and a caller writing a position into a file must
+    not be handed it. The turret has a slot, not a position: ``TurretStatus``.
+    """
+
+    state: AxisState
+    position_um: float | None
+
+
+@api_fields('state', 'slot')
+@dataclasses.dataclass(frozen=True)
+class TurretStatus:
+    """The turret's state and the slot in the light path, read together.
+
+    ``slot`` is the slot the last turret command left the turret in, None
+    before the first, while one is in flight, after one failed, and
+    whenever the turret's position is lost (``MotionAPI.turret_status``). ``state`` is the
+    turret's ``AxisState``, which the slot alone cannot say: homing, moving
+    or unknown.
+    """
+
+    state: AxisState
+    slot: int | None

@@ -26,15 +26,15 @@ import logging
 
 import pytest
 
-from drivers.exceptions import CameraWriteFailedError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
-from modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _protocol,
     _refused,
@@ -648,7 +648,7 @@ class _CameraControls:
 def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(gui_ctx, connected):
     from types import SimpleNamespace
 
-    from modules import common_utils
+    from _lumascope.modules import common_utils
     from ui.image_settings import ImageSettings
 
     layers = {layer: _CameraControls() for layer in common_utils.get_layers()}

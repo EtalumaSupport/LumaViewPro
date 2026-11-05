@@ -16,7 +16,7 @@ import logging
 
 import pytest
 
-from modules import gui_logger
+from _lumascope.modules import gui_logger
 
 
 def test_a_bool_renders_on_and_off(caplog):

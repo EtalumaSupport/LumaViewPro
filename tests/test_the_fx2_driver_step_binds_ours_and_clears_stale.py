@@ -2,7 +2,7 @@
 """The installer's FX2 driver step binds our package and clears stale ones,
 and never strips a working binding it cannot replace.
 
-``modules/fx2_driver_step.py`` is what the app's Repair runs elevated to
+``src/_lumascope/modules/fx2_driver_step.py`` is what the app's Repair runs elevated to
 install, and the MSI to uninstall. The machine it acts on is stood in by ``_Machine``: a driver store
 that is a folder of INF files read through the real ``store_packages``, and
 ``pnputil`` acting on it as Windows does for the commands the step runs
@@ -21,13 +21,13 @@ import re
 import shutil
 import sys
 
-from drivers.usb_driver_binding import (
+from _lumascope.drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
     DeviceBinding,
     store_packages,
 )
-from modules import fx2_driver_step, path_utils
+from _lumascope.modules import fx2_driver_step, path_utils
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED_INF = (

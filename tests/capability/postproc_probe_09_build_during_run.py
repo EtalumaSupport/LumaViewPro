@@ -97,7 +97,7 @@ def _capture_still(session, layers):
 def _refuse_video_layers(session):
     """A video step has one record row and its frames sit where a cell count
     does not look, so neither the timing nor the build load would be real."""
-    import modules.common_utils as common_utils
+    import _lumascope.modules.common_utils as common_utils
 
     settings = session.get_settings_snapshot()
     video = [
@@ -134,7 +134,7 @@ def _start_when_admitted(runner, protocol, parent, name):
 
     Returns the operation, when it started, and the refusals met first.
     """
-    from modules.exceptions import ProtocolRunRefusedError
+    from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
     refused = []
     while True:
@@ -150,7 +150,7 @@ def _start_when_admitted(runner, protocol, parent, name):
 
 
 def _post_run_steps(session):
-    from modules import live_work
+    from _lumascope.modules import live_work
 
     lane = (live_work.WorkKind.POST_PROCESSING, live_work.WorkKind.POST_PROCESSING_QUEUED)
     return [item.name for item in session.live_work.work if item.kind in lane]
@@ -196,7 +196,7 @@ def main():
         _capture_still(session, [layer for layer in args.still.split(',') if layer])
         _refuse_video_layers(session)
         if args.first == 'hyperstack':
-            from modules import image_mode
+            from _lumascope.modules import image_mode
 
             session.update_settings(
                 'image_output_format.sequenced', image_mode.OutputFormat.HYPERSTACK

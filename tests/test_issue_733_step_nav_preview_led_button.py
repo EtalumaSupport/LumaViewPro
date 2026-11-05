@@ -25,9 +25,9 @@ import pytest
 
 import ui.step_navigation as step_navigation
 import ui.ui_helpers as ui_helpers
-from modules.acquire_mode import AcquireMode
-from modules.lumascope_api.illumination import LedState
-from modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.sequential_io_executor import ENQUEUED
 from tests.pool_fakes import run_task_now
 from tests.scope_fakes import home_sim_scope
 

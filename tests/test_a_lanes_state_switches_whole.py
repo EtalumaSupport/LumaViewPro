@@ -22,9 +22,9 @@ import threading
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0

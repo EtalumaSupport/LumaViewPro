@@ -14,9 +14,9 @@ import time
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
-from modules.lumascope_api.motion import AxisState
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
+from _lumascope.modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
 

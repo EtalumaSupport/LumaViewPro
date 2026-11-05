@@ -37,7 +37,7 @@ from kivy.app import App
 from kivy.lang import Builder
 from kivy.properties import ObjectProperty
 from kivy.uix.widget import Widget
-from modules.scope_session import ControlsLock
+from _lumascope.modules.scope_session import ControlsLock
 
 declaration, binding = sys.argv[1], sys.argv[2]
 namespace = {'ObjectProperty': ObjectProperty}

@@ -20,9 +20,9 @@ import sys
 
 import pytest
 
-from modules import path_utils
-from modules.exceptions import InstallationFileError
-from modules.path_utils import INSTALLED_MARKER, AppRuntime
+from _lumascope.modules import path_utils
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.path_utils import INSTALLED_MARKER, AppRuntime
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -33,6 +33,9 @@ def exe_folder(tmp_path, monkeypatch):
     folder = tmp_path / 'LumaViewPro'
     folder.mkdir()
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    # The bundle's folder, which a frozen process has beside sys.frozen: this
+    # checkout's holds the build's files.
+    monkeypatch.setattr(sys, '_MEIPASS', str(REPO), raising=False)
     monkeypatch.setattr(sys, 'executable', str(folder / 'LumaViewPro.exe'))
     return folder
 
@@ -86,29 +89,29 @@ def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):
 
 
 _CHILD = """
-import json, sys
-sys.path.insert(0, sys.argv[1])
-from modules import path_utils
-import lvp_logger
-from modules.app_environment import init_environment
-from drivers import camera_profiles
-from drivers.fx2driver import _FX2Connection
-from modules.settings_init import prepare_settings
+import json, os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
+from _lumascope.modules import path_utils
+import _lumascope.lvp_logger
+from _lumascope.modules.app_environment import init_environment
+from _lumascope.drivers import camera_profiles
+from _lumascope.drivers.fx2driver import _FX2Connection
+from _lumascope.modules.settings_init import prepare_settings
 env = init_environment()
 settings, _rejected = prepare_settings(
-    lvp_logger.logger, str(path_utils.get_source_root()), fall_back_to_template=False
+    _lumascope.lvp_logger.logger, str(path_utils.get_source_root()), fall_back_to_template=False
 )
 print(json.dumps({
     'data_roots': {
         'launch_root': str(path_utils.launch_root()),
         'get_source_root': str(path_utils.get_source_root()),
-        'lvp_appdata': lvp_logger.lvp_appdata,
+        'lvp_appdata': _lumascope.lvp_logger.lvp_appdata,
         'init_environment': env.source_path,
     },
     'versions': {
         'init_environment': env.version,
         'read_version': path_utils.read_version()[0],
-        'lvp_logger': lvp_logger.version,
+        'lvp_logger': _lumascope.lvp_logger.version,
     },
     'build_files': {
         'timing_record': str(
@@ -131,7 +134,7 @@ def farm(tmp_path):
     checkout's own current.json, so its settings load from the template."""
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib'):
+    for item in ('src',):
         (folder / item).symlink_to(REPO / item)
     (folder / 'data').mkdir()
     for item in subprocess.run(

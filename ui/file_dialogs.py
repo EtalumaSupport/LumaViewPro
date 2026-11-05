@@ -11,9 +11,9 @@ from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
 from ui.ui_helpers import run_reported
-import modules.app_context as _app_ctx
-from modules import gui_logger, image_utils
-from modules.ui_queue import schedule_ui
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger, image_utils
+from _lumascope.modules.ui_queue import schedule_ui
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
@@ -370,7 +370,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
                 f'for {elapsed:.0f}s'
             )
             if elapsed >= _DIALOG_STUCK_NOTIFY_S:
-                from modules.notification_center import notifications
+                from _lumascope.modules.notification_center import notifications
 
                 notifications.warning(
                     'File Dialog',
@@ -415,7 +415,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
                 return
             _dialog_in_flight['active'] = False
             if error is not None:
-                from modules.notification_center import notifications
+                from _lumascope.modules.notification_center import notifications
 
                 notifications.report_outcome(
                     error,

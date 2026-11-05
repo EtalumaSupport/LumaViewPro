@@ -18,18 +18,18 @@ import time
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     PluginProcessorSkippedError,
     PostProcessingOperation,
     SessionClosingError,
 )
-from modules.post_processing_api import BuildResult
+from _lumascope.modules.post_processing_api import BuildResult
 
 SETTLE_S = 30.0
 
 
 def _session(tmp_path, model='LS850'):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -210,7 +210,7 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
 
 
 def test_a_scripts_logs_zip_is_waited_for(sim_session, monkeypatch, tmp_path):
-    from modules.tech_support_report import TechSupportReport
+    from _lumascope.modules.tech_support_report import TechSupportReport
 
     started = threading.Event()
     finished = threading.Event()
@@ -254,8 +254,8 @@ def test_discard_ends_the_wait_on_a_recordings_frames(sim_session, tmp_path):
 def test_a_runs_processor_skipped_by_the_unload_is_reported(monkeypatch):
     from unittest.mock import MagicMock
 
-    from modules.notification_center import notifications
-    from modules.plugins import PluginRegistry
+    from _lumascope.modules.notification_center import notifications
+    from _lumascope.modules.plugins import PluginRegistry
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append(ex))
@@ -325,7 +325,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
     """With no UI dispatcher, ``run_ended`` runs on the thread that sends it,
     which a script's or the REST server's handler may close the session
     from; the close must not wait on, or join, the thread it runs on."""
-    from modules.run_events import RunEvents
+    from _lumascope.modules.run_events import RunEvents
 
     session = _session(tmp_path)
     protocol = session.create_empty_protocol()

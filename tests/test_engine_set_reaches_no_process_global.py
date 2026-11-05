@@ -30,18 +30,19 @@ import pathlib
 
 from tests.ast_seams import REPO_ROOT, parse_module
 
-ENGINE_ROOT_MODULE = 'modules.sequenced_capture_runner'
+ENGINE_ROOT_MODULE = '_lumascope.modules.sequenced_capture_runner'
 
 # The engine set reaches the application context nowhere: the metrics
 # telemetry, its last reader, is handed what it logs.
 ALLOWED_CONTEXT_READERS: frozenset[str] = frozenset()
 # The one import-time binding of the settings module the engine set may keep:
 # the simulated motor board's default model, read once at scope construction.
-ALLOWED_SETTINGS_BINDERS = frozenset({'modules.lumascope_api._lumascope'})
+ALLOWED_SETTINGS_BINDERS = frozenset({'_lumascope.modules.lumascope_api._lumascope'})
 
 
 def _rel_path(name: str) -> str:
-    return name.replace('.', '/') + '.py'
+    """The file of a module in the API's package, which sits in src/."""
+    return 'src/' + name.replace('.', '/') + '.py'
 
 
 def _module_path(name: str) -> pathlib.Path:
@@ -68,26 +69,26 @@ def _imports_of(name: str) -> set[str]:
 
 
 def _reaches_context(name: str) -> bool:
-    """``import modules.app_context``, ``from modules import app_context`` or
-    ``from modules.app_context import ...``, at any scope."""
+    """``import _lumascope.modules.app_context``, ``from _lumascope.modules import app_context`` or
+    ``from _lumascope.modules.app_context import ...``, at any scope."""
     for node in _import_nodes(name):
         if isinstance(node, ast.Import):
-            if any(alias.name == 'modules.app_context' for alias in node.names):
+            if any(alias.name == '_lumascope.modules.app_context' for alias in node.names):
                 return True
-        elif node.module == 'modules.app_context' or (
-            node.module == 'modules' and any(a.name == 'app_context' for a in node.names)
+        elif node.module == '_lumascope.modules.app_context' or (
+            node.module == '_lumascope.modules' and any(a.name == 'app_context' for a in node.names)
         ):
             return True
     return False
 
 
 def _binds_settings(name: str) -> bool:
-    """``from modules.settings_init import settings`` -- a BIND of the global,
+    """``from _lumascope.modules.settings_init import settings`` -- a BIND of the global,
     not a function that re-reads the settings FILE, which imports a different
     name from the same module."""
     return any(
         isinstance(node, ast.ImportFrom)
-        and node.module == 'modules.settings_init'
+        and node.module == '_lumascope.modules.settings_init'
         and any(alias.name == 'settings' for alias in node.names)
         for node in _import_nodes(name)
     )
@@ -104,7 +105,9 @@ def engine_set() -> set[str]:
             continue
         seen.add(name)
         stack.extend(
-            dep for dep in _imports_of(name) if dep.startswith('modules.') and dep not in seen
+            dep
+            for dep in _imports_of(name)
+            if dep.startswith('_lumascope.modules.') and dep not in seen
         )
     return seen
 
@@ -114,14 +117,14 @@ def test_the_walk_reaches_the_engine():
     in the set it checks, or an empty list proves nothing."""
     modules = engine_set()
     for name in (
-        'modules.sequenced_capture_runner',
-        'modules.protocol_step_runner',
-        'modules.protocol_image_writer',
-        'modules.protocol_cleanup',
-        'modules.image_save',
-        'modules.common_utils',
-        'modules.image_utils',
-        'modules.path_utils',
+        '_lumascope.modules.sequenced_capture_runner',
+        '_lumascope.modules.protocol_step_runner',
+        '_lumascope.modules.protocol_image_writer',
+        '_lumascope.modules.protocol_cleanup',
+        '_lumascope.modules.image_save',
+        '_lumascope.modules.common_utils',
+        '_lumascope.modules.image_utils',
+        '_lumascope.modules.path_utils',
     ):
         assert name in modules, f'{name} is not in the engine set the guard walks'
 
@@ -129,7 +132,7 @@ def test_the_walk_reaches_the_engine():
 def test_only_the_allowed_modules_reach_the_application_context():
     readers = {name for name in engine_set() if _reaches_context(name)}
     assert readers == set(ALLOWED_CONTEXT_READERS), (
-        f'engine-set modules reaching modules.app_context: {sorted(readers)}; '
+        f'engine-set modules reaching _lumascope.modules.app_context: {sorted(readers)}; '
         f'allowed: {sorted(ALLOWED_CONTEXT_READERS)}'
     )
 

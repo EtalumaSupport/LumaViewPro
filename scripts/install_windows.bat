@@ -75,6 +75,11 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+%BEST_PY% "%PROJECT_DIR%\scripts\install_lumascope_pth.py"
+if errorlevel 1 (
+    pause
+    exit /b 1
+)
 
 REM --- Verify installation ---
 echo.
@@ -131,6 +136,11 @@ call "%VENV_DIR%\Scripts\pip" install -r "%PROJECT_DIR%\requirements.txt"
 if errorlevel 1 (
     echo.
     echo Error: pip install failed.
+    pause
+    exit /b 1
+)
+call "%VENV_DIR%\Scripts\python" "%PROJECT_DIR%\scripts\install_lumascope_pth.py"
+if errorlevel 1 (
     pause
     exit /b 1
 )

@@ -13,14 +13,14 @@ import threading
 
 import pytest
 
-from modules import live_work
-import modules.image_mode as image_mode
-import modules.protocol_image_writer as protocol_image_writer
-import modules.stack_builder as stack_builder
-from modules.exceptions import ArgumentRefusedError
-from modules.run_events import FilesWritten
-from modules.run_outcome import FilesOutcome
-from modules.sequenced_capture_runner import RunFiles
+from _lumascope.modules import live_work
+import _lumascope.modules.image_mode as image_mode
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+import _lumascope.modules.stack_builder as stack_builder
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.run_events import FilesWritten
+from _lumascope.modules.run_outcome import FilesOutcome
+from _lumascope.modules.sequenced_capture_runner import RunFiles
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 

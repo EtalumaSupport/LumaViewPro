@@ -7,7 +7,7 @@ with, as the GUI's Run always did, so a script that chose 12-bit through
 the camera API gets 12-bit files without restating the mode to the run.
 """
 
-from modules.image_utils import load_pixels
+from _lumascope.modules.image_utils import load_pixels
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 

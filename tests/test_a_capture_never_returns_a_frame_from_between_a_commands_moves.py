@@ -26,8 +26,8 @@ import time
 
 import pytest
 
-from modules.exceptions import MoveStoppedError
-from modules.frame_validity import FrameValidity
+from _lumascope.modules.exceptions import MoveStoppedError
+from _lumascope.modules.frame_validity import FrameValidity
 
 # How late each drive is sent: the gap between two moves on a loaded host.
 # On an idle one the gap is about one frame, and the capture's own recheck

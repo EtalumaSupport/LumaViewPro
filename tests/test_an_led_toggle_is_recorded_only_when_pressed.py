@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from tests.stock_channels import LED1
 
 REPO = pathlib.Path(__file__).resolve().parent.parent

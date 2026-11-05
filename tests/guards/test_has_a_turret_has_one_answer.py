@@ -17,14 +17,14 @@ import ast
 
 from tests.ast_seams import Words, iter_package_modules, production_modules
 
-_OWNER_MODULE = 'modules/scope_capabilities.py'
+_OWNER_MODULE = 'src/_lumascope/modules/scope_capabilities.py'
 # The names the capabilities are read through: the scope's attribute and its local alias.
 _CAPABILITIES = Words({'capabilities', 'caps'})
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'rest'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'src/_lumascope/rest'))
 
 
 def _off_the_capabilities(node: ast.Attribute) -> bool:

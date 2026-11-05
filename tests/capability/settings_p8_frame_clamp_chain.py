@@ -9,7 +9,7 @@ import sys
 
 import harness as _common
 
-from modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 
 s, live = _common.make_session()
 try:

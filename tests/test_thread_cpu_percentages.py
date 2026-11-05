@@ -19,7 +19,7 @@ import threading
 
 import pytest
 
-from modules import common_utils
+from _lumascope.modules import common_utils
 
 
 class _FakePthread:

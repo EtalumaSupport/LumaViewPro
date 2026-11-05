@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """``rest_api.allowed_clients`` serves only the clients it names, on every route, whoever serves the app.
 
-The guard is in ``rest.app.build_app``, so a program that serves the app
+The guard is in ``_lumascope.rest.app.build_app``, so a program that serves the app
 itself gets it as the builder's hosts do: a peer in no entry is refused
 ``403 client_not_allowed`` before any route sees the request, its answer
 carrying the request's id. The peer is read from the connection alone: the
@@ -18,10 +18,10 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from modules.scope_session import ScopeSession
-from rest.app import PREFIX, build_app
-from rest.problems import TYPE_PREFIX
-from rest.server import build_server
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import PREFIX, build_app
+from _lumascope.rest.problems import TYPE_PREFIX
+from _lumascope.rest.server import build_server
 from tests.settings_fixtures import complete_settings
 
 # Not this computer's: build_app judges the section and binds nothing.

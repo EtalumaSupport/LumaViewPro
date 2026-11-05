@@ -11,7 +11,7 @@ import av
 import numpy as np
 import pytest
 
-from modules.video_writer import VideoWriter
+from _lumascope.modules.video_writer import VideoWriter
 
 
 def _writer(tmp_path):

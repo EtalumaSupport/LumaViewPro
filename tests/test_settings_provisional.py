@@ -26,8 +26,8 @@ import os
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import InstallationFileError
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import InstallationFileError
 from tests.stock_channels import LED0
 
 

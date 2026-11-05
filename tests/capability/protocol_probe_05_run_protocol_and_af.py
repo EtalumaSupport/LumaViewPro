@@ -20,8 +20,8 @@ def images_under(d):
 
 session, live = make_session('runproto', home=True)
 try:
-    import modules.config_helpers as config_helpers
-    from modules.protocol_runner import ProtocolRunner
+    import _lumascope.modules.config_helpers as config_helpers
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     settings = session.settings
     runner = ProtocolRunner(session)
@@ -74,8 +74,8 @@ try:
     print('ASSERT focus written:', 'PASS' if af.focus_written is True else 'FAIL')
 
     banner('C. does a headless run move the TURRET per step?')
-    import modules.protocol_step_runner as psr
-    import modules.protocol_run_loop as prl
+    import _lumascope.modules.protocol_step_runner as psr
+    import _lumascope.modules.protocol_run_loop as prl
 
     src = pathlib.Path(psr.__file__).read_text(encoding='utf-8') + pathlib.Path(
         prl.__file__

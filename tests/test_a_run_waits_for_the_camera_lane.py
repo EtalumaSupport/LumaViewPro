@@ -22,13 +22,13 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
-import modules.sequenced_capture_runner as runner_module
-from modules.exceptions import HardwareCommandRefusedError
-from modules.sequential_io_executor import IOTask
+import _lumascope.modules.sequenced_capture_runner as runner_module
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 from tests.scope_fakes import channel_reading
 
 RESULT_TIMEOUT_S = 30.0
@@ -236,7 +236,7 @@ class TestARunThatAlreadyEnded:
         # dispatch tears the run down inline; the loop then still runs,
         # and its first act must not write the camera for a run that is
         # gone or snapshot a state nothing will restore.
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
         from tests.protocol_drives import bare_capture_runner
 
         runner = bare_capture_runner()

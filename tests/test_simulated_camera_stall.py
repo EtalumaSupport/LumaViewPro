@@ -16,10 +16,10 @@ import time
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera, SimulatedStall
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.simulated_camera import SimulatedCamera, SimulatedStall
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings

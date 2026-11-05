@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import AutofocusAborted
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.exceptions import AutofocusAborted
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope

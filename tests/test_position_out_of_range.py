@@ -15,13 +15,13 @@ what the scope's own driver publishes.
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
 )
-from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.motion_moves import axis_move
 

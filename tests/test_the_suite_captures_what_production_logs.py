@@ -13,8 +13,8 @@ import logging
 
 import pytest
 
-import lvp_logger
-from modules.scope_session import ScopeSession
+import _lumascope.lvp_logger
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 # One worker, in file order: the second test reads what the first left.
@@ -30,7 +30,7 @@ _PRODUCTION_LOGGERS = {
 
 def test_a_line_through_each_production_logger_reaches_the_tests_captured_log(caplog):
     for attribute in _PRODUCTION_LOGGERS:
-        getattr(lvp_logger, attribute).warning(f'the {attribute} line')
+        getattr(_lumascope.lvp_logger, attribute).warning(f'the {attribute} line')
 
     captured = {(r.name, r.getMessage()) for r in caplog.records}
     missing = {

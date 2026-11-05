@@ -19,8 +19,8 @@ import numpy as np
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from modules import image_utils
-from modules.layer_record import release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED1
 
 
@@ -55,5 +55,5 @@ def test_record_write_edge_does_not_left_justify():
     # double-encoded against the save edge (image_save.write_video_frame),
     # the single depth encoder. Structural source pin on the controller,
     # which owns the record write edge post-cutover.
-    src = (REPO / 'modules' / 'manual_recording.py').read_text()
+    src = (REPO / 'src/_lumascope/modules' / 'manual_recording.py').read_text()
     assert 'convert_to_16bit(' not in src

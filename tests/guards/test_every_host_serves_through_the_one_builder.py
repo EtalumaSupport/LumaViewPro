@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every host serves REST through ``rest.server.build_server``, the one place a uvicorn server is configured.
+"""Every host serves REST through ``_lumascope.rest.server.build_server``, the one place a uvicorn server is configured.
 
-The GUI, ``python -m rest`` and a program serving its own session each get
+The GUI, ``python -m _lumascope.rest`` and a program serving its own session each get
 the judge of ``rest_api``, the caller-thread bind and the one configuration
-only by serving through it. No production module but ``rest/server.py``
+only by serving through it. No production module but ``src/_lumascope/rest/server.py``
 calls ``uvicorn.Config`` or ``uvicorn.run``, and no published document tells
 a program to: the guide's serving example calls the builder.
 """
@@ -14,7 +14,7 @@ import ast
 
 from tests.ast_seams import REPO_ROOT as _REPO, tracked_files
 
-_THE_BUILDER = 'rest/server.py'
+_THE_BUILDER = 'src/_lumascope/rest/server.py'
 _SERVING = ('uvicorn.Config(', 'uvicorn.run(')
 
 

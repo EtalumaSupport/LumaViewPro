@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-import modules.metrics_logger as metrics_logger_module
+import _lumascope.modules.metrics_logger as metrics_logger_module
 from tests.log_capture import records_of
 
 

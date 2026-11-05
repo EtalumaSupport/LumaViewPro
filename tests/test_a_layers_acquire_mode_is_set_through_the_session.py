@@ -16,8 +16,8 @@ import ast
 
 import pytest
 
-from modules.acquire_mode import AcquireMode
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.exceptions import ArgumentRefusedError
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,

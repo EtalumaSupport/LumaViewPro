@@ -12,8 +12,8 @@ import copy
 from dataclasses import replace
 from types import SimpleNamespace
 
-from drivers.camera_profiles import GainInfo, lookup_profile
-from drivers.camera import Camera
+from _lumascope.drivers.camera_profiles import GainInfo, lookup_profile
+from _lumascope.drivers.camera import Camera
 from tests.scope_fakes import capabilities_of
 
 

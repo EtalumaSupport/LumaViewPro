@@ -18,13 +18,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import CameraUsbDriverUnusableError
-from drivers.registry import DriverRegistry
-from drivers.simulated_fx2 import SimulatedFX2Device, SimulatedFX2Transport
-from drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, DeviceBinding
-from modules.exceptions import CameraNotAvailableError
-from modules.lumascope_api._lumascope import _camera_failure_cause
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import CameraUsbDriverUnusableError
+from _lumascope.drivers.registry import DriverRegistry
+from _lumascope.drivers.simulated_fx2 import SimulatedFX2Device, SimulatedFX2Transport
+from _lumascope.drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, DeviceBinding
+from _lumascope.modules.exceptions import CameraNotAvailableError
+from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 
 
 class _AbsentCamera:
@@ -103,7 +103,9 @@ def test_the_windows_transport_refuses_a_present_device_and_not_a_past_one(monke
         FX2_FIRMWARE: [_binding(FX2_FIRMWARE, present=True, service=None)],
     }
     # a stand-in by design: SetupAPI, absent off Windows.
-    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: seen[identity])
+    monkeypatch.setattr(
+        '_lumascope.drivers.winusb_iso.device_bindings', lambda identity: seen[identity]
+    )
     # a stand-in by design: the USB bus, on which nothing is found.
     monkeypatch.setattr(
         fx2driver,
@@ -144,7 +146,9 @@ def test_a_running_scope_is_not_refused_for_an_unbound_bootloader_identity(monke
         FX2_FIRMWARE: [_binding(FX2_FIRMWARE, present=True, service='WinUSB')],
     }
     # a stand-in by design: SetupAPI, absent off Windows.
-    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: seen[identity])
+    monkeypatch.setattr(
+        '_lumascope.drivers.winusb_iso.device_bindings', lambda identity: seen[identity]
+    )
     # a stand-in by design: the USB bus, holding the running firmware.
     monkeypatch.setattr(
         fx2driver,

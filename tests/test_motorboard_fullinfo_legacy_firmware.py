@@ -33,7 +33,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import drivers.motorboard as motorboard_mod
+import _lumascope.drivers.motorboard as motorboard_mod
 from tests.log_capture import records_of
 from tests.wire_boards import motor_on_the_wire
 
@@ -53,7 +53,7 @@ def _recording(caplog):
 
 def _make_board(response, caplog):
     """Build a MotorBoard stub with exchange_command patched, its lines read from caplog."""
-    from drivers.motorboard import MotorBoard
+    from _lumascope.drivers.motorboard import MotorBoard
 
     board = MotorBoard.__new__(MotorBoard)
     board.exchange_command = MagicMock(return_value=response)

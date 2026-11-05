@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 
 
 def _set_gate(monkeypatch, platform: str, refusal: str | None = None, **terms: bool) -> None:
@@ -89,9 +89,7 @@ def test_requirements_pin_the_bundled_libusb_on_exactly_the_hosts_it_has_wheels_
     # packaging is pytest's own dependency, so it is present wherever this runs.
     from packaging.requirements import Requirement
 
-    lines = (
-        Path(fx2driver.__file__).resolve().parent.parent.joinpath('requirements.txt').read_text()
-    )
+    lines = Path(fx2driver.__file__).resolve().parents[3].joinpath('requirements.txt').read_text()
     (line,) = [raw for raw in lines.splitlines() if raw.startswith('libusb-package')]
     requirement = Requirement(line)
     assert str(requirement.specifier) == '==1.0.30.0'

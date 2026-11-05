@@ -19,11 +19,11 @@ from unittest import mock
 
 import pytest
 
-from modules.protocol_run_loop import ProtocolRunLoop
-from modules.protocol_state_machine import ProtocolState
-from modules.run_events import RunEvents
-from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
+from _lumascope.modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.run_outcome import PendingRunOutcome
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
 class FakeClock:
@@ -107,7 +107,7 @@ def _run(clock, parent):
         # The loop's own name for time, not the time module: patching
         # time.sleep through it would hand every thread in the process the
         # fake clock, and a leftover thread's sleep would advance it.
-        mock.patch('modules.protocol_run_loop.time', clock),
+        mock.patch('_lumascope.modules.protocol_run_loop.time', clock),
     ):
         loop._run_loop_inner(PendingRunOutcome())
 

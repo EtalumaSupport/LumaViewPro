@@ -16,12 +16,12 @@ import time
 
 import pytest
 
-import modules.sequenced_capture_runner as runner_module
-from drivers.simulated_camera import SimulatedStall
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.protocol_image_writer import RunWriteBatch
-from modules.scope_session import ScopeSession
+import _lumascope.modules.sequenced_capture_runner as runner_module
+from _lumascope.drivers.simulated_camera import SimulatedStall
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

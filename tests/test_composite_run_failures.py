@@ -37,9 +37,9 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import CaptureError
-from modules.image_mode import OutputFormat
-from modules.run_events import RunEvents
+from _lumascope.modules.exceptions import CaptureError
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,

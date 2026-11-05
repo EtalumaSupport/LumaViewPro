@@ -8,8 +8,8 @@ client replaced, so every template leaf is routed by a row, or named as one
 the window does not show. A setting added without either fails the build.
 """
 
-from modules import common_utils
-from modules.settings_paths import _leaf_paths
+from _lumascope.modules import common_utils
+from _lumascope.modules.settings_paths import _leaf_paths
 from tests.settings_fixtures import shipped_template
 from ui import listener_bridge
 

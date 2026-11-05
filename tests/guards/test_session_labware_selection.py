@@ -18,9 +18,9 @@ import logging
 
 import pytest
 
-from modules import labware_loader
-from modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import labware_loader
+from _lumascope.modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import Words, writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
 
@@ -171,8 +171,8 @@ _LABWARE_FACT = Words({'labware'})
 # protocol load used to be one, and it left the scope on the previous plate
 # while settings named the new one.
 _ALLOWED_LABWARE_WRITERS = {
-    ('modules/scope_session.py', 'ScopeSession.select_labware'),
-    ('modules/settings_init.py', 'normalize_loaded_settings'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_labware'),
+    ('src/_lumascope/modules/settings_init.py', 'normalize_loaded_settings'),
 }
 
 

@@ -23,8 +23,8 @@ import zipfile
 
 import pytest
 
-from modules import tech_support_report
-from modules.exceptions import SupportReportNotSavedError
+from _lumascope.modules import tech_support_report
+from _lumascope.modules.exceptions import SupportReportNotSavedError
 
 # Each file as it sits in the data folder, and as the report must carry it.
 _FILES = {
@@ -71,7 +71,7 @@ def data(tmp_path, monkeypatch):
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     live = tmp_path / 'live'

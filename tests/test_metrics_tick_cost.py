@@ -33,8 +33,8 @@ from types import SimpleNamespace
 import psutil
 import pytest
 
-from modules import common_utils, config_helpers
-from modules.scheduler import ThreadingTimerScheduler
+from _lumascope.modules import common_utils, config_helpers
+from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.log_capture import records_of
 from tests.scope_fakes import real_executor_bundle
 from tests.settings_fixtures import complete_settings
@@ -221,7 +221,7 @@ class _RecordingScheduler(ThreadingTimerScheduler):
 @pytest.fixture
 def system_tick_interval(sim_scope):
     """Start a session's metrics and answer the system tick's interval."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     scheduler = _RecordingScheduler()
 

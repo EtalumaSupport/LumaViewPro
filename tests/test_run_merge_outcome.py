@@ -29,8 +29,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.run_outcome import (
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.run_outcome import (
     ARMED,
     PENDING,
     RESOLVED,

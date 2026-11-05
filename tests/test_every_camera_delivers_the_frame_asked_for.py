@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from drivers.camera import ImageHandlerBase
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.camera import ImageHandlerBase
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_pylon_camera, grab_a_frame_made_after_now
 
 
@@ -48,8 +48,8 @@ def test_the_simulated_camera_delivers_a_size_off_its_grid(sim_camera):
 
 
 def test_the_fx2_delivers_a_size_off_its_grid():
-    from drivers.fx2driver import REG_COL_SIZE, REG_ROW_SIZE, FX2Camera
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.fx2driver import REG_COL_SIZE, REG_ROW_SIZE, FX2Camera
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
     cam = FX2Camera(connection=sim.connect())
@@ -126,10 +126,10 @@ def test_a_window_survives_a_rebuilt_frame_handler():
 def test_no_driver_frames_its_own_frames(member):
     # The window lives once, in the camera base; a driver that answered one of
     # these itself would deliver frames the base never cropped.
-    from drivers.camera import Camera
-    from drivers.fx2driver import FX2Camera
-    from drivers.idscamera import IDSCamera
-    from drivers.pyloncamera import PylonCamera
+    from _lumascope.drivers.camera import Camera
+    from _lumascope.drivers.fx2driver import FX2Camera
+    from _lumascope.drivers.idscamera import IDSCamera
+    from _lumascope.drivers.pyloncamera import PylonCamera
 
     for driver in (FX2Camera, IDSCamera, PylonCamera, SimulatedCamera):
         assert getattr(driver, member) is getattr(Camera, member), (driver.__name__, member)
@@ -139,7 +139,7 @@ def test_every_camera_profile_offers_even_sides():
     # The deliverable step is even sides on every camera: the base acquires
     # the next window up on the driver's grid, so a profile carrying its
     # hardware grid would floor a request no camera floors any more.
-    from drivers.camera_profiles import _PROFILES
+    from _lumascope.drivers.camera_profiles import _PROFILES
 
     for key, profile in _PROFILES:
         assert profile.alignment == {'width': 2, 'height': 2}, key

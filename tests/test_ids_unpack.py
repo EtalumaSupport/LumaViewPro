@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from drivers.ids_unpack import (
+from _lumascope.drivers.ids_unpack import (
     IDS_PACKED_FORMATS,
     significant_bits_for,
     unpack,

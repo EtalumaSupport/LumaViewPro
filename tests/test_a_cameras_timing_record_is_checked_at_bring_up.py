@@ -18,9 +18,9 @@ import json
 
 import pytest
 
-from drivers import camera_profiles
-from modules.exceptions import InstallationFileError
-from modules.frame_validity import FrameValidity
+from _lumascope.drivers import camera_profiles
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.frame_validity import FrameValidity
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 _PROVENANCE = {

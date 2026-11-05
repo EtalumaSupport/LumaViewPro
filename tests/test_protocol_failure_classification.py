@@ -33,8 +33,8 @@ fires the regression.
 
 from __future__ import annotations
 
-from drivers.exceptions import BoardPortFailedError
-from modules.lumascope_api.bring_up import Part
+from _lumascope.drivers.exceptions import BoardPortFailedError
+from _lumascope.modules.lumascope_api.bring_up import Part
 
 
 class TestRunLoopInnerClassifiesByConnection:
@@ -48,7 +48,7 @@ class TestRunLoopInnerClassifiesByConnection:
         is steered by the mocked unconnected_parts."""
         from unittest.mock import MagicMock
 
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         # Both channels, because the two classifications notify through
@@ -71,7 +71,7 @@ class TestRunLoopInnerClassifiesByConnection:
         return runner, captured
 
     def test_disconnect_aborts_with_classified_notification(self, centre_posts):
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner, captured = self._drive_failing_run_loop(centre_posts, connected=False)
         # The abort and its popup both come from the fatal-abort funnel, which
@@ -145,7 +145,7 @@ class TestOurOwnDefectEndsTheRunAtOnce:
         return runner
 
     def test_a_defect_that_left_an_axis_unknown_ends_as_a_crash_not_a_lost_position(self):
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         # a stand-in by design: the defect's own trace, an axis a motion
         # door set UNKNOWN on its way out, which this mock scope cannot leave
@@ -159,7 +159,7 @@ class TestOurOwnDefectEndsTheRunAtOnce:
         assert runner._protocol.step_row.call_count == 1, 'a defect is not retried'
 
     def test_the_apis_routine_failures_are_still_retried(self):
-        from modules.exceptions import HardwareCommandRefusedError, MoveWaitExpiredError
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MoveWaitExpiredError
 
         for raised in (
             HardwareCommandRefusedError('position_unread', 'move_z'),
@@ -204,11 +204,11 @@ class TestScanLoopBehaviorPreserved:
             return ticks['now']
 
         monkeypatch.setattr(
-            'modules.protocol_step_runner.time',
+            '_lumascope.modules.protocol_step_runner.time',
             SimpleNamespace(monotonic=fake_monotonic, sleep=lambda s: None),
         )
         gc_recorder = MagicMock()
         gc_recorder.collect.return_value = 0
-        monkeypatch.setattr('modules.protocol_step_runner.gc', gc_recorder)
+        monkeypatch.setattr('_lumascope.modules.protocol_step_runner.gc', gc_recorder)
         runner._step_executor.scan_loop()
         assert gc_recorder.collect.called, 'scan_loop must run the periodic GC sweep on long scans'

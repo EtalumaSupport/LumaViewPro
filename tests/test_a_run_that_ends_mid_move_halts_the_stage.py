@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
@@ -103,7 +103,7 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
     """
     import threading
 
-    import modules.protocol_recording as protocol_recording
+    import _lumascope.modules.protocol_recording as protocol_recording
 
     # A stand-in by design: a slow disk, which the simulator cannot yet make.
     # The video step asks the disk once before it records, then its frame

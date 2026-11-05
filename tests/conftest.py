@@ -20,6 +20,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 import faulthandler
 import functools
 import gc
+import importlib
 import json
 import logging
 import os
@@ -37,18 +38,25 @@ from unittest.mock import MagicMock, patch
 import psutil
 import pytest
 
-from drivers import host_clock
+from _lumascope.drivers import host_clock
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
-# sets these in lumaviewpro.py + lvp_logger.py, but pytest may import Kivy
+# sets these in lumaviewpro.py + src/_lumascope/lvp_logger.py, but pytest may import Kivy
 # before either runs, so set them here as well.
 os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
 os.environ.setdefault('KIVY_NO_FILELOG', '1')
 
 # ---------------------------------------------------------------------------
-# Path setup -- make `from drivers.x import Y` work from tests/
+# Path setup -- the checkout's root for `tests.` and `ui.`. Its src/ is first
+# already (pytest's pythonpath), and every process the suite starts inherits
+# it through PYTHONPATH, so a child runs this checkout's API whatever
+# lumascope.pth the interpreter holds.
 # ---------------------------------------------------------------------------
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_CHECKOUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _CHECKOUT)
+os.environ['PYTHONPATH'] = os.pathsep.join(
+    [os.path.join(_CHECKOUT, 'src'), *filter(None, [os.environ.get('PYTHONPATH')])]
+)
 
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
@@ -56,7 +64,7 @@ from tests import pypylon_stub as _pypylon_stub
 from tests import usb_stub as _usb_stub
 from tests.bench_results import bench_results_dir
 from tests.scope_fakes import build_scope
-from drivers.sim_wire.backend import runtime_platform
+from _lumascope.drivers.sim_wire.backend import runtime_platform
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +113,7 @@ _BENCH_FLAGS = (
 )
 BENCH_RUN = any(_flag_in_argv(f) for f in _BENCH_FLAGS)
 if BENCH_RUN:
-    _skip_mocks.add('lvp_logger')
+    _skip_mocks.add('_lumascope.lvp_logger')
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +168,7 @@ def install_mock_deps():
     deps = {
         # General heavy deps
         'platformdirs': MagicMock(),
-        'lvp_logger': mock_lvp_logger,
+        '_lumascope.lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
         'kivy': MagicMock(),
@@ -195,6 +203,12 @@ def install_mock_deps():
         if name in _skip_mocks:
             continue
         sys.modules.setdefault(name, mock_mod)
+        # A stand-in inside the API's package is bound on the package too, as
+        # the import system binds a module it loads, so `_lumascope.lvp_logger.x`
+        # reads the stand-in.
+        package, _, child = name.rpartition('.')
+        if package == '_lumascope':
+            setattr(importlib.import_module(package), child, sys.modules[name])
 
     _install_kivy_uix_stubs()
 
@@ -218,7 +232,7 @@ def _install_kivy_uix_stubs():
 
     The top-level `kivy` mock is not a package, so importing any
     UNregistered `kivy.x` submodule raises ModuleNotFoundError; the set
-    below covers every `from kivy.<x>` in ui/, modules/, plugins/ and
+    below covers every `from kivy.<x>` in ui/, src/_lumascope/modules/, plugins/ and
     lumaviewpro.py. setdefault, like the MagicMock deps above: a test
     file that installs its own richer stub for one of these names keeps
     it.
@@ -243,7 +257,7 @@ def _install_kivy_uix_stubs():
         sys.modules.setdefault(name, MagicMock())
 
     # One name per `from kivy.uix.<mod> import <Base>` in ui/ (ui/sim_walk.py
-    # included), modules/, plugins/, lumaviewpro.py -- keep in sync with that
+    # included), src/_lumascope/modules/, plugins/, lumaviewpro.py -- keep in sync with that
     # import set.
     bases = {
         'accordion': ('Accordion', 'AccordionItem'),
@@ -288,8 +302,8 @@ install_mock_deps()
 def _install_host_absent_production_modules():
     """A production module this host cannot import gets an importable shell.
 
-    ``drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
-    macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
+    ``src/_lumascope/drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
+    macOS and Linux the import raises; ``src/_lumascope/drivers/fx2driver.py`` reaches it
     only on Windows. A test of the WinUSB transport patches what the
     transport asks for, ``WinUsbIsoReader`` and ``device_bindings``, on the
     module, the same call on every host; here the module exists to be
@@ -298,16 +312,16 @@ def _install_host_absent_production_modules():
     the one place.
     """
     try:
-        import drivers.winusb_iso
+        import _lumascope.drivers.winusb_iso
     except ImportError:
-        import drivers
+        import _lumascope.drivers
 
-        shell = ModuleType('drivers.winusb_iso')
+        shell = ModuleType('_lumascope.drivers.winusb_iso')
         shell.WinUsbIsoReader = None
         shell.device_bindings = None
-        sys.modules.setdefault('drivers.winusb_iso', shell)
+        sys.modules.setdefault('_lumascope.drivers.winusb_iso', shell)
         # The dotted form of monkeypatch.setattr walks the package's attributes.
-        drivers.winusb_iso = sys.modules['drivers.winusb_iso']
+        _lumascope.drivers.winusb_iso = sys.modules['_lumascope.drivers.winusb_iso']
 
 
 _install_host_absent_production_modules()
@@ -371,9 +385,9 @@ _shipped_lock_takes: list[int] = []
 
 
 def _install_shipped_lock_recorder():
-    import modules.lumascope_api._lumascope as lumascope_module
-    from modules.app_config import get_lvp_lock_port
-    from modules.path_utils import get_source_root
+    import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+    from _lumascope.modules.app_config import get_lvp_lock_port
+    from _lumascope.modules.path_utils import get_source_root
 
     checkout = get_source_root()
     shipped = json.loads((checkout / 'data' / 'settings.json').read_text(encoding='utf-8'))
@@ -434,7 +448,7 @@ _checkout_writes: list[str] = []
 
 
 def _install_checkout_write_recorder():
-    from modules.path_utils import get_source_root
+    from _lumascope.modules.path_utils import get_source_root
 
     data = os.path.realpath(get_source_root() / 'data') + os.sep
 
@@ -609,7 +623,7 @@ def _fresh_notification_dedup():
     sees nothing because the first test's notice is still remembered. A module
     nobody has imported yet holds no memory, so it is not imported here.
     """
-    center = sys.modules.get('modules.notification_center')
+    center = sys.modules.get('_lumascope.modules.notification_center')
     if center is not None:
         center.notifications._dedup.clear()
     yield
@@ -643,7 +657,7 @@ def centre_posts():
     nothing watching. The listener only appends: an assertion raised inside a
     listener is swallowed by the centre's listener guard.
     """
-    from modules.notification_center import Severity, notifications
+    from _lumascope.modules.notification_center import Severity, notifications
 
     posts = CentrePosts()
 
@@ -668,7 +682,7 @@ def post_processing():
 @pytest.fixture
 def unattended_run():
     """The real centre judges the test's posts as an unattended run's, closed at teardown."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     notifications.open_run_scope(attended=False)
     yield
@@ -699,7 +713,7 @@ def _no_settings_replacement_outlives_its_test():
     a test that prepared settings and built no session would hand it to the
     next test's session.
     """
-    init = sys.modules.get('modules.settings_init')
+    init = sys.modules.get('_lumascope.modules.settings_init')
     if init is not None:
         init.take_stored_replacements()
     yield
@@ -713,15 +727,15 @@ def _no_log_setting_outlives_its_test():
     loggers and turns the score log on or off, process-wide; left in place,
     what a red's captured log holds would depend on what ran before it on
     the worker. The session's level, whether bring-up is running and the
-    trace logs it sets (``lib.log_helpers``) are put back the same way.
+    trace logs it sets (``_lumascope.lib.log_helpers``) are put back the same way.
     """
-    from lib import log_helpers
+    from _lumascope.lib import log_helpers
 
     loggers = [logging.getLogger(name) for name in ('LVP', 'lvp_logger')]
     levels = [lg.level for lg in loggers]
     trace_files = dict(log_helpers._trace_files)
     session_level, bring_up_running = log_helpers._session_level, log_helpers._bring_up_running
-    autofocus = sys.modules.get('modules.autofocus_functions')
+    autofocus = sys.modules.get('_lumascope.modules.autofocus_functions')
     score_log = autofocus._enable_af_score_logging if autofocus is not None else False
     yield
     log_helpers._trace_files.clear()
@@ -729,7 +743,7 @@ def _no_log_setting_outlives_its_test():
     log_helpers._session_level, log_helpers._bring_up_running = session_level, bring_up_running
     for lg, level in zip(loggers, levels, strict=True):
         lg.setLevel(level)
-    autofocus = sys.modules.get('modules.autofocus_functions')
+    autofocus = sys.modules.get('_lumascope.modules.autofocus_functions')
     if autofocus is not None:
         autofocus.enable_af_score_logging(enable=score_log)
 
@@ -782,7 +796,7 @@ def _every_simulated_camera_is_disconnected_by_its_test():
     camera built by a module-scoped fixture before the test began is
     disconnected at the module's end, as a scope is.
     """
-    from drivers.simulated_camera import SimulatedCamera
+    from _lumascope.drivers.simulated_camera import SimulatedCamera
     from tests.scope_fakes import disconnect_when_the_test_ends
 
     built = SimulatedCamera.__init__
@@ -821,7 +835,7 @@ def _every_session_is_shut_down_by_its_test():
     a module-scoped fixture before the test began is shut down at the
     module's end.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import shut_down_when_the_test_ends
 
     built = ScopeSession.__init__
@@ -846,7 +860,7 @@ def _no_test_leaves_the_popups_muted():
     on the test that left it, and closed so the next test starts clean.
     """
     yield
-    center = sys.modules.get('modules.notification_center')
+    center = sys.modules.get('_lumascope.modules.notification_center')
     if center is not None and center.notifications._run_scope is not None:
         center.notifications.close_run_scope()
         pytest.fail('the test left a run live: the notification centre still judges posts as its')
@@ -855,10 +869,10 @@ def _no_test_leaves_the_popups_muted():
 @pytest.fixture
 def no_hardware(monkeypatch):
     """The registries answer as a machine with no scope does: null boards, no camera."""
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
-    from drivers.registry import DriverFallback, NoLiveDriverError
-    from modules.lumascope_api import _lumascope
+    from _lumascope.drivers.null_ledboard import NullLEDBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
+    from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
+    from _lumascope.modules.lumascope_api import _lumascope
 
     absent = DriverFallback('not_detected', ())
     monkeypatch.setattr(
@@ -887,7 +901,7 @@ def no_hardware_scope(no_hardware):
 
     On an installation of its own, since a real scope takes its installation's lock.
     """
-    from modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api import Lumascope
     from tests.settings_fixtures import installation_of_its_own
 
     instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
@@ -1093,7 +1107,7 @@ def pytest_configure(config):
     ).start()
 
 
-# The loggers the drivers write to (lib/log_helpers) and the protocol lane's.
+# The loggers the drivers write to (src/_lumascope/lib/log_helpers) and the protocol lane's.
 _DRIVER_LOG_NAMES = ('lvp_logger', 'LVP.camera', 'LVP.protocol')
 
 
@@ -1104,14 +1118,14 @@ def _enable_driver_logging(config):
     test's session set; a --run-ids-hardware bench test needs the driver's
     whole narrative at DEBUG, in a file kept with the run. A logger is found
     by its name, so the handlers go on the named loggers the drivers write to
-    (lib/log_helpers: 'lvp_logger', 'LVP.camera') and the protocol lane's
+    (src/_lumascope/lib/log_helpers: 'lvp_logger', 'LVP.camera') and the protocol lane's
     ('LVP.protocol'), whoever imported them first. The bench tests that read
     this build a driver, not a session, so no session's level lowers them.
     Off by default (flag-gated).
     """
     import time
 
-    from modules.log_stamp import make_formatter
+    from _lumascope.modules.log_stamp import make_formatter
 
     # In the one log folder, beside the bench run's results file, so the
     # support zip carries the driver's narrative with the run it explains.
@@ -1175,7 +1189,7 @@ def _write_bench_results(exitstatus):
     import datetime
     import json
 
-    import lvp_logger
+    import _lumascope.lvp_logger
 
     stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
     path = bench_results_dir() / f'pytest_{stamp}_results.json'
@@ -1184,9 +1198,9 @@ def _write_bench_results(exitstatus):
             {
                 'command': sys.argv,
                 'exit_status': int(exitstatus),
-                'lvp_version': lvp_logger.version,
-                'lvp_commit': lvp_logger.git_revision(),
-                'log_folder': lvp_logger.log_dir,
+                'lvp_version': _lumascope.lvp_logger.version,
+                'lvp_commit': _lumascope.lvp_logger.git_revision(),
+                'log_folder': _lumascope.lvp_logger.log_dir,
                 'results': _bench_reports,
             },
             indent=2,
@@ -1356,7 +1370,7 @@ def sim_session(request, tmp_path):
     (``@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)``);
     ``gui_ctx`` takes the same session.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     overrides = getattr(request, 'param', {})
@@ -1377,7 +1391,7 @@ def gui_ctx(sim_session, monkeypatch):
     """
     from types import SimpleNamespace
 
-    import modules.app_context as app_context
+    import _lumascope.modules.app_context as app_context
 
     ctx = app_context.AppContext.over_session(
         sim_session, lumaview=SimpleNamespace(scope=sim_session.scope)
@@ -1397,7 +1411,7 @@ def sim_turreted_session(tmp_path_factory):
     tests of one module share one bring-up. A test that needs other
     settings builds its own session.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
     from tests.settings_fixtures import complete_settings
 

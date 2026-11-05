@@ -32,7 +32,7 @@ _SCRIPT = r"""
 import json, os, sys
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
-sys.path.insert(0, sys.argv[1])
+sys.path[:0] = [os.path.join(sys.argv[1], 'src'), sys.argv[1]]
 from kivy.config import Config
 Config.set('graphics', 'window_state', 'hidden')
 from kivy.lang import Builder

@@ -25,7 +25,7 @@ _HANDLERS = [
 
 @pytest.fixture
 def recorded(monkeypatch):
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
     import ui.microscope_settings as microscope_settings
 
     picks = []
@@ -85,7 +85,7 @@ def _hyperstack_panel():
 
 def test_a_pick_of_the_hyperstack_label_stores_its_format(recorded):
     """The selector reads 'Hyperstack'; the store, the run and REST keep 'OME-TIFF Hyperstack'."""
-    from modules.image_mode import OutputFormat
+    from _lumascope.modules.image_mode import OutputFormat
     from ui.microscope_settings import MicroscopeSettings
 
     MicroscopeSettings.select_sequenced_image_output_format(_hyperstack_panel())
@@ -96,8 +96,8 @@ def test_a_pick_of_the_hyperstack_label_stores_its_format(recorded):
 
 def test_the_hyperstack_label_restored_from_the_store_writes_nothing(recorded, monkeypatch):
     """The load sets the label from a stored 'OME-TIFF Hyperstack': not a pick."""
-    import modules.app_context as _app_ctx
-    from modules.image_mode import OutputFormat
+    import _lumascope.modules.app_context as _app_ctx
+    from _lumascope.modules.image_mode import OutputFormat
     from ui.microscope_settings import MicroscopeSettings
 
     picks, stored = recorded

@@ -14,8 +14,8 @@ gone from the bus.
 
 from __future__ import annotations
 
-from drivers.exceptions import CameraReadFailedError
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 
 _RAISES = CameraReadFailedError
 

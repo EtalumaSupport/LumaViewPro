@@ -15,7 +15,7 @@ import math
 
 import pytest
 
-from drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 

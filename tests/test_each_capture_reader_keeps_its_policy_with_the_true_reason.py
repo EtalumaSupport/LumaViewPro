@@ -17,8 +17,8 @@ import dataclasses
 import numpy as np
 import pytest
 
-from modules.exceptions import CaptureFailedError
-from modules.run_events import RunEvents
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run
 from tests.test_an_autofocus_scores_a_frame_made_at_its_z import (

@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError, HardwareError
+from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
 
 
 def _changed(camera):

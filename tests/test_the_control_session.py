@@ -15,21 +15,21 @@ import threading
 
 import pytest
 
-from modules.activity_claim import (
+from _lumascope.modules.activity_claim import (
     ActivityClaim,
     acting,
     guarded_write,
 )
-from modules.caller import Caller, calling
-from modules.lumascope_api.illumination import LedState
-from modules.exceptions import (
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.exceptions import (
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
     SessionClosingError,
 )
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-from modules.wire_encoding import outcome_fields
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.wire_encoding import outcome_fields
 from tests.test_a_run_says_when_its_files_are_written import held_saves  # noqa: F401 -- a fixture
 from tests.stock_channels import LED1, LED2
 
@@ -241,7 +241,7 @@ class TestTheActivitySlot:
 @pytest.fixture
 def sim_session(tmp_path):
     """A simulated, homed scope."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 
@@ -533,9 +533,9 @@ class TestTheTakeBackPress:
         """The press, its call run here, and every outcome it reports."""
         from types import SimpleNamespace
 
-        import modules.app_context as app_context
+        import _lumascope.modules.app_context as app_context
         import ui.ui_helpers as ui_helpers
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
         from tests.gesture_fakes import inline_submit_reported
 
         reported = []
@@ -593,7 +593,7 @@ class TestTheTakeBackPress:
 @pytest.fixture
 def run_session(tmp_path):
     """A simulated, homed scope with the stage and objective a held run names."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -672,8 +672,8 @@ class TestATakeWaitsForWhatIsStillFinishing:
             assert session.take_control('plate reader')
 
     def test_a_finished_runs_post_run_step(self, tmp_path, monkeypatch):
-        import modules.image_mode as image_mode
-        import modules.stack_builder as stack_builder
+        import _lumascope.modules.image_mode as image_mode
+        import _lumascope.modules.stack_builder as stack_builder
         from tests.test_a_run_says_when_its_files_are_written import WAIT_S, _scan
         from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -760,7 +760,7 @@ class TestTheRestDoor:
     def client(self, sim_session):
         from fastapi.testclient import TestClient
 
-        from rest.app import build_app
+        from _lumascope.rest.app import build_app
 
         with TestClient(build_app(sim_session)) as client:
             yield client

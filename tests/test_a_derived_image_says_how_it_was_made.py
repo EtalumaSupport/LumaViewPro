@@ -23,10 +23,10 @@ import numpy as np
 import pytest
 import tifffile
 
-from modules import image_utils
-from modules.exceptions import PostProcessingFailedError
-from modules.protocol_post_record import ProtocolPostRecord
-from modules.layer_record import release_color, stored_key
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PostProcessingFailedError
+from _lumascope.modules.protocol_post_record import ProtocolPostRecord
+from _lumascope.modules.layer_record import release_color, stored_key
 from tests.stock_channels import LED0
 
 _COLUMNS = [
@@ -63,7 +63,7 @@ def _step(channels: dict, tile: str, color: str, z_slice: int) -> list[str]:
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(

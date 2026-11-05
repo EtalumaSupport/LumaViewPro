@@ -15,13 +15,13 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from modules.image_mode import ImageCaptureConfig, OutputFormat
-from modules.notification_center import OutcomeKind
-from modules.protocol_image_writer import RunWriteBatch
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.image_mode import ImageCaptureConfig, OutputFormat
+from _lumascope.modules.notification_center import OutcomeKind
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
 from tests.case_walk import failing_cases
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0
 
 
@@ -54,7 +54,7 @@ class TestRunnerHyperstackTrigger:
     ):
         # The run's end builds its stacks through the session's builds, on
         # their lane, from the run's own folder, encoding and colours.
-        import modules.stack_builder as stack_builder
+        import _lumascope.modules.stack_builder as stack_builder
 
         asked = []
 
@@ -88,8 +88,8 @@ class TestRunnerHyperstackTrigger:
         # started before the run's last write landed would silently miss
         # planes. With a write held past the bound, the build waits, reads
         # nothing, and says why under its own announcement.
-        import modules.sequenced_capture_runner as scr
-        import modules.stack_builder as stack_builder
+        import _lumascope.modules.sequenced_capture_runner as scr
+        import _lumascope.modules.stack_builder as stack_builder
 
         monkeypatch.setattr(scr, '_POST_RUN_WRITES_WAIT_S', 0.05)
         runner = _hyperstack_runner(tmp_path, post_processing=post_processing)
@@ -112,7 +112,7 @@ class TestRunnerHyperstackTrigger:
         # nulls and re-fills the runner's fields, so a build still reading
         # them would follow the SUCCESSOR run's folder and writes. Capturing
         # the values at arming is what makes that impossible.
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         runner = _hyperstack_runner(tmp_path)
         armed_batch = MagicMock()
@@ -120,7 +120,7 @@ class TestRunnerHyperstackTrigger:
         # The build is held unsubmitted until this test has moved the fields
         # on, so it cannot reach them before the successor's values are in
         # place.
-        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
+        with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run') as build:
             runner._start_hyperstack_build(on_end=lambda: None)
         runner._run_dir = tmp_path / 'next_run'
         successor_batch = MagicMock()
@@ -152,7 +152,7 @@ class TestRunnerHyperstackTrigger:
     def test_no_build_when_not_applicable(self, tmp_path, mutate):
         runner = _hyperstack_runner(tmp_path)
         mutate(runner)
-        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
+        with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run') as build:
             assert runner._start_hyperstack_build(on_end=lambda: None) is None
         build.assert_not_called()
 
@@ -163,7 +163,7 @@ class TestRunnerHyperstackTrigger:
     )
     def test_scan_and_zstack_modes_also_build(self, tmp_path, run_mode):
         runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
-        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
+        with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run') as build:
             runner._start_hyperstack_build(on_end=lambda: None)
         build.assert_called_once()
 
@@ -231,7 +231,7 @@ def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
         run_dir = tmp_path / run_mode.value
         run_dir.mkdir()
         runner = _hyperstack_runner(run_dir, run_mode=run_mode)
-        with patch('modules.stack_builder.build_hyperstacks_for_run'):
+        with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run'):
             result = runner._start_hyperstack_build(on_end=lambda: None)
         blocked = result is None
         assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
@@ -242,7 +242,7 @@ def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
 
 def test_run_mode_scan_count_matches_its_declared_row():
     def check(run_mode):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         protocol = MagicMock()
         protocol.period_s.return_value = 60.0
@@ -279,7 +279,7 @@ def test_run_mode_scan_count_matches_its_declared_row():
 def test_a_composite_run_never_carries_the_hyperstack_format():
     # The composite's non-applicability is enforced at config assembly, not
     # by a run-mode branch; this is the other half of the row above.
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
     from tests.test_composite_run_config import _settings
 
     config = config_helpers.get_composite_image_capture_config_from_settings(

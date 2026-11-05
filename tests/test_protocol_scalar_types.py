@@ -32,8 +32,8 @@ import datetime
 import numpy as np
 import pandas as pd
 
-from modules.config_helpers import find_nearest_step
-from modules.protocol import Protocol
+from _lumascope.modules.config_helpers import find_nearest_step
+from _lumascope.modules.protocol import Protocol
 from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 

@@ -2,15 +2,15 @@
 """The API is the marked set, the reference is its current render, and it is closed.
 
 A member is API when it carries ``@api``; a class publishes the data
-attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
+attributes its ``@api_fields`` names (``src/_lumascope/modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
 guard holds eleven things over the declared API (``tests.marked_set``): the
 marked members and fields of every class the API can name
-(``wire_encoding.project_classes``: each defined under ``modules/``, and each
+(``wire_encoding.project_classes``: each defined under ``src/_lumascope/modules/``, and each
 project class a marked annotation resolves to, a driver's record among them),
 and every marked top-level function of a project module, keyed by its dotted
-path (``rest.app.build_app``):
+path (``_lumascope.rest.app.build_app``):
 
 1. **Current.** ``docs/api-reference.md`` is the render of the marked set
    and its docstrings (``tests.api_reference``), byte for byte, on every
@@ -79,7 +79,7 @@ see it.
 The rules read annotations as strings and look each name up in that table,
 which resolves them once, so a class an annotation names cannot be missing
 from it unseen: the table raises instead. Rules 3, 4 and 8 are shown on
-fixtures to catch a class from outside ``modules/``. A static read: no session.
+fixtures to catch a class from outside ``src/_lumascope/modules/``. A static read: no session.
 """
 
 from __future__ import annotations
@@ -98,8 +98,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import wire_encoding
-from modules.api_surface import API, api, entries_of
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import API, api, entries_of
 from tests.api_reference import REFERENCE, REGENERATE, WRITE, member_function, render
 from tests.ast_seams import RetiredNames, Words
 from tests.marked_set import (
@@ -119,7 +119,7 @@ NOT_VACUOUS = {
     'Operation.stop',
     'RunOutcome.status',
     'Notification.kind',
-    'rest.app.build_app',
+    '_lumascope.rest.app.build_app',
 }
 
 _BLIND = Words({'Any', 'object'})
@@ -186,7 +186,7 @@ def test_the_reference_names_no_engineering_member(
     """A member marked ``engineering`` -- a bench or support member -- is
     callable from Python and absent from the public reference: no entry,
     no link, and no code span names it, by its key or its bare name."""
-    from modules.api_surface import is_engineering
+    from _lumascope.modules.api_surface import is_engineering
 
     engineering = {k: m for k, m in marked.items() if not m.field and is_engineering(m.value)}
     # The walk reached them: the camera's, the LEDs', the imaging pair and diagnostics' ten.
@@ -205,9 +205,13 @@ def test_the_reference_names_no_engineering_member(
 
 
 # A code span naming a private member, ``_name`` or ``owner._name``; the
-# signature blocks are left out, where a private default's name is source.
+# signature blocks are left out, where a private default's name is source. A
+# module path is read from its module on: ``_lumascope.`` is the package every
+# one starts with, not a member.
 _FENCE = re.compile(r'^```.*?^```$', re.M | re.S)
-_PRIVATE_SPAN = re.compile(r'`(?:[\w.]*\.)?(_[A-Za-z]\w*)[^`]*`')
+_PRIVATE_SPAN = re.compile(
+    r'`(?:_lumascope\.(?=[a-z])|(?!_lumascope\.[a-z]))(?:[\w.]*\.)?(_[A-Za-z]\w*)[^`]*`'
+)
 _ANCHOR = re.compile(r'<a id="([^"]+)"></a>')
 
 
@@ -268,7 +272,7 @@ def _self_assigned(cls: type) -> set[str]:
 
 
 def test_every_published_field_exists(universe: dict[str, type]) -> None:
-    from modules.api_surface import fields_of
+    from _lumascope.modules.api_surface import fields_of
 
     missing = []
     for cname, cls in universe.items():
@@ -475,8 +479,8 @@ def test_no_function_is_marked_for_the_wire(marked: dict[str, Marked]) -> None:
 def test_every_marked_class_is_in_the_table(universe: dict[str, type]) -> None:
     outside = marked_classes_outside(universe)
     assert not outside, (
-        'a class carries a mark the rules cannot see, since no class under modules/ names '
-        f'it: define it under modules/, or name it from a marked annotation: {outside}'
+        'a class carries a mark the rules cannot see, since no class under src/_lumascope/modules/ names '
+        f'it: define it under src/_lumascope/modules/, or name it from a marked annotation: {outside}'
     )
 
 
@@ -508,7 +512,7 @@ def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str
     assert KNOWN_WIRE_PATH in seen, f'the walk did not reach {KNOWN_WIRE_PATH}'
     assert not undeclared, (
         'A path parameter on the wire must be annotated FilePath or FilePath | None '
-        '(modules.api_surface), so a wire client knows which arguments are paths:\n  '
+        '(_lumascope.modules.api_surface), so a wire client knows which arguments are paths:\n  '
         + '\n  '.join(undeclared)
     )
 
@@ -1061,7 +1065,7 @@ _LED_OWNER = 'IlluminationAPI'
 
 def _holds_an_address(universe: dict[str, type]) -> set[str]:
     """The published records with an ``address`` field, and every record holding one."""
-    from modules.api_surface import fields_of
+    from _lumascope.modules.api_surface import fields_of
 
     holders = {
         cname
@@ -1101,7 +1105,7 @@ def _is_an_address(owner: str, parameter: str, names: set[str], holders: set[str
 def test_an_led_is_lit_by_its_channels_name(
     universe: dict[str, type], marked: dict[str, Marked]
 ) -> None:
-    from modules.api_surface import is_engineering
+    from _lumascope.modules.api_surface import is_engineering
 
     holders = _holds_an_address(universe)
     assert 'LedReading' in holders, f'the walk lost the LED record: {holders}'
@@ -1128,7 +1132,7 @@ def test_an_led_is_lit_by_its_channels_name(
 
 
 # --- The table is what the API names -----------------------------------------
-# Each fixture is a class from outside modules/ that a marked member names,
+# Each fixture is a class from outside src/_lumascope/modules/ that a marked member names,
 # added to the real API's table through the one walk that builds it, so the
 # rule's own reach checks hold and the fixture is the only offender.
 
@@ -1136,13 +1140,13 @@ def test_an_led_is_lit_by_its_channels_name(
 class _DriverRecord:
     """Handed out by a marked member, with no marked member of its own."""
 
-    __module__ = 'drivers.fixture'
+    __module__ = '_lumascope.drivers.fixture'
 
 
 class _DriverWord(enum.Enum):
     """A driver's closed set that is not a StrEnum."""
 
-    __module__ = 'drivers.fixture'
+    __module__ = '_lumascope.drivers.fixture'
     ONE = 'one'
 
 
@@ -1211,10 +1215,13 @@ def test_a_name_that_resolves_to_nothing_raises() -> None:
 
 
 def test_two_classes_under_one_name_raise() -> None:
-    first = type('_Twin', (), {'__module__': 'drivers.one'})
-    second = type('_Twin', (), {'__module__': 'drivers.two'})
+    first = type('_Twin', (), {'__module__': '_lumascope.drivers.one'})
+    second = type('_Twin', (), {'__module__': '_lumascope.drivers.two'})
 
-    with pytest.raises(TypeError, match=r"_Twin: \['drivers.one._Twin', 'drivers.two._Twin'\]"):
+    with pytest.raises(
+        TypeError,
+        match=r"_Twin: \['_lumascope.drivers.one._Twin', '_lumascope.drivers.two._Twin'\]",
+    ):
         wire_encoding.closure({first, second}, {})
 
 

@@ -15,10 +15,10 @@ import logging
 
 import pytest
 
-from lib import log_helpers
-from lib.log_helpers import VERBOSE
-from modules.lumascope_api.bring_up import Part
-from modules.scope_session import ScopeSession
+from _lumascope.lib import log_helpers
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

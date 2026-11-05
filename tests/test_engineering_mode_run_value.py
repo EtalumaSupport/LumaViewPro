@@ -29,10 +29,10 @@ from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
 
-from modules.caller import Caller, calling
-from modules.exceptions import ControlSessionRefusedError
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_outcome import EndingLatch
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.exceptions import ControlSessionRefusedError
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_outcome import EndingLatch
 
 
 def _turret_token(session) -> str:
@@ -144,9 +144,9 @@ class TestTheWriterIsHandedTheMode:
     def test_the_writer_cannot_be_built_without_the_mode(self):
         """Every writer parameter is required so no writer can decide a run
         value by itself; the mode is one of them."""
-        from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_image_writer import ProtocolImageWriter
-        from modules.run_events import RunEvents
+        from _lumascope.modules.image_mode import ImageCaptureConfig
+        from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
+        from _lumascope.modules.run_events import RunEvents
 
         kwargs = {
             'scope': MagicMock(),
@@ -178,23 +178,26 @@ class TestTheSavePathReadsNoProcessGlobal:
         know the application context exists. (The writer still imports it
         for the live-display hold, a separate read with its own retirement.)
         """
-        tree = parse_module('modules/image_save.py')
+        tree = parse_module('src/_lumascope/modules/image_save.py')
 
         context_imports = [
             node.lineno
             for node in ast.walk(tree)
             if (
                 isinstance(node, ast.Import)
-                and any(a.name == 'modules.app_context' for a in node.names)
+                and any(a.name == '_lumascope.modules.app_context' for a in node.names)
             )
-            or (isinstance(node, ast.ImportFrom) and node.module == 'modules.app_context')
+            or (
+                isinstance(node, ast.ImportFrom) and node.module == '_lumascope.modules.app_context'
+            )
         ]
         assert not context_imports, (
-            f'modules/image_save.py imports the application context at {context_imports}'
+            f'src/_lumascope/modules/image_save.py imports the application context at {context_imports}'
         )
 
     @pytest.mark.parametrize(
-        'rel_path', ['modules/image_save.py', 'modules/protocol_image_writer.py']
+        'rel_path',
+        ['src/_lumascope/modules/image_save.py', 'src/_lumascope/modules/protocol_image_writer.py'],
     )
     def test_the_module_reads_the_flag_off_nothing_but_the_writer_itself(self, rel_path):
         """Structural: the read cannot come back quietly. The writer may read

@@ -24,15 +24,15 @@ import dataclasses
 
 import pytest
 
-import modules.lumascope_api._lumascope as lumascope_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import ObjectiveUnknownError
-from modules.layer_record import UNRESOLVED, load_scope_models
-from modules.lumascope_api import AxisState, TurretStatus
-from modules.scope_capabilities import ScopeCapabilities
-from modules.scope_session import ScopeSession
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.layer_record import UNRESOLVED, load_scope_models
+from _lumascope.modules.lumascope_api import AxisState, TurretStatus
+from _lumascope.modules.scope_capabilities import ScopeCapabilities
+from _lumascope.modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import simulated_camera_on_a_real_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own

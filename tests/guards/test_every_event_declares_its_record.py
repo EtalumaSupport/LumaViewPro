@@ -5,7 +5,7 @@ A listener's payload was named only in its docstring -- ``(axis, position,
 state)``, ``(scan_index, scans_remaining, period_s)`` -- so a host that
 carries an event elsewhere (the REST server's stream) had to keep its own
 table of each signature, a second store that drifts. Each event now
-declares a published record where it is delivered (``modules.api_surface``):
+declares a published record where it is delivered (``_lumascope.modules.api_surface``):
 a listener member as ``@api(event=Record)``, a ``RunEvents`` field as
 ``event_metadata(Record)``. This guard holds every marked ``add_*_listener`` member
 and every ``RunEvents`` field to a declaration, and each record's fields,
@@ -27,15 +27,15 @@ import inspect
 
 import pytest
 
-from modules import wire_encoding
-from modules.api_surface import event_of, field_event, fields_of, mark_of
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import event_of, field_event, fields_of, mark_of
 from tests.ast_seams import MemberNames
 
 # Declarations whose absence would mean the walk lost its way.
 NOT_VACUOUS = {'MotionAPI.add_position_listener', 'RunEvents.scan_started'}
 
 # The fields of RunEvents that say how its handlers are delivered, not an event.
-NOT_HANDLERS = MemberNames('modules/run_events.py', {'on_ui_thread'})
+NOT_HANDLERS = MemberNames('src/_lumascope/modules/run_events.py', {'on_ui_thread'})
 
 
 @pytest.fixture(scope='module')
@@ -95,7 +95,7 @@ def _events(universe):
                 annotation if isinstance(annotation, str) else inspect.formatannotation(annotation)
             )
             events.append((f'{cname}.{member}', event_of(value), text))
-    from modules.run_events import RunEvents
+    from _lumascope.modules.run_events import RunEvents
 
     for field in dataclasses.fields(RunEvents):
         if field.name in NOT_HANDLERS:
@@ -106,7 +106,7 @@ def _events(universe):
 
 
 def test_every_run_events_field_but_the_delivery_is_a_handler():
-    from modules.run_events import RunEvents
+    from _lumascope.modules.run_events import RunEvents
 
     not_callables = {
         field.name

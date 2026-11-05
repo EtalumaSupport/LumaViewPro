@@ -25,15 +25,15 @@ REPO = Path(__file__).resolve().parent.parent
 _CHILD = """
 import ctypes, json, logging, sys
 from types import SimpleNamespace
-import lvp_logger
+import _lumascope.lvp_logger
 
 records = []
 class _Keep(logging.Handler):
     def emit(self, record):
         records.append((record.levelname, record.getMessage()))
-for handler in list(lvp_logger.logger.handlers):
-    lvp_logger.logger.removeHandler(handler)
-lvp_logger.logger.addHandler(_Keep())
+for handler in list(_lumascope.lvp_logger.logger.handlers):
+    _lumascope.lvp_logger.logger.removeHandler(handler)
+_lumascope.lvp_logger.logger.addHandler(_Keep())
 
 shown = []
 # a stand-in by design: the Windows console, which no test host but Windows has
@@ -42,7 +42,7 @@ ctypes.windll = SimpleNamespace(
     user32=SimpleNamespace(ShowWindow=lambda window, state: shown.append([window, state])),
 )
 sys.platform = 'win32'
-lvp_logger.minimize_logger_window()
+_lumascope.lvp_logger.minimize_logger_window()
 print(json.dumps({{'records': records, 'shown': shown}}))
 """
 

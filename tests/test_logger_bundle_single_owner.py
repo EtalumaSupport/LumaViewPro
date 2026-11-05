@@ -25,7 +25,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_SRC = (Path(__file__).resolve().parents[1] / 'lvp_logger.py').read_text(encoding='utf-8')
+_SRC = (Path(__file__).resolve().parents[1] / 'src/_lumascope/lvp_logger.py').read_text(
+    encoding='utf-8'
+)
 
 
 def _stmt(holder: str, tail: str) -> re.Pattern:

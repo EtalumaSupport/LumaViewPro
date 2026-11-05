@@ -17,29 +17,29 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import modules.lumascope_api._lumascope as lumascope_module
-import modules.settings_init as settings_init
-from drivers.exceptions import BoardNoReplyError
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import (
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MotorBoardUnavailableError,
 )
-from modules.lumascope_api.bring_up import (
+from _lumascope.modules.lumascope_api.bring_up import (
     CAUSE_PHRASES,
     Part,
     PartStatus,
     SettingsSetAside,
 )
-from modules.notification_center import OutcomeKind
-from modules.scope_session import ScopeSession
+from _lumascope.modules.notification_center import OutcomeKind
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.settings_fixtures import complete_settings, installation_of_its_own

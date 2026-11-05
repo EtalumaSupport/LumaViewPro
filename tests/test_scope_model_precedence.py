@@ -14,8 +14,8 @@ import logging
 
 import pytest
 
-from modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope
@@ -33,7 +33,7 @@ def _sim_scope(**kwargs):
 @pytest.fixture
 def session_log(caplog):
     """What the session module has logged so far in the test."""
-    import modules.scope_session as scope_session
+    import _lumascope.modules.scope_session as scope_session
 
     caplog.set_level(logging.DEBUG)
     return lambda: records_of(caplog, scope_session)
@@ -41,7 +41,7 @@ def session_log(caplog):
 
 class TestASimulatedScopeReportsItsDeclaredModel:
     def test_configured_model_outranks_the_module_global(self, monkeypatch):
-        import modules.settings_init as settings_init
+        import _lumascope.modules.settings_init as settings_init
 
         monkeypatch.setattr(settings_init, 'settings', {'microscope': 'LS850T'})
         scope = _sim_scope(configured_model='LS850')

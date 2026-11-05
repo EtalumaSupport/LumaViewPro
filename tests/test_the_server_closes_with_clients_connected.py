@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The server closes the session with its clients connected (``rest.server``).
+"""The server closes the session with its clients connected (``_lumascope.rest.server``).
 
 On SIGINT or SIGTERM, or its host's ``close()``, a new connection is
 refused and a member asked on an open one is refused ``server_closing``,
@@ -27,12 +27,12 @@ import httpx
 import pytest
 import uvicorn
 
-import rest.app
-import rest.jobs
-import rest.server
-from modules.scope_session import ScopeSession
-from rest.app import build_app
-from rest.server import Server
+import _lumascope.rest.app
+import _lumascope.rest.jobs
+import _lumascope.rest.server
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
+from _lumascope.rest.server import Server
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 
@@ -181,7 +181,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
     in a driver would be: the close finishes the session's own work first,
     and waits for the call's thread no longer than its bound.
     """
-    monkeypatch.setattr(rest.server, 'JOIN_S', 0.1)
+    monkeypatch.setattr(_lumascope.rest.server, 'JOIN_S', 0.1)
     release = threading.Event()
     real = session.scope.camera.read_gain_db
 
@@ -193,7 +193,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
     # close itself never calls; no simulated member hangs.
     monkeypatch.setattr(session.scope.camera, 'read_gain_db', hung)
     waiting = threading.Event()
-    real_get = rest.jobs.JobRegistry.get
+    real_get = _lumascope.rest.jobs.JobRegistry.get
 
     def got(self, job_id):
         found = real_get(self, job_id)
@@ -202,7 +202,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
 
     # a stand-in by design: tells the test the long-poll has reached its
     # wait, which the read begins right after this, on the server's loop.
-    monkeypatch.setattr(rest.jobs.JobRegistry, 'get', got)
+    monkeypatch.setattr(_lumascope.rest.jobs.JobRegistry, 'get', got)
     answers = []
     try:
         with _serving(session) as (server, client, _closing):
@@ -414,7 +414,7 @@ def test_the_close_joins_a_call_still_running_before_the_server_stops(session, m
     # a stand-in by design: a call still running when the close finishes its clients.
     monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off)
     finished = threading.Event()
-    real_finish = rest.app.Closing.finish
+    real_finish = _lumascope.rest.app.Closing.finish
 
     def finish(self):
         real_finish(self)
@@ -422,7 +422,7 @@ def test_the_close_joins_a_call_still_running_before_the_server_stops(session, m
 
     # a stand-in by design: tells the test the close has answered its
     # clients and reached its join.
-    monkeypatch.setattr(rest.app.Closing, 'finish', finish)
+    monkeypatch.setattr(_lumascope.rest.app.Closing, 'finish', finish)
     try:
         with _serving(session, shut_down=lambda: None) as (server, client, _closing):
             assert (

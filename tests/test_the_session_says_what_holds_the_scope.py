@@ -14,11 +14,11 @@ Stop; anything else holding the scope greys it.
 
 import pytest
 
-from modules import live_work
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import EngineRun
-from modules.caller import Caller
+from _lumascope.modules import live_work
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_outcome import PendingRunOutcome
+from _lumascope.modules.sequenced_capture_runner import EngineRun
+from _lumascope.modules.caller import Caller
 from tests.protocol_drives import run_identity
 from tests.scope_fakes import session_on_a_simulated_scope
 

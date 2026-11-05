@@ -34,7 +34,7 @@ from tests.ast_seams import MemberNames, Words, iter_package_modules, parse_modu
 
 # Public members of Protocol that change the protocol.
 WRITERS = MemberNames(
-    'modules/protocol.py',
+    'src/_lumascope/modules/protocol.py',
     {
         'adopt_focus_from',
         'apply_focus_all_layer_steps',
@@ -59,7 +59,7 @@ WRITERS = MemberNames(
 # Public members of Protocol that do not change it: readers, constructors,
 # file output, and helpers.
 NOT_WRITERS = MemberNames(
-    'modules/protocol.py',
+    'src/_lumascope/modules/protocol.py',
     {
         'capture_prefix',
         'capture_root',
@@ -155,7 +155,7 @@ def _gui_protocol_edit_counts() -> dict[tuple[str, str], int]:
 
 
 def test_every_public_protocol_member_is_classified():
-    tree = parse_module('modules/protocol.py')
+    tree = parse_module('src/_lumascope/modules/protocol.py')
     protocol = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Protocol')
     public = {
         n.name

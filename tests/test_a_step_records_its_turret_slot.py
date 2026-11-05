@@ -18,15 +18,15 @@ import logging
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import (
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     ProtocolRunRefusedError,
 )
-from modules.image_mode import ImageCaptureConfig
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.scope_session import ScopeSession
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -199,7 +199,7 @@ class TestOldProtocols:
     def test_a_rest_client_is_asked_the_same_question(self, session, tmp_path):
         from fastapi.testclient import TestClient
 
-        from rest.app import build_app
+        from _lumascope.rest.app import build_app
 
         _as_an_old_file(session, _a_step_at_each_slot(session), tmp_path)
         with TestClient(build_app(session)) as client:

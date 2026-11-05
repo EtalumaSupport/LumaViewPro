@@ -15,8 +15,10 @@ VENV_DIR="$PROJECT_DIR/venv"
 # FX2 scopes (LS460/LS560/LS620/LS720) run on the libusb that requirements.txt
 # installs (libusb-package); nothing outside pip is needed. The driver's own
 # availability gate reports whether it loaded, so the installer never guesses.
+# The driver is imported from this checkout's src/, whatever the venv's
+# lumascope.pth names.
 fx2_driver_py() {
-    (cd "$PROJECT_DIR" && "$VENV_DIR/bin/python" -c "$1")
+    (cd "$PROJECT_DIR" && PYTHONPATH="$PROJECT_DIR/src" "$VENV_DIR/bin/python" -c "$1")
 }
 
 setup_fx2_usb() {
@@ -24,7 +26,7 @@ setup_fx2_usb() {
     echo "Checking USB support for FX2 scopes (LS460/LS560/LS620/LS720)..."
     # A driver that fails to import aborts the install here (set -e) rather
     # than printing a readiness line it could not compute.
-    fx2_driver_py 'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
+    fx2_driver_py 'from _lumascope.drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
 }
 
 echo "========================================="
@@ -117,6 +119,7 @@ if [ -f "$VENV_DIR/bin/python" ]; then
         echo "Updating existing virtual environment..."
         "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
         "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+        "$VENV_DIR/bin/python" "$PROJECT_DIR/scripts/install_lumascope_pth.py"
         setup_fx2_usb
         echo ""
         echo "Update complete!"
@@ -133,6 +136,7 @@ echo ""
 echo "Installing dependencies..."
 "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
 "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+"$VENV_DIR/bin/python" "$PROJECT_DIR/scripts/install_lumascope_pth.py"
 
 # --- Verify installation ---
 echo ""

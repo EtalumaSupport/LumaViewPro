@@ -4,7 +4,7 @@
 The panel's preview caught the read's failure, logged a warning and
 returned, so choosing an unreadable file changed nothing and said nothing.
 The folder count caught the same failure in its own words. One reader in
-modules/post_processing.py now refuses the file by type, naming it, for
+src/_lumascope/modules/post_processing.py now refuses the file by type, naming it, for
 both; the panel reports it through the GUI boundary. A file that is not
 there is refused as any path that names nothing is (``not_found``).
 """
@@ -17,14 +17,14 @@ import numpy as np
 import pytest
 import tifffile
 
-from modules.cell_count_method import CellCountMethod
+from _lumascope.modules.cell_count_method import CellCountMethod
 import ui.post_processing as panel_module
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     LiveFolderPathRefusedError,
     PostProcessingFailedError,
     PostProcessingRefusedError,
 )
-from modules.post_processing import (
+from _lumascope.modules.post_processing import (
     PostProcessing,
     read_cell_count_image,
 )

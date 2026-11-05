@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.ui_queue import UiDispatcher, ui_backlog
-from modules.scope_session import ScopeSession
+from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
 from ui.listener_bridge import UIListenerBridge

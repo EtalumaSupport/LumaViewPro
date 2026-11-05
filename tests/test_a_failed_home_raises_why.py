@@ -20,13 +20,13 @@ import threading
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
 )
-from modules.lumascope_api import AxisState
+from _lumascope.modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
 
 ROUTES = ('ALL', 'Z', 'T')

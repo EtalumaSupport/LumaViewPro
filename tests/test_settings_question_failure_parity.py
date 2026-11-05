@@ -52,14 +52,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.notification_center as notification_center
-import modules.settings_init as settings_init
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.notification_center as notification_center
+import _lumascope.modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from modules import gui_logger
-from modules.exceptions import SettingsFileNotReplacedError
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.modules import gui_logger
+from _lumascope.modules.exceptions import SettingsFileNotReplacedError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
 from tests.settings_fixtures import complete_settings
 from tests.installation_fixtures import copy_installation_files
@@ -401,7 +401,7 @@ class TestTheQuestionIsAskable:
             raise PermissionError(13, 'The process cannot access the file', src)
 
         monkeypatch.setattr(settings_init.os, 'replace', _locked)
-        from modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
+        from _lumascope.modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
 
         ctx = SimpleNamespace(
             session=SimpleNamespace(

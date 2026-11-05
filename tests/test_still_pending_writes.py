@@ -23,16 +23,16 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
-import modules.protocol_image_writer as piw
-from modules.exceptions import RunWriteRefusedError
-from modules.image_mode import ImageCaptureConfig
-from modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch
-from modules.run_events import RunEvents
+import _lumascope.modules.protocol_image_writer as piw
+from _lumascope.modules.exceptions import RunWriteRefusedError
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch
+from _lumascope.modules.run_events import RunEvents
 from tests.scope_fakes import spec_scope
 
 
-from modules.run_outcome import EndingLatch
-from modules.layer_record import release_colors
+from _lumascope.modules.run_outcome import EndingLatch
+from _lumascope.modules.layer_record import release_colors
 
 
 def _writer(file_io_executor=None):

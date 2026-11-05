@@ -44,9 +44,9 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api.camera import CameraAutoMode
-from modules.scope_capabilities import FrameSize
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
@@ -331,8 +331,8 @@ def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
     WRITE_SEAMS = {'_camera_write', 'invalidate', 'force_invalidate'}
     offenders = []
     for path, class_name in (
-        ('modules/lumascope_api/camera.py', 'CameraAPI'),
-        ('modules/lumascope_api/imaging.py', 'ImagingAPI'),
+        ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI'),
+        ('src/_lumascope/modules/lumascope_api/imaging.py', 'ImagingAPI'),
     ):
         tree = ast_seams.parse_module(path)
         cls = next(
@@ -373,11 +373,11 @@ def test_no_dispatcher_has_a_lane_less_branch():
     lane_names = {'ex', 'executor', '_io_executor', '_camera_executor'}
     offenders = []
     for path in (
-        'modules/lumascope_api/illumination.py',
-        'modules/lumascope_api/camera.py',
-        'modules/lumascope_api/imaging.py',
-        'modules/lumascope_api/motion.py',
-        'modules/lumascope_api/_lumascope.py',
+        'src/_lumascope/modules/lumascope_api/illumination.py',
+        'src/_lumascope/modules/lumascope_api/camera.py',
+        'src/_lumascope/modules/lumascope_api/imaging.py',
+        'src/_lumascope/modules/lumascope_api/motion.py',
+        'src/_lumascope/modules/lumascope_api/_lumascope.py',
     ):
         for node in ast.walk(ast_seams.parse_module(path)):
             if not isinstance(node, ast.Compare):

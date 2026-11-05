@@ -9,7 +9,7 @@ the build until the template agrees with ``version.txt``.
 
 import json
 
-from modules.path_utils import read_version
+from _lumascope.modules.path_utils import read_version
 from tests.ast_seams import REPO_ROOT
 
 

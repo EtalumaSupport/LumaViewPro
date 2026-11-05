@@ -6,7 +6,7 @@ second public way to start a run that skipped the members' config
 assembly, and one REST would have published. They are gone; this pins it.
 """
 
-from modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.protocol_runner import ProtocolRunner
 
 
 def test_the_runner_has_no_second_way_to_start_a_run():

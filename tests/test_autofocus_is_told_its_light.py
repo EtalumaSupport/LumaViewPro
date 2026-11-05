@@ -8,7 +8,7 @@ channel and the current are required keywords, as the LED lease is.
 
 import inspect
 
-from modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.autofocus_runner import AutofocusRunner
 
 
 def test_the_led_channel_and_current_are_required_keywords():

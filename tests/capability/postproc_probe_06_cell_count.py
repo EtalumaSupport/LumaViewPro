@@ -18,7 +18,7 @@ import sys
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
-from modules.cell_count_method import CellCountMethod
+from _lumascope.modules.cell_count_method import CellCountMethod
 from tests.stock_channels import LED0
 
 # The panel's default method (6c). Its area and perimeter filters are open, so
@@ -47,7 +47,7 @@ def main() -> int:
             print('PROBE RESULT: no run folder produced')
             return 2
         csv_path = folder / 'results.csv'
-        from modules.exceptions import CaptureError
+        from _lumascope.modules.exceptions import CaptureError
 
         # 6b -- whole folder, through the session's member
         try:
@@ -61,7 +61,7 @@ def main() -> int:
 
         import numpy as np
 
-        import modules.image_utils as image_utils
+        import _lumascope.modules.image_utils as image_utils
 
         post = session.post_processing
         source = sorted(folder.glob('*.tiff'))[0]
@@ -92,9 +92,9 @@ def main() -> int:
 
     found = []
     for mod_name, attr in (
-        ('modules.cell_count_method', 'CellCountMethod'),
-        ('modules.cell_count', 'DEFAULT_SETTINGS'),
-        ('modules.cell_count', 'default_settings'),
+        ('_lumascope.modules.cell_count_method', 'CellCountMethod'),
+        ('_lumascope.modules.cell_count', 'DEFAULT_SETTINGS'),
+        ('_lumascope.modules.cell_count', 'default_settings'),
     ):
         mod = importlib.import_module(mod_name)
         if hasattr(mod, attr):

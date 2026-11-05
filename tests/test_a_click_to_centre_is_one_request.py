@@ -16,10 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules import image_utils
-from modules.exceptions import PositionOutOfRangeError
-from modules.scope_session import ScopeSession
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from ui import ui_helpers

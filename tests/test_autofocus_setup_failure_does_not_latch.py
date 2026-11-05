@@ -28,14 +28,14 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     AutofocusAborted,
     CameraReadFailedError,
     CaptureError,
     CatalogueNameRefusedError,
 )
-from modules.lumascope_api.camera import CameraAutoMode
-from modules.lumascope_api.illumination import LedLease, LedState, LedTransition
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.illumination import LedLease, LedState, LedTransition
 from tests.af_drives import (
     FOCAL_Z_UM,
     PARKED_Z_UM,
@@ -132,7 +132,7 @@ def _live_view_arm(scope):
 
 def _while_sweeping(scope, monkeypatch, then):
     """Run ``then`` once, at the sweep's first scored frame: after the setup's writes."""
-    import modules.autofocus_functions as autofocus_functions
+    import _lumascope.modules.autofocus_functions as autofocus_functions
 
     score = autofocus_functions.autofocus_score
     done = []
@@ -143,7 +143,7 @@ def _while_sweeping(scope, monkeypatch, then):
             then()
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', scoring)
 
 
 def _camera_restores(scope, monkeypatch) -> list:
@@ -281,7 +281,9 @@ def test_every_setup_statement_sits_inside_the_bracket():
 
     from tests import ast_seams
 
-    run = ast_seams.find_def('modules/autofocus_runner.py', 'run', class_name='AutofocusRunner')
+    run = ast_seams.find_def(
+        'src/_lumascope/modules/autofocus_runner.py', 'run', class_name='AutofocusRunner'
+    )
     assert run is not None
     brackets = [n for n in run.body if isinstance(n, ast.Try) and n.finalbody]
     assert len(brackets) == 1, 'run() must have exactly one top-level try/finally bracket'
@@ -442,7 +444,9 @@ def test_the_release_is_structurally_unreachable_past():
 
     from tests import ast_seams
 
-    run = ast_seams.find_def('modules/autofocus_runner.py', 'run', class_name='AutofocusRunner')
+    run = ast_seams.find_def(
+        'src/_lumascope/modules/autofocus_runner.py', 'run', class_name='AutofocusRunner'
+    )
     assert run is not None
     outer = [n for n in run.body if isinstance(n, ast.Try) and n.finalbody]
     assert len(outer) == 1, 'run() must have exactly one top-level try/finally bracket'
@@ -594,7 +598,9 @@ def test_no_restore_step_can_be_added_unguarded():
 
     from tests import ast_seams
 
-    run = ast_seams.find_def('modules/autofocus_runner.py', 'run', class_name='AutofocusRunner')
+    run = ast_seams.find_def(
+        'src/_lumascope/modules/autofocus_runner.py', 'run', class_name='AutofocusRunner'
+    )
     assert run is not None
     outer = [n for n in run.body if isinstance(n, ast.Try) and n.finalbody]
     assert len(outer) == 1

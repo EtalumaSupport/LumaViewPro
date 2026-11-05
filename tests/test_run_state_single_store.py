@@ -24,9 +24,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_state_machine import PROTOCOL_STATE_TRANSITIONS, ProtocolState
-from modules.run_outcome import RunEnding
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol_state_machine import PROTOCOL_STATE_TRANSITIONS, ProtocolState
+from _lumascope.modules.run_outcome import RunEnding
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 
 _ABORTED = RunEnding('aborted', 'stopped', 'Stopped by test')
@@ -58,7 +58,7 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
     try/finally of its own, so a raise in its tail is what strands the
     state one transition short of IDLE.
     """
-    import modules.sequenced_capture_runner as scr
+    import _lumascope.modules.sequenced_capture_runner as scr
 
     runner, run = _started_runner()
 

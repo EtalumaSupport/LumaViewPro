@@ -13,10 +13,10 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock
 
-from modules.image_mode import ImageCaptureConfig
-from modules.layer_record import release_colors
-from modules.protocol_recording import ProtocolVideoStep
-from modules.run_events import RunEvents
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.protocol_recording import ProtocolVideoStep
+from _lumascope.modules.run_events import RunEvents
 from tests.frame_records import plate
 from tests.protocol_drives import lent_run_claim
 from tests.stock_channels import LED0
@@ -88,7 +88,7 @@ def record_first_frame(scope, save_folder, monkeypatch, *, write_fails=False, **
     disk, failing with ``OSError`` when *write_fails*. Returns the step and
     the arrivals written, in order.
     """
-    import modules.protocol_recording as protocol_recording
+    import _lumascope.modules.protocol_recording as protocol_recording
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
     elapsed = ElapsedClock()

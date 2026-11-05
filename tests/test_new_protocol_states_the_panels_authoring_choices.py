@@ -17,9 +17,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.protocol_settings as ps
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
 PERIOD_S = 7 * 60.0
 DURATION_S = 3 * 3600.0
@@ -119,8 +119,8 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog,
     ERROR line; an exception out of a button handler ends the app."""
     import logging
 
-    from modules.notification_center import Severity
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.notification_center import Severity
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 

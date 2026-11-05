@@ -10,7 +10,7 @@ every argument by keyword.
 
 import inspect
 
-from modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.protocol_runner import ProtocolRunner
 
 _SUBJECT = {
     'single_scan': 'protocol',

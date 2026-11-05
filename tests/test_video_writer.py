@@ -12,10 +12,10 @@ from unittest import mock
 import numpy as np
 import pytest
 
-import modules.video_writer as video_writer_module
-from modules.video_writer import VideoWriter
-from modules.layer_record import GREY, release_color
-from modules.layer_record import release_colors
+import _lumascope.modules.video_writer as video_writer_module
+from _lumascope.modules.video_writer import VideoWriter
+from _lumascope.modules.layer_record import GREY, release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED2
 from tests.video_step_drives import record_first_frame
 
@@ -342,7 +342,7 @@ class TestVideoBuilderDropAccounting:
     skips must be counted and returned, not silently dropped from the output."""
 
     def test_unreadable_sources_counted_as_dropped(self, tmp_path):
-        from modules.video_builder import VideoBuilder
+        from _lumascope.modules.video_builder import VideoBuilder
 
         src = tmp_path / 'frames'
         src.mkdir()
@@ -377,9 +377,9 @@ class TestBuildVideoSignificantBits:
         tf.imwrite(str(path), frame, extratags=[(65123, 3, 1, 12, True)])
 
     def test_right_aligned_12bit_depth_reaches_writer(self, tmp_path):
-        import modules.image_utils as image_utils
-        import modules.video_builder as video_builder_module
-        from modules.video_builder import VideoBuilder
+        import _lumascope.modules.image_utils as image_utils
+        import _lumascope.modules.video_builder as video_builder_module
+        from _lumascope.modules.video_builder import VideoBuilder
 
         src = tmp_path / 'frames'
         src.mkdir()

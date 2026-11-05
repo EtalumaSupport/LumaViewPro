@@ -8,11 +8,11 @@ lands, one INFO line names the run's folder, the outcome, how many images
 were written and how many were not, and why.
 """
 
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 import logging
 import time
 
-import modules.protocol_image_writer as protocol_image_writer
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 

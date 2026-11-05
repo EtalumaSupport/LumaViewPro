@@ -26,8 +26,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lib.log_helpers import VERBOSE
-from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from tests.wire_boards import led_on_the_wire
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def _no_boot_wait():
     """The LED board module's own clock with no sleep; every other thread's is real."""
-    import drivers.ledboard as ledboard_mod
+    import _lumascope.drivers.ledboard as ledboard_mod
 
     return patch.object(
         ledboard_mod, 'time', SimpleNamespace(sleep=MagicMock(), monotonic=time.monotonic)
@@ -58,7 +58,7 @@ class TestLedOnBlockAckShape:
 
     def _make_led(self, response_sequence):
         """Build a real LEDBoard with exchange_command monkeypatched."""
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)  # bypass __init__ (needs serial)
         # a stand-in by design: the subject is led_on's poll, and the wire's
@@ -131,7 +131,7 @@ class TestLedDriverRejectsNonAckResponses:
     dark (the wedged-firmware shape)."""
 
     def _make_led(self, response_sequence):
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
         # a stand-in by design: the subject is led_on's poll, and the wire's
@@ -186,7 +186,7 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         """_enter_engineering must invoke
         scope.diagnostics.enter_led_engineering_mode, not open-coded
         send_diagnostic_command('led', 'FACTORY', ...)."""
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
@@ -209,7 +209,7 @@ class TestTsrLedEngineeringRoutesThroughDriver:
     def test_exit_engineering_calls_sub_api(self):
         """_exit_engineering must invoke
         scope.diagnostics.exit_led_engineering_mode, not _cmd('led', 'Q')."""
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
@@ -227,8 +227,8 @@ class TestTsrLedEngineeringRoutesThroughDriver:
 
     def test_enter_engineering_answers_the_refusals_words_when_led_absent(self):
         """No LED board connected: the member's own refusal is the answer, in its words."""
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
@@ -254,7 +254,7 @@ class TestBundleFilenameByReportType:
     def _build_report(self, tmp_path, report_type, sn='12062'):
         """Construct a TechSupportReport stub and invoke _create_zip
         with the given report_type. Returns the resulting zip path."""
-        from modules.tech_support_report import TechSupportReport
+        from _lumascope.modules.tech_support_report import TechSupportReport
 
         report = TechSupportReport.__new__(TechSupportReport)
         # _create_zip just needs `tmp` to point at a populated dir; we
@@ -305,7 +305,7 @@ class TestLedExitEngineeringRecoversFromWedge:
         """Build a real LEDBoard stub. info_responses is a list of
         responses returned by exchange_command('INFO', ...). The Q
         call is matched first and returns a sentinel."""
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
         led._lock = threading.RLock()
@@ -352,7 +352,7 @@ class TestLedExitEngineeringRecoversFromWedge:
         """Post-Q INFO returns '' and the post-recovery INFO still
         returns '' -- firmware is genuinely unrecoverable. Method
         raises HardwareError so the caller can surface the failure."""
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
         import pytest as _pytest
 
         write_log = []
@@ -386,7 +386,9 @@ class TestTechSupportReportPassesTimeoutS:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'tech_support_report.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'tech_support_report.py'
         ).read_text()
 
     def test_cmd_and_read_multiline_pass_timeout_s_to_diagnostics(self):
@@ -394,7 +396,7 @@ class TestTechSupportReportPassesTimeoutS:
         # renamed timeout_s= kwarg; a bare timeout= raised TypeError and
         # produced the SNlogs fallback. Drive both against a recording
         # diagnostics sub-API and assert the forwarded kwargs.
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         illum = object()
         scope = MagicMock()

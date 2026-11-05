@@ -12,21 +12,21 @@ from __future__ import annotations
 import ast
 import inspect
 
-import modules.exceptions
-from modules.api_surface import fields_of
-from rest import problems
+import _lumascope.modules.exceptions
+from _lumascope.modules.api_surface import fields_of
+from _lumascope.rest import problems
 
 # The members every problem has, which no published field may replace: a
 # problem's keys, less the fields its type publishes.
 PROBLEM_MEMBERS = frozenset(problems.refused_by_server(problems.not_found(''), 'id').body) - set(
-    fields_of(modules.exceptions.ServerRefusedError)
+    fields_of(_lumascope.modules.exceptions.ServerRefusedError)
 )
 
 
 def _published_exceptions() -> list[type[BaseException]]:
     return [
         cls
-        for _, cls in inspect.getmembers(modules.exceptions, inspect.isclass)
+        for _, cls in inspect.getmembers(_lumascope.modules.exceptions, inspect.isclass)
         if issubclass(cls, BaseException) and fields_of(cls)
     ]
 
@@ -51,7 +51,7 @@ def _set_in_init(cls: type) -> set[str]:
 
 
 def test_some_outcome_publishes_its_fields():
-    assert modules.exceptions.ArgumentRefusedError in _published_exceptions()
+    assert _lumascope.modules.exceptions.ArgumentRefusedError in _published_exceptions()
 
 
 def test_every_published_field_is_set_by_its_init_and_is_no_problem_member():

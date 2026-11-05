@@ -12,7 +12,7 @@ behavior on only that path.
 config_helpers.get_sequenced_run_settings() is the single source the
 acquisition paths spread into SequencedCaptureRunner.prepare(). These tests
 pin the helper contract and inspect EVERY acquisition prepare() call site
-(identified by its run_mode= kwarg) across modules/ and ui/, so a
+(identified by its run_mode= kwarg) across src/_lumascope/modules/ and ui/, so a
 newly-added un-migrated site fails here rather than shipping the bug. The
 autofocus-scan path is not exempt: its LED safety (it must NOT hold the LED
 across focus moves, which would photobleach the sample) and its
@@ -26,14 +26,14 @@ import re
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
-from modules.protocol_state_machine import SequencedCaptureRunMode
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 from tests.settings_fixtures import complete_settings
 
 _OWNED_PARAMS = MemberNames(
-    'modules/sequenced_capture_runner.py',
+    'src/_lumascope/modules/sequenced_capture_runner.py',
     {
         'image_capture_config',
         'keep_led_between_steps',
@@ -64,10 +64,10 @@ def _balanced_block(src: str, open_paren_idx: int) -> str:
 
 def _acquisition_run_call_blocks():
     """Yield (path, block) for every SequencedCaptureRunner.prepare()
-    acquisition call across modules/ and ui/. An acquisition call is any
+    acquisition call across src/_lumascope/modules/ and ui/. An acquisition call is any
     `.prepare(` whose arg block carries a run_mode= kwarg (the capture
     runner's required selector)."""
-    for sub in ('modules', 'ui'):
+    for sub in ('src/_lumascope/modules', 'ui'):
         for path in [REPO_ROOT / rel for rel in tracked_files((sub,), '*.py')]:
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):
@@ -183,7 +183,7 @@ def test_every_acquisition_run_call_is_classified():
     # every member reaches and every GUI run button starts through. A second
     # site is a second way to start a run.
     sites = [rel for rel, _ in _acquisition_run_call_blocks()]
-    assert sites == ['modules/protocol_runner.py'], (
+    assert sites == ['src/_lumascope/modules/protocol_runner.py'], (
         f'expected the one acquisition prepare() site in ProtocolRunner, found {sites}'
     )
 

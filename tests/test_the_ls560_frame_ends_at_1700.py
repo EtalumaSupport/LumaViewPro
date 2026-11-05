@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import CameraSettingOutOfRangeError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from modules.scope_capabilities import FrameSize
+from _lumascope.modules.scope_capabilities import FrameSize
 
 
 def _session(tmp_path, microscope):

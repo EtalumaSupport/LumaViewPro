@@ -18,10 +18,10 @@ import pytest
 import serial
 from serial.tools.list_ports_common import ListPortInfo
 
-from drivers import serial_backend
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.serialboard import SerialBoard
+from _lumascope.drivers import serial_backend
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.serialboard import SerialBoard
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 VID, PID = 0x1234, 0x5678
@@ -134,7 +134,7 @@ def test_pyserial_backend_resolves_pyserial_at_call_time(monkeypatch):
 _SECOND_OPENER = """
 import sys
 import serial
-from drivers.serial_backend import PYSERIAL
+from _lumascope.drivers.serial_backend import PYSERIAL
 try:
     PYSERIAL.open(port=sys.argv[1], timeout=0.2).close()
     print('opened')

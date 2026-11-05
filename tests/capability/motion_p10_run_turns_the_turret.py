@@ -23,7 +23,7 @@ import pandas as pd
 
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.protocol_fixtures import protocol_of
 
 RUN_TIMEOUT_S = 120.0
@@ -66,7 +66,7 @@ def _step(name, objective, slot, index, position, layer):
 
 
 def _expected_pixel_size(session, objective_id):
-    import modules.common_utils as common_utils
+    import _lumascope.modules.common_utils as common_utils
 
     focal_length = session.scope.objectives[objective_id].focal_length_mm
     return round(
@@ -80,9 +80,9 @@ def _expected_pixel_size(session, objective_id):
 
 
 def main():
-    from modules.image_utils import read_pixel_size_um
-    from modules.protocol import Protocol
-    from modules.run_events import RunEvents
+    from _lumascope.modules.image_utils import read_pixel_size_um
+    from _lumascope.modules.protocol import Protocol
+    from _lumascope.modules.run_events import RunEvents
 
     session_cm = (
         hardware_session()

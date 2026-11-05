@@ -11,14 +11,14 @@ import time
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from drivers.tmcm6110 import Tmcm6110Board
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.tmcm6110 import Tmcm6110Board
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MoveNotCompletedError,
     RunCheckFailedError,
 )
-from modules.lumascope_api import AxisState
+from _lumascope.modules.lumascope_api import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
@@ -252,8 +252,8 @@ def test_a_protocol_with_tiling_and_a_z_stack_completes(homed, executor, tmp_pat
 def test_bring_up_on_an_ls720_host_finds_the_6110():
     """The bring-up's own selection: the EL-0940 motor board is tried first
     and finds none, then the 6110 is found by its identity."""
-    from drivers.registry import motor_registry
-    from drivers.simulated_tmcm6110 import SimulatedTmcm6110, SimulatedTmcm6110Backend
+    from _lumascope.drivers.registry import motor_registry
+    from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110, SimulatedTmcm6110Backend
     from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
     board, fallback = motor_registry.create_with_fallback(
@@ -275,7 +275,7 @@ def test_a_simulated_ls720s_stage_runs_faster_than_the_bench(scope):
     simulated board takes at real speed."""
     import time
 
-    from drivers.simulated_tmcm6110 import SCOPE_SPEEDUP
+    from _lumascope.drivers.simulated_tmcm6110 import SCOPE_SPEEDUP
 
     clock = _board(scope)._clock
     before, wall = clock(), time.monotonic()
@@ -294,8 +294,8 @@ def test_the_api_registers_the_6110_with_the_other_motor_drivers():
         [
             sys.executable,
             '-c',
-            'import modules.lumascope_api._lumascope\n'
-            'from drivers.registry import motor_registry\n'
+            'import _lumascope.modules.lumascope_api._lumascope\n'
+            'from _lumascope.drivers.registry import motor_registry\n'
             'print(" ".join(motor_registry.registered_names()))',
         ],
         capture_output=True,
@@ -309,7 +309,7 @@ def test_a_z_move_down_drives_one_leg_on_a_stage_with_no_backlash(homed):
     # The motion API approaches a downward Z target from below on a board
     # with a backlash; the 6110 has none, so the move is the target alone,
     # not a leg to the same point first.
-    from drivers.tmcm6110 import MOTORS, MVP
+    from _lumascope.drivers.tmcm6110 import MOTORS, MVP
 
     homed.motion.move_z(3000)
     board = _board(homed)

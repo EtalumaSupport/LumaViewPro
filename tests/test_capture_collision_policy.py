@@ -32,21 +32,21 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-from modules.common_utils import PostFunction
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol_post_processor import ProtocolPostProcessor
-from modules.protocol_post_processing_result import PostProcResult
+from _lumascope.modules import post_derivation
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
 from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
-from modules.layer_record import release_colors
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
@@ -376,7 +376,7 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
 
 def _video_writer_lines(caplog):
     """(level, message) for each line the video writer's own code logged."""
-    from modules import video_writer as vw_mod
+    from _lumascope.modules import video_writer as vw_mod
 
     return [(r.levelname, r.getMessage()) for r in records_of(caplog, vw_mod)]
 
@@ -398,7 +398,7 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, caplog):
     # so the REAL container suffix) is known -- and writer.output_path is
     # the record authority. Pre-create the path the active backend will
     # actually open (.avi covers the cv2 fallback; .mp4 covers PyAV).
-    from modules.video_writer import VideoWriter
+    from _lumascope.modules.video_writer import VideoWriter
 
     requested = tmp_path / 'A1_BF_video.mp4'
     for suffix in ('.mp4', '.avi'):
@@ -424,7 +424,7 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, caplog):
 
 
 def test_video_writer_keeps_fresh_output_path(tmp_path, caplog):
-    from modules.video_writer import VideoWriter
+    from _lumascope.modules.video_writer import VideoWriter
 
     requested = tmp_path / 'A1_BF_video.mp4'
 
@@ -445,7 +445,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
     # The protocol video leg must record the file the writer landed on --
     # its collision-suffixed path -- in the execution row, not the
     # requested name.
-    import modules.protocol_recording as protocol_recording
+    import _lumascope.modules.protocol_recording as protocol_recording
     from tests.video_step_drives import ElapsedClock, video_step_on
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
@@ -496,7 +496,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     import numpy as np
     import tifffile as tf
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     frames_dir = tmp_path / 'frames'
     frames_dir.mkdir()
@@ -579,7 +579,7 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
 
 
 def test_tiling_inference_skips_malformed_tile_cells_with_warning(caplog):
-    from modules import tiling_config as tc_mod
+    from _lumascope.modules import tiling_config as tc_mod
 
     def warnings():
         return [r.getMessage() for r in records_of(caplog, tc_mod) if r.levelno == logging.WARNING]
@@ -628,7 +628,7 @@ def _v8_row(name, label, well, tile_group=0, x=1.0):
 
 
 def test_load_sanitizes_labels_loudly(tmp_path, caplog):
-    from modules import protocol as protocol_mod
+    from _lumascope.modules import protocol as protocol_mod
 
     tsv = tmp_path / 'dotted_label.tsv'
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
@@ -734,7 +734,7 @@ def test_same_base_same_objective_still_refused_at_run_start():
 
 
 def test_allocator_keeps_the_plain_name_when_it_is_free(tmp_path):
-    from modules.path_utils import allocate_directory
+    from _lumascope.modules.path_utils import allocate_directory
 
     allocated = allocate_directory(tmp_path / 'Video_2026-08-13_13.49.03')
 
@@ -743,7 +743,7 @@ def test_allocator_keeps_the_plain_name_when_it_is_free(tmp_path):
 
 
 def test_allocator_increments_instead_of_joining(tmp_path):
-    from modules.path_utils import allocate_directory
+    from _lumascope.modules.path_utils import allocate_directory
 
     base = tmp_path / 'Video_2026-08-13_13.49.03'
     first = allocate_directory(base)
@@ -761,7 +761,7 @@ def test_allocator_increments_instead_of_joining(tmp_path):
 def test_allocator_reservation_is_exclusive(tmp_path):
     # The reservation must be the directory creation itself, not a check
     # followed by a create -- two racing starts cannot both win a name.
-    from modules.path_utils import allocate_directory
+    from _lumascope.modules.path_utils import allocate_directory
 
     allocated = allocate_directory(tmp_path / 'Video_x')
 
@@ -773,7 +773,7 @@ def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
     # A missing parent means the configured save location is wrong -- an
     # unplugged drive, a stale path. Creating it silently would write data to
     # a fresh empty directory on the wrong volume.
-    from modules.path_utils import CaptureLocationError, allocate_directory
+    from _lumascope.modules.path_utils import CaptureLocationError, allocate_directory
 
     with pytest.raises(CaptureLocationError) as excinfo:
         allocate_directory(tmp_path / 'does_not_exist' / 'Video_x')
@@ -784,7 +784,7 @@ def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
 def test_allocator_refuses_a_location_the_system_refuses_in_the_systems_words(tmp_path):
     # The person reads why the folder was refused, not Python's rendering
     # of the error ("[Errno 13] ...: '<path>'").
-    from modules.path_utils import CaptureLocationError, allocate_directory
+    from _lumascope.modules.path_utils import CaptureLocationError, allocate_directory
 
     tmp_path.chmod(0o500)
     try:
@@ -799,7 +799,7 @@ def test_allocator_refuses_a_location_the_system_refuses_in_the_systems_words(tm
 
 
 def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):
-    from modules import path_utils
+    from _lumascope.modules import path_utils
 
     monkeypatch.setattr(path_utils, 'MAX_COLLISION_SUFFIX', 3)
     base = tmp_path / 'Video_x'

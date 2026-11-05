@@ -29,8 +29,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.run_events import RunEvents
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     composite_session,  # noqa: F401  -- imported as a fixture, used by name
     headless_settings,
@@ -82,7 +82,7 @@ def _plain_scan_protocol(session):
     it rather than hand-rolling a DataFrame: what makes this a rival is
     the run MODE and the claim it takes, not which positions it visits.
     """
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
         session.settings,

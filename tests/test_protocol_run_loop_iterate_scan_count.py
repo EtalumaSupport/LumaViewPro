@@ -18,11 +18,11 @@ import time
 from types import MethodType, SimpleNamespace
 from unittest import mock
 
-from modules.protocol_run_loop import ProtocolRunLoop
-from modules.protocol_state_machine import ProtocolState
-from modules.run_events import RunEvents
-from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
+from _lumascope.modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.run_outcome import PendingRunOutcome
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
 def _make_two_scan_parent():
@@ -90,7 +90,7 @@ def test_iterate_callback_reports_per_scan_remaining_count():
         # Simulate Kivy deferral: stash the callback, run it later.
         deferred.append(callback)
 
-    with mock.patch('modules.run_events.schedule_ui', _capture):
+    with mock.patch('_lumascope.modules.run_events.schedule_ui', _capture):
         loop._run_loop_inner(PendingRunOutcome())
 
     # Two scans ran, so two scan_started deliveries were scheduled.
@@ -136,11 +136,11 @@ def test_scan_pacing_waits_on_monotonic_period():
 
     deferred = []
     with (
-        mock.patch('modules.run_events.schedule_ui', lambda cb: deferred.append(cb)),
+        mock.patch('_lumascope.modules.run_events.schedule_ui', lambda cb: deferred.append(cb)),
         # The loop's own name for time, not the time module, which every
         # thread in the process shares.
         mock.patch(
-            'modules.protocol_run_loop.time',
+            '_lumascope.modules.protocol_run_loop.time',
             SimpleNamespace(monotonic=time.monotonic, sleep=_abort_on_sleep),
         ),
     ):

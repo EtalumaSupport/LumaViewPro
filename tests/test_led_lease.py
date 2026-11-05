@@ -18,9 +18,9 @@ import logging
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
-from modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import build_scope, led_reading
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""REST served beside a host that keeps its own main loop -- the GUI (``rest.server.serve_beside``).
+"""REST served beside a host that keeps its own main loop -- the GUI (``_lumascope.rest.server.serve_beside``).
 
 The port, the session's ``rest_api.port``, is bound on the host's thread,
 so a port already taken is one ``RestServerNotStartedError`` raised where
@@ -16,9 +16,9 @@ import threading
 import httpx
 import pytest
 
-from modules.exceptions import RestServerNotStartedError
-from modules.scope_session import ScopeSession
-from rest.server import serve_beside
+from _lumascope.modules.exceptions import RestServerNotStartedError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.server import serve_beside
 from tests.settings_fixtures import complete_settings
 
 

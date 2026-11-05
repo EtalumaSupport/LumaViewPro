@@ -12,15 +12,15 @@ import time
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     MotorStopFailedError,
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from modules.lumascope_api.motion import AxisState
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

@@ -124,7 +124,7 @@ def test_full_bringup_lifecycle_fires_exactly_one_start(make_cam):
 def test_connect_does_not_eager_start_and_open_and_start_releases():
     """connect() returns configured but NOT grabbing; open_and_start()
     is the single release that begins streaming."""
-    from drivers.simulated_camera import SimulatedCamera
+    from _lumascope.drivers.simulated_camera import SimulatedCamera
 
     cam = SimulatedCamera()
     assert cam._grab_gate_open is False

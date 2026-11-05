@@ -63,14 +63,14 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 # links, so its log is that folder's (as the simulator recipe's launch is), then
 # does what its mode says and waits, holding the log open, until stdin closes.
 _CHILD = """
-import sys
-sys.path.insert(0, sys.argv[1])
-import lvp_logger
+import os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
+import _lumascope.lvp_logger
 mode = sys.argv[2]
 if mode in ('banner', 'rotated'):
-    lvp_logger.log_environment_banner(sys.argv[1], lvp_logger.version, [])
+    _lumascope.lvp_logger.log_environment_banner(sys.argv[1], _lumascope.lvp_logger.version, [])
 if mode == 'rotated':
-    lvp_logger.file_handler.doRollover()
+    _lumascope.lvp_logger.file_handler.doRollover()
 print('ready', flush=True)
 sys.stdin.readline()
 """
@@ -79,7 +79,7 @@ sys.stdin.readline()
 def _linked_folder(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt'):
+    for item in ('src', 'version.txt'):
         (folder / item).symlink_to(REPO / item)
     # The shipped settings an installation carries; the logger reads debug_mode from it.
     (folder / 'data').mkdir()

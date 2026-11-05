@@ -20,8 +20,8 @@ reach the file lane through the default-queue path.
 
 import queue
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 EXPECTED_NAME = 'TEST_WORKER'
 

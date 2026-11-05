@@ -12,10 +12,10 @@ firmware.
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.mp import tmc5072
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.mp import tmc5072
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier

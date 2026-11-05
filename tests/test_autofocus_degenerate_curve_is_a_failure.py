@@ -24,10 +24,10 @@ from __future__ import annotations
 
 import pytest
 
-from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import AutofocusFailedError
-from modules.lumascope_api.illumination import LedState
-from modules.notification_center import Severity
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.exceptions import AutofocusFailedError
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.notification_center import Severity
 from tests.af_drives import (
     FOCAL_Z_UM,
     PARKED_Z_UM,

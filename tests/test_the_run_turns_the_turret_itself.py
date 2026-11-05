@@ -14,9 +14,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
-from modules.run_events import RunEvents
-from modules.protocol_step_runner import ProtocolStepRunner
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_a_saved_frame_keeps_its_objective import _two_objective_protocol
 from tests.test_composite_run_e2e import headless_settings, open_composite_session

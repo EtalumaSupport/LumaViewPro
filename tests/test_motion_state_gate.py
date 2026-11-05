@@ -27,17 +27,17 @@ import time
 
 import pytest
 
-from drivers.exceptions import HardwareError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     HomingFailedError,
     MoveFaultError,
     MoveNotCompletedError,
 )
-from modules.lumascope_api import AxisState
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

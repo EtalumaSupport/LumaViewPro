@@ -68,6 +68,7 @@ fi
 echo "Installing dependencies in virtual environment..."
 "$VENV_DIR/bin/pip" install --upgrade pip
 "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+"$VENV_DIR/bin/python" "$PROJECT_DIR/scripts/install_lumascope_pth.py"
 
 # --- Verify installation ---
 echo ""

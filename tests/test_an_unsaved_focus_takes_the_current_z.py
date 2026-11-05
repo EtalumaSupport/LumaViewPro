@@ -17,11 +17,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules import settings_init
-from modules.common_utils import get_layers
-from modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules import settings_init
+from _lumascope.modules.common_utils import get_layers
+from _lumascope.modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.settings_fixtures import shipped_template
 from tests.stock_channels import LED0
 from tests.installation_fixtures import shipped_grids
@@ -65,7 +65,7 @@ def _input_config(**extra):
 
 
 def _from_config(cfg, capabilities):
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     return Protocol.from_config(
         input_config=cfg,
@@ -124,7 +124,7 @@ def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capab
 
 
 def test_the_saved_focus_of_a_channel_never_saved_is_refused():
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     session = SimpleNamespace(settings={LED0: {'focus': None}, 'BF': {'focus': 5998.6}})
 

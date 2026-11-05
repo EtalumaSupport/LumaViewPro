@@ -18,8 +18,8 @@ import threading
 
 import pytest
 
-from modules import live_work
-from modules.scope_session import ScopeSession
+from _lumascope.modules import live_work
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0
@@ -82,4 +82,4 @@ def test_the_banner_binds_the_home_in_the_live_work():
     banner = kv[kv.index('HomingBanner:') :]
     banner = banner[: banner.index('pos_hint')]
     assert 'active: app.live_work.has(live_work.WorkKind.HOME)' in banner
-    assert '#:import live_work modules.live_work' in kv
+    assert '#:import live_work _lumascope.modules.live_work' in kv

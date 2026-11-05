@@ -26,15 +26,15 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import HardwareCommandRefusedError, RecordingRefusedError
-from modules.lumascope_api.illumination import (
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, RecordingRefusedError
+from _lumascope.modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
     snapshot_lit_pairs,
 )
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED0
@@ -111,7 +111,7 @@ class TestTheLane:
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(
@@ -316,7 +316,7 @@ class TestTheStartKeepsItsName:
     @pytest.fixture
     def sim_session(self, tmp_path):
         # A model with no turret: the still below needs a known objective.
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -436,7 +436,7 @@ class TestTheLabwarePanelReportsARefusal:
     def test_a_refused_pick_is_shown_once_and_the_panel_carries_on(self, monkeypatch, centre_posts):
         import types
 
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
         import ui.protocol_settings as protocol_settings_module
 
         redrawn = []

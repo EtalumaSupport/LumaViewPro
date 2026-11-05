@@ -12,7 +12,7 @@ separately on hardware.
 import numpy as np
 import pytest
 
-from drivers.aoi_geometry import (
+from _lumascope.drivers.aoi_geometry import (
     AoiPlan,
     SensorOrientation,
     ceil_to,

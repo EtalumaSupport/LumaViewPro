@@ -24,8 +24,8 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_utils
-from modules.layer_record import GREY, release_catalogue, release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import GREY, release_catalogue, release_color
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -436,7 +436,7 @@ class TestTiff16BitFalseColorOn:
         """Mock app_context so write_tiff resolves the false-color RGB mode."""
         mock_ctx = mock.MagicMock()
         mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
-        return mock.patch('modules.app_context.ctx', mock_ctx)
+        return mock.patch('_lumascope.modules.app_context.ctx', mock_ctx)
 
     @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
@@ -1380,8 +1380,8 @@ def _a_full_still(
     """A BF still with every field of its record set, lit by BF's LED, on
     ``labware`` in ``well_label``, judged as ``judgments`` say: the record the
     save built, and the file it wrote."""
-    from modules import image_save
-    from modules.layer_record import release_colors
+    from _lumascope.modules import image_save
+    from _lumascope.modules.layer_record import release_colors
     from tests.frame_records import frame_record, plate
     from tests.scope_fakes import bind_settings_like_a_session
 
@@ -2034,7 +2034,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
 def _a_judgment_of_a_change_and_a_move():
     """A gain change, and a settled Z move: between them every field a
     judgment can state (a move's in-force time the gain change has none of)."""
-    from modules.frame_validity import FrameValidity
+    from _lumascope.modules.frame_validity import FrameValidity
     from tests.test_a_capture_records_whether_its_frame_counts import _frame
 
     fv = FrameValidity(lambda: 0)

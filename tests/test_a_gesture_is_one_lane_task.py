@@ -18,8 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from ui import ui_helpers
 

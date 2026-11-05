@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lib import profile_trace
+from _lumascope.lib import profile_trace
 from tests.ast_seams import iter_package_modules
 
 
@@ -210,7 +210,7 @@ class TestFieldContentCannotShiftColumns:
     """A field's CONTENT must never change how many columns a row has.
 
     These rows were shifted, not hypothetically but in production:
-    modules/lumascope_api/motion.py builds its `axis` field as
+    src/_lumascope/modules/lumascope_api/motion.py builds its `axis` field as
     ','.join(moving_axes), so every simultaneously-moving XY poll wrote a
     6-field row under a 5-column header. Two other call sites defended
     themselves with a per-call .replace(',', ';'); two did not. Quoting
@@ -272,8 +272,8 @@ def _imports_profile_trace(node):
 class TestProfileTraceImportIsUnconditional:
     """No consumer may wrap its profile_trace import in a swallowing guard.
 
-    lib/profile_trace imports only stdlib at module scope and its one logger
-    import carries a real fallback, so `from lib import profile_trace` cannot
+    src/_lumascope/lib/profile_trace imports only stdlib at module scope and its one logger
+    import carries a real fallback, so `from _lumascope.lib import profile_trace` cannot
     legitimately raise. A guard around it therefore defends nothing and can
     only convert a wrong import path into permanent silent disablement -- which
     is exactly what happened: the protocol capture path imported it from the
@@ -283,7 +283,9 @@ class TestProfileTraceImportIsUnconditional:
 
     def test_no_consumer_guards_the_import(self):
         offenders = []
-        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+        for rel_path, tree in iter_package_modules(
+            ['src/_lumascope/drivers', 'src/_lumascope/lib', 'src/_lumascope/modules', 'ui']
+        ):
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Try):
                     continue
@@ -337,7 +339,9 @@ class TestEveryTraceSitePassesIdentity:
         that shipped this defect, so the check walks call nodes instead.
         """
         offenders = []
-        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+        for rel_path, tree in iter_package_modules(
+            ['src/_lumascope/drivers', 'src/_lumascope/lib', 'src/_lumascope/modules', 'ui']
+        ):
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -365,8 +369,8 @@ class TestDiagnosticOutputIsWritable:
     """
 
     def test_cprofile_default_path_is_under_appdata(self, tmp_path, monkeypatch):
-        from modules import path_utils
-        from modules.profiling_utils import ProfilingHelper
+        from _lumascope.modules import path_utils
+        from _lumascope.modules.profiling_utils import ProfilingHelper
 
         monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
         helper = ProfilingHelper()
@@ -384,7 +388,9 @@ class TestDiagnosticOutputIsWritable:
         developer machine has.
         """
         offenders = []
-        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+        for rel_path, tree in iter_package_modules(
+            ['src/_lumascope/drivers', 'src/_lumascope/lib', 'src/_lumascope/modules', 'ui']
+        ):
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
                     continue

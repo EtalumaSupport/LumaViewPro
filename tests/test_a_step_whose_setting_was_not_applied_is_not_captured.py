@@ -24,8 +24,8 @@ which in a run with no live-view arm is its first step's.
 
 import pathlib
 
-from modules.image_utils import read_file_record
-from modules.notification_center import Severity
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.notification_center import Severity
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_a_run_reports_what_it_captured import _run

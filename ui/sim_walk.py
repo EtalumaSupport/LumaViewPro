@@ -74,8 +74,8 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
-from modules import gui_logger
-from modules.exceptions import Refusal
+from _lumascope.modules import gui_logger
+from _lumascope.modules.exceptions import Refusal
 from ui import file_dialogs
 from ui.progress_popup import CustomPopup
 from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended

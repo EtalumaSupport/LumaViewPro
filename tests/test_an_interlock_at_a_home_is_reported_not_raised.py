@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import MotionInterlockError
-from lib.stage_interlock import REFUSED_BEFORE_MOTION
-from modules.exceptions import HardwareCommandRefusedError
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
-from modules.tech_support_report import TechSupportReport
+from _lumascope.drivers.exceptions import MotionInterlockError
+from _lumascope.lib.stage_interlock import REFUSED_BEFORE_MOTION
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.tech_support_report import TechSupportReport
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

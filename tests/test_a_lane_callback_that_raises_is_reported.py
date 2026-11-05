@@ -9,11 +9,11 @@ the default log level; now each is reported.
 
 import pytest
 
-from modules import ui_queue
-from modules.notification_center import notifications
-from modules.scope_session import ScopeSession
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules import ui_queue
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 class _CallbackError(RuntimeError):

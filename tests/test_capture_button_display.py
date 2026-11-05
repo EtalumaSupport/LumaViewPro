@@ -13,17 +13,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     CaptureFailedError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
 )
-from modules.scope_session import ShownChannel
+from _lumascope.modules.scope_session import ShownChannel
 
 
 @pytest.fixture
 def button_ctx():
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
 
     ctx = MagicMock()
     ctx.scope_display.use_bullseye = True

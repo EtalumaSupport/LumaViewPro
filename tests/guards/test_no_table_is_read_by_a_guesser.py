@@ -18,7 +18,14 @@ _PANDAS_READERS = Words({'read_csv', 'read_table', 'read_fwf', 'read_excel'})
 
 
 def _production_sources():
-    folders = ('modules', 'drivers', 'ui', 'tools', 'scripts', 'lib')
+    folders = (
+        'src/_lumascope/modules',
+        'src/_lumascope/drivers',
+        'ui',
+        'tools',
+        'scripts',
+        'src/_lumascope/lib',
+    )
     for rel in tracked_files(folders) + tracked_files(pattern='*.py'):
         yield REPO_ROOT / rel
 

@@ -2,7 +2,7 @@
 """The one harness for the capability probes.
 
 A probe answers a single question: can a SCRIPT do what the GUI does, going
-through `ScopeSession` / `modules.lumascope_api` only? The probe's outcome is
+through `ScopeSession` / `_lumascope.modules.lumascope_api` only? The probe's outcome is
 the classification -- every verdict here was produced by a run, never a read.
 
 Two verbs, and the second is why these probes can live in the repo at all:
@@ -177,7 +177,7 @@ def imported_ui_modules():
 
 
 def assert_no_ui():
-    """The contract a capability probe exists to hold: it drove modules/ only.
+    """The contract a capability probe exists to hold: it drove src/_lumascope/modules/ only.
 
     Only one of the five slice harnesses this replaced had this; the other
     four relied on nobody writing the import. `report()` checks it for every
@@ -215,7 +215,9 @@ def report():
             flush=True,
         )
     if bad:
-        print(f'UI LEAK: a probe imported {bad}; a capability probe drives modules/ only.')
+        print(
+            f'UI LEAK: a probe imported {bad}; a capability probe drives src/_lumascope/modules/ only.'
+        )
     failed = bool(failed_checks or filled_voids or bad)
     print(f'TARGET: {"hardware" if HARDWARE else "simulator"}', flush=True)
     _write_verdict(failed)
@@ -229,7 +231,7 @@ def _write_verdict(failed, ended='reported'):
     so the file answers on its own which code asked which instrument; the
     probe's scratch folder is temporary and nobody collects it (THE RECORD).
     """
-    import lvp_logger
+    import _lumascope.lvp_logger
 
     global _VERDICT_WRITTEN
     _VERDICT_WRITTEN = True
@@ -238,16 +240,16 @@ def _write_verdict(failed, ended='reported'):
         'target': 'hardware' if HARDWARE else 'simulator',
         'passed': not failed,
         'ended': ended,
-        'lvp_commit': lvp_logger.git_revision(),
+        'lvp_commit': _lumascope.lvp_logger.git_revision(),
         'scope': IDENTITY,
         'checks': [{'name': n, 'passed': p, 'kind': k} for n, p, k in RESULTS],
         'figures': FIGURES,
-        'log_folder': lvp_logger.log_dir,
+        'log_folder': _lumascope.lvp_logger.log_dir,
     }
     path = pathlib.Path(f'{RECORD}_verdict.json')
     path.write_text(json.dumps(verdict, indent=2, default=str), encoding='utf-8')
     print(f'VERDICT FILE: {path}', flush=True)
-    print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)
+    print(f'LOG FOLDER: {_lumascope.lvp_logger.log_dir}', flush=True)
 
 
 _VERDICT_WRITTEN = False
@@ -299,7 +301,7 @@ def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     move is refused with `AxisStateUnknownError` and the run dies at
     `consecutive_scan_failures`, so a protocol probe MUST ask for it.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     from tests.settings_fixtures import complete_settings
 
@@ -345,8 +347,8 @@ def run(body):
 @contextlib.contextmanager
 def headless_session(live_folder, acquiring=('BF', LED0), **extra):
     """A homed session with its executors up and a protocol runner attached."""
-    import modules.common_utils as common_utils
-    from modules.scope_session import ScopeSession
+    import _lumascope.modules.common_utils as common_utils
+    from _lumascope.modules.scope_session import ScopeSession
 
     from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
     from tests.settings_fixtures import complete_settings
@@ -398,8 +400,8 @@ def hardware_session(objective=None):
         print(f'REFUSED: hardware_session() is the --hardware door; {PROBE} was run without it.')
         sys.exit(2)
 
-    from modules.path_utils import get_source_root
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.path_utils import get_source_root
+    from _lumascope.modules.scope_session import ScopeSession
 
     root = get_source_root()
     current = root / 'data' / 'current.json'

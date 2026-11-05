@@ -21,15 +21,15 @@ import threading
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import (
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     SettingRefusedError,
     StoredSettingReplacedNotice,
 )
-from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
-from modules.scope_session import ScopeSession
-from modules.settings_paths import _leaf_paths
+from _lumascope.modules.lumascope_api._constants import ACCELERATION_PCT_MAX
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.settings_paths import _leaf_paths
 from tests.settings_fixtures import complete_settings, shipped_template
 
 TEMPLATE = pathlib.Path(__file__).resolve().parents[1] / 'data' / 'settings.json'

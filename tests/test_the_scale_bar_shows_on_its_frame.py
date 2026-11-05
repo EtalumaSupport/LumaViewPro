@@ -26,8 +26,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import modules.image_utils as image_utils
-from modules.exceptions import HardwareCommandRefusedError
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from tests.objective_records import objective
 from tests.protocol_drives import run_identity
 from tests.scope_fakes import bind_settings_like_a_session

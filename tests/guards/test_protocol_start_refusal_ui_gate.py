@@ -218,7 +218,7 @@ def test_no_starter_writes_running_state():
 
 # ---------------------------------------------------------------------------
 # Retired-API sweep: no production call site of the old bool-returning
-# run() remains anywhere under modules/ or ui/.
+# run() remains anywhere under src/_lumascope/modules/ or ui/.
 # ---------------------------------------------------------------------------
 
 _RUN_CALL = re.compile(r'\.run\(')
@@ -242,7 +242,7 @@ def test_no_retired_runner_run_call_sites_remain():
     sequenced-capture run() call (subprocess.run and thread run()
     calls carry neither)."""
     offenders = []
-    for sub in ('modules', 'ui'):
+    for sub in ('src/_lumascope/modules', 'ui'):
         for path in [REPO_ROOT / rel for rel in tracked_files((sub,))]:
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):

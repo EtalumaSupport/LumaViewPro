@@ -57,7 +57,7 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
         {'focal_length': 45.0},
     )
 
-    import modules.app_context as app_context
+    import _lumascope.modules.app_context as app_context
 
     monkeypatch.setattr(app_context, 'ctx', ctx)
     return ctx
@@ -75,9 +75,9 @@ def test_config_carries_delivered_frame_not_typed_text(monkeypatch):
     """1024 typed and never applied; the camera is at 1900."""
     _patch_ctx(monkeypatch, typed='1024', settings=_settings())
 
-    from modules.config_helpers import get_sequenced_capture_config_from_settings
-    from modules.labware_loader import WellPlateLoader
-    from modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.config_helpers import get_sequenced_capture_config_from_settings
+    from _lumascope.modules.labware_loader import WellPlateLoader
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     config = get_sequenced_capture_config_from_settings(
         _settings(),
@@ -93,7 +93,7 @@ def test_no_modules_file_reads_the_frame_fields():
     """The frame width/height widgets are read only by the widget that owns
     them.
 
-    A modules/ file reaching into the Kivy tree for these fields is the
+    A src/_lumascope/modules/ file reaching into the Kivy tree for these fields is the
     defect this pair of tests exists for: it puts the typed request where
     callers who wanted the delivered geometry could pick it up. Reading
     them from ui/microscope_settings.py is legal -- that is the class the
@@ -101,7 +101,7 @@ def test_no_modules_file_reads_the_frame_fields():
     """
     offenders = {
         path.relative_to(REPO_ROOT).as_posix()
-        for path in [REPO_ROOT / rel for rel in tracked_files(('modules',), '*.py')]
+        for path in [REPO_ROOT / rel for rel in tracked_files(('src/_lumascope/modules',), '*.py')]
         if 'frame_width_id' in path.read_text() or 'frame_height_id' in path.read_text()
     }
 

@@ -22,7 +22,7 @@ import sys
 # The installation folder, importable when the script is run by its path.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 
 
 def main():

@@ -26,7 +26,7 @@ import ast
 
 import pytest
 
-from modules.notification_center import NotificationCenter, Severity
+from _lumascope.modules.notification_center import NotificationCenter, Severity
 from tests.ast_seams import REPO_ROOT, tracked_files
 
 
@@ -117,7 +117,7 @@ def test_the_gui_boundary_delivers_a_funnel_refusal_during_an_unattended_run(
     A person's press during an unattended run is answered: the boundary
     marks it solicited, so the run's mute stands aside.
     """
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
     from ui.ui_helpers import run_reported
 
     runner = object.__new__(SequencedCaptureRunner)
@@ -144,8 +144,8 @@ def test_a_funnel_refusal_outside_any_boundary_is_raised_and_posts_nothing(centr
     saw the refusal, so a REST caller was answered AND every listener was
     shown it.
     """
-    from modules.exceptions import ProtocolRunRefusedError
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.exceptions import ProtocolRunRefusedError
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
     runner = object.__new__(SequencedCaptureRunner)
     with pytest.raises(ProtocolRunRefusedError) as raised:
@@ -159,7 +159,7 @@ def test_a_funnel_refusal_outside_any_boundary_is_raised_and_posts_nothing(centr
 
 
 def _functions_raising_the_typed_refusal():
-    """Every function in modules/ that builds a ProtocolRunRefusedError.
+    """Every function in src/_lumascope/modules/ that builds a ProtocolRunRefusedError.
 
     Discovered rather than listed: a new refusal funnel added to a module
     nobody remembered to enumerate is exactly the drift this guards. Found
@@ -167,7 +167,7 @@ def _functions_raising_the_typed_refusal():
     the refusal and hands it to the reporter before raising it is found.
     """
     found = []
-    for path in [REPO_ROOT / rel for rel in tracked_files(('modules',))]:
+    for path in [REPO_ROOT / rel for rel in tracked_files(('src/_lumascope/modules',))]:
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

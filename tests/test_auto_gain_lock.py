@@ -26,16 +26,16 @@ import threading
 from unittest.mock import patch
 
 import pytest
-import modules.config_helpers as config_helpers
-from lib.log_helpers import VERBOSE
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
-from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api.camera import AutoGainConvergence, CameraAPI
-from modules.lumascope_api.frame_record import SettingSource
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.notification_center import OutcomeKind
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
+from _lumascope.drivers.simulated_camera import SimulatedCamera, _SimImageHandler
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, CameraAPI
+from _lumascope.modules.lumascope_api.frame_record import SettingSource
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.notification_center import OutcomeKind
 from tests import ast_seams
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import (
@@ -521,7 +521,7 @@ def test_run_start_owns_a_standing_live_arm():
     each step focuses at its own values. The manual autofocus one-shot keeps
     the arm: it focuses the field the user is watching, live arm included,
     and its own lock scans at what that arm achieved."""
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
     from tests.protocol_drives import bare_capture_runner
 
     for run_mode in (
@@ -555,7 +555,9 @@ def test_run_start_owns_a_standing_live_arm():
     # the take reads a real snapshot. It writes no target brightness: every
     # arm and one-shot a step makes carries its own.
     takeover = ast_seams.find_def(
-        'modules/sequenced_capture_runner.py', '_take_camera', class_name='SequencedCaptureRunner'
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        '_take_camera',
+        class_name='SequencedCaptureRunner',
     )
     assert takeover is not None
     # In source order: ast.walk is breadth-first, so a call inside a try
@@ -636,7 +638,7 @@ def test_a_lock_right_after_the_arm_reads_a_frame_taken_under_it():
     """A lock asked at once after the arm waits for a frame the camera took
     under it: the values the loop started from (BF's 1.0 dB) are not what it
     reached, and were stored as CONVERGED."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from modules import settings_paths
+from _lumascope.modules import settings_paths
 from tests.settings_fixtures import shipped_template
 
 _SHAPED = re.compile(r'(_dir|_folder|_path|filepath|_port|host|api_key)$|^mode$')

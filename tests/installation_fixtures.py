@@ -38,7 +38,7 @@ def shipped_grids():
     built on the copy it read (``ProtocolsAPI.tiling_grids``). Read once, since
     the grids never change after they are read.
     """
-    from modules.tiling_config import TilingGrids
+    from _lumascope.modules.tiling_config import TilingGrids
 
     return TilingGrids(SHIPPED_DATA / 'tiling.json')
 
@@ -131,8 +131,8 @@ def use_release(monkeypatch, scopes: pathlib.Path) -> None:
     Both are read once per process from the installation's own folder, so a
     test replaces the two caches for its own duration.
     """
-    from modules import layer_record
-    from modules.path_utils import read_installation_file
+    from _lumascope.modules import layer_record
+    from _lumascope.modules.path_utils import read_installation_file
 
     contents = read_installation_file(scopes)
     catalogue = layer_record.load_layer_catalogue(contents, scopes)

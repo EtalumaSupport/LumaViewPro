@@ -19,9 +19,9 @@ import types
 
 import pytest
 
-import modules.metrics_logger as metrics_logger_module
-from modules.ui_queue import UiDispatcher, ui_backlog
-from modules.scope_session import ScopeSession
+import _lumascope.modules.metrics_logger as metrics_logger_module
+from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import messages, records_of
 
 

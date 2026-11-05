@@ -21,11 +21,11 @@ import datetime
 import pandas as pd
 import pytest
 
-from modules.image_utils import read_file_record
-from modules.axes import StageAxis
-from modules.lumascope_api import AxisState
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.axes import StageAxis
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
 from tests.protocol_fixtures import protocol_of
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session

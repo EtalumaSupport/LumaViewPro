@@ -15,13 +15,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import modules.video_cadence as video_cadence
-from drivers.exceptions import CameraStreamStartFailedError
-from modules.exceptions import CameraStreamStalledError
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.notification_center import Severity, notifications
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+import _lumascope.modules.video_cadence as video_cadence
+from _lumascope.drivers.exceptions import CameraStreamStartFailedError
+from _lumascope.modules.exceptions import CameraStreamStalledError
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 

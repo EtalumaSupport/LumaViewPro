@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import pathlib
 
-from modules import wire_encoding
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, Remedy, RemedyName
-from rest.problems import answered_by_member
-from rest.routes import RefusalAnswer, answer_type
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    ProtocolRunRefusedError,
+    Remedy,
+    RemedyName,
+)
+from _lumascope.rest.problems import answered_by_member
+from _lumascope.rest.routes import RefusalAnswer, answer_type
 
 
 def _encoded(value: object) -> object:

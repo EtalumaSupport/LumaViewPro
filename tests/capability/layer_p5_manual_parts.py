@@ -16,9 +16,9 @@ def step(label, fn):
 
 
 try:
-    import modules.common_utils as cu
-    from modules import config_helpers
-    from modules.lumascope_api.illumination import lit_other_than
+    import _lumascope.modules.common_utils as cu
+    from _lumascope.modules import config_helpers
+    from _lumascope.modules.lumascope_api.illumination import lit_other_than
 
     step('runtime_state.get_well_label()', lambda: scope.runtime_state.get_well_label())
     step(
@@ -42,9 +42,9 @@ try:
     step('session.shown_channel', lambda: s.shown_channel)
     # the two overlay flags
     try:
-        import modules.scope_display  # noqa
+        import _lumascope.modules.scope_display  # noqa
 
-        print('overlay flags below ui/: modules.scope_display EXISTS')
+        print('overlay flags below ui/: _lumascope.modules.scope_display EXISTS')
     except ImportError as e:
         print('overlay flags below ui/: NONE --', e)
     hits = [a for a in dir(scope.imaging) if 'bullseye' in a.lower() or 'crosshair' in a.lower()]

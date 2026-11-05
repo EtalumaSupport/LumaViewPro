@@ -30,8 +30,8 @@ import threading
 import numpy as np
 import pytest
 
-from drivers import host_clock
-from modules.exceptions import CaptureFailedError
+from _lumascope.drivers import host_clock
+from _lumascope.modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signal

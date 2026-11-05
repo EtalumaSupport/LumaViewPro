@@ -20,8 +20,8 @@ import logging
 
 import pytest
 
-from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
@@ -192,7 +192,7 @@ def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
 def test_the_saved_file_states_the_layer_the_camera_held(session):
     """The file, not only the frame's record: a reader of the image knows
     whether its settings were a layer's, and whose."""
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     session.show_channel(LED0)
     session.light_shown_channel(True)
@@ -221,7 +221,7 @@ def _show_lit(session, layer, ma):
 
 @pytest.mark.slow
 def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     _show_lit(session, LED1, 75.0)
 
@@ -237,7 +237,7 @@ def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
     """The board takes 0 mA as off, and so does the frame's record: an LED
     left on at 0 mA is no other light, and the file states the one that lit
     the still."""
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     _show_lit(session, LED1, 100.0)
     session.scope.illumination.led_on(LED0, 0.0)
@@ -251,8 +251,8 @@ def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
 
 
 def test_a_composite_states_no_lit_layer_of_its_inputs(session):
-    from modules import image_utils
-    from modules.image_utils import build_postproc_output_metadata
+    from _lumascope.modules import image_utils
+    from _lumascope.modules.image_utils import build_postproc_output_metadata
 
     _show_lit(session, LED0, 100.0)
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)

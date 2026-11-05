@@ -5,13 +5,13 @@ from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.operation import Operation
-from modules.run_events import RunEvents
+    from _lumascope.modules.operation import Operation
+from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
     set_last_save_folder,
@@ -21,7 +21,7 @@ from ui.ui_helpers import (
     sync_layer_widgets_from_settings,
     typed_number,
 )
-from modules.zstack_config import ZStackConfig, ZStackReference
+from _lumascope.modules.zstack_config import ZStackConfig, ZStackReference
 
 logger = logging.getLogger('LVP.ui.zstack')
 

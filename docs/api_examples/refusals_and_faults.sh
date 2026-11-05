@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refusals, and a fault the simulator injects, over REST: refusals_and_faults.py's,
 # on a simulated LumaViewPro serving the API -- the installed app or
-# `python -m rest --simulate`; how to start one and run this: README.md here.
+# `python -m _lumascope.rest --simulate`; how to start one and run this: README.md here.
 # The server has already homed the scope, so the refusal of a move before
 # homing is not shown here.
 # Each line's comment is the status it answers, and for a problem its reason.

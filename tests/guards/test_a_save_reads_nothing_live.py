@@ -16,8 +16,8 @@ import inspect
 
 import pytest
 
-import modules.image_save as image_save
-from modules.labware_loader import WellPlateLoader
+import _lumascope.modules.image_save as image_save
+from _lumascope.modules.labware_loader import WellPlateLoader
 from tests.frame_records import frame_record
 
 

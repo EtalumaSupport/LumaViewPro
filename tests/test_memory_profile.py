@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from lib import memory_profile
+from _lumascope.lib import memory_profile
 
 
 @pytest.fixture

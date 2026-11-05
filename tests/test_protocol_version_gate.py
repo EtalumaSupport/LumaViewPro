@@ -21,7 +21,7 @@ at:
 
 import pytest
 
-from modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.protocol_fixtures import protocol_from_file
 

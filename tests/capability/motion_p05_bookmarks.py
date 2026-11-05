@@ -11,8 +11,8 @@ where does the stored value live?
 
 from harness import check, run
 
-from modules.exceptions import SettingRefusedError
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 def body(s):

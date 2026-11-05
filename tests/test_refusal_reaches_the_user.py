@@ -21,8 +21,8 @@ four produced no popup.
 
 import pytest
 
-from modules.exceptions import PositionOutOfRangeError
-from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
+from _lumascope.modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
 
 
 @pytest.fixture(scope='module')
@@ -78,8 +78,8 @@ def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(motion):
 def test_both_safety_refusals_reach_the_user_in_their_own_words(bound, centre_posts):
     """Driven through the real executor: a refusal raised in a background
     task is shown with its own message, whichever limit refused it."""
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     error = PositionOutOfRangeError('Y', 1e30, 0.0, 80000.0, bound=bound)
 
@@ -102,7 +102,7 @@ def test_distinct_failures_do_not_suppress_each_other():
     naming the EXECUTOR made one key for everything it runs, so a refused
     move and an unrelated failure seconds apart were the same event.
     """
-    from modules.notification_center import NotificationCenter, Severity
+    from _lumascope.modules.notification_center import NotificationCenter, Severity
 
     centre = NotificationCenter(dedup_window_s=10.0)
     seen = []
@@ -133,8 +133,8 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol(centre_pos
     """
     import re
 
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _grind_beans():
         raise ValueError('burr jammed')

@@ -4,11 +4,11 @@ All headless: Protocol / ScopeSession only, no ui. import.
 """
 
 from harness import make_session, banner
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 
 session, live = make_session('edit', home=True)
 try:
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     settings = session.settings
     banner('base protocol')
@@ -71,7 +71,7 @@ try:
     banner('NAVIGATE to a step -- is there an API for it?')
     names = [n for n in dir(session) if 'step' in n.lower()]
     print('session members containing "step":', names)
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     print(
         'ProtocolRunner members containing "step":',

@@ -5,7 +5,7 @@
 module when it marks the record -- a member, a tuple, list or frozenset of
 them, or a mapping keyed by them -- and judges them at each build, so a
 caller's plain string becomes the member and a value outside the set is
-refused ``not_offered`` (``modules.closed_sets``). A field it cannot find
+refused ``not_offered`` (``_lumascope.modules.closed_sets``). A field it cannot find
 -- its set imported only for type checking, defined below the record, held
 in some other form, or on a NamedTuple, which has no build to judge in --
 would hold whatever string a caller built it with, and a comparison with a
@@ -17,8 +17,8 @@ import dataclasses
 import enum
 import typing
 
-from modules import api_arguments, api_surface, wire_encoding
-from modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules import api_arguments, api_surface, wire_encoding
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 
 
 def _names_a_closed_set(annotation: object) -> bool:

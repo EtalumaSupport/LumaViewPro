@@ -17,10 +17,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.protocol_settings as ps
-from modules.acquire_mode import AcquireMode
-from modules.caller import Caller, calling
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.caller import Caller, calling
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 
@@ -357,8 +357,8 @@ class TestCaptureRoot:
     @pytest.fixture
     def held(self, tmp_path, monkeypatch):
         """A simulated session whose control a REST client holds, as the GUI's session."""
-        from modules.caller import Caller, calling
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.caller import Caller, calling
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

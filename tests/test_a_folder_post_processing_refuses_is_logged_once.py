@@ -15,9 +15,9 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-import modules.protocol_post_processing_helper as helper_module
-from modules.exceptions import PostProcessingRefusedError
-from modules.notification_center import NotificationCenter
+import _lumascope.modules.protocol_post_processing_helper as helper_module
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.notification_center import NotificationCenter
 from tests.test_post_processing_tells_whoever_asked import _Processor
 from tests.installation_fixtures import shipped_grids
 

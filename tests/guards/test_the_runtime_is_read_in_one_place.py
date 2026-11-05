@@ -1,12 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Only ``modules/path_utils.py`` asks how the process was launched.
+"""Each fact of how the process was launched is read in one module.
 
 Three modules each read the installer's marker their own way and each placed
 the data folder from it; a PyInstaller build was asked about at five sites.
 They agreed on the shipped layout only by accident, and a bundle run from
 ``dist`` was logged as a source run. ``path_utils.app_runtime`` is now the
-one answer; this walk refuses a marker read or a ``sys.frozen`` read anywhere
-else in production code, drivers, tools and the REST server included.
+one answer. It reads the marker itself, and asks
+``_lumascope.lib.build_files.frozen`` whether the process is a PyInstaller
+build: the build root needs that answer too, and ``src/_lumascope/lib/`` may not import
+``src/_lumascope/modules/``. This walk refuses a marker read or a ``sys.frozen`` read
+anywhere else in production code, drivers, tools and the REST server
+included.
 """
 
 from __future__ import annotations
@@ -15,15 +19,21 @@ import ast
 
 from tests.ast_seams import iter_package_modules, parse_module, production_modules
 
-_OWNER = 'modules/path_utils.py'
+# Each read, and the one module that makes it.
+_OWNERS = {
+    'marker': 'src/_lumascope/modules/path_utils.py',
+    'frozen': 'src/_lumascope/lib/build_files.py',
+}
 _MARKER = 'marker.lvpinstalled'
 _ALLOWED: set[tuple[str, str]] = set()
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'lib', 'rest'))
-    yield 'lvp_logger.py', parse_module('lvp_logger.py')
+    yield from iter_package_modules(
+        ('src/_lumascope/drivers', 'tools', 'src/_lumascope/lib', 'src/_lumascope/rest')
+    )
+    yield 'src/_lumascope/lvp_logger.py', parse_module('src/_lumascope/lvp_logger.py')
 
 
 def _is_frozen_read(node: ast.AST) -> bool:
@@ -51,25 +61,24 @@ def _reads(tree: ast.Module):
             yield node.lineno, 'frozen'
 
 
-def test_only_path_utils_asks_how_the_process_was_launched():
+def test_only_the_owners_ask_how_the_process_was_launched():
     found = []
     for rel_path, tree in _all_production_modules():
-        if rel_path == _OWNER:
-            continue
         for lineno, kind in _reads(tree):
-            if (rel_path, kind) not in _ALLOWED:
+            if rel_path != _OWNERS[kind] and (rel_path, kind) not in _ALLOWED:
                 found.append(f'{rel_path}:{lineno} reads the {kind}')
     assert found == [], (
-        'ask modules.path_utils.app_runtime() how the process was launched '
+        'ask _lumascope.modules.path_utils.app_runtime() how the process was launched '
         f'(app_runtime().frozen for a PyInstaller build): {found}'
     )
 
 
-def test_the_guard_sees_the_owner_and_the_allowed_read():
-    # Each exemption must still name a real read, or a rename would leave the
-    # guard exempting nothing while its other check still passed.
+def test_the_guard_sees_the_owners_and_the_allowed_read():
+    # Each owner and exemption must still name a real read, or a rename would
+    # leave the guard exempting nothing while its other check still passed.
     trees = dict(_all_production_modules())
-    assert {kind for _lineno, kind in _reads(trees[_OWNER])} == {'marker', 'frozen'}
+    for kind, owner in _OWNERS.items():
+        assert {k for _lineno, k in _reads(trees[owner])} == {kind}
     for rel_path, kind in _ALLOWED:
         assert kind in {k for _lineno, k in _reads(trees[rel_path])}
 

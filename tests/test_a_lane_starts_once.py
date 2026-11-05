@@ -12,8 +12,8 @@ import threading
 
 import pytest
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 def _lane(name):
@@ -57,7 +57,7 @@ def test_a_refused_second_start_leaves_one_worker():
 
 
 def test_the_factory_starts_each_lane_once():
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(), simulate=True)
@@ -71,7 +71,7 @@ def test_the_factory_starts_each_lane_once():
 
 
 def test_the_session_has_no_second_start():
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     assert not hasattr(ScopeSession, 'start_executors'), (
         'the factory starts the lanes it builds; a second start door is how '

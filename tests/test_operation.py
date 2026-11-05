@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An ``Operation`` is a running Future whose done-callbacks run on the one callback thread.
 
-The clauses of ``modules/operation.py``: it is running from construction,
+The clauses of ``src/_lumascope/modules/operation.py``: it is running from construction,
 so ``cancel()`` is False; its done-callbacks run on the callback thread,
 one at a time in the order their operations settled, never on the thread
 that settled it, so a callback may wait on another operation the same
@@ -21,11 +21,11 @@ import threading
 
 import pytest
 
-from modules import ui_queue
-from modules.exceptions import BlockingCallRefusedError
-from modules.notification_center import notifications
-from modules.operation import Operation, settling
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.exceptions import BlockingCallRefusedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.operation import Operation, settling
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_wait_returns_after_its_own_callbacks import _DeferringDispatcher
 
 # Only a failure waits this long.
@@ -348,8 +348,8 @@ def test_a_holder_cannot_settle_a_run_a_recording_or_a_move_it_was_handed(tmp_pa
     A forged settle would also make the producer's own settle raise, on the
     tick, the finish thread or the motion monitor that makes it.
     """
-    from modules.exceptions import OperationSettleRefusedError
-    from modules.run_events import RunEvents
+    from _lumascope.modules.exceptions import OperationSettleRefusedError
+    from _lumascope.modules.run_events import RunEvents
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 

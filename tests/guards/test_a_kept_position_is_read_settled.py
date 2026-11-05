@@ -14,14 +14,24 @@ no bare cache read of its own.
 
 from tests.ast_seams import MemberNames, direct_call_names, find_def
 
-_SESSION = 'modules/scope_session.py'
-_RUNNER = 'modules/protocol_runner.py'
+_SESSION = 'src/_lumascope/modules/scope_session.py'
+_RUNNER = 'src/_lumascope/modules/protocol_runner.py'
 
 # (file, class or None, keeper, the call that carries its number).
 _KEEPERS = (
-    ('modules/config_helpers.py', None, 'get_current_plate_position', 'settled_positions'),
-    ('modules/config_helpers.py', None, 'kept_plate_position', 'positions_to_keep'),
-    ('modules/lumascope_api/protocols.py', 'ProtocolsAPI', 'focus_z_um', 'positions_to_keep'),
+    (
+        'src/_lumascope/modules/config_helpers.py',
+        None,
+        'get_current_plate_position',
+        'settled_positions',
+    ),
+    ('src/_lumascope/modules/config_helpers.py', None, 'kept_plate_position', 'positions_to_keep'),
+    (
+        'src/_lumascope/modules/lumascope_api/protocols.py',
+        'ProtocolsAPI',
+        'focus_z_um',
+        'positions_to_keep',
+    ),
     (_SESSION, 'ScopeSession', 'get_sequenced_capture_config', 'settled_positions'),
     (_SESSION, 'ScopeSession', 'save_bookmark', 'kept_plate_position'),
     (_SESSION, 'ScopeSession', 'get_current_plate_position', 'kept_plate_position'),
@@ -37,7 +47,8 @@ _KEEPERS = (
 )
 
 _BARE_READS = MemberNames(
-    ('modules/lumascope_api/motion.py',), {'get_current_position', 'get_current_positions'}
+    ('src/_lumascope/modules/lumascope_api/motion.py',),
+    {'get_current_position', 'get_current_positions'},
 )
 
 

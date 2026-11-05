@@ -2,7 +2,7 @@
 """The GUI starts REST beside its window once the startup motion settles, never after its close began.
 
 Unless ``rest_api.enabled`` is false, the window starts the server on its
-own session (``rest.server.serve_beside``) after the metrics, as the
+own session (``_lumascope.rest.server.serve_beside``) after the metrics, as the
 headless launcher serves after its own; false, nothing listens.
 Everything that follows the startup motion is refused by the fact the
 window's close sets first, on the Kivy thread: the session's own closing

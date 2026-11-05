@@ -69,7 +69,7 @@ OUTCOME_TIMES: list[tuple[float, str]] = []
 @contextlib.contextmanager
 def _told(session):
     """Every notification posted and every outcome reported while the block runs."""
-    from modules.notification_center import Severity, notifications
+    from _lumascope.modules.notification_center import Severity, notifications
 
     posted, outcomes = [], []
     lock = threading.Lock()

@@ -162,7 +162,7 @@ class TestGetSdkInfo:
 
     def test_sdk_less_driver_returns_unknown(self):
         # The base Camera default: a driver with no SDK reports name=None.
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
 
         assert SimulatedCamera().get_sdk_info() == {'name': None, 'version': None}
 
@@ -269,7 +269,7 @@ class TestReadDiagnosticSnapshot:
     def test_derived_rates_over_real_window(self, monkeypatch):
         from types import SimpleNamespace
 
-        import drivers.idscamera as idscamera
+        import _lumascope.drivers.idscamera as idscamera
 
         cam = bare_ids_camera()
         cam.remote_nodemap = _snapshot_nodemap()
@@ -379,7 +379,7 @@ class TestReadDiagnosticSnapshot:
         # sentinel and plays no part.
         from types import SimpleNamespace
 
-        import drivers.idscamera as idscamera
+        import _lumascope.drivers.idscamera as idscamera
 
         cam = bare_ids_camera()
         cam.remote_nodemap = _snapshot_nodemap()
@@ -410,7 +410,7 @@ class TestReadDiagnosticSnapshot:
     def test_camera_rate_is_unknown_when_a_loss_counter_is_unread(self, monkeypatch):
         from types import SimpleNamespace
 
-        import drivers.idscamera as idscamera
+        import _lumascope.drivers.idscamera as idscamera
 
         cam = bare_ids_camera()
         cam.remote_nodemap = _snapshot_nodemap()

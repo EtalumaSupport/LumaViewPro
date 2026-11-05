@@ -18,7 +18,7 @@ import dataclasses
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_multi_step_protocol,

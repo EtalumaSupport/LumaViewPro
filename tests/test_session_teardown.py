@@ -19,10 +19,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import modules.scope_session as scope_session_module
-from modules.exceptions import ScopeDisconnectError
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+import _lumascope.modules.scope_session as scope_session_module
+from _lumascope.modules.exceptions import ScopeDisconnectError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.log_capture import messages, records_of
 from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings

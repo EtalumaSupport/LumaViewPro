@@ -291,7 +291,7 @@ def test_the_close_names_each_piece_of_live_work_with_its_progress():
     """Each line the close's popups show is the item's name, with its percent
     when it reports one, else its count left. Run on the Session's own
     WorkItem, so a renamed field fails here rather than at the user's close."""
-    from modules.live_work import WorkItem, WorkKind
+    from _lumascope.modules.live_work import WorkItem, WorkKind
     from ui.ui_helpers import work_item_text
 
     work = (

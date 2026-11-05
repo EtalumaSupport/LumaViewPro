@@ -23,12 +23,12 @@ import tifffile as tf
 
 from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import bind_settings_like_a_session
-from modules.layer_record import release_catalogue, release_colors
+from _lumascope.modules.layer_record import release_catalogue, release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
 PLATE = '24 well microplate'
-ROOTS = ('modules', 'ui', 'lumaviewpro.py')
+ROOTS = ('src/_lumascope/modules', 'ui', 'lumaviewpro.py')
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
     and the paths the capture reported, whose first parent is the folder the
     button remembers.
     """
-    from modules.manual_capture import ManualCaptureController
+    from _lumascope.modules.manual_capture import ManualCaptureController
     from tests.settings_fixtures import complete_settings
 
     settings = complete_settings(
@@ -127,13 +127,13 @@ def _illumination(*readings):
 
 
 def _lit(address, name):
-    from modules.lumascope_api.illumination import LedReading, LedState
+    from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 
     return LedReading(address, name, LedState.LIT, 100.0)
 
 
 def _dark(address, name):
-    from modules.lumascope_api.illumination import LedReading, LedState
+    from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 
     return LedReading(address, name, LedState.DARK, None)
 
@@ -144,7 +144,7 @@ def test_another_light_clauses():
     lit address the identity names no layer for is named by its address; no
     board (None) is nothing lit; given a frame's lit addresses, those are
     the ones read."""
-    from modules.lumascope_api.illumination import lit_other_than
+    from _lumascope.modules.lumascope_api.illumination import lit_other_than
 
     lit_red = _illumination(_dark(1, LED1), _lit(2, LED2), _dark(3, 'BF'))
     assert lit_other_than(lit_red, LED1) == [LED2]
@@ -165,7 +165,7 @@ def test_both_manual_outputs_share_the_resolver():
     the held capture beneath it and the recording's start refuse another
     light through the one function, each recorded frame is named through
     ``light_of``, and the default layer lives with it."""
-    recording = parse_module('modules/manual_recording.py')
+    recording = parse_module('src/_lumascope/modules/manual_recording.py')
     private = [
         n.name
         for n in ast.walk(recording)
@@ -174,10 +174,10 @@ def test_both_manual_outputs_share_the_resolver():
     assert private == [], 'the recording controller still carries a private resolver'
 
     for rel, resolver in (
-        ('modules/manual_capture.py', 'lit_other_than'),
-        ('modules/lumascope_api/imaging.py', 'lit_other_than'),
-        ('modules/manual_recording.py', 'lit_other_than'),
-        ('modules/recording_frames.py', 'light_of'),
+        ('src/_lumascope/modules/manual_capture.py', 'lit_other_than'),
+        ('src/_lumascope/modules/lumascope_api/imaging.py', 'lit_other_than'),
+        ('src/_lumascope/modules/manual_recording.py', 'lit_other_than'),
+        ('src/_lumascope/modules/recording_frames.py', 'light_of'),
     ):
         calls = [
             n
@@ -200,7 +200,7 @@ def test_both_manual_outputs_share_the_resolver():
                 defined_in.append(rel)
             if isinstance(n, ast.FunctionDef) and n.name == 'get_opened_layer_obj':
                 dead.append(rel)
-    assert defined_in == ['modules/common_utils.py'], defined_in
+    assert defined_in == ['src/_lumascope/modules/common_utils.py'], defined_in
     assert dead == [], f'get_opened_layer_obj still defined in {dead}'
 
 
@@ -213,7 +213,7 @@ def test_capture_task_reads_no_widget():
     """The capture lives below the GUI and reads nothing of it: the channel
     is the Session's shown channel, and the caller hands it only the
     false-colour toggle it read on the main thread."""
-    body = ast.unparse(parse_module('modules/manual_capture.py'))
+    body = ast.unparse(parse_module('src/_lumascope/modules/manual_capture.py'))
     for forbidden in ('_app_ctx', 'accordion_item_lookup', '.collapse', 'ids[', 'scope_display'):
         assert forbidden not in body, f'the capture reads GUI state ({forbidden!r})'
 
@@ -224,7 +224,7 @@ def test_capture_task_reads_no_widget():
 
 
 def _production_modules():
-    return [*tracked_files(('modules', 'ui'), '*.py'), 'lumaviewpro.py']
+    return [*tracked_files(('src/_lumascope/modules', 'ui'), '*.py'), 'lumaviewpro.py']
 
 
 def test_specific_layers_is_always_handed_a_list():

@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.sequential_io_executor import IOTask
 
 NOTIFICATION_LOGGER = 'LVP.notifications'
 # A shown fault's one line is the reporter's, on this logger, not a display line.
@@ -31,7 +31,7 @@ def _boom():
 
 @pytest.fixture
 def scope():
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(), simulate=True)

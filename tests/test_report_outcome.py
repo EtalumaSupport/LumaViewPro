@@ -15,15 +15,19 @@ from concurrent.futures import CancelledError
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
+from _lumascope.modules.exceptions import (
     CaptureFailedError,
     RunWaitExpiredError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     SingleScanNotice,
 )
-from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
+from _lumascope.modules.notification_center import (
+    REFUSAL_OPERATION_KEY,
+    NotificationCenter,
+    Severity,
+)
 
 OUTCOMES = 'LVP.outcomes'
 NOTIFICATIONS = 'LVP.notifications'

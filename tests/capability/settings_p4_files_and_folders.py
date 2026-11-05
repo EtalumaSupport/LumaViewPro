@@ -23,7 +23,7 @@ import sys
 
 import harness as _common
 
-from modules.exceptions import SettingRefusedError
+from _lumascope.modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
@@ -58,7 +58,7 @@ try:
 
     # --- protocol load / save --------------------------------------------
     print('scope.protocols.load_protocol:', hasattr(s.scope.protocols, 'load_protocol'))
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     print('Protocol.to_file present     :', hasattr(Protocol, 'to_file'))
     try:
@@ -95,7 +95,7 @@ try:
     # --- are the post-processors themselves headless-capable? -------------
     # (module level, below the API -- shows the implementation is real, and
     # that the missing piece is the API entry point, not the work.)
-    from modules.zprojector import ZProjector
+    from _lumascope.modules.zprojector import ZProjector
 
     empty = _common.SCRATCH / 'empty_folder'
     empty.mkdir(exist_ok=True)

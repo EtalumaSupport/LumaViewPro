@@ -20,8 +20,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 
 _SCRIPT = """
-import sys
-sys.path.insert(0, sys.argv[1])
+import os, sys
+sys.path[:0] = [os.path.join(sys.argv[1], 'src'), sys.argv[1]]
 from kivy.graphics import BorderImage
 from kivy.uix.slider import Slider
 from ui.range_slider import RangeSlider

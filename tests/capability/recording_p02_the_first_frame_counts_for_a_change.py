@@ -32,9 +32,9 @@ import threading
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
-from modules.acquire_mode import AcquireMode
-from modules.frame_validity import FrameValiditySource
-from modules.image_utils import read_file_record
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.frame_validity import FrameValiditySource
+from _lumascope.modules.image_utils import read_file_record
 
 _MANUAL_FRAMES = 5
 
@@ -156,7 +156,7 @@ def _manual(session, live, change, source):
 
 
 def main():
-    import modules.common_utils as common_utils
+    import _lumascope.modules.common_utils as common_utils
 
     args = _arguments()
     live = probe_dir('recording_p02')

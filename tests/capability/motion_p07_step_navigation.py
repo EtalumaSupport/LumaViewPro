@@ -7,8 +7,8 @@ ScopeSession.go_to_step.
 
 from harness import check, run
 
-import modules.config_helpers as config_helpers
-from modules.coord_transformations import PlateLocation
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -24,7 +24,7 @@ def body(s):
 
     # --- find_nearest_step IS a modules-level function, reachable headless ---
     check(
-        'find_nearest_step lives in modules/config_helpers (headless-reachable)',
+        'find_nearest_step lives in src/_lumascope/modules/config_helpers (headless-reachable)',
         callable(getattr(config_helpers, 'find_nearest_step', None)),
     )
 

@@ -17,9 +17,9 @@ from unittest.mock import patch
 
 import pytest
 
-from drivers.registry import DriverFallback
-from modules.lumascope_api.bring_up import Part
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.registry import DriverFallback
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_bring_up_is_a_record import _bring_up
 
@@ -113,7 +113,7 @@ def test_a_full_report_on_the_simulator_is_saved_with_both_files(session, tmp_pa
     # that raises out of the report (not into it) costs the ZIP. The host's
     # USB inventory lists this machine's real serial ports, which no test
     # may touch; it is the one host read stood in for.
-    from modules import tech_support_report
+    from _lumascope.modules import tech_support_report
 
     monkeypatch.setattr(tech_support_report, '_collect_usb_devices', lambda: [])
     saved = session.make_support_report(output_dir=tmp_path / 'out')

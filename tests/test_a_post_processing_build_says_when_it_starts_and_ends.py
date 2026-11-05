@@ -16,15 +16,15 @@ import logging
 
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-import modules.post_processing_api as post_processing_api
-from modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.cell_count_method import CellCountMethod
+import _lumascope.modules.post_processing_api as post_processing_api
+from _lumascope.modules.exceptions import PostProcessingRefusedError
 from tests.log_capture import messages, records_of
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -33,7 +33,7 @@ def session(tmp_path):
 
 
 def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path, caplog):
-    from modules.post_processing import PostProcessing
+    from _lumascope.modules.post_processing import PostProcessing
 
     monkeypatch.setattr(
         PostProcessing,
@@ -78,8 +78,8 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
     # The lines are written by a wrapper around the build, and the lane reads
     # a build's slow-task budget off the callable it is handed: a budget a
     # build declares must survive the wrapper.
-    from modules.post_processing import PostProcessing
-    from modules.sequential_io_executor import slow_task_budget
+    from _lumascope.modules.post_processing import PostProcessing
+    from _lumascope.modules.sequential_io_executor import slow_task_budget
 
     @slow_task_budget(600.0)
     def count(self, path, method, on_progress=None):

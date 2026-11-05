@@ -26,8 +26,8 @@ Three defects these lock out:
 import logging
 from concurrent.futures import CancelledError
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 ESCAPE_WORDING = ('uncaught', 'unhandled exception', 'escaped')
 

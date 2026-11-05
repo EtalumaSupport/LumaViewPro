@@ -5,8 +5,8 @@ Bug
 ---
 tech_support_report._get_user_documents returned Path.home() / "Documents"
 and _get_desktop returned Path.home() / "Desktop". Both diverged from
-the platformdirs-based resolvers in modules/path_utils.get_source_root
-and modules/app_environment.init_environment. On a localized Windows
+the platformdirs-based resolvers in src/_lumascope/modules/path_utils.get_source_root
+and src/_lumascope/modules/app_environment.init_environment. On a localized Windows
 install where Documents is renamed (e.g. German "Dokumente"),
 platformdirs returns the localized path while the hardcoded English
 name does not -- the tech support report would silently mis-locate the
@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import pathlib
 
-from modules import tech_support_report
+from _lumascope.modules import tech_support_report
 
 
 def test_get_user_documents_uses_platformdirs(monkeypatch):

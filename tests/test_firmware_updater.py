@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Tests for drivers/firmware_updater.py.
+Tests for src/_lumascope/drivers/firmware_updater.py.
 
 Uses mock serial ports and mock filesystem -- no hardware needed.
 Covers version parsing, board configs, BOOTSEL detection, serial port
@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
-from drivers.firmware_updater import (
+from _lumascope.drivers.firmware_updater import (
     _parse_uf2_version,
     _detect_bootsel_drive,
     _detect_bootsel_macos,
@@ -31,8 +31,8 @@ from drivers.firmware_updater import (
     UpdateResult,
     UpdateStage,
 )
-from drivers.serialboard import SerialBoard
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.serialboard import SerialBoard
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
 
 def _motor_bus(dialect='field'):
@@ -112,20 +112,20 @@ class TestBoardConfig:
 
 
 class TestDetectBootselDrive:
-    @patch('drivers.firmware_updater.platform.system', return_value='Darwin')
-    @patch('drivers.firmware_updater._detect_bootsel_macos')
+    @patch('_lumascope.drivers.firmware_updater.platform.system', return_value='Darwin')
+    @patch('_lumascope.drivers.firmware_updater._detect_bootsel_macos')
     def test_macos_delegates(self, mock_macos, mock_sys):
         mock_macos.return_value = Path('/Volumes/RPI-RP2')
         result = _detect_bootsel_drive()
         assert result == Path('/Volumes/RPI-RP2')
         mock_macos.assert_called_once()
 
-    @patch('drivers.firmware_updater.platform.system', return_value='Darwin')
-    @patch('drivers.firmware_updater._detect_bootsel_macos', return_value=None)
+    @patch('_lumascope.drivers.firmware_updater.platform.system', return_value='Darwin')
+    @patch('_lumascope.drivers.firmware_updater._detect_bootsel_macos', return_value=None)
     def test_macos_not_found(self, mock_macos, mock_sys):
         assert _detect_bootsel_drive() is None
 
-    @patch('drivers.firmware_updater.platform.system', return_value='FreeBSD')
+    @patch('_lumascope.drivers.firmware_updater.platform.system', return_value='FreeBSD')
     def test_unsupported_platform(self, mock_sys):
         assert _detect_bootsel_drive() is None
 
@@ -147,7 +147,7 @@ class TestDetectBootselDrive:
 
 
 class TestFindSerialPort:
-    @patch('drivers.firmware_updater.list_ports.comports')
+    @patch('_lumascope.drivers.firmware_updater.list_ports.comports')
     def test_found(self, mock_comports):
         port = MagicMock()
         port.vid = 0x2E8A
@@ -156,7 +156,7 @@ class TestFindSerialPort:
         mock_comports.return_value = [port]
         assert _find_serial_port(0x2E8A, 0x0005) == '/dev/ttyACM0'
 
-    @patch('drivers.firmware_updater.list_ports.comports')
+    @patch('_lumascope.drivers.firmware_updater.list_ports.comports')
     def test_not_found(self, mock_comports):
         port = MagicMock()
         port.vid = 0x1234
@@ -164,12 +164,12 @@ class TestFindSerialPort:
         mock_comports.return_value = [port]
         assert _find_serial_port(0x2E8A, 0x0005) is None
 
-    @patch('drivers.firmware_updater.list_ports.comports')
+    @patch('_lumascope.drivers.firmware_updater.list_ports.comports')
     def test_empty_list(self, mock_comports):
         mock_comports.return_value = []
         assert _find_serial_port(0x2E8A, 0x0005) is None
 
-    @patch('drivers.firmware_updater.list_ports.comports')
+    @patch('_lumascope.drivers.firmware_updater.list_ports.comports')
     def test_multiple_ports_returns_first_match(self, mock_comports):
         p1 = MagicMock(vid=0x1111, pid=0x2222, device='/dev/ttyACM0')
         p2 = MagicMock(vid=0x2E8A, pid=0x0005, device='/dev/ttyACM1')
@@ -239,7 +239,9 @@ class TestSendFwupdateCommand:
         board = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=_motor_bus())
         board.connect()
         try:
-            with patch('drivers.firmware_updater._bootloader_via_raw_repl') as mock_fallback:
+            with patch(
+                '_lumascope.drivers.firmware_updater._bootloader_via_raw_repl'
+            ) as mock_fallback:
                 _send_fwupdate_command(board, cfg)
                 mock_fallback.assert_called_once_with(board)
         finally:
@@ -439,15 +441,15 @@ class TestUpdateResult:
 
 class TestUpdateFirmwareSameVersion:
     @pytest.mark.firmware_tier
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
-    @patch('drivers.firmware_updater._parse_uf2_version', return_value='3.0.9')
+    @patch('_lumascope.drivers.firmware_updater._detect_bootsel_drive', return_value=None)
+    @patch('_lumascope.drivers.firmware_updater._parse_uf2_version', return_value='3.0.9')
     def test_same_version_returns_success(self, mock_parse, mock_bootsel, tmp_path, monkeypatch):
         """If board already has the target version, skip update: the
         updater's own board finds the 3.0 firmware (3.0.9) on the bus, and
         the firmware is left running."""
         import functools
 
-        from drivers import firmware_updater
+        from _lumascope.drivers import firmware_updater
 
         backend = _motor_bus(dialect='3.0')
         monkeypatch.setattr(
@@ -479,8 +481,11 @@ class TestUpdateFirmwareSameVersion:
 
 
 class TestUpdateFirmwareBootselAbort:
-    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
+    @patch('_lumascope.drivers.firmware_updater.time', _NO_WAIT_TIME)
+    @patch(
+        '_lumascope.drivers.firmware_updater._detect_bootsel_drive',
+        return_value=Path('/Volumes/RPI-RP2'),
+    )
     def test_existing_bootsel_aborts(self, mock_bootsel, tmp_path):
         """Pre-existing BOOTSEL drive causes immediate abort."""
         uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
@@ -517,8 +522,11 @@ class TestProgressCallback:
         # Should not raise
         _report_progress(cb, UpdateStage.PREFLIGHT, 'hello', 0.5)
 
-    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
+    @patch('_lumascope.drivers.firmware_updater.time', _NO_WAIT_TIME)
+    @patch(
+        '_lumascope.drivers.firmware_updater._detect_bootsel_drive',
+        return_value=Path('/Volumes/RPI-RP2'),
+    )
     def test_callback_called_on_error(self, mock_bootsel, tmp_path):
         """Progress callback receives FAILED stage on error."""
         cb = Mock()
@@ -536,8 +544,11 @@ class TestProgressCallback:
         assert UpdateStage.PREFLIGHT in stages
         assert UpdateStage.FAILED in stages
 
-    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
+    @patch('_lumascope.drivers.firmware_updater.time', _NO_WAIT_TIME)
+    @patch(
+        '_lumascope.drivers.firmware_updater._detect_bootsel_drive',
+        return_value=Path('/Volumes/RPI-RP2'),
+    )
     def test_exception_in_callback_does_not_break_update(self, mock_bootsel, tmp_path):
         """Even if progress callback raises, update_firmware still returns result."""
         cb = Mock(side_effect=RuntimeError('callback broke'))
@@ -572,8 +583,8 @@ class TestUpdateErrorDataclass:
 
 
 class TestUpdateFirmwareMissingUf2:
-    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
+    @patch('_lumascope.drivers.firmware_updater.time', _NO_WAIT_TIME)
+    @patch('_lumascope.drivers.firmware_updater._detect_bootsel_drive', return_value=None)
     def test_missing_uf2_file(self, mock_bootsel, tmp_path):
         """Non-existent UF2 file returns error result."""
         result = update_firmware(
@@ -586,8 +597,8 @@ class TestUpdateFirmwareMissingUf2:
 
 
 class TestUpdateFirmwareTooSmallUf2:
-    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
-    @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
+    @patch('_lumascope.drivers.firmware_updater.time', _NO_WAIT_TIME)
+    @patch('_lumascope.drivers.firmware_updater._detect_bootsel_drive', return_value=None)
     def test_tiny_uf2(self, mock_bootsel, tmp_path):
         """UF2 file under 512 bytes is rejected."""
         uf2 = tmp_path / 'motor_firmware_v1.0.0.uf2'

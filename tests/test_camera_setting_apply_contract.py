@@ -34,9 +34,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers.exceptions import CameraWriteFailedError
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
-from modules.notification_center import Severity
+from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.modules.exceptions import (
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.notification_center import Severity
 from tests.test_camera_getter_sentinel_containment import (
     GOOD_ROUND,
     ScriptedCameraDriver,
@@ -159,7 +163,7 @@ def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
     # The end of the flight: the reporter shows the setter's rejection once,
     # as a fault under the setter's title and in its sentence -- not the
     # generic sentence an untyped fault gets -- and nothing else shows it.
-    from modules.notification_center import NotificationCenter
+    from _lumascope.modules.notification_center import NotificationCenter
 
     driver = apply_driver()
     camera = _build_camera(driver)
@@ -289,7 +293,7 @@ def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_post
 
 
 def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int = 1900):
-    from modules.scope_init_config import ScopeInitConfig
+    from _lumascope.modules.scope_init_config import ScopeInitConfig
 
     return ScopeInitConfig(
         binning_size=binning_size,
@@ -340,7 +344,7 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
         )
         errors = []
         monkeypatch.setattr(
-            'modules.lumascope_api._lumascope.logger',
+            '_lumascope.modules.lumascope_api._lumascope.logger',
             SimpleNamespace(
                 error=lambda msg, *a, **kw: errors.append(str(msg)),
                 warning=lambda *a, **kw: None,
@@ -396,7 +400,7 @@ def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch, c
     # The reconciliation is user-visible, not just a log line: the saved
     # binning silently coming up different needs a popup naming the fix
     # (pick a binning in Microscope Settings to update the saved value).
-    from modules.exceptions import BinningSubstitutedNotice
+    from _lumascope.modules.exceptions import BinningSubstitutedNotice
 
     _drive_initialize(_init_config(8), monkeypatch)
     substituted = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
@@ -404,7 +408,7 @@ def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch, c
 
 
 def test_initialize_supported_binning_fires_no_reconciliation_warning(monkeypatch, centre_posts):
-    from modules.exceptions import BinningSubstitutedNotice
+    from _lumascope.modules.exceptions import BinningSubstitutedNotice
 
     _drive_initialize(_init_config(2), monkeypatch)
     assert not any(n.reason == BinningSubstitutedNotice.reason for n in centre_posts), centre_posts
@@ -432,7 +436,7 @@ def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
     # rejection is reported once, where bring-up stops its flight, and
     # bring-up CONTINUES (a propagated raise once crashed the app build via
     # load_settings' re-raise).
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(
@@ -485,7 +489,7 @@ def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch, answe
     # bring-up: each is reported once, unsolicited, and bring-up runs on.
     import dataclasses
 
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(

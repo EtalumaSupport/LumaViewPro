@@ -20,8 +20,8 @@ import time
 
 import pytest
 
-import modules.protocol_cleanup as protocol_cleanup
-from modules.exceptions import (
+import _lumascope.modules.protocol_cleanup as protocol_cleanup
+from _lumascope.modules.exceptions import (
     AutofocusFailedError,
     AutofocusZNotRestoredError,
     ProtocolRunRefusedError,
@@ -74,7 +74,7 @@ class _WedgedSweep:
 
 
 def _record_reports(monkeypatch):
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     real = notifications.report_outcome

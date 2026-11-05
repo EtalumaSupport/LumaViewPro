@@ -3,7 +3,7 @@
 import sys
 import traceback
 from harness import check, make_session, report
-from modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.exceptions import PositionOutOfRangeError
 
 s, _live = make_session('probe_motion', microscope='LS850T')
 try:

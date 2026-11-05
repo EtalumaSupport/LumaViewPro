@@ -5,10 +5,10 @@ import contextlib
 import pathlib
 from collections.abc import Iterator
 
-from modules.layer_record import release_colors
-from modules.post_processing_api import PostProcessingAPI
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.post_processing_api import PostProcessingAPI
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]

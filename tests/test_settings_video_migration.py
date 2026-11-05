@@ -17,8 +17,8 @@ import shutil
 
 import pytest
 
-from modules import settings_init
-from modules.settings_init import migrate_video_settings_dict
+from _lumascope.modules import settings_init
+from _lumascope.modules.settings_init import migrate_video_settings_dict
 
 TEMPLATE = pathlib.Path(__file__).resolve().parents[1] / 'data' / 'settings.json'
 

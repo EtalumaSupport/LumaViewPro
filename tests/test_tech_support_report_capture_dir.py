@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-from modules import tech_support_report
+from _lumascope.modules import tech_support_report
 
 
 def _write(path: pathlib.Path, data: dict) -> None:

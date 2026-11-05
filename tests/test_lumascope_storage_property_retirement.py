@@ -39,7 +39,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LUMASCOPE_SRC = REPO / 'modules' / 'lumascope_api' / '_lumascope.py'
+LUMASCOPE_SRC = REPO / 'src/_lumascope/modules' / 'lumascope_api' / '_lumascope.py'
 
 
 RETIRED_STORAGE_PROPERTIES = (

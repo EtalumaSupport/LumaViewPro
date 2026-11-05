@@ -17,7 +17,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     AccelerationLimitRefusedError,
     ArgumentRefusedError,
     CameraSettingRejected,
@@ -25,9 +25,9 @@ from modules.exceptions import (
     Refusal,
     SettingRefusedError,
 )
-from modules.coord_transformations import PlateLocation
-from modules.lumascope_api.camera import CameraAPI
-from modules.scope_session import ScopeSession
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0

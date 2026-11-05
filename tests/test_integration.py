@@ -30,18 +30,18 @@ from tests.stock_channels import LED0, LED1, LED2
 # tests/conftest.py at module-import time.
 
 
-from modules.activity_claim import ActivityClaim
-from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_runner import SequencedCaptureRunner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.autofocus_runner import AutofocusRunner
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
 from tests.protocol_drives import (
     StepHeartbeat,
     held_run_claim,
@@ -64,7 +64,7 @@ FILES_WAIT_S = 60
 
 def _make_executors():
     """Create and start all SequentialIOExecutors + protocol_thread."""
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     names = ['io', 'file_io', 'camera', 'autofocus']
     execs = {
@@ -591,7 +591,7 @@ class TestIntegrationAutofocus:
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
         # block has fully restored camera state.
-        from modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.autofocus_thread import AutofocusThread
 
         thread = AutofocusThread(afe=af)
         thread.start()
@@ -694,11 +694,11 @@ class TestIntegrationStateAssertions:
 # Headless / REST API Path Tests
 # ===========================================================================
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
-from modules.protocol_runner import ProtocolRunner
-from modules.layer_record import release_colors
+from _lumascope.modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.layer_record import release_colors
 
 
 class TestHeadlessSession:
@@ -822,7 +822,7 @@ class TestRestAPIPrep:
         rejection (the apply contract: an L2 caller cannot mistake a
         rejected format for an applied one by dropping the return). No public
         member names a format, so the body runs on the camera lane."""
-        from modules.exceptions import CameraSettingRejected
+        from _lumascope.modules.exceptions import CameraSettingRejected
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         camera = session.scope.camera
@@ -844,7 +844,7 @@ class TestRestAPIPrep:
 
     def test_encode_image_png(self):
         """encode_image() should encode numpy array to PNG bytes."""
-        from modules.image_utils import encode_image
+        from _lumascope.modules.image_utils import encode_image
 
         img = np.zeros((100, 100), dtype=np.uint8)
         data = encode_image(img, 'png')
@@ -855,7 +855,7 @@ class TestRestAPIPrep:
 
     def test_encode_image_jpeg(self):
         """encode_image() should encode numpy array to JPEG bytes."""
-        from modules.image_utils import encode_image
+        from _lumascope.modules.image_utils import encode_image
 
         img = np.zeros((100, 100), dtype=np.uint8)
         data = encode_image(img, 'jpeg')
@@ -865,7 +865,7 @@ class TestRestAPIPrep:
 
     def test_encode_image_invalid_format(self):
         """encode_image() should raise ValueError for unsupported format."""
-        from modules.image_utils import encode_image
+        from _lumascope.modules.image_utils import encode_image
 
         img = np.zeros((100, 100), dtype=np.uint8)
         with pytest.raises(ValueError, match='Unsupported'):
@@ -924,7 +924,7 @@ class TestRestAPIPrep:
 
     def test_autofocus_thread_abort_noop_when_idle(self):
         """AutofocusThread.abort() should be safe when no run is in flight."""
-        from modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
@@ -943,7 +943,7 @@ class TestRestAPIPrep:
     def test_autofocus_thread_run_and_complete(self):
         """AutofocusThread.run_autofocus() resolves Future with the
         best focus position when AF completes."""
-        from modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope.imaging.enable_streaming()
@@ -993,8 +993,8 @@ class TestRestAPIPrep:
     def test_autofocus_thread_abort_during_run(self):
         """AutofocusThread.abort() unwinds an in-flight run; the Future
         surfaces AutofocusAborted."""
-        from modules.autofocus_thread import AutofocusThread
-        from modules.exceptions import AutofocusAborted
+        from _lumascope.modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.exceptions import AutofocusAborted
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope.imaging.enable_streaming()
@@ -1053,7 +1053,7 @@ class TestAbortedAutofocusRestoresLeds:
     sample damage). The LED skip applies on success only."""
 
     def test_aborted_af_turns_led_off_despite_keep_led_on(self, scope, executors):
-        from modules.exceptions import AutofocusAborted
+        from _lumascope.modules.exceptions import AutofocusAborted
 
         park_z(scope, 5000.0)
         af = AutofocusRunner(

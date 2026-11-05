@@ -23,28 +23,29 @@ from collections import Counter
 from tests.ast_seams import MemberNames, iter_package_modules
 
 _LATCHES = MemberNames(
-    ('drivers/camera.py', 'drivers/idscamera.py'), {'_mark_disconnected', '_handle_device_lost'}
+    ('src/_lumascope/drivers/camera.py', 'src/_lumascope/drivers/idscamera.py'),
+    {'_mark_disconnected', '_handle_device_lost'},
 )
 
 # (driver file, class, method) -> calls, each with the evidence it acts on.
 _DEFINITE_SITES = {
     # The SDK's removal callback.
-    ('drivers/pyloncamera.py', '_CameraRemovalHandler', 'OnCameraDeviceRemoved'): 1,
+    ('src/_lumascope/drivers/pyloncamera.py', '_CameraRemovalHandler', 'OnCameraDeviceRemoved'): 1,
     # A grab result of DEVICE_NOT_FOUND; a callback finding the handle released.
-    ('drivers/pyloncamera.py', 'ImageHandler', 'OnImageGrabbed'): 2,
+    ('src/_lumascope/drivers/pyloncamera.py', 'ImageHandler', 'OnImageGrabbed'): 2,
     # MAX_CONSECUTIVE_FAILURES failed grabs in a row.
-    ('drivers/pyloncamera.py', '_PylonImageGrabWorker', '_count_failed_grab'): 1,
+    ('src/_lumascope/drivers/pyloncamera.py', '_PylonImageGrabWorker', '_count_failed_grab'): 1,
     # Re-asserts a removal already latched, or a handle already released.
-    ('drivers/pyloncamera.py', 'PylonCamera', 'is_connected'): 2,
+    ('src/_lumascope/drivers/pyloncamera.py', 'PylonCamera', 'is_connected'): 2,
     # The handle already released.
-    ('drivers/idscamera.py', 'IDSCamera', 'is_connected'): 1,
+    ('src/_lumascope/drivers/idscamera.py', 'IDSCamera', 'is_connected'): 1,
     # IDS's one removal owner: DeviceLost, the presence probe, the stall ceilings.
-    ('drivers/idscamera.py', 'IDSCamera', '_handle_device_lost'): 1,
+    ('src/_lumascope/drivers/idscamera.py', 'IDSCamera', '_handle_device_lost'): 1,
     # The FX2 grab loop's end of the stream: an unplug the bus confirmed,
     # or a stream silent past the ceiling, as IDS's stall ceiling.
-    ('drivers/fx2driver.py', 'FX2Camera', '_on_stream_ended'): 1,
+    ('src/_lumascope/drivers/fx2driver.py', 'FX2Camera', '_on_stream_ended'): 1,
     # The simulated camera leaving its bus.
-    ('drivers/simulated_camera.py', 'SimulatedCamera', 'leave_bus'): 1,
+    ('src/_lumascope/drivers/simulated_camera.py', 'SimulatedCamera', 'leave_bus'): 1,
 }
 
 
@@ -66,7 +67,7 @@ def _walk(path, node, cls, fn, in_except):
         yield from _walk(path, child, c, f, e)
 
 
-def _calls(packages=('drivers',)):
+def _calls(packages=('src/_lumascope/drivers',)):
     """Yield (path, class, method, called name, inside an except body)."""
     for path, tree in iter_package_modules(packages):
         yield from _walk(path, tree, None, None, False)
@@ -85,17 +86,17 @@ def test_every_removal_site_is_listed_with_its_evidence():
     found = Counter(
         (path, cls, fn) for path, cls, fn, name, _ in _calls() if name == '_mark_disconnected'
     )
-    found.pop(('drivers/camera.py', 'Camera', '_mark_disconnected'), None)
+    found.pop(('src/_lumascope/drivers/camera.py', 'Camera', '_mark_disconnected'), None)
     assert dict(found) == _DEFINITE_SITES
 
 
 def test_only_the_helper_sets_the_removal_flag():
     offenders = []
-    for path, tree in iter_package_modules(('drivers',)):
+    for path, tree in iter_package_modules(('src/_lumascope/drivers',)):
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if (path, fn.name) == ('drivers/camera.py', '_mark_disconnected'):
+            if (path, fn.name) == ('src/_lumascope/drivers/camera.py', '_mark_disconnected'):
                 continue
             for node in ast.walk(fn):
                 if not isinstance(node, ast.Assign):

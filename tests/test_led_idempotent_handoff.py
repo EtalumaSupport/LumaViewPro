@@ -15,10 +15,10 @@ the LED blink".
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 from tests.protocol_drives import held_run_claim
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from tests.scope_fakes import build_scope, led_reading
 
 

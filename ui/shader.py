@@ -9,10 +9,10 @@ from kivy.graphics import RenderContext
 from kivy.properties import ObjectProperty, StringProperty
 from kivy.uix.scatter import Scatter
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.coord_transformations import PlatePosition
-from modules.layer_record import Color, format_display_color
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.layer_record import Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')

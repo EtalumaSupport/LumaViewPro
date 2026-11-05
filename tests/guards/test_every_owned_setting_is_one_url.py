@@ -12,10 +12,10 @@ both. Its subject is a class's members, the ones the server routes. A static
 read: no session.
 """
 
-from modules import settings_paths
-from modules.api_surface import API, mark_of, sets_of
-from modules.lumascope_api.camera import CameraAPI
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_paths
+from _lumascope.modules.api_surface import API, mark_of, sets_of
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.scope_session import ScopeSession
 
 _OWNERS = {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}
 

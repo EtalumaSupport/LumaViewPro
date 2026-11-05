@@ -25,8 +25,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import tifffile as tf
 
-from modules import image_utils
-from modules.layer_record import release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED1
 
 _OME_NS = '{http://www.openmicroscopy.org/Schemas/OME/2016-06}'

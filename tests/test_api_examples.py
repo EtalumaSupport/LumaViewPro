@@ -68,7 +68,7 @@ def prepared_settings(tmp_path):
     and what it saves is the test's to read. The suite's later simulated
     scopes read the same globals for their model, so they are restored.
     """
-    from modules import settings_init
+    from _lumascope.modules import settings_init
 
     saved = {name: getattr(settings_init, name) for name in ('settings', 'rejected_current_json')}
     settings_init.settings = complete_settings(live_folder=str(tmp_path / 'live'))
@@ -86,13 +86,13 @@ def _run_example(name):
 def served(prepared_settings):
     """Runs an example's REST twin on a simulated server; answers its client and its run.
 
-    The server is the one ``python -m rest --simulate`` serves: a session
+    The server is the one ``python -m _lumascope.rest --simulate`` serves: a session
     brought up from the prepared settings, its startup motion run.
     """
     from fastapi.testclient import TestClient
 
-    from modules.scope_session import ScopeSession
-    from rest.app import build_app
+    from _lumascope.modules.scope_session import ScopeSession
+    from _lumascope.rest.app import build_app
 
     session = ScopeSession.create(prepared_settings.copy(), simulate=True)
     session.run_application_session()
@@ -126,7 +126,7 @@ def _full_scale(bits):
 
 
 def test_first_still_saves_a_lit_unsaturated_still_and_its_record():
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     still = _run_example('first_still')
     assert (still.channel, still.well_label) == ('BF', 'B2')
@@ -138,7 +138,7 @@ def test_first_still_saves_a_lit_unsaturated_still_and_its_record():
 
 
 def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     client, run = served('first_still')
     still = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()['result'][0]
@@ -232,8 +232,8 @@ def test_channel_settings_over_rest_takes_the_same_stills(served):
 
 
 def test_scan_completes_and_keeps_an_image_of_each_well():
-    from modules.image_utils import read_file_record
-    from modules.run_outcome import FilesOutcome, RunStatus
+    from _lumascope.modules.image_utils import read_file_record
+    from _lumascope.modules.run_outcome import FilesOutcome, RunStatus
 
     outcome, files, run_dir = _run_example('scan')
     assert outcome.status is RunStatus.COMPLETED, outcome.message
@@ -247,7 +247,7 @@ def test_scan_completes_and_keeps_an_image_of_each_well():
 
 
 def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     client, run = served('scan')
     files = client.get(f'/api/v1/jobs/{run.variables["FILES"]}').json()
@@ -264,14 +264,14 @@ def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
 
 
 def _slice_steps_um(paths):
-    from modules.image_utils import read_file_record
+    from _lumascope.modules.image_utils import read_file_record
 
     z = sorted(read_file_record(p)['z_pos_um'] for p in paths)
     return [round(b - a, 1) for a, b in itertools.pairwise(z)]
 
 
 def test_z_stack_saved_writes_a_slice_per_step_of_its_range():
-    from modules.run_outcome import FilesOutcome, RunStatus
+    from _lumascope.modules.run_outcome import FilesOutcome, RunStatus
 
     outcome, files, slices = _run_example('z_stack_saved')
     assert outcome.status is RunStatus.COMPLETED, outcome.message
@@ -289,7 +289,7 @@ def test_z_stack_saved_over_rest_writes_the_same_slices(served, prepared_setting
 
 
 def test_stop_a_run_ends_it_aborted_after_its_first_scan_with_its_images_written():
-    from modules.run_outcome import FilesOutcome, RunStatus
+    from _lumascope.modules.run_outcome import FilesOutcome, RunStatus
 
     outcome, files = _run_example('stop_a_run')
     assert (outcome.status, outcome.reason) == (RunStatus.ABORTED, 'stopped')
@@ -307,7 +307,7 @@ def test_stop_a_run_over_rest_ends_its_job_aborted(served):
 
 
 def test_refusals_and_faults_meets_one_refusal_of_each_cause():
-    from modules.exceptions import RefusalCause
+    from _lumascope.modules.exceptions import RefusalCause
 
     refusals = _run_example('refusals_and_faults')
     assert [(r.reason, r.cause) for r in refusals] == [
@@ -387,7 +387,7 @@ def test_every_session_call_resolves_and_binds():
     renamed factory is caught here instead of in a customer's terminal."""
 
     def check(name):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         failures = []
         for member, nargs, kwnames, lineno in _scope_session_calls(EXAMPLES_DIR / f'{name}.py'):
@@ -428,7 +428,7 @@ def _session_and_scope_chains(source):
 
 @pytest.fixture(scope='module')
 def live_roots(tmp_path_factory):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -485,7 +485,7 @@ def test_a_planted_unmarked_read_and_import_are_reported(live_roots):
     from tests.guards.test_api_doc_guard import project_name_failures
 
     planted = (
-        'from modules.image_save import save_image\n'
+        'from _lumascope.modules.image_save import save_image\n'
         "z = scope.motion.get_current_position('Z')\n"
         'scope.wellplate_loader.get_plate_list()\n'
     )
@@ -493,7 +493,7 @@ def test_a_planted_unmarked_read_and_import_are_reported(live_roots):
         _unmarked_calls('planted', planted, live_roots) + project_name_failures('planted', planted)
     )
     for expected in (
-        'planted:1  modules.image_save.save_image  -> an unmarked function',
+        'planted:1  _lumascope.modules.image_save.save_image  -> an unmarked function',
         'planted:2  scope.motion.get_current_position  -> MotionAPI.get_current_position',
         'planted:3  scope.wellplate_loader.get_plate_list  -> Lumascope.wellplate_loader',
     ):

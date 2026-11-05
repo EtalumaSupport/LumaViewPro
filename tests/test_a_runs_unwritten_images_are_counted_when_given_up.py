@@ -20,20 +20,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import live_work
-import modules.protocol_image_writer as protocol_image_writer
-from modules.exceptions import (
+from _lumascope.modules import live_work
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.exceptions import (
     FileWriterNotStuckError,
     FileWriterStalledError,
     Notice,
     RunFilesNotWrittenError,
 )
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_events import RunEvents
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_events import RunEvents
 from tests.af_drives import af_runner_on, sweep
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 WAIT_S = 30.0
 
@@ -188,7 +188,7 @@ class TestALateAutofocusSave:
     def test_it_is_refused_reported_and_never_blocks_the_restore(
         self, sim_scope, tmp_path, monkeypatch
     ):
-        import modules.autofocus_runner as autofocus_runner
+        import _lumascope.modules.autofocus_runner as autofocus_runner
 
         warned = []
         monkeypatch.setattr(
@@ -215,7 +215,7 @@ class TestALateAutofocusSave:
 
 class TestNothingBuildsFromAFolderMissingImages:
     def test_the_post_processing_auto_run_does_not_run(self):
-        from modules.plugins import PluginRegistry
+        from _lumascope.modules.plugins import PluginRegistry
 
         processor = MagicMock()
         spec = MagicMock(auto_run_on_protocol_complete=True)
@@ -231,8 +231,8 @@ class TestNothingBuildsFromAFolderMissingImages:
     def test_the_hyperstack_build_says_why_and_builds_nothing(
         self, monkeypatch, tmp_path, post_processing
     ):
-        import modules.stack_builder as stack_builder
-        from modules.notification_center import notifications
+        import _lumascope.modules.stack_builder as stack_builder
+        from _lumascope.modules.notification_center import notifications
 
         reported = []
         monkeypatch.setattr(

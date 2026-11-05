@@ -17,8 +17,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import tifffile as tf
 
-from modules import image_utils
-from modules.layer_record import GREY, release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import GREY, release_color
 from tests.ome_schema import q, schema_errors, valid_description
 
 _RECORD = {

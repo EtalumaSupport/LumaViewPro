@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from modules.protocol_thread import ProtocolThread
+from _lumascope.modules.protocol_thread import ProtocolThread
 
 
 @pytest.fixture

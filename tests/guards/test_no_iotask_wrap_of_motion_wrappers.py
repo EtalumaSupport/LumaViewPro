@@ -34,7 +34,7 @@ SELF_DISPATCHING_WRAPPERS = MemberNames(
     },
 )
 
-SCAN_DIRS = Packages({'ui', 'modules'})
+SCAN_DIRS = Packages({'ui', 'src/_lumascope/modules'})
 
 
 def _iter_production_python_files() -> list[pathlib.Path]:

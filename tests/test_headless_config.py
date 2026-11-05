@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Tests for headless (GUI-free) config helpers in modules/config_helpers.py.
+Tests for headless (GUI-free) config helpers in src/_lumascope/modules/config_helpers.py.
 
 These functions must work without Kivy or any UI -- they read from
 the settings dict only.
@@ -10,7 +10,7 @@ import datetime
 
 import pytest
 
-from modules.config_helpers import (
+from _lumascope.modules.config_helpers import (
     get_binning_from_settings,
     get_frame_dimensions_from_settings,
     get_protocol_time_params_from_settings,
@@ -19,11 +19,11 @@ from modules.config_helpers import (
     get_sequenced_capture_config_from_settings,
     get_zstack_params_from_settings,
 )
-from modules.exceptions import CatalogueNameRefusedError, ConfigError
-from modules.objectives_loader import ObjectiveLoader
-from modules.labware_loader import WellPlateLoader
-from modules.notification_center import Severity
-from modules.zstack_config import ZStackConfig
+from _lumascope.modules.exceptions import CatalogueNameRefusedError, ConfigError
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.zstack_config import ZStackConfig
 from tests.settings_fixtures import complete_settings
 
 
@@ -88,7 +88,7 @@ class TestGetProtocolTimeParams:
         # The stored schedule is read in one place, the settings lane, and a
         # value it cannot use is refused there -- never replaced by a default
         # schedule the user did not choose.
-        from modules.protocol import ProtocolScheduleRefusedError
+        from _lumascope.modules.protocol import ProtocolScheduleRefusedError
 
         with pytest.raises(ProtocolScheduleRefusedError) as err:
             get_protocol_time_params_from_settings(
@@ -97,7 +97,7 @@ class TestGetProtocolTimeParams:
         assert 'period' in str(err.value)
 
     def test_an_unparseable_stored_duration_is_refused_naming_it(self):
-        from modules.protocol import ProtocolScheduleRefusedError
+        from _lumascope.modules.protocol import ProtocolScheduleRefusedError
 
         with pytest.raises(ProtocolScheduleRefusedError) as err:
             get_protocol_time_params_from_settings(

@@ -24,10 +24,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from drivers.exceptions import CameraFirmwareMissingError
-from drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
-from modules.exceptions import CameraNotAvailableError
-from modules.lumascope_api._lumascope import _camera_failure_cause
+from _lumascope.drivers.exceptions import CameraFirmwareMissingError
+from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
+from _lumascope.modules.exceptions import CameraNotAvailableError
+from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 
 
 def _body(exc) -> str:

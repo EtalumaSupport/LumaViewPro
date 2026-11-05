@@ -12,7 +12,7 @@ so a new maker's glass arrives with its tube length.
 
 import pytest
 
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 
 TUBE_LENGTH_MM = {
     'Olympus': 180.0,

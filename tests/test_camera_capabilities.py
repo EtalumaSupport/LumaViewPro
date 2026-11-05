@@ -17,12 +17,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers.camera import Camera
-from drivers.camera_profiles import GainInfo
-from drivers.fx2driver import FX2Camera
-from drivers.idscamera import IDSCamera
-from drivers.pyloncamera import PylonCamera
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.camera import Camera
+from _lumascope.drivers.camera_profiles import GainInfo
+from _lumascope.drivers.fx2driver import FX2Camera
+from _lumascope.drivers.idscamera import IDSCamera
+from _lumascope.drivers.pyloncamera import PylonCamera
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.scope_fakes import capabilities_of
 
 
@@ -175,7 +175,7 @@ class TestU3L34ProfileMatch:
     """
 
     def test_xls_variant_resolves_to_imx676_profile(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         profile = lookup_profile('U3-34LxXLS-M')
         assert profile.driver == 'ids'
@@ -187,11 +187,11 @@ class TestU3L34ProfileMatch:
         assert profile.model_name == 'U3-34LxXLS-M'  # actual reported name retained
 
     def test_xcp_variant_still_resolves(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         assert lookup_profile('U3-34LxXCP-M').driver == 'ids'
 
     def test_unknown_model_still_falls_back_to_default(self):
-        from drivers.camera_profiles import lookup_profile
+        from _lumascope.drivers.camera_profiles import lookup_profile
 
         assert lookup_profile('SomeOtherCamera-9000').driver == 'unknown'

@@ -8,21 +8,21 @@ from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
-from lib.build_files import build_file
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-from modules.labware_loader import CENTER_PLATE
-from modules.protocol import Protocol, schedule_from_units
+from _lumascope.lib.build_files import build_file
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.labware_loader import CENTER_PLATE
+from _lumascope.modules.protocol import Protocol, schedule_from_units
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.operation import Operation
-    from modules.sequenced_capture_runner import RunProgress
+    from _lumascope.modules.operation import Operation
+    from _lumascope.modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
-from modules.timedelta_formatter import strfdelta
-from modules.zstack_config import ZStackReference
-from modules import gui_logger, live_work
-from modules.run_events import RunEvents
+from _lumascope.modules.timedelta_formatter import strfdelta
+from _lumascope.modules.zstack_config import ZStackReference
+from _lumascope.modules import gui_logger, live_work
+from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     refused_in_this_input,
     reset_acquire_ui,
@@ -650,7 +650,7 @@ class ProtocolSettings(FloatLayout):
             # Shown, though nobody asked for this load: the panel shows only
             # the kept file's name, and this is the one place the person
             # learns why their protocol did not load, or was forgotten.
-            from modules.notification_center import notifications
+            from _lumascope.modules.notification_center import notifications
 
             notifications.report_outcome(e, solicited=False, category='UI:LOAD_PROTOCOL')
 

@@ -21,29 +21,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
 
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_state_machine import ProtocolState
-from modules.run_events import RunEvents
-from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.protocol import Protocol
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.protocol import Protocol
 from tests.protocol_drives import (
     StepHeartbeat,
     held_run_claim,
     wait_for_run_end,
 )
-from modules.acquire_mode import AcquireMode
+from _lumascope.modules.acquire_mode import AcquireMode
 from tests.scope_fakes import (
     measure_delivery_like_a_session,
     build_scope,
@@ -51,7 +51,7 @@ from tests.scope_fakes import (
     configure_turret_like_bringup,
     swap_lanes,
 )
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
 
@@ -86,7 +86,7 @@ def _make_simulated_scope():
 
 def _make_executors():
     """Create and start the SequentialIOExecutors + protocol_thread needed."""
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO'),
@@ -702,7 +702,7 @@ class TestSingleScanVideo:
         steps on the protocol's plate, so its frames state their positions
         there: the step's own plate X and Y, not the same stage point read
         on the selected plate."""
-        from modules.image_utils import read_file_record
+        from _lumascope.modules.image_utils import read_file_record
         from tests.scope_fakes import bind_settings_like_a_session
 
         bind_settings_like_a_session(scope)['protocol']['labware'] = 'Four-Slide Holder'
@@ -731,8 +731,8 @@ class TestARunsSlowVideoSaveIsToldAtItsEnd:
     def test_a_wait_past_the_bound_is_told_once_and_rides_the_outcome(
         self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
-        import modules.protocol_cleanup as protocol_cleanup
-        from modules.protocol_recording import ProtocolVideoStep
+        import _lumascope.modules.protocol_cleanup as protocol_cleanup
+        from _lumascope.modules.protocol_recording import ProtocolVideoStep
 
         monkeypatch.setattr(protocol_cleanup, 'RECORDING_SAVE_WAIT_NOTICE_S', 0.2)
         real_write = ProtocolVideoStep._write_frame
@@ -1887,7 +1887,7 @@ class TestDiskSpaceCheck:
     tuple shape.
     """
 
-    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
     def test_low_disk_aborts_image_protocol(
         self, mock_check, executor, scope, tmp_path, centre_posts
     ):
@@ -1903,7 +1903,7 @@ class TestDiskSpaceCheck:
         fatal = [(n.category, n.title) for n in centre_posts if n.shown and n.fatal]
         assert fatal == [('Protocol', 'Disk Space Critical')], fatal
 
-    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
     def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
         """300 image steps need 2400 MB (300 * 8 MB), so 2.0 GB free should abort."""
         mock_check.return_value = (False, 2000.0)  # 2.0 GB free vs max(2048, 2400) MB
@@ -1914,7 +1914,7 @@ class TestDiskSpaceCheck:
             'Protocol did not abort within timeout when disk space is low for large protocol'
         )
 
-    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
     def test_video_steps_need_500mb_each(self, mock_check, executor, scope, tmp_path):
         """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
         mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
@@ -1925,7 +1925,10 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not abort for video steps requiring more disk space'
 
-    @patch('modules.protocol_run_loop.check_disk_space_ok', side_effect=OSError('disk error'))
+    @patch(
+        '_lumascope.modules.protocol_run_loop.check_disk_space_ok',
+        side_effect=OSError('disk error'),
+    )
     def test_disk_check_exception_does_not_crash(self, mock_check, executor, scope, tmp_path):
         """If the probe raises OSError, protocol continues (swallow in caller)."""
         protocol = _make_single_step_protocol(color='BF')
@@ -2176,7 +2179,7 @@ class TestSaveFailureRecordsRow:
     data-gap shape for record-keyed post-processing and run accounting."""
 
     def test_save_image_raise_records_save_failed_row(self, executor, scope, tmp_path, monkeypatch):
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         def boom(*args, **kwargs):
             raise OSError('disk write failed (injected)')
@@ -2258,7 +2261,7 @@ class TestRunReturnValueContract:
         wedge: exactly one user notification, the terminal run_ended
         callback fires with the failed-at-start status, the runner is
         idle afterwards, and a subsequent prepare() succeeds."""
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         protocol = _make_single_step_protocol(color='BF')
 

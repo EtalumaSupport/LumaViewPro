@@ -16,14 +16,14 @@ import copy
 
 import pytest
 
-from modules.exceptions import CameraSettingOutOfRangeError
-from modules.scope_capabilities import FrameSize
+from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import home_sim_scope, set_camera_limits
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(
@@ -110,7 +110,7 @@ class TestBringUpStoresTheDeliveredFrame:
     """
 
     def _create(self, tmp_path, frame, binning='1x1', **overrides):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         settings = complete_settings(live_folder=str(tmp_path), microscope='LS850', **overrides)

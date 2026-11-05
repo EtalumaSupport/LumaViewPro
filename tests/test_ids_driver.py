@@ -23,17 +23,17 @@ import ids_peak_ipl
 import numpy as np
 import pytest
 
-from drivers import host_clock
-from drivers.camera import HandOver
-from drivers.camera_profiles import CameraProfile
-from drivers.idscamera import (
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera import HandOver
+from _lumascope.drivers.camera_profiles import CameraProfile
+from _lumascope.drivers.idscamera import (
     IDSCamera,
     _ids_delivery_significant_bits,
     _ids_delivery_target,
     _ids_ipl_target,
     ids_significant_bits,
 )
-from drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_ids_camera
 from tests.log_capture import records_of
 
@@ -49,7 +49,7 @@ def _time_at(now):
 
 def _cam_lines(caplog, level):
     """The lines at ``level`` the driver wrote to its camera log."""
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     return [
         r.getMessage()
@@ -435,7 +435,7 @@ class TestLatestBufferSlot:
     and stop() re-queues a still-held buffer before reporting the sentinel."""
 
     def _slot(self):
-        from drivers.idscamera import _LatestBufferSlot
+        from _lumascope.drivers.idscamera import _LatestBufferSlot
 
         requeued = []
         return _LatestBufferSlot(requeued.append), requeued
@@ -461,7 +461,7 @@ class TestLatestBufferSlot:
         assert slot.get(timeout=0) is None
 
     def test_stop_empty_returns_stop_sentinel(self):
-        from drivers.idscamera import _LatestBufferSlot
+        from _lumascope.drivers.idscamera import _LatestBufferSlot
 
         slot, rq = self._slot()
         slot.stop()
@@ -469,7 +469,7 @@ class TestLatestBufferSlot:
         assert rq == []
 
     def test_stop_requeues_a_held_buffer(self):
-        from drivers.idscamera import _LatestBufferSlot
+        from _lumascope.drivers.idscamera import _LatestBufferSlot
 
         slot, rq = self._slot()
         slot.put('held', HandOver(1, 0, 0))
@@ -536,7 +536,7 @@ def _ids_handler(data_stream):
     """An ImageHandler with the SDK unpack seam replaced by a deterministic
     fake, so the tests cover the threading/handoff/buffer-lifecycle (the
     Mac-testable core) without the real ids_peak SDK."""
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
     idscamera.ImageHandlerBase.__init__(handler)
@@ -632,7 +632,7 @@ class TestSustainedStallPresenceProbe:
         ds = MagicMock()
         h = _ids_handler(ds)
         h._parent._probe_device_presence.return_value = probe_returns
-        with patch('drivers.idscamera.time', _time_at(base)):
+        with patch('_lumascope.drivers.idscamera.time', _time_at(base)):
             h._handle_wait_error(RuntimeError('WaitForFinishedBuffer timeout'))
         # First timeout only arms the stall clock; it never probes.
         h._parent._probe_device_presence.assert_not_called()
@@ -640,21 +640,21 @@ class TestSustainedStallPresenceProbe:
         return h
 
     def _timeout_at(self, h, when):
-        with patch('drivers.idscamera.time', _time_at(when)):
+        with patch('_lumascope.drivers.idscamera.time', _time_at(when)):
             return h._handle_wait_error(RuntimeError('timeout'))
 
     def test_first_timeout_arms_without_probing(self):
         self._stalled(100.0)
 
     def test_short_stall_does_not_probe(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0)
         self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S - 0.5)
         h._parent._probe_device_presence.assert_not_called()
 
     def test_sustained_stall_probes_once(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=True)  # present -> no teardown
         self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
@@ -662,7 +662,7 @@ class TestSustainedStallPresenceProbe:
         h._parent._handle_device_lost.assert_not_called()
 
     def test_probe_is_rate_limited_then_repeats(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=True)
         first = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
@@ -677,7 +677,7 @@ class TestSustainedStallPresenceProbe:
     def test_one_absent_probe_does_not_tear_down(self):
         # A single absent reading is not enough -- a truncated Update on a busy
         # but present USB3 stack must not remove a connected camera.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=False)
         self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
@@ -685,7 +685,7 @@ class TestSustainedStallPresenceProbe:
         h._parent._handle_device_lost.assert_not_called()
 
     def test_consecutive_absent_probes_route_to_removal(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=False)
         t = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
@@ -698,7 +698,7 @@ class TestSustainedStallPresenceProbe:
         assert stop is True
 
     def test_inconclusive_probe_does_not_advance_streak(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=None)  # inconclusive (e.g. read fault)
         stop = self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
@@ -712,7 +712,7 @@ class TestSustainedStallPresenceProbe:
         # latches -- teardown then treats dead hardware as live and the app
         # hangs on close. The hard ceiling routes the stall to the removal
         # drop regardless of what enumeration claims.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=True)
         stop = self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
@@ -722,7 +722,7 @@ class TestSustainedStallPresenceProbe:
         h._parent._handle_device_lost.assert_called_once()
 
     def test_present_stall_below_the_ceiling_keeps_polling(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=True)
         stop = self._timeout_at(h, 100.0 + idscamera._STALL_ESCALATION_CEILING_S - 1.0)
@@ -733,7 +733,7 @@ class TestSustainedStallPresenceProbe:
         # At a long exposure the wait window stretches; the ceiling requires
         # several consecutive empty windows, so a stall that would cross the
         # floor after two waits on a long exposure must NOT escalate yet.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=True)
         h.timeout_ms = 40000  # very long exposure -> effective ceiling 200s
@@ -758,13 +758,13 @@ class TestSustainedStallPresenceProbe:
         h._stall_started = 100.0
         alive = type('AliveThread', (), {'is_alive': lambda self: True})()
         h._poll_thread = alive
-        with patch('drivers.idscamera.time', _time_at(112.0)):
+        with patch('_lumascope.drivers.idscamera.time', _time_at(112.0)):
             assert h.stall_age_s() == 12.0
 
     def test_a_present_reading_resets_the_absence_streak(self):
         # Absent, then present (transient hiccup recovered), then absent again
         # must NOT reach the 2-confirmation threshold on the trailing absent.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         h = self._stalled(100.0, probe_returns=False)
         t = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
@@ -871,7 +871,7 @@ class TestProbeDevicePresence:
         cam._handle_device_lost.assert_not_called()
 
     def test_restores_update_timeout_after_probe(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         cam = self._cam(serial='SN123')
         cam.device_manager.Devices.return_value = [self._descriptor('SN123')]
@@ -998,7 +998,7 @@ class TestIncompleteFrameEscalation:
         return b
 
     def test_sustained_incompletes_escalate_to_category2_drop(self, monkeypatch):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
         ds = _FakeDataStream([self._incomplete(), self._incomplete(), self._incomplete()])
@@ -1010,7 +1010,7 @@ class TestIncompleteFrameEscalation:
     def test_sustained_unreadable_handles_also_escalate(self, monkeypatch):
         # The buffer-access keep-polling path must accrue toward the ceiling too,
         # or a stream whose handles keep raising freezes forever.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
         ds = _FakeDataStream([self._unreadable(), self._unreadable(), self._unreadable()])
@@ -1020,7 +1020,7 @@ class TestIncompleteFrameEscalation:
         h._parent._handle_device_lost.assert_called_once()
 
     def test_a_single_incomplete_below_threshold_keeps_streaming(self, monkeypatch):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
         good = self._complete()
@@ -1042,7 +1042,7 @@ class TestIncompleteFrameEscalation:
         assert h._slot.put.call_args.args[0] is good
 
     def test_a_complete_frame_resets_the_bad_frame_run(self, monkeypatch):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
         good = self._complete()
@@ -1071,7 +1071,7 @@ class TestIncompleteFrameEscalation:
     def test_stop_racing_the_ceiling_breaks_without_teardown(self, monkeypatch):
         # A stop() set just as the ceiling frame arrives must break the loop, not
         # tear the camera down -- a plain stop/reconfigure is not a disconnect.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
         h = _ids_handler(MagicMock())
@@ -1208,7 +1208,7 @@ class TestBufferPoolReclaim:
         # host-side still runs, including the local StopAcquisition that keeps
         # is_grabbing() honest so a later start_grabbing can restart a
         # merely-stalled camera instead of declining as already-grabbing.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         cam = bare_ids_camera()
         cam.cam_image_handler = MagicMock()
@@ -1225,7 +1225,7 @@ class TestBufferPoolReclaim:
         assert cam.data_stream.RevokeBuffer.call_count == 1  # local pool cleanup too
 
     def test_stop_below_the_assume_dead_threshold_stops_remotely(self):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         cam = bare_ids_camera()
         cam.cam_image_handler = MagicMock()
@@ -1244,7 +1244,7 @@ class TestBufferPoolReclaim:
     def test_assume_dead_threshold_scales_with_the_wait_window(self):
         # The poll wait is exposure-scaled; a fixed threshold would misread a
         # single healthy long-exposure inter-frame gap as a dead device.
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         cam = bare_ids_camera()
         cam.cam_image_handler = MagicMock()
@@ -1290,7 +1290,7 @@ class TestBufferPoolReclaim:
         dead = MagicMock()
         dead.is_alive.return_value = False
         h._poll_thread = dead
-        with patch('drivers.idscamera.threading.Thread') as Thread:
+        with patch('_lumascope.drivers.idscamera.threading.Thread') as Thread:
             h.start()
         assert Thread.call_count == 2  # worker + poll spawned
         assert h._poll_thread is not dead  # stale dead ref replaced
@@ -1300,7 +1300,7 @@ class TestBufferPoolReclaim:
         alive = MagicMock()
         alive.is_alive.return_value = True
         h._poll_thread = alive
-        with patch('drivers.idscamera.threading.Thread') as Thread:
+        with patch('_lumascope.drivers.idscamera.threading.Thread') as Thread:
             h.start()
         Thread.assert_not_called()  # no second consumer launched
         assert h._poll_thread is alive  # unchanged
@@ -1518,7 +1518,7 @@ class TestConnectFailureUnregistersCallback:
     removal event of any device in the system."""
 
     def _drive_connect(self, monkeypatch, dm):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         devices = dm.Devices.return_value
         devices.empty.return_value = False
@@ -1589,7 +1589,7 @@ class TestOpenControlRetry:
     _DENIAL = 'Error-Code: 4 (PEAK_RETURN_CODE_BAD_ACCESS): control access denied'
 
     def _no_sleep(self, monkeypatch):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(
             idscamera,
@@ -1650,7 +1650,7 @@ class TestOpenControlRetry:
         assert descriptor.OpenDevice.call_count == 1
 
     def test_exhausted_budget_raises_the_denial(self, monkeypatch):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         self._no_sleep(monkeypatch)
         cam = bare_ids_camera()
@@ -1706,7 +1706,7 @@ class TestOpenControlRetry:
         assert cam.active is not None
 
     def _bringup_cam(self, monkeypatch, dm):
-        from drivers import idscamera
+        from _lumascope.drivers import idscamera
 
         monkeypatch.setattr(idscamera.ids_peak.DeviceManager, 'Instance', lambda: dm, raising=False)
         cam = bare_ids_camera()
@@ -2019,7 +2019,7 @@ class TestLiveExposureMinimum:
         one, and can be the stale value the live read exists to replace."""
         from types import SimpleNamespace
 
-        from drivers.exceptions import CameraReadFailedError
+        from _lumascope.drivers.exceptions import CameraReadFailedError
 
         cam = bare_ids_camera()
         # Minimum() returns a non-numeric, so the live read raises.
@@ -2203,7 +2203,7 @@ class TestASettingWriteTheCameraDoesNotAnswer:
     """
 
     def test_every_unanswered_deciding_write_raises_no_answer_and_keeps_the_camera(self):
-        from drivers.exceptions import CameraNoAnswerError
+        from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         offenders = []
         for writer, (node_name, method, write, setting) in _DECIDING_WRITES.items():
@@ -2227,7 +2227,7 @@ class TestASettingWriteTheCameraDoesNotAnswer:
         assert offenders == []
 
     def test_an_unanswered_frame_size_leaves_no_window_the_camera_may_not_have(self):
-        from drivers.exceptions import CameraNoAnswerError
+        from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         cam = _camera_answering_except()
         cam.remote_nodemap.nodes['Height'].unanswered.add('SetValue')
@@ -2236,7 +2236,7 @@ class TestASettingWriteTheCameraDoesNotAnswer:
         assert cam._frame_window is None
 
     def test_an_unanswered_read_the_write_needs_is_a_no_answer_and_writes_nothing(self):
-        from drivers.exceptions import CameraNoAnswerError
+        from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         # writer: (the node read ahead of the write, that read, the call, the
         # setting's own node). Gain's selector is written before its range is

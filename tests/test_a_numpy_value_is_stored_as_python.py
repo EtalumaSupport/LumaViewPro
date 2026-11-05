@@ -18,8 +18,8 @@ import math
 import numpy as np
 import pytest
 
-from modules import post_processing
-from modules.python_values import python_values
+from _lumascope.modules import post_processing
+from _lumascope.modules.python_values import python_values
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import (
     _build_real_protocol,
@@ -68,7 +68,7 @@ def test_a_str_enum_member_at_any_depth_becomes_its_plain_string():
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
@@ -85,7 +85,7 @@ class TestTheSettings:
         assert (type(stored), stored) == (int, 25)
 
     def test_a_handed_dict_is_stored_as_python_in_the_same_object(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         handed = complete_settings(live_folder=str(tmp_path))
         handed['BF']['gain'] = np.float32(2.0)
@@ -134,7 +134,7 @@ class TestAProtocolsConfigCells:
 
 
 def test_a_method_holding_numpy_is_saved_as_python(tmp_path):
-    from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+    from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 
     method = CellCountMethod(
         threshold_pct=np.int64(20),

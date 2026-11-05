@@ -16,12 +16,12 @@ import time
 import pytest
 from serial.serialutil import SerialException
 
-from drivers.exceptions import HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire import port as sim_port
-from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.mp import channel, tmc5072
-from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire import port as sim_port
+from _lumascope.drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.mp import channel, tmc5072
+from _lumascope.drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.case_walk import failing_cases
 

@@ -13,8 +13,8 @@ tests exercise the mechanism at the driver level with SimulatedCamera (no
 hardware) plus a bare ImageHandlerBase standing in for a freshly-built handler.
 """
 
-from drivers.camera import ImageHandlerBase
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.camera import ImageHandlerBase
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 
 
 def _cb(frame):

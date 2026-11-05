@@ -25,8 +25,8 @@ import pytest
 
 import ui.ui_helpers as ui_helpers
 import ui.vertical_control as vc
-from modules.caller import Caller, current_caller
-from modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.caller import Caller, current_caller
+from _lumascope.modules.protocol_runner import ProtocolRunner
 from tests.pool_fakes import run_task_now
 from tests.scope_fakes import home_sim_scope
 
@@ -56,7 +56,7 @@ def pressed(gui_ctx, monkeypatch, held, centre_posts):
     """The GUI over an unhomed simulated session in engineering mode, nothing
     running; the pool runs each request at once, and each start the member
     is asked for is recorded with who asked, then made."""
-    from modules.sequential_io_executor import ENQUEUED
+    from _lumascope.modules.sequential_io_executor import ENQUEUED
 
     pool = MagicMock()
 
@@ -175,7 +175,7 @@ def test_a_started_run_draws_focusing(homed):
 
 
 def test_a_second_press_stops_its_own_run_ahead_of_queued_work(homed):
-    from modules.sequential_io_executor import PRIORITY_HIGH
+    from _lumascope.modules.sequential_io_executor import PRIORITY_HIGH
 
     run = _press_held(homed, homed.button)
 

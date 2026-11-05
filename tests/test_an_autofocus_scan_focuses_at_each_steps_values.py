@@ -11,7 +11,7 @@ watching, and its lock scans at what that arm achieved.
 
 import pytest
 
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 

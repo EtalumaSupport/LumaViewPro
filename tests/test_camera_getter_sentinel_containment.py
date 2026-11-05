@@ -32,14 +32,14 @@ import pytest
 from tests.log_capture import records_of
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
-from modules.protocol_image_writer import RunWriteBatch
-from drivers.camera import Camera
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api import Lumascope
-import modules.lumascope_api.camera as camera_mod
-from modules.lumascope_api.camera import CameraAPI
-from modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.drivers.camera import Camera
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api import Lumascope
+import _lumascope.modules.lumascope_api.camera as camera_mod
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
 # Marker: this scripted read raises instead of returning a value.
 RAISE = object()
@@ -58,7 +58,7 @@ GOOD_ROUND = {
 }
 
 
-from modules.run_outcome import EndingLatch
+from _lumascope.modules.run_outcome import EndingLatch
 from tests.scope_fakes import (
     bind_settings_like_a_session,
     build_scope,
@@ -66,8 +66,8 @@ from tests.scope_fakes import (
     give_camera_capabilities,
     give_stub_lanes,
 )
-from modules.layer_record import release_colors
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 class ScriptedCameraDriver:
@@ -286,9 +286,9 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
     import threading as _threading
     from unittest.mock import MagicMock
 
-    from modules.image_mode import ImageCaptureConfig
-    from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
-    from modules.run_events import RunEvents
+    from _lumascope.modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
+    from _lumascope.modules.run_events import RunEvents
 
     # The simulated camera's published depth at save time disagrees with the frame's.
     assert sim_scope.imaging.significant_bits != 12
@@ -317,7 +317,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
     )
     recorded = []
     monkeypatch.setattr(
-        'modules.protocol_image_writer.save_image',
+        '_lumascope.modules.protocol_image_writer.save_image',
         lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
     )
     writer.write_capture(

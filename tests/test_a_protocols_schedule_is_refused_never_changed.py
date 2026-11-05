@@ -25,16 +25,16 @@ import shutil
 import pandas as pd
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules import settings_init
-from modules.exceptions import ConfigError, Refusal, SettingRefusedError
-from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import ConfigError, Refusal, SettingRefusedError
+from _lumascope.modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
 from tests.installation_fixtures import shipped_grids
-from modules.protocol import StoredNames
+from _lumascope.modules.protocol import StoredNames
 from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -182,7 +182,7 @@ class TestAReaderThatNeverRunsTheProtocol:
         return folder
 
     def test_post_processing_reads_an_old_run_with_a_sub_second_period(self, tmp_path):
-        from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+        from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
         loaded = ProtocolPostProcessingHelper().load_folder(
             self._run_folder(tmp_path), tiling_grids=shipped_grids()

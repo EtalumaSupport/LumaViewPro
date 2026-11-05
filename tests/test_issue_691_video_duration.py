@@ -35,7 +35,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def test_recording_title_shows_seconds_not_percent():
     import ui.ui_helpers as ui_helpers
-    from modules.run_events import VideoProgress
+    from _lumascope.modules.run_events import VideoProgress
 
     ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=12, total_s=30))
     title = ui_helpers._title_event_text
@@ -45,7 +45,7 @@ def test_recording_title_shows_seconds_not_percent():
 
 def test_the_end_of_a_video_clears_only_its_own_title():
     import ui.ui_helpers as ui_helpers
-    from modules.run_events import VideoProgress
+    from _lumascope.modules.run_events import VideoProgress
 
     ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=7, total_s=30))
     ui_helpers.show_video_progress(VideoProgress('ended'))
@@ -65,12 +65,14 @@ def test_the_end_of_a_video_clears_only_its_own_title():
 def test_protocol_video_advisory_removed():
     """The protocol 'video step exceeds limit' advisory is gone -- protocol
     video has no cap, so the warning premise no longer exists."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     assert not hasattr(Protocol, 'video_steps_over_limit'), (
         'protocol video is uncapped now; the advisory method must not exist'
     )
-    src = (REPO_ROOT / 'modules' / 'sequenced_capture_runner.py').read_text(encoding='utf-8')
+    src = (REPO_ROOT / 'src/_lumascope/modules' / 'sequenced_capture_runner.py').read_text(
+        encoding='utf-8'
+    )
     assert 'video_steps_over_limit' not in src, 'run-start video-limit advisory must be removed'
 
 
@@ -93,8 +95,8 @@ def test_video_duration_text_allows_beyond_slider():
     writer's own range for a step's duration runs to an hour."""
     import json
 
-    from modules.exceptions import SettingRefusedError
-    from modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_write
+    from _lumascope.modules.exceptions import SettingRefusedError
+    from _lumascope.modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_write
 
     method = _method_node(REPO_ROOT / 'ui' / 'layer_control.py', 'video_duration_text')
     assert 'value_max' not in ast.unparse(method), (

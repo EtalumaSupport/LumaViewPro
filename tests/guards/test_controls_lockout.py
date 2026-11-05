@@ -257,7 +257,7 @@ class TestNoCallerSideRunStateCommit:
             'the UI must not write an XY capability fact onto the session; '
             'motion_enabled derives it from the drivers'
         )
-        session_src = (REPO_ROOT / 'modules' / 'scope_session.py').read_text()
+        session_src = (REPO_ROOT / 'src/_lumascope/modules' / 'scope_session.py').read_text()
         assert 'capabilities.has_xy_stage' in session_src, (
             'motion_enabled must derive the XY fact from the live scope'
         )
@@ -338,7 +338,7 @@ class TestGestureMotionFunnel:
     ui_helpers movers obey the App's lock record themselves."""
 
     def _locked_app(self, recording):
-        from modules.scope_session import ControlsLock
+        from _lumascope.modules.scope_session import ControlsLock
 
         app_cls = sys.modules['kivy.app'].App
         # a stand-in by design: the App exists only when lumaviewpro.py runs

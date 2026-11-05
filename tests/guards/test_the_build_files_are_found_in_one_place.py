@@ -2,14 +2,14 @@
 """Where the build's files are, and where the run was launched from, are each computed once.
 
 The build's own files (the code, its shipped data, the FX2 hex, the git
-checkout) are found through ``lib.build_files.build_root``, links followed;
-the folder the run was launched from through ``modules.path_utils.launch_root``,
-links not followed. Before, each driver, ``lib/profile_trace`` and the GUI's
+checkout) are found through ``_lumascope.lib.build_files.build_root``, links followed;
+the folder the run was launched from through ``_lumascope.modules.path_utils.launch_root``,
+links not followed. Before, each driver, ``src/_lumascope/lib/profile_trace`` and the GUI's
 environment walked up from its own ``__file__`` or the interpreter's path,
 the FX2 search computed a fifth answer of its own, and a reader took
 whichever answer was nearest. This walk refuses, in production code, a read
-of ``__file__`` outside the two owners and the simulated board package's own
-folder, and a folder made from ``sys.executable`` outside ``launch_root``
+of ``__file__`` outside the two owners, the simulated board package's own
+folder and the two entries' own ``src/`` line, and a folder made from ``sys.executable`` outside ``launch_root``
 and the support report's listing of the interpreter's own folder.
 """
 
@@ -21,23 +21,35 @@ from tests.ast_seams import Words, iter_package_modules, parse_module, tracked_f
 
 # (file, the def that reads it); '<module>' is a module-level read.
 _FILE_READERS = {
-    ('lib/build_files.py', 'build_root'),
-    ('modules/path_utils.py', 'launch_root'),
+    ('src/_lumascope/lib/build_files.py', 'build_root'),
+    ('src/_lumascope/modules/path_utils.py', 'launch_root'),
     # The package's own files (its MicroPython runtime and board images),
     # which ship inside it, not the build's.
-    ('drivers/sim_wire/backend.py', '<module>'),
+    ('src/_lumascope/drivers/sim_wire/backend.py', '<module>'),
+    # The two entries put their own checkout's src/ first, before any import
+    # could reach an owner, so they read their own path.
+    ('lumaviewpro.py', '<module>'),
+    ('lvp_fx2_driver_step.py', '<module>'),
 }
 _EXECUTABLE_FOLDER_READERS = {
-    ('modules/path_utils.py', 'launch_root'),
+    ('src/_lumascope/modules/path_utils.py', 'launch_root'),
     # The C runtimes beside the interpreter, which is the question asked.
-    ('modules/tech_support_report.py', 'TechSupportReport._step_runtime_census'),
+    ('src/_lumascope/modules/tech_support_report.py', 'TechSupportReport._step_runtime_census'),
 }
 # A call that turns its argument into a folder or a path.
 _PATH_CALLS = Words({'Path', 'abspath', 'dirname', 'realpath', 'split'})
 
 
 def _production_modules():
-    yield from iter_package_modules(('modules', 'ui', 'drivers', 'lib', 'rest'))
+    yield from iter_package_modules(
+        (
+            'src/_lumascope/modules',
+            'ui',
+            'src/_lumascope/drivers',
+            'src/_lumascope/lib',
+            'src/_lumascope/rest',
+        )
+    )
     for rel_path in tracked_files(pattern='*.py'):
         yield rel_path, parse_module(rel_path)
 
@@ -99,8 +111,8 @@ def test_the_build_and_launch_folders_are_computed_only_by_their_owners():
         if not _allowed(rel_path, qualname, kind)
     ]
     assert found == [], (
-        "the build's files are lib.build_files.build_root()'s, the launch folder "
-        f"modules.path_utils.launch_root()'s: {found}"
+        "the build's files are _lumascope.lib.build_files.build_root()'s, the launch folder "
+        f"_lumascope.modules.path_utils.launch_root()'s: {found}"
     )
 
 

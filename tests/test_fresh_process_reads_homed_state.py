@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api._constants import AxisState
-from drivers.motorboard import _parse_fullinfo
+from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.drivers.motorboard import _parse_fullinfo
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
@@ -109,7 +109,7 @@ class TestAxisStateSeeding:
         # Defaulting this argument would let a new construction site fall back
         # to blind UNKNOWN seeding, and nothing would fail until a headless
         # run was refused in the field.
-        from modules.lumascope_api.motion import MotionAPI
+        from _lumascope.modules.lumascope_api.motion import MotionAPI
 
         motion = MotionAPI.__new__(MotionAPI)
         with pytest.raises(TypeError):
@@ -120,12 +120,12 @@ class TestDriversAnswerTheQuestion:
     """Every motion driver can be asked, so no construction path is blind."""
 
     def test_null_board_reports_nothing_homed(self):
-        from drivers.null_motorboard import NullMotionBoard
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
 
         assert NullMotionBoard().detect_homed_axes() == []
 
     def test_simulated_board_reports_homed_only_after_a_home(self):
-        from drivers.simulated_motorboard import SimulatedMotorBoard
+        from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.detect_homed_axes() == [], (

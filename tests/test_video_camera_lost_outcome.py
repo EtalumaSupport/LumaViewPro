@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import modules.protocol_recording as protocol_recording
-from modules.run_events import RunEvents, VideoPhase
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules.run_events import RunEvents, VideoPhase
 from tests.stock_channels import LED0
 from tests.video_step_drives import video_step_on
 

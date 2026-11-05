@@ -3,11 +3,11 @@
 Tests for audit fixes across LumaViewPro.
 
 Covers:
-  1. Domain exceptions (modules/exceptions.py)
+  1. Domain exceptions (src/_lumascope/modules/exceptions.py)
   2. Input validation (lumascope_api.py)
-  3. Protocol file limits (modules/protocol.py)
-  4. ProtocolState transitions (modules/sequenced_capture_runner.py)
-  5. Settings snapshot thread safety (modules/app_context.py)
+  3. Protocol file limits (src/_lumascope/modules/protocol.py)
+  4. ProtocolState transitions (src/_lumascope/modules/sequenced_capture_runner.py)
+  5. Settings snapshot thread safety (src/_lumascope/modules/app_context.py)
   6. AppleScript escaping (ui/file_dialogs.py)
   7. FPS calculation edge case
 
@@ -35,17 +35,17 @@ from tests.scope_fakes import (
 )
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
-from modules.protocol_image_writer import RunWriteBatch
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import (
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
 )
 
 
-from modules.notification_center import Severity
-from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
-from modules.sequenced_capture_runner import EngineRun
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from _lumascope.modules.sequenced_capture_runner import EngineRun
 from tests.protocol_drives import run_identity
 from tests.protocol_fixtures import protocol_from_file
 
@@ -58,18 +58,18 @@ def _posted(centre_posts, *severities):
 # ===========================================================================
 # 1. Domain exceptions -- no mocks needed, pure Python module
 # ===========================================================================
-from drivers.exceptions import BoardNoReplyError, BoardReportedError, HardwareError
-from modules.exceptions import (
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardReportedError, HardwareError
+from _lumascope.modules.exceptions import (
     AutofocusAborted,
     CaptureError,
     CaptureFailedError,
     ConfigError,
     ProtocolError,
 )
-from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.runtime_state import RuntimeState
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 class TestDomainExceptions:
@@ -138,7 +138,7 @@ class TestProtocolFileLimits:
 
     def test_rejects_oversized_file(self, tmp_path):
         """A file > 10 MB should be rejected before parsing."""
-        from modules.protocol import ProtocolFormatError
+        from _lumascope.modules.protocol import ProtocolFormatError
 
         big_file = tmp_path / 'huge_protocol.tsv'
         big_file.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
@@ -170,7 +170,7 @@ class TestProtocolFileLimits:
 @pytest.fixture
 def protocol_state_imports():
     """Import ProtocolState and transitions after mocks are installed."""
-    from modules.protocol_state_machine import (
+    from _lumascope.modules.protocol_state_machine import (
         ProtocolState,
         PROTOCOL_STATE_TRANSITIONS,
     )
@@ -248,7 +248,7 @@ class TestProtocolStateTransitions:
 # ===========================================================================
 # 5. Settings snapshot (AppContext) -- no mocks needed, pure Python dataclass
 # ===========================================================================
-from modules.app_context import AppContext
+from _lumascope.modules.app_context import AppContext
 
 
 class TestSettingsSnapshot:
@@ -259,7 +259,7 @@ class TestSettingsSnapshot:
     """
 
     def _session(self, settings):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         return ScopeSession.create(complete_settings(**settings), simulate=True)
@@ -392,7 +392,7 @@ class TestSettingsValidation:
 
     Uses the same validation logic as settings_init._validate_settings
     but reimplemented here to avoid sys.modules mock pollution from other
-    test files that replace modules.settings_init with a MagicMock.
+    test files that replace _lumascope.modules.settings_init with a MagicMock.
     """
 
     # Mirror the required keys from settings_init.py
@@ -448,7 +448,7 @@ class TestLvpLock:
 
     def test_ephemeral_port(self):
         """Port 0 should get an OS-assigned ephemeral port."""
-        from modules.lvp_lock import LvpLock
+        from _lumascope.modules.lvp_lock import LvpLock
 
         with LvpLock(lock_port=0) as lock:
             assert lock.lock() is True
@@ -457,7 +457,7 @@ class TestLvpLock:
 
     def test_fixed_port(self):
         """Fixed port should work as before."""
-        from modules.lvp_lock import LvpLock
+        from _lumascope.modules.lvp_lock import LvpLock
         import socket
 
         # Find a free port first
@@ -469,7 +469,7 @@ class TestLvpLock:
             assert lock.port == port
 
     def test_context_manager_closes(self):
-        from modules.lvp_lock import LvpLock
+        from _lumascope.modules.lvp_lock import LvpLock
 
         lock = LvpLock(lock_port=0)
         lock.lock()
@@ -485,7 +485,7 @@ class TestLvpLock:
         SO_REUSEADDR setsockopt -- on Windows that has SO_REUSEPORT semantics
         and explicitly allows live double-bind.
         """
-        from modules.lvp_lock import LvpLock
+        from _lumascope.modules.lvp_lock import LvpLock
         import socket
 
         # Grab a free port, then release it so we can bind it from LvpLock
@@ -553,14 +553,14 @@ class TestSerialRateLimiting:
 
     def test_default_no_rate_limit(self):
         """Default _min_command_interval should be 0 (no limit)."""
-        from drivers.serialboard import SerialBoard
+        from _lumascope.drivers.serialboard import SerialBoard
 
         board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert board._min_command_interval == 0.0
 
     def test_rate_limit_attributes_exist(self):
         """Rate limit attributes should be set in __init__."""
-        from drivers.serialboard import SerialBoard
+        from _lumascope.drivers.serialboard import SerialBoard
 
         board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert hasattr(board, '_min_command_interval')
@@ -645,7 +645,7 @@ class TestGdiSamplerCtypesSignatures:
         # pin-justified: Win32 FFI restype/argtypes declarations are the
         # contract; there is no Mac-side behavioral seam to exercise them.
         root = pathlib.Path(__file__).parent.parent
-        return (root / 'modules' / 'common_utils.py').read_text()
+        return (root / 'src/_lumascope/modules' / 'common_utils.py').read_text()
 
     def test_getcurrentprocess_restype_declared(self):
         src = self._read_common_utils()
@@ -759,7 +759,7 @@ class TestAxisState:
         one is about the state BEFORE any of that, so it needs the
         untouched construction.
         """
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
@@ -771,14 +771,14 @@ class TestAxisState:
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
         """After a waited move_z, axis is IDLE."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.move_z(1000)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
         """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.start_move_z(500)
         state = sim_scope.motion.get_axis_state('Z')
@@ -788,14 +788,14 @@ class TestAxisState:
 
     def test_axis_state_homing_zhome(self, sim_scope):
         """After home(axis='Z'), Z axis should be IDLE (homing is blocking)."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.home(axis='Z')
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_homing_home(self, sim_scope):
         """After home(), present axes should be IDLE."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope._motion_driver.set_timing_mode('instant')
         sim_scope.motion.home()
@@ -812,7 +812,7 @@ class TestAxisState:
         unlike swapping _motion_driver post-init, which left T in the
         already-built capabilities.
         """
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         scope = build_scope(simulate=True, sim_model='LS850')
         try:
@@ -835,7 +835,7 @@ class TestAxisState:
 
     def test_monitor_reconciles_state(self, sim_scope):
         """Motion monitor thread should detect arrival and set state to IDLE."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.start_move_z(1000)
         # In simulation, the move completes instantly. The motion monitor thread
@@ -846,7 +846,7 @@ class TestAxisState:
 
     def test_disconnect_sets_unknown(self, sim_scope):
         """After disconnect, all axes should be UNKNOWN."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.home(axis='Z')  # Set to IDLE first
         sim_scope.disconnect()
@@ -870,7 +870,7 @@ class TestAxisState:
 
     def test_move_by_a_distance_state_tracking(self, sim_scope):
         """A move by a distance tracks axis state correctly."""
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.move_z_by(100)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -883,7 +883,7 @@ class TestAxisState:
         specific to centering, so it is driven through the move path that
         survives rather than dropped with the member.
         """
-        from modules.lumascope_api import AxisState
+        from _lumascope.modules.lumascope_api import AxisState
 
         sim_scope.motion.move_xy(x_um=500)
         sim_scope.motion.move_xy(y_um=500)
@@ -906,7 +906,7 @@ class TestIssue602_AFExecutorLED:
     def test_af_executor_accepts_led_params(self):
         """AutofocusRunner.run() should accept led_color and led_illumination."""
         import inspect
-        from modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
 
         sig = inspect.signature(AutofocusRunner.run)
         assert 'led_color' in sig.parameters
@@ -914,12 +914,12 @@ class TestIssue602_AFExecutorLED:
 
     def test_af_executor_turns_led_on(self):
         """AF executor should call led_on when led_color is provided."""
-        from modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF_TEST')  # noqa: F841 -- deferred
         af = AutofocusRunner(scope=scope)
@@ -934,7 +934,7 @@ class TestIssue602_AFExecutorLED:
 
     def test_af_executor_led_off_in_cancel(self):
         """AF executor cancel() should turn off LED."""
-        from modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
         from unittest.mock import patch
         from tests.protocol_drives import held_run_claim
 
@@ -942,8 +942,8 @@ class TestIssue602_AFExecutorLED:
         bind_settings_like_a_session(scope)
         home_sim_scope(scope)
         park_z(scope, 5000.0)
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF_TEST')  # noqa: F841 -- deferred
         af = AutofocusRunner(scope=scope)
@@ -1031,7 +1031,7 @@ def _run_cleanup_kwargs(**overrides):
     that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
     override the step or state under test.
     """
-    from modules.protocol_state_machine import ProtocolState
+    from _lumascope.modules.protocol_state_machine import ProtocolState
 
     ending = overrides.pop(
         'ending',
@@ -1070,9 +1070,9 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
     def test_cleanup_collects_errors(self, monkeypatch):
         """Every failing cleanup step must be collected; no failure may
         abort the sweep (fault tolerance -- all steps run regardless)."""
-        from modules.notification_center import notifications
-        from modules.protocol_cleanup import run_cleanup
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.notification_center import notifications
+        from _lumascope.modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         captured = []
         monkeypatch.setattr(
@@ -1117,8 +1117,8 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
     def test_cleanup_summary_notify(self, monkeypatch):
         """A single failing step must produce exactly one summary warning
         (one popup, not one per step)."""
-        from modules.notification_center import notifications
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.notification_center import notifications
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         captured = []
         monkeypatch.setattr(
@@ -1140,8 +1140,8 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
     def test_clean_run_does_not_notify(self, monkeypatch):
         """Control: a cleanup with no failing step must not warn."""
-        from modules.notification_center import notifications
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.notification_center import notifications
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         captured = []
         monkeypatch.setattr(
@@ -1168,7 +1168,7 @@ class TestSetBinningSizeAnswersByRaising:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/camera.py',
+            'src/_lumascope/modules/lumascope_api/camera.py',
             'set_binning',
             params=['self', 'size'],
             returns='FrameSize | None',
@@ -1186,7 +1186,7 @@ class TestSetBinningSizeAnswersByRaising:
         rejected factor as current."""
         import pytest
 
-        from modules.exceptions import CameraSettingRejected
+        from _lumascope.modules.exceptions import CameraSettingRejected
 
         _imaging, camera, _cam = _sim_backed_imaging()
         camera.set_binning(2)
@@ -1210,7 +1210,9 @@ class TestSetBinningSizeAnswersByRaising:
         # contract text lives on the impl -- the public is a thin
         # dispatcher whose docstring points here, the same shape as the
         # other dispatched setters.
-        source = pathlib.Path('modules/lumascope_api/camera.py').read_text(encoding='utf-8')
+        source = pathlib.Path('src/_lumascope/modules/lumascope_api/camera.py').read_text(
+            encoding='utf-8'
+        )
         idx = source.find('def _set_binning_impl(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
@@ -1223,7 +1225,7 @@ class TestSetBinningSizeAnswersByRaising:
         test_pylon_setter_transient_writes)."""
         from pypylon import genicam
 
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
         cam.active.BinningVertical.SetValue.side_effect = genicam.TimeoutException('slow bus')
@@ -1250,7 +1252,7 @@ class TestSetBinningSizeAnswersByRaising:
         """Tier 3a / C1: SDK failure surfaces as HardwareError (a
         RuntimeException's answer for every writer is
         test_pylon_setter_transient_writes)."""
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
@@ -1261,7 +1263,7 @@ class TestSetBinningSizeAnswersByRaising:
 
     def test_idscamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C5."""
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         cam = _bare_ids_camera()
         cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = RuntimeError('sdk')
@@ -1275,10 +1277,10 @@ class TestSetBinningSizeAnswersByRaising:
         drop the camera mid-resize (matches set_binning_size, same machinery)."""
         from tests.ast_seams import assert_def
 
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         assert_def(
-            'drivers/idscamera.py',
+            'src/_lumascope/drivers/idscamera.py',
             'set_pixel_format',
             returns='bool',
             msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
@@ -1307,7 +1309,7 @@ class TestHomeRaises:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/motion.py',
+            'src/_lumascope/modules/lumascope_api/motion.py',
             'home',
             returns='None',
             msg='MotionAPI.home returns nothing and raises its failures (Rule 37)',
@@ -1316,7 +1318,7 @@ class TestHomeRaises:
     @staticmethod
     def _errors(centre_posts):
         """The error posts, as (component, title, body)."""
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         return [
             (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
@@ -1396,7 +1398,7 @@ class TestHomeRaises:
     def test_homing_docstrings_document_raises(self):
         """Each homing method's docstring documents what it raises
         (Rule 38) -- runtime introspection, not a source pin."""
-        from modules.lumascope_api.motion import MotionAPI
+        from _lumascope.modules.lumascope_api.motion import MotionAPI
 
         for method in (MotionAPI.home,):
             for raised in ('HomingFaultError', 'HomingStoppedError'):
@@ -1405,7 +1407,7 @@ class TestHomeRaises:
                 )
 
     def test_motorboard_homing_docstrings_document_raises(self):
-        from drivers.motorboard import MotorBoard
+        from _lumascope.drivers.motorboard import MotorBoard
 
         for method in (MotorBoard.zhome, MotorBoard.home, MotorBoard.thome):
             assert 'Raises:' in (method.__doc__ or ''), (
@@ -1424,7 +1426,7 @@ class TestDisconnectRaisesAfterTheTeardown:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/_lumascope.py',
+            'src/_lumascope/modules/lumascope_api/_lumascope.py',
             'disconnect',
             class_name='Lumascope',
             returns='None',
@@ -1432,8 +1434,8 @@ class TestDisconnectRaisesAfterTheTeardown:
         )
 
     def test_disconnect_led_failure_raises_after_resetting_the_slot(self, sim_scope, monkeypatch):
-        from drivers.null_ledboard import NullLEDBoard
-        from modules.exceptions import ScopeDisconnectError
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.modules.exceptions import ScopeDisconnectError
 
         monkeypatch.setattr(
             sim_scope._led_driver,
@@ -1451,8 +1453,8 @@ class TestDisconnectRaisesAfterTheTeardown:
     def test_disconnect_motion_failure_raises_after_resetting_the_slot(
         self, sim_scope, monkeypatch
     ):
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.exceptions import ScopeDisconnectError
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
+        from _lumascope.modules.exceptions import ScopeDisconnectError
 
         monkeypatch.setattr(
             sim_scope._motion_driver,
@@ -1470,9 +1472,9 @@ class TestDisconnectRaisesAfterTheTeardown:
     def test_disconnect_partial_failure_still_tears_down_others(self, sim_scope, monkeypatch):
         """Best-effort teardown: an early LED failure must not skip the
         motion + camera teardown or the state reset."""
-        from drivers.null_ledboard import NullLEDBoard
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.exceptions import ScopeDisconnectError
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
+        from _lumascope.modules.exceptions import ScopeDisconnectError
 
         monkeypatch.setattr(
             sim_scope._led_driver,
@@ -1489,7 +1491,7 @@ class TestDisconnectRaisesAfterTheTeardown:
         )
 
     def test_disconnect_docstring_documents_raises(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         assert 'Raises:' in (Lumascope.disconnect.__doc__ or ''), (
             'disconnect docstring must have a Raises: section'
@@ -1507,7 +1509,7 @@ class TestDisconnectRaisesAfterTheTeardown:
         # Replace the camera with one whose disconnect raises.
         from unittest.mock import MagicMock
 
-        from modules.exceptions import ScopeDisconnectError
+        from _lumascope.modules.exceptions import ScopeDisconnectError
 
         sim_scope._camera_driver = MagicMock()
         sim_scope._camera_driver.disconnect = MagicMock(side_effect=RuntimeError('boom'))
@@ -1529,7 +1531,7 @@ class TestEnterEngineeringModeRaises:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/ledboard.py',
+            'src/_lumascope/drivers/ledboard.py',
             'enter_engineering_mode',
             params=['self', 'timeout'],
             returns='bool',
@@ -1537,7 +1539,7 @@ class TestEnterEngineeringModeRaises:
         )
 
     def test_enter_engineering_mode_docstring_documents_raises(self):
-        from drivers.ledboard import LEDBoard
+        from _lumascope.drivers.ledboard import LEDBoard
 
         assert 'Raises:' in (LEDBoard.enter_engineering_mode.__doc__ or ''), (
             'enter_engineering_mode docstring must document HardwareError (Rule 38)'
@@ -1548,10 +1550,10 @@ class TestG4_MotorLogSuppression:
     """G4: Motor board should suppress only connect errors, not entire thread logging."""
 
     def test_no_pause_thread_in_motorboard(self):
-        """motorboard.py must NOT call lvp_logger.pause_thread()."""
+        """motorboard.py must NOT call _lumascope.lvp_logger.pause_thread()."""
         import pathlib
 
-        source = pathlib.Path('drivers/motorboard.py').read_text(encoding='utf-8')
+        source = pathlib.Path('src/_lumascope/drivers/motorboard.py').read_text(encoding='utf-8')
         assert 'pause_thread()' not in source, (
             'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
@@ -1566,8 +1568,8 @@ class TestRule1_MotorBoardNoNotifications:
     def test_motorboard_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/motorboard.py').read_text(encoding='utf-8')
-        assert 'from modules.notification_center import notifications' not in source, (
+        source = pathlib.Path('src/_lumascope/drivers/motorboard.py').read_text(encoding='utf-8')
+        assert 'from _lumascope.modules.notification_center import notifications' not in source, (
             'MotorBoard must not import notifications -- Rule 1 (call down, not up)'
         )
 
@@ -1581,9 +1583,9 @@ class TestRule1_CameraNoNotifications:
     def test_camera_base_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/camera.py').read_text(encoding='utf-8')
-        assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/camera.py must not import notifications -- Rule 1'
+        source = pathlib.Path('src/_lumascope/drivers/camera.py').read_text(encoding='utf-8')
+        assert 'from _lumascope.modules.notification_center import notifications' not in source, (
+            'src/_lumascope/drivers/camera.py must not import notifications -- Rule 1'
         )
 
 
@@ -1597,9 +1599,9 @@ class TestRule1_PylonCameraNoNotifications:
     def test_pyloncamera_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text(encoding='utf-8')
-        assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/pyloncamera.py must not import notifications -- Rule 1'
+        source = pathlib.Path('src/_lumascope/drivers/pyloncamera.py').read_text(encoding='utf-8')
+        assert 'from _lumascope.modules.notification_center import notifications' not in source, (
+            'src/_lumascope/drivers/pyloncamera.py must not import notifications -- Rule 1'
         )
 
 
@@ -1614,9 +1616,9 @@ class TestRule1_SerialBoardNoNotifications:
     def test_serialboard_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/serialboard.py').read_text(encoding='utf-8')
-        assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/serialboard.py must not import notifications -- Rule 1'
+        source = pathlib.Path('src/_lumascope/drivers/serialboard.py').read_text(encoding='utf-8')
+        assert 'from _lumascope.modules.notification_center import notifications' not in source, (
+            'src/_lumascope/drivers/serialboard.py must not import notifications -- Rule 1'
         )
 
 
@@ -1635,7 +1637,7 @@ class TestPylonChunkTimestampEnabled:
         # _CHUNK_TARGETS_ALWAYS is the tuple enabled by default in
         # _enable_validity_chunks; Timestamp must be in it for every
         # camera to surface ChunkTimestamp at grab time.
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert 'Timestamp' in PylonCamera._CHUNK_TARGETS_ALWAYS, (
             "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for "
@@ -1648,7 +1650,7 @@ class TestPylonChunkTimestampEnabled:
         under the 'Timestamp' dict key -- without the mapping, the
         timestamp never reaches the metadata writer even when the
         chunk is enabled."""
-        from drivers.pyloncamera import _read_validity_chunks
+        from _lumascope.drivers.pyloncamera import _read_validity_chunks
 
         class _Node:
             def __init__(self, value):
@@ -1665,7 +1667,7 @@ class TestPylonChunkTimestampEnabled:
         (Lumascope.generate_image_metadata) can read it without a
         hasattr() guard. Proven on a constructed subclass -- the sim
         camera runs the real base __init__."""
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
 
         cam = SimulatedCamera()
         assert hasattr(cam, 'timestamp_tick_frequency_hz'), (
@@ -1817,7 +1819,10 @@ class TestAOC1_SaturationCheckShortCircuit:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'lumascope_api'
+            / 'imaging.py'
         ).read_text()
         assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src
         assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' not in src, (
@@ -1863,9 +1868,9 @@ def _bare_protocol_writer(**overrides):
 
     import numpy as np
 
-    from modules.image_mode import ImageCaptureConfig
-    from modules.protocol_image_writer import ProtocolImageWriter
-    from modules.run_events import RunEvents
+    from _lumascope.modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
+    from _lumascope.modules.run_events import RunEvents
 
     kwargs = {
         'scope': MagicMock(),
@@ -1914,7 +1919,7 @@ def _make_capture_runner(**overrides):
     One owner of the seven-MagicMock construction so the constructor signature
     is pinned in a single place, not re-pasted per test class.
     """
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
     kwargs = {
         'scope': MagicMock(),
@@ -2011,11 +2016,11 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 
         import numpy as np
 
-        from modules import image_save
+        from _lumascope.modules import image_save
 
         recorded = {}
         monkeypatch.setattr(
-            'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
+            '_lumascope.modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
         monkeypatch.setattr(
             image_save,
@@ -2051,16 +2056,16 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         with -- the run-start value, not a per-save settings read."""
         import numpy as np
 
-        from modules import image_mode
-        from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_image_writer import CapturedFrame
+        from _lumascope.modules import image_mode
+        from _lumascope.modules.image_mode import ImageCaptureConfig
+        from _lumascope.modules.protocol_image_writer import CapturedFrame
 
         writer = _bare_protocol_writer(
             image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
         )
         recorded = []
         monkeypatch.setattr(
-            'modules.protocol_image_writer.save_image',
+            '_lumascope.modules.protocol_image_writer.save_image',
             lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'out.tiff'),
         )
         writer.write_capture(
@@ -2089,9 +2094,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         and ctx.settings has no say over the in-flight run's encoding."""
         from types import SimpleNamespace
 
-        import modules.app_context as app_context
-        from modules import image_mode
-        from modules.image_mode import ImageCaptureConfig
+        import _lumascope.modules.app_context as app_context
+        from _lumascope.modules import image_mode
+        from _lumascope.modules.image_mode import ImageCaptureConfig
 
         lock = threading.Lock()
         settings = _LockWatchingSettings(
@@ -2127,7 +2132,9 @@ class TestPIW1_NoTheatricalDelCapturedImage:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'protocol_image_writer.py'
         ).read_text()
         assert 'del captured_image' not in src, (
             'PIW-1: theatrical `del captured_image` should be removed -- IOTask kwargs holds the ref.'
@@ -2154,7 +2161,10 @@ class TestPIW2_DisksUsageDeduped:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'lumascope_api'
+            / '_lumascope.py'
         ).read_text()
         # The exact pattern of the redundant warn-only check.
         assert 'if (common_utils.check_disk_space() < 1024):' not in src, (
@@ -2172,20 +2182,20 @@ class TestPIW2_DisksUsageDeduped:
         and never reach save_image -- the useful check stays load-bearing."""
         import numpy as np
 
-        from modules.protocol_image_writer import CapturedFrame
+        from _lumascope.modules.protocol_image_writer import CapturedFrame
 
         aborts = []
         writer = _bare_protocol_writer(abort_fn=lambda: aborts.append(1))
         monkeypatch.setattr(
-            'modules.common_utils.check_disk_space_ok',
+            '_lumascope.modules.common_utils.check_disk_space_ok',
             lambda folder, min_mb: (False, 12.0),
         )
         saves = []
         monkeypatch.setattr(
-            'modules.protocol_image_writer.save_image',
+            '_lumascope.modules.protocol_image_writer.save_image',
             lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
-        from modules.protocol_image_writer import NotWritten
+        from _lumascope.modules.protocol_image_writer import NotWritten
 
         # Answered as not written, so the run's file count reads it so.
         answered = writer.write_capture(
@@ -2239,7 +2249,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
 
     def _restore_with(self, monkeypatch, shown_layer):
         import ui.ui_helpers as ui_helpers
-        from modules.scope_session import ShownChannel
+        from _lumascope.modules.scope_session import ShownChannel
 
         ctx = MagicMock()
         ctx.session.shown_channel = ShownChannel(shown_layer, lit=False)
@@ -2261,7 +2271,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
         for the GUI's run_ended handler, and must not drift back."""
         import inspect
 
-        import modules.protocol_cleanup as protocol_cleanup
+        import _lumascope.modules.protocol_cleanup as protocol_cleanup
 
         src = inspect.getsource(protocol_cleanup)
         assert 'shader' not in src.lower(), 'protocol_cleanup must not restore a GUI shader'
@@ -2269,8 +2279,8 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
     def test_a_raising_restore_is_reported_once_as_itself(self, monkeypatch):
         """A run_ended handler that raises is reported by the event delivery,
         once, as its own exception -- never as a scope cleanup failure."""
-        from modules.notification_center import notifications
-        from modules.run_events import RunEvents, deliver
+        from _lumascope.modules.notification_center import notifications
+        from _lumascope.modules.run_events import RunEvents, deliver
 
         reported = []
         monkeypatch.setattr(
@@ -2381,8 +2391,8 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         """The abort/normal decision must read the state BEFORE the
         COMPLETING transition; reading after would misclassify every
         cleanup as normal end."""
-        from modules.protocol_cleanup import run_cleanup
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         order = []
         state = {'value': ProtocolState.RUNNING}
@@ -2412,8 +2422,8 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         """On abort (ERROR at entry) and on normal end alike, the run's
         pending writes are left to be written, never dropped (D6).
         io_executor clears in both."""
-        from modules.protocol_cleanup import run_cleanup
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         def _with_one_write_held(**overrides):
             # One captured frame handed to the run's batch and still queued
@@ -2467,7 +2477,10 @@ class TestPF5_ImageBufferRetired:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'lumascope_api'
+            / '_lumascope.py'
         ).read_text()
         # Property declaration gone.
         assert 'def image_buffer(self):' not in src, (
@@ -2485,7 +2498,10 @@ class TestPF5_ImageBufferRetired:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'lumascope_api'
+            / '_lumascope.py'
         ).read_text()
         # The internal _image_buffer attribute init gone.
         assert 'self._image_buffer = None' not in src, (
@@ -2510,7 +2526,7 @@ class TestPF5_ImageBufferRetired:
         grab_a_frame_made_after_now(cam)
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
-            'modules.image_utils.convert_to_8bit',
+            '_lumascope.modules.image_utils.convert_to_8bit',
             lambda image, *args, **kwargs: sentinel,
         )
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
@@ -2526,7 +2542,9 @@ class TestPF5_ImageBufferRetired:
         bind_settings_like_a_session(
             imaging._scope, scale_bar={'enabled': True}, objective_id='4x Oly'
         )
-        monkeypatch.setattr('modules.image_utils.add_scale_bar', lambda **kwargs: sentinel)
+        monkeypatch.setattr(
+            '_lumascope.modules.image_utils.add_scale_bar', lambda **kwargs: sentinel
+        )
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
         assert out is sentinel, 'get_image must return the add_scale_bar result'
 
@@ -2540,10 +2558,10 @@ class TestPF1_CpuPoolRetired:
     through SequencedCaptureRunner.__init__ was always None.
 
     Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
-    replacement pool -- modules/postprocessing/ and modules/live_processing/
+    replacement pool -- src/_lumascope/modules/postprocessing/ and src/_lumascope/modules/live_processing/
     will be built greenfield when their first feature lands.
 
-    Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
+    Fix: deleted src/_lumascope/modules/sequenced_capture_writer.py entirely. Removed
     cpu_pool / use_multiprocessing from lumaviewpro.py (declarations,
     init block, shutdown block, executor kwarg). Removed cpu_pool param
     from SequencedCaptureRunner.__init__ + the now-unused
@@ -2554,9 +2572,13 @@ class TestPF1_CpuPoolRetired:
     def test_sequenced_capture_writer_module_deleted(self):
         from pathlib import Path
 
-        path = Path(__file__).resolve().parent.parent / 'modules' / 'sequenced_capture_writer.py'
+        path = (
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'sequenced_capture_writer.py'
+        )
         assert not path.exists(), (
-            'PF-1: modules/sequenced_capture_writer.py should be deleted (dead module).'
+            'PF-1: src/_lumascope/modules/sequenced_capture_writer.py should be deleted (dead module).'
         )
 
     def test_lumaviewpro_no_cpu_pool_or_use_multiprocessing(self):
@@ -2577,7 +2599,9 @@ class TestPF1_CpuPoolRetired:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'sequenced_capture_runner.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'sequenced_capture_runner.py'
         ).read_text()
         assert 'cpu_pool' not in src, (
             'PF-1: cpu_pool should be removed from SequencedCaptureRunner.'
@@ -2612,9 +2636,9 @@ from tests.scope_fakes import (
     swap_lanes,
 )
 from tests.installation_fixtures import copy_installation_files
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -2646,8 +2670,8 @@ def _sim_backed_imaging():
     catalogue it reads, and capabilities
     (the optics the scale bar's pixel size is resolved from).
     """
-    from drivers.simulated_camera import SimulatedCamera
-    from modules.lumascope_api import Lumascope
+    from _lumascope.drivers.simulated_camera import SimulatedCamera
+    from _lumascope.modules.lumascope_api import Lumascope
 
     cam = SimulatedCamera()
     cam.connect()
@@ -2658,7 +2682,7 @@ def _sim_backed_imaging():
     # No executor: the public dispatchers run their body on the calling
     # thread, so these tests exercise the public surface inline.
     give_stub_lanes(scope)
-    from modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     scope.objective_helper = ObjectiveLoader()
     scope.runtime_state = RuntimeState(scope)
@@ -2705,13 +2729,15 @@ class TestPylonCancelHandlingDefensive:
 
         # pin-justified: the bench-witnessed cancel-code constant and its
         # explanatory comment pair are the contract (no SDK symbol exists).
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_buffer_cancel_constant_value_matches_bench(self):
         """The bench-witnessed decimal from session 65 (3791651074) is the
         authoritative cancel-code constant. If pypylon ever exposes
         pylon.GENERIC_BUFFER_CANCELED or similar, bump this."""
-        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
 
         assert _PYLON_ERR_BUFFER_CANCELED == 3791651074, (
             'Buffer-cancel constant must match the bench-witnessed value '
@@ -2787,7 +2813,9 @@ class TestPylonPayloadDiscardedClassification:
     def _pyloncamera_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_payload_discarded_constant_value(self):
         """The constant must match the bench-witnessed err_code, pinned by
@@ -2798,7 +2826,7 @@ class TestPylonPayloadDiscardedClassification:
         3791978514 and never matched, leaving every discard counted as a
         failure. Pin by the decimal so a hex slip cannot silently recur. If
         Basler renames or splits the code in a future SDK rev, bump this."""
-        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
         assert _PYLON_ERR_PAYLOAD_DISCARDED == 3791651346, (
             'Payload-discarded constant must match the bench-witnessed '
@@ -2838,7 +2866,7 @@ class TestPylonPayloadDiscardedClassification:
         toward MAX_CONSECUTIVE_FAILURES -- counting would falsely trip
         the auto-disconnect during AF-heavy protocols."""
 
-        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
         worker, base = _bare_grab_worker()
         gr = MagicMock()
@@ -2850,7 +2878,7 @@ class TestPylonPayloadDiscardedClassification:
         """Cancelled buffers (StopGrabbing mid-flight) are SDK lifecycle
         events, not transport failures."""
 
-        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
 
         worker, base = _bare_grab_worker()
         gr = MagicMock()
@@ -2901,13 +2929,15 @@ class TestPylonDeviceNotFoundClassification:
     def _pyloncamera_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_device_not_found_constant_value(self):
         """The constant must match the bench-witnessed err_code (433)
         from the LVP_Logbumped.wire session. If Basler renames the code
         in a future SDK rev, bump this and update the comment."""
-        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
         assert _PYLON_ERR_DEVICE_NOT_FOUND == 433, (
             'Device-not-found constant must match the bench-witnessed '
@@ -2937,7 +2967,7 @@ class TestPylonDeviceNotFoundClassification:
         schedules async teardown off the SDK callback thread. A cleanup
         that drops this classification would reintroduce the 4-second
         cascade delay + log spam."""
-        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
         handler, parent = _bare_image_handler()
         gr = MagicMock()
@@ -2953,7 +2983,7 @@ class TestPylonDeviceNotFoundClassification:
         Stage B's queue) and hands NOTHING to the worker -- the
         consecutive-failure counter exists for transport degradation,
         and inflating it from one physical event would be misleading."""
-        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
+        from _lumascope.drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
         handler, _parent = _bare_image_handler()
         gr = MagicMock()
@@ -3078,9 +3108,9 @@ class TestPylonDiagnosticProbe:
         """Construct a Lumascope without running its full __init__,
         attach the supplied fake camera. Phase 5b: also inject
         DiagnosticsAPI so callers can use scope.diagnostics.X."""
-        from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.camera import CameraAPI
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api.camera import CameraAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -3096,14 +3126,14 @@ class TestPylonDiagnosticProbe:
 
     def test_method_exists_on_diagnostics_api(self):
         """The API method is callable from the DiagnosticsAPI class."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         assert hasattr(DiagnosticsAPI, 'run_pylon_diagnostic_probe')
         assert callable(DiagnosticsAPI.run_pylon_diagnostic_probe)
 
     def test_no_camera_is_refused_naming_it(self):
         """With no camera the probe is refused, naming the camera."""
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         scope = self._make_scope_with_fake_camera(None)
         with pytest.raises(HardwareCommandRefusedError) as exc:
@@ -3112,7 +3142,7 @@ class TestPylonDiagnosticProbe:
 
     def test_an_inactive_camera_is_refused_naming_it(self):
         """Camera object exists but inactive: no camera is connected."""
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         class _Fake:
             active = None
@@ -3144,7 +3174,7 @@ class TestPylonDiagnosticProbe:
         """A supported=True snapshot is stamped with the active driver's SDK
         (not a hardcoded Pylon assumption) and written to the driver-neutral
         camera_probe/ folder."""
-        import modules.lumascope_api.diagnostics as diag
+        import _lumascope.modules.lumascope_api.diagnostics as diag
 
         monkeypatch.setattr(diag, 'log_dir', str(tmp_path))
 
@@ -3169,14 +3199,14 @@ class TestPylonDiagnosticProbe:
 
     def test_dltl_filename_token_off(self):
         """Mode=Off -> 'dltloff'."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         token = DiagnosticsAPI._dltl_filename_token({'dltl_mode': 'Off'})
         assert token == 'dltloff'
 
     def test_dltl_filename_token_on_round(self):
         """Mode=On with 160 MB/s -> 'dltl160M'."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         token = DiagnosticsAPI._dltl_filename_token(
             {
@@ -3191,7 +3221,7 @@ class TestPylonDiagnosticProbe:
         v4 author flagged the case where a sweep value has sub-MB
         precision; bare int() would render 197.99 MB/s as dltl197M
         which is wrong-by-1; round() avoids that."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         token = DiagnosticsAPI._dltl_filename_token(
             {
@@ -3205,7 +3235,7 @@ class TestPylonDiagnosticProbe:
 
     def test_dltl_filename_token_unknown(self):
         """Missing config -> 'dltlunknown'."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         assert DiagnosticsAPI._dltl_filename_token({}) == 'dltlunknown'
         assert DiagnosticsAPI._dltl_filename_token({'dltl_mode': '<missing>'}) == 'dltlunknown'
@@ -3213,7 +3243,7 @@ class TestPylonDiagnosticProbe:
     def test_human_os_version_does_not_raise(self):
         """The OS-version helper must never raise, even on platforms
         where mac_ver/win32_ver return empty tuples."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         v = DiagnosticsAPI._human_os_version()
         assert isinstance(v, str)
@@ -3222,7 +3252,7 @@ class TestPylonDiagnosticProbe:
     def test_safe_pylon_versions_returns_dict(self):
         """The version helper returns a dict with both keys, even when
         pypylon is absent (returns Nones)."""
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         result = DiagnosticsAPI._safe_pylon_versions()
         assert isinstance(result, dict)
@@ -3235,7 +3265,7 @@ class TestPylonDiagnosticProbe:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py',
+            'src/_lumascope/drivers/pyloncamera.py',
             'read_diagnostic_snapshot',
             msg='PylonCamera must implement read_diagnostic_snapshot for '
             'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
@@ -3250,11 +3280,13 @@ class TestPylonDiagnosticProbe:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/idscamera.py',
+            'src/_lumascope/drivers/idscamera.py',
             'read_diagnostic_snapshot',
             msg='IDSCamera must define read_diagnostic_snapshot.',
         )
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'idscamera.py'
+        ).read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
         assert "'supported': True" in body or '"supported": True' in body, (
             'IDS read_diagnostic_snapshot is now implemented and must report '
@@ -3274,7 +3306,7 @@ class TestDeviceLinkThroughputLimitSetter:
     """
 
     def _make_scope_with_fake_camera(self, fake_camera):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -3293,7 +3325,7 @@ class TestDeviceLinkThroughputLimitSetter:
         assert callable(ImagingAPI._set_device_link_throughput_limit)
 
     def test_no_camera_returns_false(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -3365,7 +3397,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py',
+            'src/_lumascope/drivers/pyloncamera.py',
             'set_device_link_throughput_limit',
             msg='PylonCamera must implement set_device_link_throughput_limit '
             'so the bench-probe sweep can stay above the driver layer.',
@@ -3377,7 +3409,9 @@ class TestDeviceLinkThroughputLimitSetter:
         (per the STALL-1 anti-pattern lesson)."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
         body = _function_source(src, 'set_device_link_throughput_limit')
         assert 'with self.update_camera_config' not in body, (
             'PylonCamera.set_device_link_throughput_limit must NOT wrap '
@@ -3389,7 +3423,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/idscamera.py',
+            'src/_lumascope/drivers/idscamera.py',
             'set_device_link_throughput_limit',
             msg='IDSCamera must have a set_device_link_throughput_limit '
             'stub so the API method does not need to know which driver '
@@ -3403,7 +3437,7 @@ class TestDeviceLinkThroughputLimitSetter:
         contract; matches set_binning_size / set_pixel_format)."""
         from pypylon import genicam
 
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
         cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = genicam.RuntimeException(
@@ -3437,7 +3471,7 @@ class TestPylonAsciiOnlyInLoggerStrings:
         # pin-justified: ASCII-only log text is the contract (logger-safe
         # output); the deg-C spelling is the load-bearing detail.
         return (
-            (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py')
+            (Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py')
             .read_text()
             .splitlines()
         )
@@ -3499,7 +3533,7 @@ class TestPylonStateMutationViaMarkDisconnected:
     implementation per capability).
 
     The canonical write-path for "camera is disconnected" is
-    Camera._mark_disconnected (drivers/camera.py): it acquires _state_lock
+    Camera._mark_disconnected (src/_lumascope/drivers/camera.py): it acquires _state_lock
     and sets _device_removed=True and _active=None atomically, plus emits
     the boundary-transition log line. Direct writes to either flag from
     other call sites bypass the lock invariant and the log.
@@ -3540,7 +3574,7 @@ class TestPylonStateMutationViaMarkDisconnected:
         _mark_disconnected (safe from any thread per its docstring) and
         hand the heavy teardown to the async path rather than running it
         on the SDK callback thread."""
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         parent = _bare_pylon_camera()
         parent._schedule_async_teardown = MagicMock()
@@ -3639,7 +3673,7 @@ class TestPylonDisconnectStopGrabbingLogged:
         warning naming the failed step (a bare `pass` is a Rule 5
         violation -- zero log evidence) and must not block the rest of
         teardown."""
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         cam = _disconnectable_pylon_camera()
         cam.is_grabbing = lambda: True
@@ -3682,7 +3716,9 @@ class TestPylonOnImageGrabbedExceptionContext:
     def _pyloncamera_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_on_image_grabbed_outer_except_uses_contextual_message(self):
         """An unexpected exception inside the callback must be swallowed
@@ -3690,7 +3726,7 @@ class TestPylonOnImageGrabbedExceptionContext:
         to std::terminate on Windows) and logged with a message that
         names the callback -- a bare exception line gives the operator
         no indication it came from the grab path."""
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         logged = []
         original = pyloncamera._log_safely
@@ -3737,7 +3773,7 @@ class TestPylonOnImageGrabbedOwningCopy:
         copy ctor was invoked on the raw grabResult."""
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         handler, _parent = _bare_image_handler()
         gr = MagicMock()
@@ -3784,7 +3820,7 @@ class TestPylonTimeoutNameConsistency:
     same body is almost always a rename-leftover NameError waiting to
     fire when the relevant code path executes.
 
-    Found-by-pattern: drivers/pyloncamera.py::grab_new_capture had
+    Found-by-pattern: src/_lumascope/drivers/pyloncamera.py::grab_new_capture had
     `timeout_s` as the param but two body sites (the queue.Empty
     warning f-string and the profile_trace finally block) referenced
     bare `timeout`. NameError fired on every grab timeout AND on
@@ -3799,7 +3835,9 @@ class TestPylonTimeoutNameConsistency:
         import ast
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
         tree = ast.parse(src)
 
         hits = []
@@ -3863,7 +3901,9 @@ class TestCameraMarkDisconnectedDoesNotReleaseActiveOnCallbackThread:
         import ast
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'camera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'camera.py'
+        ).read_text()
         tree = ast.parse(src)
 
         found = None
@@ -3884,9 +3924,11 @@ class TestCameraMarkDisconnectedDoesNotReleaseActiveOnCallbackThread:
                                 bad_assigns.append(sub.lineno)
                 break
 
-        assert found is not None, 'Could not find Camera._mark_disconnected in drivers/camera.py.'
+        assert found is not None, (
+            'Could not find Camera._mark_disconnected in src/_lumascope/drivers/camera.py.'
+        )
         assert bad_assigns == [], (
-            'drivers/camera.py::_mark_disconnected must NOT assign to '
+            'src/_lumascope/drivers/camera.py::_mark_disconnected must NOT assign to '
             'self._active. Dropping that reference here fires '
             '~CInstantCamera synchronously, which races concurrent SDK '
             'work when called from the SDK callback thread (pypylon '
@@ -4000,10 +4042,12 @@ class TestPylonUnderrunCounterSingleCanonical:
     def _pyloncamera_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_canonical_underrun_node_name_constant(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert PylonCamera._UNDERRUN_NODE_NAME == 'Statistic_Buffer_Underrun_Count', (
             'Single canonical underrun-counter name '
@@ -4106,7 +4150,7 @@ class TestPylonGigeDiagnosticNodeCoverage:
         """The 3 GigE-specific stream-grabber stat counters must be in
         both _DIAG_STAT_NODES (probed pre/post) and _DIAG_STAT_COUNTERS
         (delta computation)."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         for counter in (
             'Statistic_Resend_Packet_Count',
@@ -4135,7 +4179,7 @@ class TestPylonGigeDiagnosticNodeCoverage:
 
 def _pylon_lines(caplog, logger_name, level):
     """The lines at ``level`` (a level name) the Pylon driver's own code wrote to ``logger_name``."""
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
     from tests.log_capture import records_of
 
     return [
@@ -4147,7 +4191,7 @@ def _pylon_lines(caplog, logger_name, level):
 
 def _pylon_cam_warnings(caplog):
     """The WARNING lines the Pylon driver wrote to its camera log."""
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     return _pylon_lines(caplog, pyloncamera._cam_log.name, 'WARNING')
 
@@ -4216,7 +4260,7 @@ class TestPylonDltlClampAndDocWarnings:
         # contract for picking a DLTL value (per-camera spec pages name
         # rolling-shutter distortion when too low, corrupt/dropped
         # frames when too high); the warning text itself is the artifact.
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         docstring = (PylonCamera.set_device_link_throughput_limit.__doc__ or '').lower()
         assert 'rolling shutter' in docstring or 'rolling-shutter' in docstring, (
@@ -4249,7 +4293,7 @@ class TestPylonResyncProminentLog:
         (the camera log's warning messages, stats-trace calls)."""
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         trace_mod = MagicMock()
         with (
@@ -4268,7 +4312,7 @@ class TestPylonResyncProminentLog:
     def test_resync_node_in_stats_node_names(self):
         """Statistic_Resynchronization_Count must be in the live
         stats poll set so the delta tracker has fresh data."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert 'Statistic_Resynchronization_Count' in PylonCamera._STATS_NODE_NAMES
 
@@ -4323,7 +4367,7 @@ class TestPylonTemperatureStateMonitoring:
     def _poll_once(self, caplog, cam):
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         trace_mod = MagicMock()
         with (
@@ -4405,7 +4449,7 @@ class TestPylonMissedFrameDeltaLog:
     def _poll_once(self, caplog, cam):
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         trace_mod = MagicMock()
         with (
@@ -4422,7 +4466,7 @@ class TestPylonMissedFrameDeltaLog:
         return warnings, stats_calls
 
     def test_missed_frame_node_in_stats_node_names(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert 'Statistic_Missed_Frame_Count' in PylonCamera._STATS_NODE_NAMES, (
             'Statistic_Missed_Frame_Count must be in _STATS_NODE_NAMES '
@@ -4490,7 +4534,7 @@ class TestPylonBslPrefixedNodeFallbacks:
             return self._value
 
     def test_node_attr_get_prefers_first_resolvable_name(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _Cam:
             BslEffectiveExposureTime = self._PlainNode(5000.0)
@@ -4503,7 +4547,7 @@ class TestPylonBslPrefixedNodeFallbacks:
         )
 
     def test_node_attr_get_falls_back_when_first_name_absent(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _Cam:
             ExposureTime = self._PlainNode(4000.0)
@@ -4514,7 +4558,7 @@ class TestPylonBslPrefixedNodeFallbacks:
     def test_safe_node_falls_back_across_names(self):
         """_safe_node must probe each candidate name in order so call
         sites can pass Bsl-prefixed-then-legacy pairs."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         nodemap = _RecordingNodeMap({'ResultingFrameRate': 10.0})
         value = PylonCamera._safe_node(
@@ -4545,7 +4589,7 @@ class TestPylonBslPrefixedNodeFallbacks:
     def _poll_csv_row(self, cam):
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         trace_mod = MagicMock()
         with mock.patch.object(pyloncamera, 'profile_trace', trace_mod):
@@ -4600,7 +4644,7 @@ class TestPylonBslPrefixedNodeFallbacks:
         a 13-line traceback (1540 occurrences in a single protocol
         run on Windows 2026-05-08).
         """
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _PypylonStyleCamera:
             def __getattr__(self, name):
@@ -4632,7 +4676,7 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
         # internal task_done() balances against the put; without the
         # get_nowait it would call task_done() on a queue whose unfinished
         # count already went to zero, raising ValueError.
-        from modules.sequential_io_executor import IOTask
+        from _lumascope.modules.sequential_io_executor import IOTask
 
         task = IOTask(action=lambda: None, callback=lambda *a, **k: None)
         executor.queue.put(task)
@@ -4641,8 +4685,8 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
 
     def test_cancelled_does_not_call_notifications_error(self, centre_posts):
         from concurrent.futures import CancelledError
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
         executor = SequentialIOExecutor(
             closed_answer=scope_lane_closed, max_workers=1, name='TEST_CANCEL'
@@ -4669,9 +4713,9 @@ class TestSequentialIOExecutorTDequeuePreservedUnderProfileTrace:
 
     def test_t_dequeue_set_when_profile_trace_enabled(self, monkeypatch):
         import time
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
-        from lib import profile_trace
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, IOTask
+        from _lumascope.lib import profile_trace
 
         # Force-enable profile_trace for the test. Restore previous state
         # in finally so other tests are unaffected.
@@ -4729,8 +4773,8 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
     """
 
     def test_caller_futures_empty_after_submit_then_shutdown(self):
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
         executor = SequentialIOExecutor(
             closed_answer=scope_lane_closed, max_workers=1, name='TEST_SHUTDOWN_DRAIN'
@@ -4772,7 +4816,7 @@ class TestSequentialIOExecutorPriorityAware:
         run. Returns the order in which the tasks' actions executed.
         """
         import time as _t2
-        from modules.sequential_io_executor import IOTask
+        from _lumascope.modules.sequential_io_executor import IOTask
 
         observed = []
 
@@ -4803,8 +4847,8 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_high_jumps_med(self):
         import threading as _t
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
             PRIORITY_MED,
@@ -4829,8 +4873,8 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_fifo_within_priority(self):
         import threading as _t
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_MED,
         )
@@ -4860,8 +4904,8 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_three_priorities_strict_ordering(self):
         import threading as _t
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
             PRIORITY_MED,
@@ -4903,8 +4947,8 @@ class TestSequentialIOExecutorPriorityAware:
         first, then a 50-MED burst, verify LOW completes."""
         import threading as _t
         import time as _t2
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             IOTask,
             PRIORITY_MED,
@@ -4942,8 +4986,8 @@ class TestSequentialIOExecutorPriorityAware:
         """Mixed-priority return_future submission must keep
         alloc == pop at steady state."""
         import time as _t2
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             IOTask,
             PRIORITY_HIGH,
@@ -4982,8 +5026,8 @@ class TestSequentialIOExecutorPriorityAware:
         """priority_aware=False (the default) ignores IOTask.priority
         and keeps submit-order FIFO."""
         import threading as _t
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import (
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
             PRIORITY_MED,
@@ -5067,20 +5111,20 @@ class TestErrorReportCountRetired:
         return (Path(__file__).resolve().parent.parent / rel_path).read_text()
 
     def test_base_camera_does_not_define_error_report_count(self):
-        assert 'error_report_count' not in self._read('drivers/camera.py'), (
-            'drivers/camera.py must not re-introduce error_report_count '
+        assert 'error_report_count' not in self._read('src/_lumascope/drivers/camera.py'), (
+            'src/_lumascope/drivers/camera.py must not re-introduce error_report_count '
             'without a reader (dead state retired; Rule 2).'
         )
 
     def test_pyloncamera_does_not_reference_error_report_count(self):
-        assert 'error_report_count' not in self._read('drivers/pyloncamera.py'), (
-            'drivers/pyloncamera.py must not re-introduce error_report_count '
+        assert 'error_report_count' not in self._read('src/_lumascope/drivers/pyloncamera.py'), (
+            'src/_lumascope/drivers/pyloncamera.py must not re-introduce error_report_count '
             'writes (Rule 2; dead state retired).'
         )
 
     def test_idscamera_does_not_reference_error_report_count(self):
-        assert 'error_report_count' not in self._read('drivers/idscamera.py'), (
-            'drivers/idscamera.py must not re-introduce error_report_count '
+        assert 'error_report_count' not in self._read('src/_lumascope/drivers/idscamera.py'), (
+            'src/_lumascope/drivers/idscamera.py must not re-introduce error_report_count '
             'writes (Rule 2; dead state retired).'
         )
 
@@ -5104,23 +5148,23 @@ class TestFindModelNameRetired:
         return (Path(__file__).resolve().parent.parent / rel_path).read_text()
 
     def test_camera_base_does_not_define_find_model_name(self):
-        assert 'find_model_name' not in self._read('drivers/camera.py'), (
-            'drivers/camera.py must not re-introduce the find_model_name '
+        assert 'find_model_name' not in self._read('src/_lumascope/drivers/camera.py'), (
+            'src/_lumascope/drivers/camera.py must not re-introduce the find_model_name '
             'abstract (Rule 35; dead capability retired -- model_name '
             "is set in each driver's connect())."
         )
 
     def test_pyloncamera_does_not_define_find_model_name(self):
-        assert 'find_model_name' not in self._read('drivers/pyloncamera.py')
+        assert 'find_model_name' not in self._read('src/_lumascope/drivers/pyloncamera.py')
 
     def test_idscamera_does_not_define_find_model_name(self):
-        assert 'find_model_name' not in self._read('drivers/idscamera.py')
+        assert 'find_model_name' not in self._read('src/_lumascope/drivers/idscamera.py')
 
     def test_simulated_camera_does_not_define_find_model_name(self):
-        assert 'find_model_name' not in self._read('drivers/simulated_camera.py')
+        assert 'find_model_name' not in self._read('src/_lumascope/drivers/simulated_camera.py')
 
     def test_fx2driver_does_not_define_find_model_name(self):
-        assert 'find_model_name' not in self._read('drivers/fx2driver.py')
+        assert 'find_model_name' not in self._read('src/_lumascope/drivers/fx2driver.py')
 
     def test_test_serial_safety_fakes_do_not_define_find_model_name(self):
         assert 'find_model_name' not in self._read('tests/test_serial_safety.py')
@@ -5142,7 +5186,7 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
         and stop polling as soon as the camera reports idle."""
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         cam = _init_configurable_pylon_camera()
         sequence = []
@@ -5166,7 +5210,7 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
         is still attempted."""
         from unittest import mock
 
-        from drivers import pyloncamera
+        from _lumascope.drivers import pyloncamera
 
         cam = _init_configurable_pylon_camera()
         cam.is_grabbing = lambda: True
@@ -5245,7 +5289,9 @@ class TestDltlSetterDocstringGigeCaveat:
 
         # pin-justified: the GigE wire-limit docstring is the documented
         # contract these tests guard.
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def _lumascope_api_source(self):
         # set_device_link_throughput_limit body relocated to ImagingAPI
@@ -5255,7 +5301,10 @@ class TestDltlSetterDocstringGigeCaveat:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'lumascope_api'
+            / 'imaging.py'
         ).read_text()
 
     def test_pylon_setter_docstring_mentions_gige_wire_limit(self):
@@ -5307,7 +5356,7 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         FrameID first, then Framecounter -- pinning the order so a
         future cleanup that swaps them or alphabetises the tuple
         fires this test."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert PylonCamera._FRAME_IDENTITY_CHUNK_CANDIDATES == ('FrameID', 'Framecounter'), (
             'PylonCamera must declare _FRAME_IDENTITY_CHUNK_CANDIDATES '
@@ -5353,7 +5402,7 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         """The read side must surface frame identity under the same
         'FrameID' dict key regardless of which spelling the camera
         enabled."""
-        from drivers.pyloncamera import _read_validity_chunks
+        from _lumascope.drivers.pyloncamera import _read_validity_chunks
 
         class _Node:
             def __init__(self, value):
@@ -5387,7 +5436,7 @@ class TestAcquisitionStopModeSetter:
     """
 
     def _make_scope_with_fake_camera(self, fake_camera):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5406,7 +5455,7 @@ class TestAcquisitionStopModeSetter:
         assert callable(ImagingAPI._set_acquisition_stop_mode)
 
     def test_no_camera_returns_false(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5458,7 +5507,7 @@ class TestAcquisitionStopModeSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py',
+            'src/_lumascope/drivers/pyloncamera.py',
             'set_acquisition_stop_mode',
             msg='PylonCamera must implement set_acquisition_stop_mode for '
             'the bench-probe sweep to exercise BslAcquisitionStopMode '
@@ -5469,7 +5518,7 @@ class TestAcquisitionStopModeSetter:
         """Mode must be one of Complete / CancelExposure / AbortExposure
         per Basler Specifics table; an invalid mode returns False without
         touching the SDK."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert PylonCamera._ACQ_STOP_MODES == (
             'Complete',
@@ -5491,7 +5540,9 @@ class TestAcquisitionStopModeSetter:
         the StopGrabbing behavior change)."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
         body = _function_source(src, 'set_acquisition_stop_mode')
         assert 'with self.update_camera_config' not in body, (
             'PylonCamera.set_acquisition_stop_mode must NOT wrap the '
@@ -5527,7 +5578,7 @@ class TestGigeSetters:
     """
 
     def _make_scope_with_fake_camera(self, fake_camera):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5556,7 +5607,7 @@ class TestGigeSetters:
             assert callable(getattr(ImagingAPI, name))
 
     def test_no_camera_returns_false_for_all(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5645,13 +5696,13 @@ class TestGigeSetters:
             'set_gev_inter_packet_delay',
         ):
             assert_def(
-                'drivers/pyloncamera.py',
+                'src/_lumascope/drivers/pyloncamera.py',
                 name,
                 msg=f'PylonCamera must implement {name}.',
             )
 
     def test_pylon_bandwidth_reserve_mode_validates(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         assert PylonCamera._BANDWIDTH_RESERVE_MODES == ('Default', 'Performance')
 
@@ -5664,7 +5715,7 @@ class TestGigeSetters:
         (Rule 29; matches DLTL + AbortExposure setters)."""
         from pypylon import genicam
 
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         for call in (
             lambda cam: cam.set_bandwidth_reserve_mode('Performance'),
@@ -5694,7 +5745,7 @@ class TestGigeSetters:
 
 
 class TestPylonCameraLineLengthCap:
-    """Pin Rule 26 line-length=100 on drivers/pyloncamera.py.
+    """Pin Rule 26 line-length=100 on src/_lumascope/drivers/pyloncamera.py.
 
     A12 closure (AUDIT_PYLONCAMERA_2026-05-07.md): 13 sites exceeded the cap;
     all wrapped. Pyproject sets line-length=100; this test catches regressions
@@ -5704,7 +5755,7 @@ class TestPylonCameraLineLengthCap:
     def test_no_line_exceeds_100_chars(self):
         from pathlib import Path
 
-        path = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+        path = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
         with path.open('r', encoding='utf-8') as fp:
             offenders = [
                 (lineno, len(line.rstrip('\n')), line.rstrip('\n'))
@@ -5718,7 +5769,7 @@ class TestPylonCameraLineLengthCap:
 
 
 class TestPylonCameraNoSilentExcept:
-    """Pin Rule 5 (no silent except) on drivers/pyloncamera.py.
+    """Pin Rule 5 (no silent except) on src/_lumascope/drivers/pyloncamera.py.
 
     A6 closure (AUDIT_PYLONCAMERA_2026-05-07.md): 9 silent `except: pass`
     sites at A6 closure time. Each replaced with logger.debug (per-frame /
@@ -5734,7 +5785,7 @@ class TestPylonCameraNoSilentExcept:
         import ast
         from pathlib import Path
 
-        path = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+        path = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
         source = path.read_text(encoding='utf-8')
         tree = ast.parse(source)
         offenders = []
@@ -5773,7 +5824,7 @@ class TestStreamGrabberSetters:
     """
 
     def _make_scope_with_fake_camera(self, fake_camera):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5794,7 +5845,7 @@ class TestStreamGrabberSetters:
             assert callable(getattr(ImagingAPI, name))
 
     def test_no_camera_returns_false_for_both(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -5868,8 +5919,8 @@ class TestStreamGrabberSetters:
     def test_pylon_driver_methods_present(self):
         from tests.ast_seams import assert_def
 
-        assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
-        assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
+        assert_def('src/_lumascope/drivers/pyloncamera.py', 'set_max_transfer_size')
+        assert_def('src/_lumascope/drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
     def test_ids_driver_setters_return_false_when_inactive(self):
         # These were stubs; they now perform real node writes (TestPattern and
@@ -5891,7 +5942,9 @@ class TestStreamGrabberSetters:
         pattern unnecessarily."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
         for name in (
             'set_max_transfer_size',
             'set_num_max_queued_urbs',
@@ -5910,7 +5963,7 @@ class TestStreamGrabberSetters:
         would mislead bench operators into thinking the knob applied."""
         from pypylon import genicam
 
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
         node = cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value
@@ -5942,7 +5995,7 @@ class TestPylonAcquisitionIdleWait:
     def test_helper_method_present(self):
         from tests.ast_seams import assert_def
 
-        assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
+        assert_def('src/_lumascope/drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
         """disconnect() must invoke _wait_for_acquisition_idle AFTER
@@ -5961,7 +6014,7 @@ class TestPylonAcquisitionIdleWait:
         )
 
     def test_idle_wait_returns_true_when_inactive(self):
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         camera = PylonCamera.__new__(PylonCamera)
         import threading as _threading
@@ -5973,7 +6026,7 @@ class TestPylonAcquisitionIdleWait:
     def test_idle_wait_returns_true_when_already_idle(self):
         """When AcquisitionActive=False and ExposureActive=False on the
         first poll, return True without sleeping the full timeout."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _FakeNode:
             def __init__(self, value):
@@ -6021,7 +6074,7 @@ class TestPylonAcquisitionIdleWait:
         """Older firmware / non-Basler cameras may not expose
         AcquisitionActive. Return False so disconnect proceeds without
         waiting full timeout."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _FakeNodeMap:
             def GetNode(self, name):
@@ -6053,7 +6106,7 @@ class TestPylonAcquisitionIdleWait:
     def test_idle_wait_times_out_when_stuck_active(self):
         """If AcquisitionActive stays True past timeout, return False
         and let caller proceed (warning is logged inside)."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _FakeNode:
             def GetValue(self):
@@ -6093,7 +6146,7 @@ class TestPylonStreamGrabberStatusLog:
     def test_helper_method_present(self):
         from tests.ast_seams import assert_def
 
-        assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
+        assert_def('src/_lumascope/drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
         """_log_stream_grabber_status must fire in start_grabbing
@@ -6114,7 +6167,7 @@ class TestPylonStreamGrabberStatusLog:
     def test_log_helper_no_op_when_active_none(self):
         """Helper must be a true no-op when self.active is None
         (called during reconnect transitions)."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         camera = PylonCamera.__new__(PylonCamera)
         import threading as _threading
@@ -6127,7 +6180,7 @@ class TestPylonStreamGrabberStatusLog:
     def test_log_helper_handles_missing_node_gracefully(self):
         """Older firmware / non-Basler cameras may not expose Status.
         Helper should not raise, log via _cam_log if present."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _FakeStreamGrabberNodeMap:
             def GetNode(self, name):
@@ -6148,7 +6201,7 @@ class TestPylonStreamGrabberStatusLog:
     def test_log_helper_handles_runtime_exception(self):
         """If the SDK raises while reading Status, helper should
         catch + log warning, not propagate."""
-        from drivers.pyloncamera import PylonCamera
+        from _lumascope.drivers.pyloncamera import PylonCamera
 
         class _FakeCamera:
             def GetStreamGrabberNodeMap(self):
@@ -6205,7 +6258,7 @@ class TestPylonChunkModeActiveWriteRaceGuard:
 
 class TestPylonPublicMethodAnnotationsAndDocstrings:
     """A13 + A14 closure (AUDIT_PYLONCAMERA_2026-05-07.md): every
-    public method on every class in drivers/pyloncamera.py has a
+    public method on every class in src/_lumascope/drivers/pyloncamera.py has a
     return-type annotation (Rule 37) AND a docstring (Rule 38).
 
     Pins the structural fix so a future commit adding a public method
@@ -6222,7 +6275,7 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
         import ast
         from pathlib import Path
 
-        path = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+        path = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))
         gaps = []
         for cls_node in tree.body:
@@ -6631,14 +6684,14 @@ class TestReusableTaskWaiter:
     """
 
     def test_set_result_unblocks_caller(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         w = _ReusableTaskWaiter()
         w.set_result(42)
         assert w.result(timeout=0.1) == 42
 
     def test_set_exception_raises_in_caller(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         w = _ReusableTaskWaiter()
         w.set_exception(ValueError('boom'))
@@ -6648,7 +6701,7 @@ class TestReusableTaskWaiter:
             w.result(timeout=0.1)
 
     def test_timeout_raises(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
         from concurrent.futures import TimeoutError as _TimeoutError
 
         w = _ReusableTaskWaiter()
@@ -6658,7 +6711,7 @@ class TestReusableTaskWaiter:
             w.result(timeout=0.05)
 
     def test_reset_allows_reuse(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         w = _ReusableTaskWaiter()
         w.set_result('first')
@@ -6669,7 +6722,7 @@ class TestReusableTaskWaiter:
         assert w.result(timeout=0.1) == 'second'
 
     def test_is_spent_after_set_result(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         w = _ReusableTaskWaiter()
         assert not w.is_spent()
@@ -6680,7 +6733,7 @@ class TestReusableTaskWaiter:
         """Sequential submissions from the same thread should reuse the
         same waiter instance (the entire point of the pool -- zero
         per-submission kernel-handle allocation in steady state)."""
-        from modules.sequential_io_executor import _claim_waiter
+        from _lumascope.modules.sequential_io_executor import _claim_waiter
 
         w1 = _claim_waiter()
         w1.set_result('a')
@@ -6693,7 +6746,7 @@ class TestReusableTaskWaiter:
         """If a thread tries to claim while its previous waiter is still
         in-flight (set_result not yet called), allocate a fresh one
         instead of clobbering the in-flight wait."""
-        from modules.sequential_io_executor import _claim_waiter
+        from _lumascope.modules.sequential_io_executor import _claim_waiter
 
         w1 = _claim_waiter()
         # Don't set result -- w1 is still in-flight
@@ -6708,7 +6761,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
     of hard-failing."""
 
     def _make_executor(self, parent_dir):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         exc = SequencedCaptureRunner(
             scope=MagicMock(),
@@ -6735,7 +6788,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
         import datetime
         import types
 
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         # The collision is three runs inside one second. Read from the real
         # clock, a second boundary can fall between the calls on a loaded
@@ -6787,7 +6840,7 @@ class TestSCEResetSignalsAbort:
         return _make_capture_runner()
 
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
@@ -6812,7 +6865,7 @@ class TestSCEResetSignalsAbort:
         a UI abort calls reset() on the Kivy main thread, and running the
         teardown inline froze the GUI for the duration of the queued moves.
         The run loop's finally-block owns cleanup on the protocol thread."""
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
@@ -6837,7 +6890,7 @@ class TestSCEResetSignalsAbort:
         then still being set up by start(), which unwinds it itself once
         the setup is done. Cleaning up here, mid-setup, left both lanes in
         run mode under an idle runner."""
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
@@ -6863,7 +6916,7 @@ class TestSCEResetSignalsAbort:
         assert runner.wait_for_run_idle(timeout_s=0.2) is True
 
     def test_wait_for_run_idle_times_out_while_run_unwinds(self):
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
@@ -6876,7 +6929,7 @@ class TestSCEResetSignalsAbort:
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
         import threading
 
-        from modules.protocol_state_machine import ProtocolState
+        from _lumascope.modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
@@ -6920,7 +6973,10 @@ class TestImageUtilsMaxWorkersIsZero:
 
         offenders: list[str] = []
         scanned = 0
-        for rel in ('modules/image_utils.py', 'modules/stack_builder.py'):
+        for rel in (
+            'src/_lumascope/modules/image_utils.py',
+            'src/_lumascope/modules/stack_builder.py',
+        ):
             source = pathlib.Path(rel).read_text(encoding='utf-8')
             tree = ast.parse(source, filename=rel)
 
@@ -6959,8 +7015,8 @@ class TestProtocolIOTimeoutsAreNotShort:
     """
 
     _FILES = (
-        'modules/protocol_step_runner.py',
-        'modules/protocol_cleanup.py',
+        'src/_lumascope/modules/protocol_step_runner.py',
+        'src/_lumascope/modules/protocol_cleanup.py',
     )
     _MIN_TIMEOUT_S = 30
 
@@ -7034,7 +7090,7 @@ class TestImagingTimeoutsAreFloatSeconds:
 
     def test_timeout_default_is_float(self):
         import inspect
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         for method_name, kwarg, expected in self._METHODS_AND_TIMEOUTS:
             method = getattr(ImagingAPI, method_name)
@@ -7048,7 +7104,7 @@ class TestImagingTimeoutsAreFloatSeconds:
 
     def test_get_image_timeout_is_float_seconds(self):
         import inspect
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         sig = inspect.signature(ImagingAPI.get_image)
         timeout_s = sig.parameters['timeout_s']
@@ -7069,7 +7125,7 @@ class TestImagingTimeoutsAreFloatSeconds:
         # _s unit suffix to make the documented seconds unit explicit on the
         # parameter name itself.
         import inspect
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         sig = inspect.signature(ImagingAPI.get_image)
         nct = sig.parameters['new_capture_timeout_s']
@@ -7086,7 +7142,7 @@ class TestImagingGetCameraTempsRetired:
     through diagnostics for the data read."""
 
     def test_imaging_get_camera_temps_is_gone(self):
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         assert not hasattr(ImagingAPI, 'get_camera_temps'), (
             'imaging.get_camera_temps must be retired; '
@@ -7099,7 +7155,7 @@ class TestImagingGetCameraTempsRetired:
         assert isinstance(result, dict)
 
     def test_imaging_log_camera_temps_still_exists(self):
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         assert callable(getattr(ImagingAPI, '_log_camera_temps', None))
         assert not hasattr(ImagingAPI, 'log_camera_temps'), (
@@ -7131,7 +7187,7 @@ class TestImagingParamNamesUseUnitSuffix:
 
     def test_camera_method_param_names(self):
         import inspect
-        from modules.lumascope_api.camera import CameraAPI
+        from _lumascope.modules.lumascope_api.camera import CameraAPI
 
         for method_name, expected, banned in self._CAMERA_PARAMS:
             method = getattr(CameraAPI, method_name)
@@ -7150,7 +7206,7 @@ class TestImagingParamNamesUseUnitSuffix:
         plus all concrete drivers (Pylon, IDS, simulated, FX2). Caught by
         the U3 mechanical rename sweep."""
         import inspect
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         for method_name in ('auto_gain', 'auto_gain_once', 'update_auto_gain_min_max'):
             method = getattr(Camera, method_name)
@@ -7167,7 +7223,7 @@ class TestImagingParamNamesUseUnitSuffix:
         rename). The historical bare ``t`` name is banned -- ambiguous on
         a method whose body multiplies by 1000 to reach microseconds."""
         import inspect
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         method = Camera.exposure_t
         params = set(inspect.signature(method).parameters)
@@ -7189,10 +7245,14 @@ class TestTimeoutParamNamesUseSecondSuffix:
 
     _SECONDS_TIMEOUT_METHODS = (
         # (module-path, class-or-fn, method_name_or_None)
-        ('modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_still'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
-        ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI', 'enter_led_engineering_mode'),
+        ('_lumascope.modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
+        ('_lumascope.modules.lumascope_api.imaging', 'ImagingAPI', 'capture_still'),
+        ('_lumascope.modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
+        (
+            '_lumascope.modules.lumascope_api.diagnostics',
+            'DiagnosticsAPI',
+            'enter_led_engineering_mode',
+        ),
     )
 
     def test_api_methods_use_timeout_s(self):
@@ -7216,7 +7276,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
         ImagingAPI.capture_still and ImagingAPI.get_image with a
         seconds value, and now exposes that unit on the signature."""
         import inspect
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         params = set(inspect.signature(Camera.grab_new_capture).parameters)
         assert 'timeout_s' in params
@@ -7230,7 +7290,7 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
     the connected LED driver publishes through `max_ma()`."""
 
     def test_lumascope_class_does_not_carry_led_max_ma(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         assert not hasattr(Lumascope, 'LED_MAX_MA'), (
             'Lumascope.LED_MAX_MA must be retired per audit #38; '
@@ -7252,7 +7312,7 @@ class TestRuntimeStateSetObjective:
     machine it ran on."""
 
     def test_set_objective_round_trip(self):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(), simulate=True)
@@ -7276,10 +7336,10 @@ class TestAxisTravelLimitsOnCapabilities:
     def test_null_motor_has_no_stage_or_turret(self):
         """A NullMotionBoard has no stage and no turret, which gates the
         travel-dependent consumers away from it."""
-        from drivers.null_ledboard import NullLEDBoard
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
+        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -7306,7 +7366,7 @@ class TestOpticsOnCapabilities:
     readers) is retired in the same move."""
 
     def test_lumascope_class_does_not_carry_pixel_size_or_focal_length(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         assert not hasattr(Lumascope, 'pixel_size'), (
             'Lumascope.pixel_size must be retired per audit #21; '
@@ -7321,7 +7381,7 @@ class TestOpticsOnCapabilities:
         """The camera-SDK-sourced field had zero production readers and
         was retired in the same commit -- a single canonical pixel_size_um
         sourced from motorconfig replaces it."""
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
         from dataclasses import fields
 
         names = {f.name for f in fields(ScopeCapabilities)}
@@ -7342,10 +7402,10 @@ class TestOpticsOnCapabilities:
         """A NullMotionBoard has no motor configuration, and an unresolved
         identity names no model, so nothing can report a scale: the
         capabilities say None rather than a motorised scope's 2.0 um."""
-        from drivers.null_ledboard import NullLEDBoard
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
+        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -7368,8 +7428,8 @@ class TestConnectionCheckShapeUniformOnLumascope:
     Internal imaging callers route through self._scope.camera_connected."""
 
     def test_imaging_class_does_not_carry_camera_is_connected(self):
-        from modules.lumascope_api.camera import CameraAPI
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.camera import CameraAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         # The camera's members moved to CameraAPI (W3b): neither class carries it.
         assert not hasattr(CameraAPI, 'camera_is_connected'), (
@@ -7381,7 +7441,7 @@ class TestConnectionCheckShapeUniformOnLumascope:
         )
 
     def test_lumascope_has_camera_connected_property(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         attr = inspect.getattr_static(Lumascope, 'camera_connected', None)
         assert isinstance(attr, property), (
@@ -7440,7 +7500,7 @@ class TestLedSentinelReturnsAreNone:
     def test_get_led_ma_returns_none_when_driver_absent(self):
         """With the NullLEDBoard installed there is no board to describe:
         the read answers None, never -1 or a made-up off state."""
-        from drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
 
         scope = build_scope(simulate=True, register_atexit=False)
         try:
@@ -7489,7 +7549,7 @@ class TestSessionCarriesNoHardwareForwarders:
     )
 
     def test_no_hardware_forwarders_on_session(self):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         present = [n for n in self.RETIRED_FORWARDER_NAMES if hasattr(ScopeSession, n)]
         assert not present, (
@@ -7507,7 +7567,7 @@ class TestRetiredSurfaceStaysRetired:
     """
 
     def test_objective_surface_lives_on_runtime_state_in_code(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         # The objective is selected through the Session (select_objective);
         # runtime_state only answers it.
@@ -7561,8 +7621,8 @@ class TestProtocolCleanupLedRestoreKey:
         """Restoring an enabled LED must carry the snapshot's mA value into
         the RUN_END transition; a stale-key read would raise and silently
         skip the restore (the original swallowed-KeyError bug)."""
-        from modules.lumascope_api.illumination import LedTransition
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.lumascope_api.illumination import LedTransition
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         scope = MagicMock()
         apply_calls = []
@@ -7603,7 +7663,7 @@ class TestPreReleaseFutureWarning:
         # Reset module-level fired-flag so each test sees a fresh
         # not-yet-fired state. Restore on teardown so the test order
         # in the surrounding file isn't poisoned.
-        import modules.lumascope_api._lumascope as lm_mod
+        import _lumascope.modules.lumascope_api._lumascope as lm_mod
 
         previous = lm_mod._PRE_RELEASE_WARNING_FIRED
         lm_mod._PRE_RELEASE_WARNING_FIRED = False
@@ -7670,7 +7730,7 @@ class TestPreReleaseFutureWarning:
 
     def test_scope_session_simulated_create_fires_warning(self, tmp_path):
         import warnings
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         with warnings.catch_warnings(record=True) as caught:
@@ -7710,7 +7770,9 @@ class TestAutoGainArmedInScanIterate:
     def _run_loop_src(self):
         import pathlib
 
-        return pathlib.Path('modules/protocol_run_loop.py').read_text(encoding='utf-8')
+        return pathlib.Path('src/_lumascope/modules/protocol_run_loop.py').read_text(
+            encoding='utf-8'
+        )
 
     def test_armed_step_attribute_initialized_on_scr(self):
         runner = _bare_capture_runner()
@@ -7748,7 +7810,7 @@ class TestAutoGainArmedInScanIterate:
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         monkeypatch.setattr(
-            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            '_lumascope.modules.config_helpers.get_ag_ae_max_exposure_ms',
             lambda color, overrides: 123.0,
         )
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
@@ -8029,7 +8091,7 @@ class TestImagingPylonSdkPerfSettersPrivatized:
     )
 
     def test_private_versions_exist(self):
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         for name in self.PRIVATIZED:
             private = f'_{name}'
@@ -8038,7 +8100,7 @@ class TestImagingPylonSdkPerfSettersPrivatized:
             )
 
     def test_public_versions_retired(self):
-        from modules.lumascope_api.imaging import ImagingAPI
+        from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
         for name in self.PRIVATIZED:
             assert not hasattr(ImagingAPI, name), (
@@ -8066,7 +8128,7 @@ class TestLedEngineeringModeSymmetricReturnTypes:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/diagnostics.py',
+            'src/_lumascope/modules/lumascope_api/diagnostics.py',
             member,
             params=params,
             returns='None',
@@ -8075,8 +8137,8 @@ class TestLedEngineeringModeSymmetricReturnTypes:
 
     @pytest.mark.parametrize('member', ['enter_led_engineering_mode', 'exit_led_engineering_mode'])
     def test_both_refuse_with_no_led_controller(self, sim_scope, monkeypatch, member):
-        from drivers.null_ledboard import NullLEDBoard
-        from modules.exceptions import HardwareCommandRefusedError
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
         monkeypatch.setattr(sim_scope, '_led_driver', NullLEDBoard())
         with pytest.raises(HardwareCommandRefusedError) as caught:
@@ -8097,9 +8159,9 @@ class TestScopeSessionBuildsFullExecutorBundle:
     """
 
     def test_the_session_metrics_logger_holds_its_bundle(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
-        from modules.executor_registry import ExecutorBundle
+        from _lumascope.modules.executor_registry import ExecutorBundle
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         logger_ = session.metrics_logger
@@ -8110,7 +8172,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
         assert logger_._bundle is session.executor_bundle
 
     def test_create_bundle_has_all_four_executors(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -8140,8 +8202,8 @@ class TestHeadlessSettingsResolutionMatchesGui:
         import json
         import pathlib
 
-        import modules.settings_init as settings_init
-        from modules.scope_session import ScopeSession
+        import _lumascope.modules.settings_init as settings_init
+        from _lumascope.modules.scope_session import ScopeSession
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
@@ -8231,8 +8293,8 @@ class TestRunPreValidationFiresNotificationOnException:
     def test_validate_for_run_exception_fires_notification_and_returns(self, centre_posts):
         """A raising validate_for_run must pop a user-facing error and
         abort the run -- not log a warning and proceed anyway."""
-        from modules.exceptions import RunCheckFailedError
-        from modules.notification_center import notifications
+        from _lumascope.modules.exceptions import RunCheckFailedError
+        from _lumascope.modules.notification_center import notifications
 
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
@@ -8281,9 +8343,9 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         import numpy as np
         import pandas as pd
         import tifffile as tf
-        import modules.layer_record as layer_record
-        from modules.composite_builder import CompositeChannel, build_composite
-        from modules.composite_generation import CompositeGeneration
+        import _lumascope.modules.layer_record as layer_record
+        from _lumascope.modules.composite_builder import CompositeChannel, build_composite
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         # Three known mono channels: a Red gradient, a Green stripe, a
         # Blue checkerboard. Deterministic, distinct per channel, so
@@ -8391,7 +8453,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         import pathlib
         import tempfile
         import tifffile as tf
-        from modules.composite_generation import CompositeGeneration
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = pathlib.Path(tmpdir)
@@ -8429,7 +8491,9 @@ class TestProfileTraceGateIsNotEnvVar:
     def _profile_trace_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'lib' / 'profile_trace.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/lib' / 'profile_trace.py'
+        ).read_text()
 
     def test_no_lvp_profile_trace_env_var_in_module(self):
         import ast
@@ -8447,7 +8511,7 @@ class TestProfileTraceGateIsNotEnvVar:
 
         Visitor().visit(tree)
         assert not hits, (
-            'lib/profile_trace.py must not reference LVP_PROFILE_TRACE* '
+            'src/_lumascope/lib/profile_trace.py must not reference LVP_PROFILE_TRACE* '
             'as a string literal -- the env-var gate is retired in '
             'favor of the profile_trace_enabled settings key. Hits: '
             f'{hits}'
@@ -8473,7 +8537,7 @@ class TestProfileTraceGateIsNotEnvVar:
                     ):
                         bad.append(sub.lineno)
         assert not bad, (
-            'lib/profile_trace.py must not call os.environ.get(...) at '
+            'src/_lumascope/lib/profile_trace.py must not call os.environ.get(...) at '
             f'module scope. Found at line(s): {bad}'
         )
 
@@ -8493,7 +8557,9 @@ class TestHandleTraceGateIsNotEnvVar:
     def _handle_trace_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'lib' / 'handle_trace.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/lib' / 'handle_trace.py'
+        ).read_text()
 
     def test_no_handle_trace_env_vars_in_module(self):
         import ast
@@ -8514,7 +8580,7 @@ class TestHandleTraceGateIsNotEnvVar:
 
         Visitor().visit(tree)
         assert not hits, (
-            'lib/handle_trace.py must not reference LVP_HANDLE_TRACE / '
+            'src/_lumascope/lib/handle_trace.py must not reference LVP_HANDLE_TRACE / '
             'LVP_OBJ_SAMPLE_EVERY as string literals -- the env-var gate '
             'is retired in favor of the profiling.handle_trace_enabled '
             f'settings key. Hits: {hits}'
@@ -8536,7 +8602,7 @@ class TestDebugGateIsNotEnvVar:
     def _lvp_logger_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'lvp_logger.py').read_text()
+        return (Path(__file__).resolve().parent.parent / 'src/_lumascope/lvp_logger.py').read_text()
 
     def test_no_lvp_debug_enabled_env_var_in_module(self):
         import ast
@@ -8554,7 +8620,7 @@ class TestDebugGateIsNotEnvVar:
 
         Visitor().visit(tree)
         assert not hits, (
-            'lvp_logger.py must not reference LVP_DEBUG_ENABLED as a '
+            'src/_lumascope/lvp_logger.py must not reference LVP_DEBUG_ENABLED as a '
             'string literal -- the env-var gate is retired in favor of '
             f'the debug_mode settings key. Hits: {hits}'
         )
@@ -8583,7 +8649,7 @@ class TestDebugGateIsNotEnvVar:
                 ):
                     hits.append(node.lineno)
         assert not hits, (
-            'lvp_logger.py must not call logging.disable() -- DEBUG gating '
+            'src/_lumascope/lvp_logger.py must not call logging.disable() -- DEBUG gating '
             'is the per-logger level the session applies, not a global '
             f'kill-switch. Found at line(s): {hits}'
         )
@@ -8601,9 +8667,9 @@ class TestFx2DebugWireGateIsNotEnvVar:
     """
 
     _SITES = (
-        ('drivers', 'fx2driver.py'),
+        ('src/_lumascope/drivers', 'fx2driver.py'),
         ('ui', 'layer_control.py'),
-        ('modules', 'lumascope_api', 'illumination.py'),
+        ('src/_lumascope/modules', 'lumascope_api', 'illumination.py'),
     )
 
     def _read(self, parts):
@@ -8654,13 +8720,15 @@ class TestPylonEnvVarsAreNotUsed:
     LVP_PYLON_NUM_QUEUED_URBS / LVP_PYLON_GRAB_STRATEGY /
     LVP_PYLON_WORKER_QUEUE_DEPTH env vars duplicated those production
     levers and were retired. This AST scan pins the retirement so the
-    env-var pattern doesn't sneak back in to drivers/pyloncamera.py.
+    env-var pattern doesn't sneak back in to src/_lumascope/drivers/pyloncamera.py.
     """
 
     def _pyloncamera_source(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
+        ).read_text()
 
     def test_no_lvp_pylon_env_var_in_pyloncamera(self):
         import ast
@@ -8678,7 +8746,7 @@ class TestPylonEnvVarsAreNotUsed:
 
         Visitor().visit(tree)
         assert not hits, (
-            'drivers/pyloncamera.py must not reference any LVP_PYLON_* '
+            'src/_lumascope/drivers/pyloncamera.py must not reference any LVP_PYLON_* '
             'string literal -- the env-var gates are retired in favor '
             'of imaging sub-API levers (_set_max_num_buffer / '
             '_set_max_transfer_size / _set_num_max_queued_urbs / '
@@ -8702,7 +8770,7 @@ class TestCameraDelHandlesPartialConstruction:
     """
 
     def test_partial_construction_del_is_silent(self, monkeypatch):
-        from drivers import camera as camera_module
+        from _lumascope.drivers import camera as camera_module
 
         # Build a concrete subclass with abstract methods stubbed so
         # __new__ doesn't get blocked by Camera's ABC declarations.
@@ -8742,7 +8810,9 @@ class TestCameraDelHandlesPartialConstruction:
         import ast
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'camera.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'camera.py'
+        ).read_text()
         tree = ast.parse(src)
 
         # Find class Camera, then its __del__ method, then assert the
@@ -8776,7 +8846,7 @@ class TestCameraDelHandlesPartialConstruction:
 
 
 class TestLogToUtility:
-    """lvp_logger.log_to() is the shared dual/multi-write helper.
+    """_lumascope.lvp_logger.log_to() is the shared dual/multi-write helper.
 
     pyloncamera._log_cam wraps it for the camera dual-write today;
     motorboard / ledboard / idscamera will adopt the same pattern when
@@ -8787,7 +8857,7 @@ class TestLogToUtility:
     """
 
     def test_single_logger_routes_to_that_logger(self):
-        from lib.log_helpers import log_to
+        from _lumascope.lib.log_helpers import log_to
 
         class _Capture:
             def __init__(self):
@@ -8807,7 +8877,7 @@ class TestLogToUtility:
         assert primary.calls == [('info', 'hello')]
 
     def test_dual_write_lands_on_both(self):
-        from lib.log_helpers import log_to
+        from _lumascope.lib.log_helpers import log_to
 
         class _Capture:
             def __init__(self):
@@ -8826,7 +8896,7 @@ class TestLogToUtility:
         assert mirror.calls == ['[CAM Class ] foo']
 
     def test_none_mirror_skipped_no_guard_needed_at_call_site(self):
-        from lib.log_helpers import log_to
+        from _lumascope.lib.log_helpers import log_to
 
         class _Capture:
             def __init__(self):
@@ -8842,7 +8912,7 @@ class TestLogToUtility:
         assert primary.calls == ['msg']
 
     def test_mirror_failure_falls_through_to_debug(self):
-        from lib.log_helpers import log_to
+        from _lumascope.lib.log_helpers import log_to
 
         class _Primary:
             def __init__(self):
@@ -8889,13 +8959,17 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_post_processor.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'protocol_post_processor.py'
         ).read_text()
 
     def _stitcher_src(self):
         from pathlib import Path
 
-        return (Path(__file__).resolve().parent.parent / 'modules' / 'stitcher.py').read_text()
+        return (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/modules' / 'stitcher.py'
+        ).read_text()
 
     def test_protocol_post_processor_has_no_cv2_imports_or_calls(self):
         """No `import cv2` / `from cv2 ...` and no `cv2.<attr>(...)`
@@ -8952,7 +9026,7 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         import pandas as pd
         import tifffile as tf
 
-        from modules.stitcher import Stitcher
+        from _lumascope.modules.stitcher import Stitcher
 
         # Two 4x4 mono tiles side-by-side in X (no overlap).
         tf.imwrite(str(tmp_path / 'a.tiff'), np.full((4, 4), 100, dtype=np.uint16))
@@ -9091,7 +9165,9 @@ class TestSequentialIoExecutorWaitForIdle_F7:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'sequential_io_executor.py'
+            Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'sequential_io_executor.py'
         ).read_text()
 
     def test_wait_for_idle_bounds_the_drain_wait(self):
@@ -9100,8 +9176,8 @@ class TestSequentialIoExecutorWaitForIdle_F7:
         once the worker is idle."""
         import time as _time
 
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
         executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='F7-TEST')
         executor.running_task = object()
@@ -9142,7 +9218,7 @@ class TestSequentialIoExecutorWaitForIdle_F7:
         protocol_end clears the running flag, then the wait ensures any
         task that was running before that point completes before
         downstream state is mutated."""
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         kwargs = _run_cleanup_kwargs()
         run_cleanup(**kwargs)
@@ -9281,7 +9357,7 @@ class TestPostProcessingLoggerImported:
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent
-        src = (root / 'modules' / 'post_processing.py').read_text()
+        src = (root / 'src/_lumascope/modules' / 'post_processing.py').read_text()
         return ast.parse(src)
 
     def test_logger_imported_when_referenced(self):
@@ -9311,7 +9387,7 @@ class TestPostProcessingLoggerImported:
             'post_processing.py references logger but never imports it; '
             'logger.error() in the results.csv except handler would raise '
             'NameError and hide the real OSError. Add '
-            '`from lvp_logger import logger`.'
+            '`from _lumascope.lvp_logger import logger`.'
         )
 
 
@@ -9332,7 +9408,7 @@ class TestLoggerImportsNoAppEnvironment:
         # which names app_environment, does not trip the check.
         import ast
 
-        tree = ast.parse(self._src('lvp_logger.py'))
+        tree = ast.parse(self._src('src/_lumascope/lvp_logger.py'))
         imported = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
@@ -9392,15 +9468,15 @@ class TestAxisStateLivesOnConstants:
     """
 
     def test_canonical_home_is_constants(self):
-        from modules.lumascope_api._constants import AxisState
+        from _lumascope.modules.lumascope_api._constants import AxisState
 
-        assert AxisState.__module__ == 'modules.lumascope_api._constants'
+        assert AxisState.__module__ == '_lumascope.modules.lumascope_api._constants'
 
     def test_all_back_compat_paths_are_one_identity(self):
-        from modules.lumascope_api import AxisState as AxisState_via_pkg
-        from modules.lumascope_api._constants import AxisState as AxisState_via_constants
-        from modules.lumascope_api._lumascope import AxisState as AxisState_via_lumascope
-        from modules.lumascope_api.motion import AxisState as AxisState_via_motion
+        from _lumascope.modules.lumascope_api import AxisState as AxisState_via_pkg
+        from _lumascope.modules.lumascope_api._constants import AxisState as AxisState_via_constants
+        from _lumascope.modules.lumascope_api._lumascope import AxisState as AxisState_via_lumascope
+        from _lumascope.modules.lumascope_api.motion import AxisState as AxisState_via_motion
 
         assert (
             AxisState_via_constants
@@ -9410,7 +9486,7 @@ class TestAxisStateLivesOnConstants:
         )
 
     def test_values_intact(self):
-        from modules.lumascope_api._constants import AxisState
+        from _lumascope.modules.lumascope_api._constants import AxisState
 
         assert (AxisState.UNKNOWN, AxisState.IDLE, AxisState.MOVING, AxisState.HOMING) == (
             'unknown',
@@ -9425,7 +9501,9 @@ class TestAxisStateLivesOnConstants:
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent
-        tree = ast.parse((root / 'modules' / 'lumascope_api' / 'motion.py').read_text())
+        tree = ast.parse(
+            (root / 'src/_lumascope/modules' / 'lumascope_api' / 'motion.py').read_text()
+        )
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.ImportFrom)
@@ -9449,7 +9527,7 @@ class TestSequentialIOExecutorDocstringSingleWorker:
         # pin-justified: the one-worker-thread docstring is the executor
         # topology contract; the doc text is the load-bearing record.
         root = pathlib.Path(__file__).resolve().parent.parent
-        return (root / 'modules' / 'sequential_io_executor.py').read_text()
+        return (root / 'src/_lumascope/modules' / 'sequential_io_executor.py').read_text()
 
     def test_no_parallel_worker_language(self):
         src = self._src()
@@ -9467,7 +9545,7 @@ class TestPS11VideoCancelledRecordsRow:
     def test_video_no_frames_records_capture_failed_row(self, monkeypatch, tmp_path):
         from unittest.mock import MagicMock
 
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         record = MagicMock()
         # The file lane takes the run's writes and holds them: each is caught
@@ -9516,7 +9594,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
     def _capture_with_outcome(self, monkeypatch, tmp_path, outcome, preset_failures):
         from unittest.mock import MagicMock
 
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         record = MagicMock()
         # The file lane takes the run's writes and holds them: each is caught
@@ -9548,7 +9626,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
         return writer, submitted
 
     def test_camera_lost_increments_strike_and_writes_no_row(self, monkeypatch, tmp_path):
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         writer, submitted = self._capture_with_outcome(
             monkeypatch, tmp_path, piw.protocol_recording.CAMERA_LOST, preset_failures=1
@@ -9562,7 +9640,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
         )
 
     def test_completed_video_step_still_clears_the_counter(self, monkeypatch, tmp_path):
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         writer, _submitted = self._capture_with_outcome(
             monkeypatch, tmp_path, piw.protocol_recording.COMPLETED, preset_failures=2
@@ -9748,7 +9826,9 @@ class TestTransientClassificationLogIsHonest:
         import re
 
         src = (
-            pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_run_loop.py'
+            pathlib.Path(__file__).resolve().parent.parent
+            / 'src/_lumascope/modules'
+            / 'protocol_run_loop.py'
         ).read_text()
         assert 'handle-state' in src, (
             'the transient classification must be documented as handle-state only'
@@ -9777,7 +9857,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
     def test_grease_task_releases_gate_even_when_a_move_raises(self):
         import pytest
 
-        from modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
@@ -9793,7 +9873,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         )
 
     def test_grease_task_releases_gate_on_success(self):
-        from modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
@@ -9812,9 +9892,9 @@ class TestGreaseRedistributionGateAlwaysReleased:
         the worker now: the routine must finish promptly and leave Z where
         it started. Driven through a real executor and the simulated scope
         so the enqueue topology under test is the production one."""
-        from modules.protocol_step_runner import ProtocolStepRunner
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
         io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         io.start()
@@ -9841,7 +9921,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
             io.shutdown()
 
     def test_enqueue_dropped_releases_gate(self):
-        from modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 
         # protocol_put returns None when no run is in session or the lane has
         # closed. The task is not enqueued, so its finally-set() never runs --
@@ -9857,8 +9937,8 @@ class TestGreaseRedistributionGateAlwaysReleased:
         )
 
     def test_enqueue_success_leaves_gate_to_the_task(self):
-        from modules.protocol_step_runner import ProtocolStepRunner
-        from modules.sequential_io_executor import PROTOCOL_ENQUEUED
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.sequential_io_executor import PROTOCOL_ENQUEUED
 
         # On a real enqueue the grease task's finally owns the set();
         # perform_grease_redistribution must NOT release the gate itself, which
@@ -9899,7 +9979,7 @@ class TestStepWriteEstimateSingleOwner:
     """
 
     def test_image_step_uses_image_estimate(self):
-        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+        from _lumascope.modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
         assert (
             estimate_step_write_mb({'Acquire': 'image'}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
@@ -9908,13 +9988,13 @@ class TestStepWriteEstimateSingleOwner:
         assert estimate_step_write_mb({}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
 
     def test_short_video_floored_at_legacy_estimate(self):
-        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+        from _lumascope.modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 1}}
         assert estimate_step_write_mb(step, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_long_video_scales_with_duration(self):
-        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+        from _lumascope.modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         short = {'Acquire': 'video', 'Video Config': {'duration': 5}}
         long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600}}
@@ -9924,7 +10004,7 @@ class TestStepWriteEstimateSingleOwner:
         assert estimate_step_write_mb(long_clip, video_fps=30.0) > ESTIMATED_VIDEO_STEP_MB
 
     def test_video_as_frames_costs_one_image_per_frame(self):
-        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+        from _lumascope.modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 10}}
         # 10 s at a 30 fps sizing rate = 300 frames, each a full image when saved as frames.
@@ -9937,9 +10017,9 @@ class TestStepWriteEstimateSingleOwner:
         import inspect
         import pathlib
 
-        from modules.protocol import Protocol
+        from _lumascope.modules.protocol import Protocol
 
-        root = pathlib.Path(__file__).resolve().parent.parent / 'modules'
+        root = pathlib.Path(__file__).resolve().parent.parent / 'src/_lumascope/modules'
         run_loop = (root / 'protocol_run_loop.py').read_text()
         writer = (root / 'protocol_image_writer.py').read_text()
         # The single owner moved up a level: the pre-scan guard asks the
@@ -9959,7 +10039,7 @@ class TestStepWriteEstimateSingleOwner:
         )
 
     def test_estimator_is_total_on_malformed_step(self):
-        from modules.common_utils import (
+        from _lumascope.modules.common_utils import (
             ESTIMATED_IMAGE_STEP_MB,
             ESTIMATED_VIDEO_STEP_MB,
             estimate_step_write_mb,
@@ -9978,7 +10058,7 @@ class TestStepWriteEstimateSingleOwner:
         assert estimate_step_write_mb(bad_nums, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_read_video_config_guards_every_non_dict(self):
-        from modules.common_utils import read_video_config
+        from _lumascope.modules.common_utils import read_video_config
 
         assert read_video_config(None) == {}
         assert read_video_config({'Video Config': float('nan')}) == {}
@@ -9991,7 +10071,7 @@ class TestStepWriteEstimateSingleOwner:
 
         src = (
             pathlib.Path(__file__).resolve().parent.parent
-            / 'modules'
+            / 'src/_lumascope/modules'
             / 'protocol_time_estimator.py'
         ).read_text()
         assert 'read_video_config' in src, (

@@ -1,10 +1,10 @@
 """Tests for tools/check_rules.py cv2_channel_io.
 
 cv2_channel_io blocks bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
-in production ``modules/`` and ``ui/`` outside the canonical owner
-files. The canonical owners are ``modules/image_utils.py`` (which
+in production ``src/_lumascope/modules/`` and ``ui/`` outside the canonical owner
+files. The canonical owners are ``src/_lumascope/modules/image_utils.py`` (which
 holds the L1 file loader plus the capability-flag wrappers) and
-``modules/video_writer.py`` (which holds the cv2 XVID fallback for the
+``src/_lumascope/modules/video_writer.py`` (which holds the cv2 XVID fallback for the
 canonical VideoWriter class).
 
 The guard prevents regression on the mono-native pipeline: cv2 is
@@ -35,7 +35,7 @@ import cv2
 def load(path):
     return cv2.imread(path, cv2.IMREAD_UNCHANGED)
 """
-        violations = _violations(src, 'modules/some_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/some_processor.py')
         assert len(violations) == 1
         assert violations[0].line == 5
 
@@ -46,7 +46,7 @@ import cv2
 def save(arr, path):
     cv2.imwrite(path, arr)
 """
-        violations = _violations(src, 'modules/another_processor.py')
+        violations = _violations(src, 'src/_lumascope/modules/another_processor.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_io'
 
@@ -57,7 +57,7 @@ import cv2
 def make_writer():
     return cv2.VideoWriter('out.mp4', 0, 30, (640, 480))
 """
-        violations = _violations(src, 'modules/some_writer.py')
+        violations = _violations(src, 'src/_lumascope/modules/some_writer.py')
         assert len(violations) == 1
 
     def test_bare_cv2_imread_in_ui_blocks(self):
@@ -82,7 +82,7 @@ import cv2
 def image_file_to_image(image_file):
     return cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
 """
-        assert _violations(src, 'modules/image_utils.py') == []
+        assert _violations(src, 'src/_lumascope/modules/image_utils.py') == []
 
     def test_video_writer_py_is_exempt(self):
         # video_writer.py owns the cv2.VideoWriter XVID fallback.
@@ -93,7 +93,7 @@ class VideoWriter:
     def _init_cv2(self, width, height):
         return cv2.VideoWriter('out.avi', 0, 30, (width, height))
 """
-        assert _violations(src, 'modules/video_writer.py') == []
+        assert _violations(src, 'src/_lumascope/modules/video_writer.py') == []
 
 
 class TestRule31aScopedToProductionPaths:
@@ -108,8 +108,8 @@ def test_helper(path):
         assert _violations(src, 'tests/test_image_utils.py') == []
 
     def test_top_level_script_does_not_fire(self):
-        # Files outside modules/ and ui/ are not in scope -- e.g.
-        # ad-hoc scripts at the repo root, tools/ helpers, lib/ files.
+        # Files outside src/_lumascope/modules/ and ui/ are not in scope -- e.g.
+        # ad-hoc scripts at the repo root, tools/ helpers, src/_lumascope/lib/ files.
         src = """
 import cv2
 
@@ -132,7 +132,7 @@ import cv2
 def to_gray(arr):
     return cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []
 
     def test_imread_from_other_module_does_not_fire(self):
         # tifffile.imread or some_module.imread are not bare cv2 calls.
@@ -142,4 +142,4 @@ import tifffile
 def load(path):
     return tifffile.imread(path)
 """
-        assert _violations(src, 'modules/some_processor.py') == []
+        assert _violations(src, 'src/_lumascope/modules/some_processor.py') == []

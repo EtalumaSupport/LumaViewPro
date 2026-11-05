@@ -11,8 +11,8 @@ and one tile needs no field of view, so it is built with none.
 
 import pytest
 
-from modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

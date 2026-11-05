@@ -4,7 +4,7 @@
 ``af_runner_on`` and ``sweep`` run it on a simulated scope, a real sweep
 over the simulated camera's focus target. A test chooses the curve's
 shape by the field it shows (``'white'`` scores zero everywhere) or by
-patching modules.autofocus_functions.autofocus_score, a score of the frame
+patching _lumascope.modules.autofocus_functions.autofocus_score, a score of the frame
 or of the Z it was made at.
 """
 
@@ -39,7 +39,7 @@ def raises_the_failure_from(original: type[BaseException]):
     """
     import pytest
 
-    from modules.exceptions import AutofocusFailedError
+    from _lumascope.modules.exceptions import AutofocusFailedError
 
     with pytest.raises(AutofocusFailedError) as raised:
         yield raised
@@ -65,7 +65,7 @@ def af_runner_on(scope, pattern: str = 'focus_target'):
     every frame scores zero. The 2 ms exposure keeps BF from saturating
     the target, which would move the focus it finds.
     """
-    from modules.autofocus_runner import AutofocusRunner
+    from _lumascope.modules.autofocus_runner import AutofocusRunner
     from tests.scope_fakes import home_sim_scope
 
     home_sim_scope(scope)

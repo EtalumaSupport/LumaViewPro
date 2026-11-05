@@ -14,10 +14,10 @@ import logging
 
 import pytest
 
-from modules import labware_loader
-from modules.exceptions import ConfigError
-from modules.protocol import ProtocolFormatError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import labware_loader
+from _lumascope.modules.exceptions import ConfigError
+from _lumascope.modules.protocol import ProtocolFormatError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED0, LED1, LED2

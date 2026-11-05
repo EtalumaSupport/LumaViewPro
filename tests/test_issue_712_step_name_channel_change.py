@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -32,7 +32,7 @@ PS_SRC = REPO / 'ui' / 'protocol_settings.py'
 def test_regenerated_name_replaces_channel_not_appends():
     import dataclasses
 
-    from modules.common_utils import (
+    from _lumascope.modules.common_utils import (
         StepNameComponents,
         build_step_name,
         parse_legacy_step_name,

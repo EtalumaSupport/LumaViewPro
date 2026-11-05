@@ -9,7 +9,7 @@ recorded a missing one as a failed bring-up. No caller names the driver.
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api import Lumascope
 
 
 def test_a_simulated_scope_takes_no_camera_driver_name():

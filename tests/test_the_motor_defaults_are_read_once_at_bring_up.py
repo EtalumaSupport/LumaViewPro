@@ -18,9 +18,9 @@ import threading
 
 import pytest
 
-from drivers.motorconfig import MotorConfig
-from modules.exceptions import InstallationFileError
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.motorconfig import MotorConfig
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import build_scope
 from tests.installation_fixtures import copy_installation_files

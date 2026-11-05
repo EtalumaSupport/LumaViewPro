@@ -25,7 +25,7 @@ _SCRIPT = r"""
 import os, sys
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
-sys.path.insert(0, sys.argv[1])
+sys.path[:0] = [os.path.join(sys.argv[1], 'src'), sys.argv[1]]
 from kivy.config import Config
 Config.set('graphics', 'window_state', 'hidden')
 from kivy.base import EventLoop
@@ -34,8 +34,8 @@ from kivy.tests.common import UnitTestTouch
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
-from modules.notification_center import notifications
-from modules.protocol import schedule_from_units
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.protocol import schedule_from_units
 from ui.ui_helpers import refused_in_this_input, run_reported
 
 EventLoop.ensure_window()
