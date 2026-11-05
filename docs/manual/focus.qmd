@@ -189,8 +189,9 @@ How quickly the stage accelerates is set by
 
 [Home Stage]{.guilabel} homes every axis of the microscope: the focus is
 lowered completely, the turret, if there is one, turns to position 1, and
-the stage is driven to its home position. Bring the sample back into focus
-afterwards.
+the stage is driven to its home position. The stage then moves to the
+middle of its travel, and the focus rises to a little above its lowest
+point. Bring the sample back into focus afterwards.
 
 ![The XY Stage Control drawer on an LS850](images/focus-xy-stage-ls850.png){#fig-xy-stage width=30%}
 

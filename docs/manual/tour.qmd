@@ -10,7 +10,9 @@ Start LumaViewPro from its desktop or Start menu shortcut, with the
 microscope connected and powered (@sec-connecting). LumaViewPro finds the
 microscope, starts its camera and LEDs and, on a Lumascope with motors, homes
 them: the focus is lowered completely, and the XY stage and the turret are
-driven to their home positions. While the Lumascope homes, "System Homing..."
+driven to their home positions. On a Lumascope with an XY stage, the stage
+then moves to the middle of its travel, and the focus rises to a little above
+its lowest point. While the Lumascope homes, "System Homing..."
 is shown over the middle of the window. Wait for it to clear before you
 use the microscope.
 
