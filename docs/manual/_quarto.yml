@@ -12,6 +12,7 @@ book:
     - settings.qmd
     - channels.qmd
     - focus.qmd
+    - getting-an-image.qmd
     - incubator.qmd
     - integrators.qmd
   appendices:
