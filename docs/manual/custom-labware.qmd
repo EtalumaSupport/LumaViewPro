@@ -1,0 +1,72 @@
+# Adding your own labware {#sec-custom-labware}
+
+The labware LumaViewPro offers (@sec-protocol-labware) is defined in the
+file `labware.json`, in the `data` folder of LumaViewPro's folder in your
+Documents, for example `Documents\LumaViewPro 4.0.0\data\labware.json`.
+To image a plate that is not on the list, add it to that file.
+
+Save a copy of the file under another name first, for example
+`labware-original.json`. LumaViewPro reads only `labware.json`, so the copy
+is ignored until you need it back.
+
+## A labware entry
+
+Open `labware.json` in Notepad or another text editor. Each labware is one
+entry under `"Wellplate"`. This is the Four-Slide Holder's:
+
+```json
+"Four-Slide Holder": {
+  "standard" : "",
+  "diameter" : -1,
+  "columns" : 4,
+  "rows" : 1,
+  "dimensions" : {
+    "x" : 127.5,
+    "y" : 85.5,
+    "z" : -1
+  },
+  "spacing" : {
+    "x" : 30.2,
+    "y" : 76.2
+  },
+  "offset" : {
+    "x" : 18.45,
+    "y" : 42.75
+  }
+},
+```
+
+To add a plate, copy an entry that resembles it, paste it after the last
+entry with a comma between them, and change its name and values. Every
+distance is in millimeters. X runs across the plate, along a row; Y runs
+down it, along a column.
+
+- **The name**, before the colon, is the name shown in the labware list.
+  Each name must be different.
+- **standard**: the standard the plate is made to, for example
+  `"ANSI SLAS 2004"`, or `""` for none. It is recorded in each image's file.
+- **diameter**: the diameter of a well. The plate map draws each well this
+  size. `-1` draws each well filling its spacing: as wide as the X spacing
+  and as tall as the Y spacing.
+- **columns** and **rows**: how many wells there are across and down,
+  each a whole number.
+- **dimensions**: the plate's outside width (`x`) and height (`y`).
+  LumaViewPro does not use `z`.
+- **spacing**: the distance from one well's center to the next, across
+  (`x`) and down (`y`). The two can differ.
+- **offset**: the center of the first well, A1, measured from the plate's
+  top-left corner. With the stage at the center of A1, these are the X and
+  Y shown in [XY Stage Control]{.guilabel} (@sec-xy-stage).
+
+LumaViewPro does not check that wells fit in their spacing, so wells can
+overlap.
+
+## Using the new labware
+
+LumaViewPro reads `labware.json` when it starts, so restart it after saving
+the file. The new labware is then in the labware list.
+
+If LumaViewPro cannot read the file, because a value is missing or not a
+number, or a comma or brace is out of place, it does not start. Put your
+saved copy back as `labware.json`, start LumaViewPro, and make the change
+again.

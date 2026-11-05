@@ -70,6 +70,8 @@ works as the one in [XY Stage Control]{.guilabel} (@sec-plate-map).
 - Blank has no wells: [New]{.guilabel} makes no steps, and every step is
   added with [Add]{.guilabel} (@sec-protocol-add).
 
+To image labware that is not on the list, add it (@sec-custom-labware).
+
 On a Lumascope without a motorized XY stage the list is not shown. The
 labware is Center Plate, and you position the sample by hand; the plate
 map shows the plate but does not move anything.

@@ -21,6 +21,7 @@ book:
     - sanitizing.qmd
     - windows-timelapse.qmd
     - extending.qmd
+    - custom-labware.qmd
 manual-version: "4.x"
 filters:
   - style/guilabel.lua
