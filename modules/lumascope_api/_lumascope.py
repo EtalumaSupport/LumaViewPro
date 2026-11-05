@@ -2248,21 +2248,11 @@ class Lumascope:
         Raises:
             Nothing.
         """
-        logger.debug('[SCOPE API ] Performing connection check...')
+        # A read logs nothing: it is polled, and each caller that acts on a
+        # missing part names it in its own refusal or ending.
         led = self.led_connected
         motion = self.motor_connected or not self._motion_expected
         camera = self.camera_connected
-
-        if not led:
-            logger.info('[SCOPE API ] Connection Check: LED Board not connected')
-        if not motion:
-            logger.info('[SCOPE API ] Connection Check: Motion Board not connected')
-        if not camera:
-            logger.info('[SCOPE API ] Connection Check: Camera not connected')
-
-        if led and motion and camera:
-            logger.debug('[SCOPE API ] Connection Check: All components connected')
-
         return tuple(
             part
             for part, connected in ((Part.LED, led), (Part.MOTOR, motion), (Part.CAMERA, camera))

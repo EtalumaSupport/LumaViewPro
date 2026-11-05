@@ -1,80 +1,60 @@
 # Copyright Etaluma, Inc.
-"""Regression test: periodic connection-check happy-path logs at debug.
+"""Asking which parts are missing writes nothing to the log.
 
-are_all_connected() runs on a periodic timer during a protocol scan, so its
-"Performing connection check" and "All components connected" lines flooded
-the main log (~1.2k/soak). Those happy-path lines are debug (routine, per
-Rule 5); the "<board> not connected" lines stay at info -- a board dropping
-out mid-run is a real degraded-path event the user should see.
+``Lumascope.unconnected_parts()`` is a read: the GUI's bring-up poll asks it
+about every 100 ms, the run loop every 30 s, and a REST client as often as it
+likes, so a line per call floods the log. Whoever acts on the answer says
+which part is missing: the run's ``not_connected`` refusal, and a mid-run
+loss's ending, which names each part gone and is logged once by the reporter.
 
-Levels are read from caplog: the lines the scope module writes through
-its main logger, by the file that wrote them.
+Each test reads every record logged on its own thread while the read runs,
+from any module and at any level.
 """
 
-import logging
+import threading
+from contextlib import contextmanager
 
 import pytest
 
 from modules.lumascope_api import _lumascope as lumascope_mod
-from tests.log_capture import records_of
+from modules.lumascope_api.bring_up import Part
 from tests.scope_fakes import build_scope
 
 
-class _ScopeLog:
-    """The levels of the scope module's main-logger lines that name a text."""
-
-    def __init__(self, caplog):
-        self._caplog = caplog
-
-    def levels_for(self, substring):
-        return [
-            r.levelname
-            for r in records_of(self._caplog, lumascope_mod)
-            if r.name == lumascope_mod.logger.name and substring in r.getMessage()
-        ]
+@contextmanager
+def _lines_logged_on_this_thread(caplog):
+    """Collect every record this thread logs inside the block."""
+    caplog.set_level(1)
+    caplog.set_level(1, logger=lumascope_mod.logger.name)
+    caplog.clear()
+    lines = []
+    yield lines
+    me = threading.get_ident()
+    lines.extend(
+        f'{r.levelname} {r.name}: {r.getMessage()}' for r in caplog.records if r.thread == me
+    )
 
 
 @pytest.fixture
-def sim_scope_with_log(caplog):
+def sim_scope():
     scope = build_scope(simulate=True)
-    caplog.clear()
-    caplog.set_level(logging.DEBUG)
-    caplog.set_level(logging.DEBUG, logger=lumascope_mod.logger.name)
-    yield scope, _ScopeLog(caplog)
+    yield scope
     scope.disconnect()
 
 
-def test_happy_path_lines_are_debug(sim_scope_with_log):
-    scope, log = sim_scope_with_log
-    assert scope.are_all_connected() is True, (
-        'precondition: simulated scope reports all components connected'
-    )
-    assert log.levels_for('Performing connection check') == ['DEBUG'], (
-        'the periodic "Performing connection check" line must be debug'
-    )
-    assert log.levels_for('All components connected') == ['DEBUG'], (
-        'the happy-path "All components connected" line must be debug'
-    )
-    assert log.levels_for('not connected') == [], (
-        'no degraded-path lines may fire when everything is connected'
-    )
+def test_a_scope_with_every_part_is_asked_without_a_line(sim_scope, caplog):
+    with _lines_logged_on_this_thread(caplog) as lines:
+        missing = sim_scope.unconnected_parts()
+
+    assert missing == ()
+    assert lines == [], f'the read logged: {lines}'
 
 
-def test_not_connected_lines_stay_info(sim_scope_with_log):
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
+def test_a_missing_camera_is_answered_without_a_line(sim_scope, caplog):
+    sim_scope.simulation.remove_camera()
 
-    scope, log = sim_scope_with_log
-    scope._led_driver = NullLEDBoard()
-    scope._motion_driver = NullMotionBoard()
-    scope._camera_driver = None
+    with _lines_logged_on_this_thread(caplog) as lines:
+        missing = sim_scope.unconnected_parts()
 
-    assert scope.are_all_connected() is False
-
-    for board in ('LED Board', 'Motion Board', 'Camera'):
-        assert log.levels_for(f'{board} not connected') == ['INFO'], (
-            f'the "{board} not connected" degraded-path line must stay at info'
-        )
-    assert log.levels_for('All components connected') == [], (
-        'the happy-path line must not fire when components are missing'
-    )
+    assert missing == (Part.CAMERA,)
+    assert lines == [], f'the read logged: {lines}'
