@@ -33,7 +33,7 @@ from modules.api_surface import (
 )
 from modules.coord_transformations import StageOffset
 from modules.exceptions import ConfigurationDefectError
-from modules.frame_validity import FrameRule, FrameValiditySource, Rule
+from modules.frame_validity import FrameRule, FrameValiditySource
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.notification_center import UNTYPED_FAULT_TITLE
 from modules.operation import Operation
@@ -285,16 +285,6 @@ class _APropertyHandsOutARun:
         raise NotImplementedError
 
 
-_PROVENANCE = {
-    'run_id': 'run-1',
-    'host': 'bench-pc',
-    'os': 'Windows 11',
-    'lvp_version': '4.0.0',
-    'plugin_version': '1.0.90',
-    'measured_date': '2026-10-20',
-}
-
-
 def _black_level_in_force(client) -> bool:
     """The wire's ``changes_in_force``, every source but the black level left out."""
     others = [('exclude_sources', s) for s in FrameValiditySource if s != 'black_level']
@@ -303,35 +293,24 @@ def _black_level_in_force(client) -> bool:
     return answer.json()
 
 
-def _black_level_on_the_clock_rule(session, delay_us: float) -> None:
-    """A black-level change from now on runs the clock rule at ``delay_us``, and one is made."""
+def _black_level_waiting(session, count: int) -> None:
+    """A black-level change from now on waits ``count`` frames, and one is made."""
     frame_validity = session.scope.imaging.frame_validity
     rules = dict(frame_validity.rules())
-    rules['black_level'] = FrameRule(
-        rule=Rule.CLOCK,
-        count=rules['black_level'].count,
-        delay_us=delay_us,
-        provenance=_PROVENANCE,
-    )
+    rules['black_level'] = FrameRule(count=count, provenance=None)
     frame_validity.use_rules(rules)
     session.scope.camera.set_black_level(4.0)
 
 
-def test_a_wire_client_is_told_a_change_is_not_in_force_while_its_delay_runs(client, session):
-    """``changes_in_force`` on the wire is the capture's own answer: under the
-    clock rule a change is in force once its delay has run, so a REST
-    client is not told it has settled while the delay runs."""
-    _black_level_on_the_clock_rule(session, delay_us=60e6)
+def test_a_wire_client_is_told_a_change_is_not_in_force_while_its_frames_are_owed(client, session):
+    """``changes_in_force`` on the wire is the capture's own answer: a
+    change is in force once its count of frames has come, so a REST client
+    is not told it has settled while frames are still owed."""
+    _black_level_waiting(session, count=10**6)
     assert _black_level_in_force(client) is False
 
-    _black_level_on_the_clock_rule(session, delay_us=0.0)
+    _black_level_waiting(session, count=0)
     assert _black_level_in_force(client) is True
-
-
-def test_the_clock_mapping_of_changes_in_force_stays_in_process(client):
-    answer = client.get('/api/v1/scope/imaging/changes_in_force', params={'mapping': 'none'})
-    assert answer.status_code == 422, answer.text
-    assert 'mapping' in answer.text
 
 
 def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_when_built():

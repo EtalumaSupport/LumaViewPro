@@ -121,7 +121,7 @@ class SensorExposure:
 
 
 class _SensorInput:
-    """A value the simulated sensor applies ``SENSOR_APPLY_DELAY_US`` after it changes.
+    """A value the simulated sensor applies to the exposures started after it changes.
 
     Every assignment is recorded in the input's history as changed now, so a
     write site added later cannot leave a change the sensor never sees.
@@ -232,29 +232,22 @@ class SimulatedCamera(Camera):
     # setting is written at the delivery ceiling's period: they come out
     # under the settings they started with. The simulated camera's own
     # constant, never the gate's skip count or the timing record (b) runs
-    # on: coupled to either, a test of the gate passes by construction. Two
-    # is the depth of a frame exposing and a frame reading out; frames held
-    # between the hand-over and the store are the simulated backlog's.
+    # on: coupled to either, a test of the gate passes by construction. One
+    # is the depth of the frame exposing, which comes out under the state
+    # it started with; frames held between the hand-over and the store are
+    # the simulated backlog's.
     #
     # A frame leaves the pipeline its own period after it starts, plus the
-    # rest of the pipeline at the ceiling's period: the LS850T hands a frame
-    # over at its start, plus its period, plus one minimum period, whatever
-    # the exposure. So at a longer exposure fewer frames are in flight at a
-    # write, one or two at this depth.
-    SENSOR_PIPELINE_FRAMES = 2
+    # rest of the pipeline at the ceiling's period. Measured on this
+    # camera with no other lag, at most two frames delivered after a write
+    # still show the old state at this depth (the second when the
+    # acquisition loop starts an exposure late, at the time it was due):
+    # the shipped count, the a2A3536's measured LED and gain counts. At two,
+    # three did, which no shipped count covers.
+    SENSOR_PIPELINE_FRAMES = 1
 
     # The chunks every frame carries, as a Basler body's enabled chunks.
     CHUNKS: ClassVar[tuple[str, ...]] = ('FrameID', 'Timestamp', 'ExposureTime', 'Gain')
-
-    # How long after a change the sensor's exposures show it: a register
-    # write, the LED, and the stage's X, Y and Z. An exposure starting
-    # sooner is made under the state as it stood this long before it began.
-    # The simulated camera's own constant, never read from its timing record
-    # (that record is measured from this camera, so a rule run on it is
-    # tested against something it did not set). Longer than one frame
-    # interval at the delivery ceiling (25 ms) and off its grid, so a frame
-    # rule without the delay term returns a stale frame on every run.
-    SENSOR_APPLY_DELAY_US = 37_000
 
     # The sensor's inputs, each recorded in its history when it changes:
     # the registers, Z, the stage's (X, Y), and the light as (the lit
@@ -1228,8 +1221,7 @@ class SimulatedCamera(Camera):
     def set_z_position(self, z: float) -> None:
         """Tell the sensor where Z stands now (um), for focus simulation.
 
-        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
-        focused at it.
+        Exposures starting from now are focused at it.
 
         Args:
             z: Current Z stage position in micrometers.
@@ -1240,8 +1232,7 @@ class SimulatedCamera(Camera):
     def set_stage_xy(self, x_um: float | None, y_um: float | None) -> None:
         """Tell the sensor where the stage's X and Y stand now (um).
 
-        The field follows them in exposures starting ``SENSOR_APPLY_DELAY_US``
-        or more from now. None for an axis the scope lacks holds the field
+        The field follows them in exposures starting from now. None for an axis the scope lacks holds the field
         still along it.
         """
         with self._lock:
@@ -1250,8 +1241,7 @@ class SimulatedCamera(Camera):
     def set_illumination(self, lit_ma: float, light: float | None = None) -> None:
         """Tell the sensor the light on the sample now.
 
-        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
-        lit by it.
+        Exposures starting from now are lit by it.
 
         Args:
             lit_ma: The LED current lighting the sample, summed over the lit
@@ -1422,9 +1412,8 @@ class SimulatedCamera(Camera):
     def _start_exposure(self, started_ns: int) -> SensorExposure:
         """Start a frame's exposure at ``started_ns``. Call with ``_lock`` held.
 
-        The registers, Z, the stage and the light are each as they stood
-        ``SENSOR_APPLY_DELAY_US`` before the start, read against the time
-        each changed (``_input_at``). The objective is asked here, as the frame
+        The registers, Z, the stage and the light are each as they stood at
+        the start, read against the time each changed (``_input_at``). The objective is asked here, as the frame
         starts: the glass in the light path is not a setting the sensor
         applies. An unknown objective is None, which renders in focus;
         unwired, the camera has a nominal depth of field, as a camera built
@@ -1435,9 +1424,8 @@ class SimulatedCamera(Camera):
                 earlier than now when the acquisition loop runs late.
         """
         self._read_scope_inputs()
-        applied_at = started_ns - self.SENSOR_APPLY_DELAY_US * 1_000
-        x_um, y_um = self._input_at('stage_xy', applied_at)
-        illumination_ma, light = self._input_at('illumination', applied_at)
+        x_um, y_um = self._input_at('stage_xy', started_ns)
+        illumination_ma, light = self._input_at('illumination', started_ns)
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
         else:
@@ -1447,14 +1435,14 @@ class SimulatedCamera(Camera):
         return SensorExposure(
             frame_id=self._frames_started,
             started_ticks=started_ns + self._clock_offset_ns,
-            exposure_us=self._input_at('exposure_us', applied_at),
-            gain_db=self._input_at('gain_db', applied_at),
-            black_level=self._input_at('black_level', applied_at),
+            exposure_us=self._input_at('exposure_us', started_ns),
+            gain_db=self._input_at('gain_db', started_ns),
+            black_level=self._input_at('black_level', started_ns),
             illumination_ma=illumination_ma,
             light=light,
             x_um=x_um,
             y_um=y_um,
-            z_um=self._input_at('z_um', applied_at),
+            z_um=self._input_at('z_um', started_ns),
             z_end_um=None,
             depth_of_field_um=dof,
             pixel_size_um=um_per_px,

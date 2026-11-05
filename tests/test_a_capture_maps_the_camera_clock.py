@@ -9,8 +9,7 @@ steady clock and records the mapping, half the bracket being how far off
 it can be; a camera without a latch records none.
 
 A still's time is its first frame's start on that clock, carried to the
-host's wall clock through the same mapping: the frame validity judges it
-by, so one instant means one thing. A camera without a latch, or a frame
+host's wall clock through the same mapping. A camera without a latch, or a frame
 that came without its tick, states the frame's arrival instead.
 """
 

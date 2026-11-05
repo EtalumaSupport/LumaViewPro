@@ -6554,35 +6554,28 @@ name are kept).
 ```python
 def changes_in_force(
     self,
-    mapping: ClockMapping | None = None,
     exclude_sources: tuple[FrameValiditySource, ...] = (),
 ) -> bool
 ```
 
-Marks: reads (changes nothing); in-process arguments: `mapping`.  
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/imaging/changes_in_force`.
 
-Whether every change recorded is in force, so a frame starting now counts.
+Whether every change recorded is in force, so a frame arriving now counts.
 
 The one answer to whether a frame would count: a capture's drain
 ends on it, a recording waits on it before its first frame, and the
 live view, a REST client and a plugin ask it, so none waits on
-anything else: no frame is owed under the credit rule
-(`FrameValidity.owed`), and the host's steady clock has passed the
-instant a frame must start after under the clock rule, taken with
-`mapping`'s uncertainty. It latches nothing, so asking it is never
-a camera command: a capture or a recording passes the mapping its
-frames are judged by (`map_camera_clock`); a caller with no frame
-to judge passes none and is answered without the uncertainty.
+anything else: no frame is owed (`FrameValidity.owed`). It is
+never a camera command.
 
 **Args**
 
-- `mapping`: The camera's clock mapping the caller judges by, or None; in-process only, never on the wire.
 - `exclude_sources`: Sources whose changes are not waited for.
 
 **Returns**
 
-bool: True when a frame starting now counts for every change.
+bool: True when a frame arriving now counts for every change.
 
 **Raises**
 
@@ -6604,9 +6597,8 @@ How long the changes now recorded may take to come into force, in seconds.
 
 The capture's own limit for its wait (`capture_still`), so a
 recording that waits for `changes_in_force` gives up when a capture
-would: the frames owed under the credit rule, each at the exposure in
-force or the slowest frame period, with a margin; the time until the
-clock rule's instant; and a floor for one grab's timeout.
+would: the frames owed, each at the exposure in force or the slowest
+frame period, with a margin, and a floor for one grab's timeout.
 
 **Args**
 
@@ -6877,20 +6869,16 @@ Nothing.
 ### `ImagingAPI.judge_frame`
 
 ```python
-def judge_frame(
-    self,
-    frame: Frame,
-    mapping: ClockMapping | None,
-) -> tuple[Judgment, ...]
+def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]
 ```
 
 Marks: in-process.
 
-Whether `frame` counts for each source's last change, by the rule a capture waits on.
+Whether `frame` counts for each source's last change, as a capture waits on it.
 
 The one decision (`FrameValidity.judge`), asked of every change
 recorded so far (gain, exposure, black level, LED, a move, ...), by
-the rule each change's source runs (`capabilities.frame_rules`): a
+each change's source's count (`capabilities.frame_rules`): a
 capture's record carries it for the frame it returns, and a frame
 listener can ask it of any frame it receives. Each `Judgment`
 carries the change it was judged against: the last frame the driver
@@ -6901,7 +6889,6 @@ axis settled.
 **Args**
 
 - `frame`: A frame the camera delivered (a frame listener's `Frame`).
-- `mapping`: The camera's clock mapped onto the host's, which the clock rule judges a frame's start by: a capture's `frame_record.clock_mapping`. None for a camera without a latch; a clock-rule change then counts no frame.
 
 **Raises**
 
@@ -9565,10 +9552,10 @@ long after the change its frame came.
 
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped (`FrameValidity.motion_settled`). A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until `skip` was met.
-- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A delay measured from here is never short; the rule judges from `written_ns` or `in_force_ns`, the latest, so the pair never accepts a frame early.
+- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
 - <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`host_clock.steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API (`FrameValidity.motion_settled`); None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
-- <a id="Change.rule"></a>`rule`: `FrameRule` -- The rule the change is judged by, as its source's stood when it was recorded.
+- <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
 - <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
@@ -9761,8 +9748,7 @@ never by this record.
 
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.map_camera_clock`](#ImagingAPI.map_camera_clock).  
-Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).  
-Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
+Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).
 
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
@@ -10178,18 +10164,16 @@ Built only by this module's two entries: `grab_record` for a still,
 A record: it crosses the wire as its data.  
 Held in: [`Change.rule`](#Change.rule), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).
 
-The rule a source's changes are judged by, and where it came from.
+The frames a source's changes wait, and where the count came from.
 
 **Raises**
 
-- `ValueError`: a count that is not a whole number, 0 or more; a clock rule without its delay or provenance; a credit rule with a delay.
+- `ValueError`: a count that is not a whole number, 0 or more.
 
 **Fields**
 
-- <a id="FrameRule.count"></a>`count`: `int` -- The frames a change of the source needs counted after it, which under the credit rule come before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
-- <a id="FrameRule.delay_us"></a>`delay_us`: `float | None` -- Under the clock rule, the source's measured delay: the larger of its directions' `apply_delay_us`, each the least start over its trials of the first frame showing the change. A frame starting later than the change plus this shows it. 0 for a move with none measured. None under the credit rule.
-- <a id="FrameRule.provenance"></a>`provenance`: `Mapping[str, str] | None` -- Under the clock rule, the run that measured the delay (`TIMING_PROVENANCE`), or that none did (`at_the_stop`). Under the credit rule, the run that measured the count, naming the microscope it was measured on (`TIMING_MICROSCOPE`); None for a shipped count.
-- <a id="FrameRule.rule"></a>`rule`: `Rule` -- `Rule.CLOCK` when the camera has a clock latch and its timing record holds a measured delay for the source, or the source is a move with no measured count; `Rule.CREDIT` otherwise.
+- <a id="FrameRule.count"></a>`count`: `int` -- The frames a change of the source needs counted after it, before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
+- <a id="FrameRule.provenance"></a>`provenance`: `Mapping[str, str] | None` -- The run that measured the count, naming the microscope it was measured on (`TIMING_MICROSCOPE`); None for a shipped count.
 
 <a id="FrameSize"></a>
 ## `FrameSize`
@@ -10343,12 +10327,10 @@ Whether one frame counts for one change, and the facts that decided it.
 
 - <a id="Judgment.after_in_force_ms"></a>`after_in_force_ms`: `float | None` -- Milliseconds from the change's in-force time to the frame's arrival; None when it has none.
 - <a id="Judgment.after_write_ms"></a>`after_write_ms`: `float` -- Milliseconds from the change's recording to the frame's arrival.
-- <a id="Judgment.change"></a>`change`: `Change` -- The change judged against, as it stood when judged; its `rule` is the rule it was judged by.
-- <a id="Judgment.counts"></a>`counts`: `bool` -- Under the credit rule, the frame arrived after the change, the change's count was met by frames before it, and an axis the change waits on had settled before it arrived. Under the clock rule, the frame started after `qualifies_after_ticks`; never when either is unknown.
+- <a id="Judgment.change"></a>`change`: `Change` -- The change judged against, as it stood when judged.
+- <a id="Judgment.counts"></a>`counts`: `bool` -- The frame arrived after the change, the change's count was met by frames before it, and an axis the change waits on had settled before it arrived.
 - <a id="Judgment.frame_seq"></a>`frame_seq`: `int` -- The frame's hand-over ordinal.
-- <a id="Judgment.frame_start_ticks"></a>`frame_start_ticks`: `int | None` -- Under the clock rule, when the frame started exposing on the camera's clock (its `Timestamp` chunk); None under the credit rule, and for a frame without the chunk.
 - <a id="Judgment.frames_after"></a>`frames_after`: `int` -- Frames handed over after the change was recorded, up to and including this one: an upper bound on the frames stored after it, since a frame handed over may be dropped before the store.
-- <a id="Judgment.qualifies_after_ticks"></a>`qualifies_after_ticks`: `int | None` -- Under the clock rule, the camera-clock tick a frame must start after to count: the change, its source's delay and the clock mapping's uncertainty. None under the credit rule, and when it cannot be known (no mapping, or a move not yet in force).
 
 <a id="Labware"></a>
 ## `Labware`
@@ -12388,7 +12370,7 @@ tuple.
 - <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range).
 - <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes.
 - <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- The rate of the camera's frame timestamp clock in Hz, or None for a camera whose frames carry no timestamp.
-- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the rule a frame is judged by against its changes, and the source's frame count: the clock rule, with its measured delay and the run that measured it, where the camera has a clock latch and its timing record holds a delay for the source, and for every move on such a camera whose record measured no move count, from its stop; the credit rule everywhere else. The count is the largest the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
+- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the frames a change of it waits before a frame counts, on every camera: the largest count the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
 - <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.
 - <a id="ScopeCapabilities.has_focus"></a>`has_focus`: `bool` -- True when `axes` holds Z.
 - <a id="ScopeCapabilities.has_turret"></a>`has_turret`: `bool` -- Whether this scope has a turret: T in `axes` when the motor board came up, else the declared model's. A turret scope whose board did not come up has a turret in an unknown slot.
@@ -13766,16 +13748,6 @@ The remedies a refusal can name, each one the Session applies (`ScopeSession.app
 
 - `recover_file_writer`
 - `repair_camera_driver`
-
-<a id="Rule"></a>
-### `Rule`
-
-Held in: [`FrameRule.rule`](#FrameRule.rule).
-
-How a frame is judged against a change of one source.
-
-- `clock`
-- `credit`
 
 <a id="RunStatus"></a>
 ### `RunStatus`
@@ -17887,7 +17859,7 @@ Every fact a saved file's record can state, by its key (`modules/image_utils.FIL
 | `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- |
 | `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- |
 | `frame_id` | capture | `FrameID` | -- | no | -- |
-| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `rule`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `frame_start_ticks`, `qualifies_after_ticks` |
+| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- |
 | `dark` | capture | `Dark` | -- | no | -- |
 | `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- |

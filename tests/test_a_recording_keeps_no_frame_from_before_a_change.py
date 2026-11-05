@@ -3,7 +3,7 @@
 
 A run's video step waits, before its first frame, on the condition a capture
 drains on (``ImagingAPI.changes_in_force``), so the first frame it keeps
-counts for every change, by the rule that change's source runs, with live
+counts for every change, by that change's count of frames, with live
 view off as a run records it. The step's own Auto_Gain arm records a gain
 and an exposure change, and is waited out the same way.
 
@@ -17,14 +17,11 @@ frame after its start, not a later cadence slot that would hide an early one.
 import json
 import pathlib
 import threading
-from typing import NamedTuple
-
 import pytest
 
 from drivers import host_clock
 from modules.exceptions import RecordingRefusedError
 from modules.frame_validity import FrameValiditySource
-from modules.lumascope_api.frame_record import ClockMapping
 from modules.image_utils import read_file_record
 from tests.video_step_drives import video_step_on
 
@@ -80,53 +77,24 @@ def _first_kept_frame_is_judged(scope, save_folder, change, *, step=None, autoga
     return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
 
 
-class _Judged(NamedTuple):
-    """A first kept frame's judgments, with the clock mapping they were made through."""
-
-    by_source: dict
-    mapping: ClockMapping | None
-
-
 def _judged(scope, frame):
-    """``frame``'s judgments, through a clock mapping latched after the recording.
-
-    Not the recording's own mapping: no public member reads it (a recorded
-    frame's record carries none), and a latch after the recording carries the
-    same camera clock, off by its own uncertainty, which ``_why_not`` states.
-    """
-    mapping = scope.imaging.map_camera_clock()
-    return _Judged({j.change.source: j for j in scope.imaging.judge_frame(frame, mapping)}, mapping)
+    """``frame``'s judgments, by source."""
+    return {j.change.source: j for j in scope.imaging.judge_frame(frame)}
 
 
 def _why_not(judged, source):
-    """The whole judgment of ``source``, for a red: pytest's own rendering cuts it
-    short, and its anchor, the frame's start and the mapping's uncertainty are
-    what a red is read by."""
-    judgment = judged.by_source[source]
-    mapping = judged.mapping
-    stated = [repr(judgment), f'mapping {mapping!r}']
-    if mapping is not None and None not in (
-        judgment.frame_start_ticks,
-        judgment.qualifies_after_ticks,
-    ):
-        late_ms = (
-            (judgment.frame_start_ticks - judgment.qualifies_after_ticks) * 1000 / mapping.tick_hz
-        )
-        stated.append(
-            f'the frame started {late_ms:+.3f} ms after the instant it had to follow '
-            '(negative: before it)'
-        )
-    return '\n'.join(stated)
+    """The whole judgment of ``source``, for a red: pytest's own rendering cuts
+    it short, and the frames after the change and who counted the frames
+    before it are what a red is read by."""
+    return repr(judged[source])
 
 
 def test_a_video_steps_first_frame_counts_for_a_black_level_change_just_before_it(
     sim_scope, sim_camera, tmp_path
 ):
-    """Before the step waited on the clock rule, a fixed pause after a frame
-    count nearly covered the black level's delay: its first frame started a
-    few milliseconds early in some runs on the camera's realistic frame
-    timing and not in others, so this pins the after-state; the Auto_Gain
-    test below is the step's fail-before."""
+    """The step's first kept frame counts for a black-level change made just
+    before it, on the camera's realistic frame timing: this pins the
+    after-state; the Auto_Gain test below is the step's fail-before."""
     sim_camera[1].set_timing_mode('realistic')
     sim_scope.camera.set_black_level(2.0)
     sim_scope.imaging.capture_still()
@@ -135,7 +103,7 @@ def test_a_video_steps_first_frame_counts_for_a_black_level_change_just_before_i
         sim_scope, tmp_path, lambda: sim_scope.camera.set_black_level(4.0)
     )
 
-    assert judged.by_source[FrameValiditySource.BLACK_LEVEL].counts, _why_not(
+    assert judged[FrameValiditySource.BLACK_LEVEL].counts, _why_not(
         judged, FrameValiditySource.BLACK_LEVEL
     )
 
@@ -159,10 +127,9 @@ def _first_manual_frame_is_judged(session, live_folder, change):
     return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
 
 
-def _frame_start_ticks(scope, frame, mapping):
-    """When a delivered frame started, on the camera's clock; None where no judgment states it."""
-    starts = {j.frame_start_ticks for j in scope.imaging.judge_frame(frame, mapping)} - {None}
-    return starts.pop() if starts else None
+def _frame_start_ticks(frame):
+    """When a delivered frame started, on the camera's clock (its ``Timestamp`` chunk); None without one."""
+    return (frame.chunks or {}).get('Timestamp')
 
 
 def _await_frames_started_after(scope, delivered, started_ns, n, timeout=10.0):
@@ -180,7 +147,7 @@ def _await_frames_started_after(scope, delivered, started_ns, n, timeout=10.0):
     deadline_ns = host_clock.steady_ns() + int(timeout * 1e9)
 
     def started_after():
-        ticks = (_frame_start_ticks(scope, frame, mapping) for frame in delivered.frames())
+        ticks = (_frame_start_ticks(frame) for frame in delivered.frames())
         return sum(1 for t in ticks if t is not None and t > start_ticks)
 
     while started_after() < n:
@@ -216,7 +183,7 @@ def _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns)
         f'stop asked {after_start_ms(mapping.camera_ticks_at(stop_ns)):+.3f} ms after start returned'
     )
     for frame_id, frame in sorted(delivered.by_id.items())[-15:]:
-        ticks = _frame_start_ticks(scope, frame, mapping)
+        ticks = _frame_start_ticks(frame)
         when = f'{after_start_ms(ticks):+.3f} ms' if ticks is not None else 'at no stated tick'
         stated.append(f'frame {frame_id} started {when} after start returned')
     return '\n'.join(stated)
@@ -238,7 +205,7 @@ def test_a_manual_recordings_first_frame_counts_for_a_change_just_before_record(
     sim_session, tmp_path, source, before, after
 ):
     """Live view off, as a headless start is: no preview counts a frame."""
-    # parametrize-justified: three sources, each its own clock rule's delay.
+    # parametrize-justified: three sources, each its own setter and count of frames.
     camera = sim_session.scope.camera
     getattr(camera, before[0])(before[1])
     sim_session.scope.imaging.capture_still()
@@ -247,7 +214,7 @@ def test_a_manual_recordings_first_frame_counts_for_a_change_just_before_record(
         sim_session, tmp_path, lambda: getattr(camera, after[0])(after[1])
     )
 
-    assert judged.by_source[source].counts, _why_not(judged, source)
+    assert judged[source].counts, _why_not(judged, source)
 
 
 @pytest.mark.parametrize('sim_session', [FRAMES_LEG], indirect=True)
@@ -278,4 +245,4 @@ def test_a_video_steps_first_frame_counts_for_the_gain_and_exposure_its_auto_gai
     )
 
     for source in (FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE):
-        assert judged.by_source[source].counts, _why_not(judged, source)
+        assert judged[source].counts, _why_not(judged, source)

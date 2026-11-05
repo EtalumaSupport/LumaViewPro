@@ -91,22 +91,17 @@ def wait_for_changes_in_force(
     A recording's pre-roll, manual or a run's video step: its first kept
     frame must count for every change, by the condition a capture drains
     on (``ImagingAPI.changes_in_force``). Each grab counts its frame, so a
-    change under the credit rule is met by the frames taken here even with
-    live view off. The stop is checked first on every pass, so a stop
+    change's count is met by the frames taken here even with live view
+    off. The stop is checked first on every pass, so a stop
     always wins; a dead feed is zero frame ARRIVALS for the stall bound,
     not a change that stays owed while frames arrive, which would blame the
     camera for a settle fault. ``clock`` is in seconds, and the stall
     bound and the limit run on it.
 
     The mapping is latched once every change is in force, and the
-    recording times every frame and reads its start through it. The loop
-    asks without a mapping: the latch's own bracket lies between the
-    instant the changes came into force and the recording's start, so a
-    frame the recording keeps started at least the latch's uncertainty
-    past that instant, the margin a frame judged through this mapping
-    needs. Latched before the loop instead, it would age by the wait,
-    and the camera's clock drifts against the host's by more than any
-    margin covers over a wait with no time limit.
+    recording times every frame and reads its start through it. Latched
+    before the loop instead, it would age by the wait, and the camera's
+    clock drifts against the host's over a wait with no time limit.
 
     Args:
         imaging: The scope's imaging API.

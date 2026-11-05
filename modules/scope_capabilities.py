@@ -405,15 +405,11 @@ class ScopeCapabilities:
             on a camera without a latch (IDS, a Classic's), or whose tick
             rate is unknown, as it is for a camera whose frames do not carry
             their start on that clock; its frames carry no mapping.
-        frame_rules: For each frame-validity source, the rule a frame is
-            judged by against its changes, and the source's frame count: the
-            clock rule, with its measured delay and the run that measured
-            it, where the camera has a clock latch and its timing record
-            holds a delay for the source, and for every move on such a
-            camera whose record measured no move count, from its stop; the
-            credit rule everywhere else. The count is the largest the record
-            measured for the source over the microscopes the camera was
-            measured on, with the run and microscope in its ``provenance``,
+        frame_rules: For each frame-validity source, the frames a change of
+            it waits before a frame counts, on every camera: the largest
+            count the record measured for the source over the microscopes
+            the camera was measured on, with the run and microscope in its
+            ``provenance``,
             else the shipped count with none. Read once at bring-up from the
             camera's timing record.
         camera_supports_black_level: True when the camera's black level can
@@ -694,5 +690,5 @@ class ScopeCapabilities:
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,
             camera_has_clock_latch=camera_has_clock_latch,
-            frame_rules=FrameValidity.rules_from_record(timing_record, camera_has_clock_latch),
+            frame_rules=FrameValidity.rules_from_record(timing_record),
         )

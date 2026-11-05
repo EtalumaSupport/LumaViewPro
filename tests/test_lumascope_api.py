@@ -244,9 +244,8 @@ class TestFrameValidityDuringHoming:
     (axis state HOMING), which sources the home recorded a change for
     (``invalidation_counts`` against a snapshot before it) and whether a
     frame would count (``changes_in_force``). The record is what the
-    contract asks: under the clock rule an earlier change of the source
-    already reads owed while the axis moves, so the answer alone would
-    pass with the invalidate gone.
+    contract asks: another change still owed reads not in force too, so the
+    answer alone could pass with the invalidate gone.
     """
 
     def test_zhome_marks_frame_invalid_during_motion(self):

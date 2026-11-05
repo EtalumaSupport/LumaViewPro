@@ -124,11 +124,10 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 18,
-    # 34: SENSOR_APPLY_DELAY_US, the simulated sensor's own delay, and
     # set_stage_xy and set_illumination, which tell a camera built with no
-    # scope around it its stage and light. 36: withhold_chunk and the CHUNKS
-    # it takes, the fault of a frame that arrives without one chunk.
-    'Camera': 36,
+    # scope around it its stage and light; withhold_chunk and the CHUNKS it
+    # takes, the fault of a frame that arrives without one chunk.
+    'Camera': 35,
 }
 
 # Parameter divergences that stay until the simulators gain a shared

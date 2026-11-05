@@ -756,11 +756,11 @@ falsify its frames -- binning, frame size, image mode -- is refused.
 **Frame validity.** After a change -- an LED lit, an exposure set, the stage
 moved -- the camera keeps delivering frames that were exposed before the change
 took effect. A capture waits until a frame counts for every recorded change,
-by that change's rule: the **clock rule**, where the camera stamps when each
-frame started exposing, counts a frame that started after the change was in
-force; the **credit rule** counts a frame once enough frames have arrived since
-the change. `scope.capabilities.frame_rules` answers each source's rule, and
-`scope.imaging.changes_in_force()` whether a frame starting now would count
+by counting frames: a frame counts once the change's source's count of frames
+has arrived since the change (a move's since its stop), the count the camera's
+timing record measured, else the shipped one. `scope.capabilities.frame_rules`
+answers each source's count, and `scope.imaging.changes_in_force()` whether a
+frame arriving now would count
 (`GET /api/v1/scope/imaging/changes_in_force`). A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
 (`'deadline_expired'`). A recording, manual or a run's video step, waits the

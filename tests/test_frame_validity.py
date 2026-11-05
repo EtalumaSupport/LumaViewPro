@@ -68,7 +68,6 @@ class TestBasicInvalidation:
     def test_initially_nothing_is_owed(self):
         fv = FrameValidity(_frames)
         assert fv.owed().frames == 0
-        assert fv.owed().until_ns is None
 
     def test_invalidate_owes_the_sources_count(self):
         fv = FrameValidity(_frames)
@@ -564,20 +563,19 @@ class TestOwedMoving:
         fv.invalidate('z_move', began_ns=None)
         assert fv.owed(exclude_sources=('z_move',)).moving == frozenset()
 
-    def test_a_clock_move_in_force_is_moving_again_while_its_axis_reads_moving(self):
-        """Under the clock rule a move is owed a frame whenever its axis
-        reads moving, its count met or not, so the pause is read from the
-        same changes: a move in force with its count met, then a
-        several-move command opened, which reads every axis as moving."""
+    def test_a_move_in_force_is_moving_again_while_its_axis_reads_moving(self):
+        """A move is owed a frame whenever its axis reads moving, its count
+        met or not, so the pause is read from the same changes: a move in
+        force with its count met, then a several-move command opened, which
+        reads every axis as moving."""
         fv = FrameValidity(_frames)
-        fv.use_rules(FrameValidity.rules_from_record(None, has_clock_latch=True))
         settled = {'now': True}
         fv.set_settle_check(lambda source: settled['now'])
         fv.invalidate('z_move', began_ns=None)
         fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
         for _ in range(FrameValidity.SKIP_FRAMES['z_move'] + 1):
             fv.count_frame(_f(), by=Counter.GRAB)
-        assert fv.owed().moving == frozenset()
+        assert (fv.owed().frames, fv.owed().moving) == (0, frozenset())
 
         settled['now'] = False
 

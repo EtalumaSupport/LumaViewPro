@@ -418,16 +418,13 @@ def bare_grab_worker():
 def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
     """Read a frame a free-running simulated camera exposed under every change made before this call.
 
-    The simulated sensor shows a change only in exposures starting
-    ``SENSOR_APPLY_DELAY_US`` after it, and frames already started come out
-    after the call under the state they started with. So a frame shows what
-    was set before the call exactly when its exposure started that long
-    after the call, which its ``Timestamp`` chunk says on the camera's
-    clock. Returns the first stored frame that did.
+    The simulated sensor shows a change in the exposures starting after
+    it, and frames already started come out after the call under the state
+    they started with. So a frame shows what was set before the call exactly
+    when its exposure started after the call, which its ``Timestamp`` chunk
+    says on the camera's clock. Returns the first stored frame that did.
     """
-    applied_from = cam.camera_clock_ticks() + (
-        cam.SENSOR_APPLY_DELAY_US * cam.TIMESTAMP_TICK_HZ // 1_000_000
-    )
+    applied_from = cam.camera_clock_ticks()
     handler = cam.cam_image_handler
     deadline = time.monotonic() + timeout_s
     while True:

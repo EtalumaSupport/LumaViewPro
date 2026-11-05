@@ -112,22 +112,13 @@ class _Grabbed:
 class _Judged:
     """What a capture's grab judges each frame by: a frame is kept only when
     every change it does not exclude counts it (``FrameValidity.judge``).
-
-    ``mapping`` is the camera's clock as the capture's cycle took it, the one
-    its record carries. ``clock_bound_ns`` is how long the grab takes frames
-    when a change runs the clock rule: the latest instant a frame must start
-    after, plus one grab window (the scope's steady clock,
-    ``host_clock.steady_ns``); None when every change runs the credit rule,
-    whose grab keeps the caller's ``timeout_s``.
     """
 
-    mapping: ClockMapping | None
     exclude_sources: tuple[FrameValiditySource, ...]
-    clock_bound_ns: int | None
 
     def unmet(self, frame_validity: FrameValidity, frame: Frame) -> Judgment | None:
         """The first change ``frame`` does not count for, by source; None when it counts for all."""
-        for judgment in frame_validity.judgments(frame, self.mapping):
+        for judgment in frame_validity.judgments(frame):
             if judgment.change.source not in self.exclude_sources and not judgment.counts:
                 return judgment
         return None
@@ -855,10 +846,9 @@ class ImagingAPI:
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Drains stale frames from the camera pipeline until every change (LED,
-        gain, exposure, motion, ...) can be met by its source's rule
-        (``capabilities.frame_rules``): a credit-rule change by its frame
-        count, a clock-rule change by time on the camera's clock, a move by
-        its axis settling too. Then grabs, keeping only a frame that the one
+        gain, exposure, motion, ...) has had its source's frame count
+        (``capabilities.frame_rules``), a move counted from its axis
+        settling. Then grabs, keeping only a frame that the one
         judgment (``FrameValidity.judge``) counts for every change it does not
         exclude, and taking the next frame otherwise.
 
@@ -899,10 +889,8 @@ class ImagingAPI:
                 delivered none within its grab window, draining, grabbing or
                 waiting for a sum's next frame; ``'deadline_expired'``, state
                 changes outran the budget below; ``'no_fresh_frame'``, frames
-                came but none within the grab's bound counted for the
-                ``setting`` changed (under the credit rule that bound is
-                ``timeout_s``; under the clock rule one grab window past the
-                instant a frame must start after); ``'chunk_rejected'``,
+                came but none within ``timeout_s`` counted for the
+                ``setting`` changed; ``'chunk_rejected'``,
                 frames counted but none at the ``setting`` asked;
                 ``'record_read_failed'``, a frame came but the camera did not
                 answer a read its record needs, chained from the
@@ -924,9 +912,7 @@ class ImagingAPI:
         (motion has its own authoritative completion signal, and a frame
         budget must not out-vote it), and it governs only the drain and
         re-check loops: the interior of one grab is bounded by
-        ``timeout_s`` (under the clock rule, by its own bound, one grab
-        window past the instant a frame must start after) and, for summed
-        captures, the sum window itself.
+        ``timeout_s`` and, for summed captures, the sum window itself.
         The one state change no polling design can see is a driver write
         whose invalidate has not yet landed when the grab returns; that
         residual is microseconds wide and accepted.
@@ -1029,17 +1015,15 @@ class ImagingAPI:
             # above stays frozen.
             grab_timeout_s = self._camera._grab_wait_s()
 
-            # The camera's clock, mapped once per cycle and before its drain:
-            # the clock rule's drain, the grab's judge and the frame's record
-            # all read this one mapping. A failed latch fails the capture, as
-            # a failed read for the record does.
+            # The camera's clock, mapped once per cycle and before its drain,
+            # for the frame's record and its time. A failed latch fails the
+            # capture, as a failed read for the record does.
             try:
                 mapping = self._clock_mapping_for_record()
             except HardwareError:
                 if lock is not None:
                     self._camera._resume_auto_gain_impl(lock)
                 raise
-            uncertainty_ns = mapping.uncertainty_ns if mapping is not None else 0
 
             # Snapshot the invalidation counters BEFORE the drain: any
             # invalidation landing after this line -- during the drain,
@@ -1054,16 +1038,14 @@ class ImagingAPI:
                 if s not in exclude_sources
             }
 
-            # Drain stale frames until every change can be met, each by its
-            # source's rule (``FrameValidity.owed``): a credit-rule change
-            # until its frame count is met, a clock-rule change until the
-            # host's clock passes the instant a frame must start after, and
-            # a move until its axis settles. A chunk certifies the register
+            # Drain stale frames until every change has had its source's
+            # frame count (``FrameValidity.owed``), and a move until its axis
+            # settles. A chunk certifies the register
             # in force when the frame was tagged, not the light integrated
             # into it, so it never stands in for this wait. Each drained grab
             # passes its frame's ordinal so a frame concurrently counted by
             # the preview poller is not counted twice.
-            while not self.changes_in_force(mapping, exclude_sources):
+            while not self.changes_in_force(exclude_sources):
                 if _deadline_expired():
                     raise _deadline_expired_error('drain-loop')
                 drain_mark = _FeedMark.read(self._driver)
@@ -1072,14 +1054,7 @@ class ImagingAPI:
                     self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
                     drain_iterations += 1
                 else:
-                    owed = self.frame_validity.owed(
-                        exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
-                    )
-                    instant_ms = (
-                        f'{(owed.until_ns - host_clock.steady_ns()) / 1e6:.1f}'
-                        if owed.until_ns is not None
-                        else 'none'
-                    )
+                    owed = self.frame_validity.owed(exclude_sources=exclude_sources)
                     # The removal latch is set the moment a removal is seen;
                     # ``active`` is released later, off-thread.
                     removed = self._camera.camera_removed or not self._driver.active
@@ -1088,7 +1063,6 @@ class ImagingAPI:
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
                         f'(drained={drain_iterations}, frames_owed={owed.frames}, '
-                        f'ms_to_clock_instant={instant_ms}, '
                         f'device_removed={removed}); {drain_mark.account(self._driver)}'
                     )
                     _record_capture_info()
@@ -1119,21 +1093,10 @@ class ImagingAPI:
             lit = live_lit_pairs(self._scope.illumination)
             expected_lit = bool(lit)
 
-            # The grab keeps only a frame every change counts, and under the
-            # clock rule takes frames until one grab window past the latest
-            # instant a frame must start after. A change landing since the
-            # drain ended moves that instant, and the compare below re-runs
-            # the cycle for it.
-            until_ns = self.frame_validity.owed(
-                exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
-            ).until_ns
-            judged = _Judged(
-                mapping=mapping,
-                exclude_sources=exclude_sources,
-                clock_bound_ns=(
-                    until_ns + int(grab_timeout_s * 1e9) if until_ns is not None else None
-                ),
-            )
+            # The grab keeps only a frame every change counts. A change
+            # landing since the drain ended is caught by the compare below,
+            # which re-runs the cycle for it.
+            judged = _Judged(exclude_sources=exclude_sources)
             grabbed = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
@@ -1188,11 +1151,10 @@ class ImagingAPI:
                 # that handles a failed capture handles this one; one that
                 # failed because the camera left between the grab and the
                 # read is that removal.
-                # The frame is judged against the mapping its record carries,
-                # the one its cycle took before the drain.
-                judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
+                judgments = self.frame_validity.judgments(grabbed.earliest)
                 # Its time is the first frame's start on the camera's clock,
-                # through the same mapping; a camera without a latch, or a
+                # through the mapping its cycle took before the drain, the one
+                # its record carries; a camera without a latch, or a
                 # frame that came without its tick, states its arrival.
                 captured_at = (
                     camera_frame_time(grabbed.earliest, mapping) if mapping is not None else None
@@ -1358,19 +1320,11 @@ class ImagingAPI:
         """The frames the changes are owed, and the seconds a capture budgets for them.
 
         The one settle term the capture's deadline and the public
-        dispatcher's wait both read: the frames owed under the credit rule,
-        each at ``frame_cost_s`` and the deadline's margin, plus the time
-        until the host's clock passes the instant a frame must start after
-        under the clock rule (``FrameValidity.owed``, without the clock
-        mapping's uncertainty, which no budget is taken beside).
+        dispatcher's wait both read: the frames owed (``FrameValidity.owed``),
+        each at ``frame_cost_s`` and the deadline's margin.
         """
         owed = self.frame_validity.owed(exclude_sources=exclude_sources)
-        clock_s = (
-            max(0, owed.until_ns - host_clock.steady_ns()) / 1e9
-            if owed.until_ns is not None
-            else 0.0
-        )
-        return owed.frames, owed.frames * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN + clock_s
+        return owed.frames, owed.frames * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
 
     def _settle_limit(
         self, exclude_sources: tuple[FrameValiditySource, ...], frame_cost_s: float
@@ -1392,9 +1346,8 @@ class ImagingAPI:
 
         The capture's own limit for its wait (``capture_still``), so a
         recording that waits for ``changes_in_force`` gives up when a capture
-        would: the frames owed under the credit rule, each at the exposure in
-        force or the slowest frame period, with a margin; the time until the
-        clock rule's instant; and a floor for one grab's timeout.
+        would: the frames owed, each at the exposure in force or the slowest
+        frame period, with a margin, and a floor for one grab's timeout.
 
         Args:
             exclude_sources: Sources whose changes are not waited for.
@@ -1411,43 +1364,26 @@ class ImagingAPI:
         )
         return self._settle_limit(exclude_sources, frame_cost_s)[1]
 
-    @api(reads=True, in_process_arguments=('mapping',))
-    def changes_in_force(
-        self,
-        mapping: ClockMapping | None = None,
-        exclude_sources: tuple[FrameValiditySource, ...] = (),
-    ) -> bool:
-        """Whether every change recorded is in force, so a frame starting now counts.
+    @api(reads=True)
+    def changes_in_force(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> bool:
+        """Whether every change recorded is in force, so a frame arriving now counts.
 
         The one answer to whether a frame would count: a capture's drain
         ends on it, a recording waits on it before its first frame, and the
         live view, a REST client and a plugin ask it, so none waits on
-        anything else: no frame is owed under the credit rule
-        (``FrameValidity.owed``), and the host's steady clock has passed the
-        instant a frame must start after under the clock rule, taken with
-        ``mapping``'s uncertainty. It latches nothing, so asking it is never
-        a camera command: a capture or a recording passes the mapping its
-        frames are judged by (``map_camera_clock``); a caller with no frame
-        to judge passes none and is answered without the uncertainty.
+        anything else: no frame is owed (``FrameValidity.owed``). It is
+        never a camera command.
 
         Args:
-            mapping: The camera's clock mapping the caller judges by, or
-                None; in-process only, never on the wire.
             exclude_sources: Sources whose changes are not waited for.
 
         Returns:
-            bool: True when a frame starting now counts for every change.
+            bool: True when a frame arriving now counts for every change.
 
         Raises:
             Nothing.
         """
-        owed = self.frame_validity.owed(
-            exclude_sources=exclude_sources,
-            uncertainty_ns=mapping.uncertainty_ns if mapping is not None else 0,
-        )
-        return owed.frames == 0 and (
-            owed.until_ns is None or host_clock.steady_ns() >= owed.until_ns
-        )
+        return self.frame_validity.owed(exclude_sources=exclude_sources).frames == 0
 
     def _black_level_for_record(self) -> float | None:
         """The black level a frame's record carries: a fresh read beside the
@@ -1815,17 +1751,13 @@ class ImagingAPI:
                 # taken, and every later check sees only a frame that counts.
                 unmet = judged.unmet(self.frame_validity, frame) if judged is not None else None
                 if unmet is not None:
-                    expired = (
-                        host_clock.steady_ns() > judged.clock_bound_ns
-                        if judged.clock_bound_ns is not None
-                        else host_clock.steady_ns() > stop_ns
-                    )
                     source = unmet.change.source
-                    if expired:
+                    if host_clock.steady_ns() > stop_ns:
                         logger.warning(
                             f'[SCOPE API ] get_image: no frame counted for the {source} '
                             f'change within the grab bound (last frame seq={frame.seq}, '
-                            f'{unmet.change.rule.rule.value} rule) -- capture rejected. '
+                            f'{unmet.frames_after} frames after it, its count '
+                            f'{unmet.change.skip}) -- capture rejected. '
                             f'{mark.account(self._driver)}'
                         )
                         return _NoFrame('no_fresh_frame', leg, source=source)
@@ -2063,12 +1995,12 @@ class ImagingAPI:
         )
 
     @api(in_process=True)
-    def judge_frame(self, frame: Frame, mapping: ClockMapping | None) -> tuple[Judgment, ...]:
-        """Whether ``frame`` counts for each source's last change, by the rule a capture waits on.
+    def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]:
+        """Whether ``frame`` counts for each source's last change, as a capture waits on it.
 
         The one decision (``FrameValidity.judge``), asked of every change
         recorded so far (gain, exposure, black level, LED, a move, ...), by
-        the rule each change's source runs (``capabilities.frame_rules``): a
+        each change's source's count (``capabilities.frame_rules``): a
         capture's record carries it for the frame it returns, and a frame
         listener can ask it of any frame it receives. Each ``Judgment``
         carries the change it was judged against: the last frame the driver
@@ -2078,15 +2010,11 @@ class ImagingAPI:
 
         Args:
             frame: A frame the camera delivered (a frame listener's ``Frame``).
-            mapping: The camera's clock mapped onto the host's, which the
-                clock rule judges a frame's start by: a capture's
-                ``frame_record.clock_mapping``. None for a camera without a
-                latch; a clock-rule change then counts no frame.
 
         Raises:
             Nothing.
         """
-        return self.frame_validity.judgments(frame, mapping)
+        return self.frame_validity.judgments(frame)
 
     @api(in_process=True)
     def recorded_changes(self) -> dict[FrameValiditySource, Change]:
@@ -2140,9 +2068,7 @@ class ImagingAPI:
                 value=record,
                 takes=f'a camera timing record this release reads ({refused})',
             ) from refused
-        rules = FrameValidity.rules_from_record(
-            record, self._scope.capabilities.camera_has_clock_latch
-        )
+        rules = FrameValidity.rules_from_record(record)
         with a_guarded_write(self._scope._activity_claim):
             self.frame_validity.use_rules(rules)
         try:

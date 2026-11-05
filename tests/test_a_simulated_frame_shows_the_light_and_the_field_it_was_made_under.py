@@ -97,8 +97,10 @@ def test_the_field_follows_the_stage():
         cam.stop_grabbing()
 
     dy, dx = _shift_between(before, after, reach=24)
-    # The field moves against the stage; the specimen's own drift is a pixel.
-    assert abs(dy) <= 1 and -21 <= dx <= -19, (dy, dx)
+    # The field moves against the stage. The specimen's own drift puts it a
+    # pixel off centre in one of four directions (DRIFT_STEPS), so two frames
+    # differ by up to two pixels along an axis, whichever frames they are.
+    assert abs(dy) <= 2 and -22 <= dx <= -18, (dy, dx)
 
 
 # ---------------------------------------------------------------------------

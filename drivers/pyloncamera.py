@@ -1690,8 +1690,7 @@ class PylonCamera(Camera):
     # USB3 cameras and dart M GigE advertise these). Timestamp is the
     # camera-side tick at which the frame started exposing; surfaced
     # through the chunks dict for downstream metadata writes (TIFF Plane
-    # fields, session manifest), and what frame_validity's clock rule
-    # judges a frame by.
+    # fields, session manifest), and a recording's frame times.
     _CHUNK_TARGETS_ALWAYS = ('ExposureTime', 'Gain', 'Timestamp')
 
     def _enable_validity_chunks(self) -> None:

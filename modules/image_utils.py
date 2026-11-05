@@ -571,22 +571,19 @@ FILE_FACTS: dict[str, FileFact] = {
     # Each change the frame was judged against: whether it counts, how many
     # frames and milliseconds after the change it came, and who counted the
     # frames that met the change's count: one judgment per change, its fields
-    # as Judgment.fields() states them, the last three only where it has them.
+    # as Judgment.fields() states them, the last only where it has one.
     'frame_validity': FileFact(
         FactKind.CAPTURE,
         'FrameValidity',
         keyed_by='judgment index',
         fields=(
             'source',
-            'rule',
             'counts',
             'frames_after',
             'after_write_ms',
             'skip',
             'counted_by',
             'after_in_force_ms',
-            'frame_start_ticks',
-            'qualifies_after_ticks',
         ),
     ),
     # What the capture found the frame to be: the fraction of its pixels at
