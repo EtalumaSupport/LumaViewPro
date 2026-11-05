@@ -160,7 +160,11 @@ def test_every_marked_channel_is_a_drawer_lvp_titles():
 
 
 def _model_table():
-    """Chapter 1's model table as {model: (focus, xy, turret, channels)}."""
+    """Chapter 1's model table as {model: (focus, xy, turret, channels)}.
+
+    A row whose every cell is empty is the gap that sets one group of
+    models apart from the next, and states no model.
+    """
     lines = (REPO_ROOT / MANUAL / 'index.qmd').read_text(encoding='utf-8').splitlines()
     caption = next(i for i, line in enumerate(lines) if '{#tbl-models' in line)
     end = caption
@@ -173,7 +177,11 @@ def _model_table():
         [cell.strip() for cell in line.strip().strip('|').split('|')] for line in lines[start:end]
     )
     assert header == ['Model', 'Focus motor', 'XY stage', 'Turret', 'Channels'], header
-    return {model: (focus, xy, turret, channels) for model, focus, xy, turret, channels in rows}
+    return {
+        model: (focus, xy, turret, channels)
+        for model, focus, xy, turret, channels in rows
+        if any((model, focus, xy, turret, channels))
+    }
 
 
 def test_the_model_table_states_what_each_model_has():
