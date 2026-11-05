@@ -10,6 +10,7 @@ let the app answer before the next step, default 0.3) and ``note`` (free text
 carried into the record).
 """
 
+import importlib.util
 import inspect
 import json
 import os
@@ -48,8 +49,9 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
     not, because Kivy exits on a flag it does not know. None when none is given.
 
     Raises:
-        WalkFileError: given more than once, or without ``simulate`` (a walk on
-            hardware would move a real stage).
+        WalkFileError: given more than once, without ``simulate`` (a walk on
+            hardware would move a real stage), or without the development
+            requirements.
         OSError, ValueError: from ``read_walk``.
     """
     flags = [arg for arg in argv if arg.startswith('--sim-walk=')]
@@ -61,6 +63,13 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
         raise WalkFileError('give --sim-walk once')
     if not simulate:
         raise WalkFileError('--sim-walk needs --simulate')
+    # The driver's touches are kivy.tests' UnitTestTouch, whose module imports
+    # pytest, which only requirements-dev.txt installs. Looked up, not imported,
+    # so the flag is still read before Kivy.
+    if importlib.util.find_spec('pytest') is None:
+        raise WalkFileError(
+            '--sim-walk needs the development requirements: pip install -r requirements-dev.txt'
+        )
     path = pathlib.Path(flags[0].split('=', 1)[1]).resolve()
     return path, read_walk(path)
 

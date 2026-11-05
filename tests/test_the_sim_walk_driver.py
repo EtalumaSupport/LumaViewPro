@@ -677,6 +677,35 @@ def test_the_flag_gives_the_walk_and_leaves_argv_for_kivy(tmp_path):
     assert take_walk_flag(argv, simulate=True) is None
 
 
+def test_a_walk_without_the_development_requirements_is_refused_before_kivy(tmp_path):
+    # The install scripts' venv holds requirements.txt only, and the driver's
+    # touches import pytest through kivy.tests; the child runs as that venv
+    # does, with pytest not importable, so the refusal is the flag's, not a
+    # traceback from the driver's import after bring-up.
+    walk = tmp_path / 'walk.json'
+    walk.write_text(json.dumps([{'do': 'quit'}]))
+    r = subprocess.run(
+        [
+            sys.executable,
+            '-c',
+            "import sys; sys.modules['pytest'] = None; "
+            'from ui.sim_walk_file import WalkFileError, take_walk_flag\n'
+            'try:\n'
+            f'    take_walk_flag(["lumaviewpro.py", "--sim-walk={walk}"], simulate=True)\n'
+            'except WalkFileError as e:\n'
+            '    print(e)',
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == (
+        '--sim-walk needs the development requirements: pip install -r requirements-dev.txt'
+    ), r.stdout
+
+
 def test_reading_the_flag_imports_no_kivy():
     # lumaviewpro.py reads the flag before Kivy is imported, so a refusal
     # exits before a window opens.
