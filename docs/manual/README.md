@@ -1,6 +1,6 @@
 # The LumaViewPro user manual
 
-The source of the Lumascope Operator's Manual: a Quarto book that renders
+The source of the LumaViewPro Manual: a Quarto book that renders
 to PDF through Quarto's bundled Typst.
 
 ## Install Quarto 1.11.9

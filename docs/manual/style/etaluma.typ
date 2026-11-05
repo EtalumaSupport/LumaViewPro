@@ -1,19 +1,17 @@
-// The Etaluma operator's manual look: a sans face throughout, black numbered
+// The Etaluma manual look: a sans face throughout, black numbered
 // headings, a photo cover with the teal rule, a grey running footer.
 
 #let teal = rgb("#9ACCCC")
 #let grey = rgb("#8C8C8C")
 
-#let cover(title, subtitle, version) = page(margin: (x: 1in, top: 0.6in, bottom: 0.8in), footer: none)[
+#let cover(title, version) = page(margin: (x: 1in, top: 0.6in, bottom: 0.8in), footer: none)[
   #align(center, image("../images/cover.png", width: 100%))
   #v(1.2em)
   #text(size: 26pt, tracking: 0.04em)[#title]
   #v(-0.6em)
   #block(width: 70%, height: 7pt, fill: gradient.linear(teal, white))
   #v(0.8em)
-  #text(size: 20pt, tracking: 0.04em)[#subtitle]
-  #v(0.2em)
-  #text(size: 13pt, tracking: 0.05em)[LumaViewPro Software \ Version #version]
+  #text(size: 13pt, tracking: 0.05em)[Version #version]
   #v(1fr)
   #grid(columns: (1fr, auto), align: (left + bottom, right + bottom),
     text(size: 9.5pt)[
@@ -28,7 +26,7 @@
   )
 ]
 
-#let manual(title: none, subtitle: none, version: "", outline-depth: 2, body) = {
+#let manual(title: none, version: "", outline-depth: 2, body) = {
   set document(title: title)
   set text(font: "TeX Gyre Heros", size: 10.5pt, lang: "en")
   set par(justify: false, leading: 0.62em, spacing: 1.1em)
@@ -57,10 +55,10 @@
 
   set page(paper: "us-letter", margin: (x: 1in, top: 1in, bottom: 1.1in),
     footer: context text(size: 9pt, fill: grey)[
-      LumaViewPro #version Operator's Manual #h(1fr) #text(fill: black)[#counter(page).display()]
+      LumaViewPro #version Manual #h(1fr) #text(fill: black)[#counter(page).display()]
     ])
 
-  cover(title, subtitle, version)
+  cover(title, version)
 
   // Contents: chapters bold with their page, sections indented on a dotted leader.
   show outline.entry.where(level: 1): it => {
