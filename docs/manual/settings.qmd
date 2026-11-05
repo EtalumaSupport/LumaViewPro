@@ -36,7 +36,7 @@ beyond the objective's field of view (@tbl-max-frame).
 |:---|:---|
 | LS820, LS850 | 2100 x 2100 |
 | LS620, LS720 | 1900 x 1900 |
-| LS560, LS460 | 1700 x 1700 |
+| LS460, LS560 | 1700 x 1700 |
 
 : Maximum recommended frame size by model {#tbl-max-frame tbl-colwidths="[40,60]"}
 
@@ -174,7 +174,7 @@ LumaViewPro, and a notice says so. A microscope whose motor board reports
 its model runs as that model regardless of this setting. The model cannot be
 changed while a protocol runs.
 
-An LS560 and an LS620 present identically to LumaViewPro, which cannot tell
+An LS460, an LS560 and an LS620 present identically to LumaViewPro, which cannot tell
 them apart. On these models, select the correct model here and restart
 LumaViewPro; a wrong selection gives the wrong channels.
 
