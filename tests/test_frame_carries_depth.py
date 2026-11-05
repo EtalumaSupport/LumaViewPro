@@ -33,7 +33,7 @@ class TestABufferedFrameKeepsItsDepth:
     its own depth even after the camera's format changes."""
 
     def test_buffered_frame_keeps_depth_when_format_later_changes(self):
-        from drivers.camera import ImageHandlerBase
+        from _lumascope.drivers.camera import ImageHandlerBase
 
         # A 12-bit frame is buffered; the camera then switches to Mono8. The
         # buffered frame must still report 12 (its own depth), not be re-derived
@@ -53,7 +53,7 @@ class TestAGrabCarriesDepth:
     """A grab returns the frame with the depth it was delivered at."""
 
     def test_sim_grab_returns_format_depth(self):
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
         from tests.camera_fakes import grab_a_frame_made_after_now
 
         cam = SimulatedCamera()

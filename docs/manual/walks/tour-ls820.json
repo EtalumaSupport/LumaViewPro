@@ -1,0 +1,6 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"shot","name":"../images/tour-left-panel-ls820","path":"MotionSettings/motionsettings_accordion_id","note":"no XY stage: no XY Stage Control drawer"},
+  {"do":"quit"}
+]

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_autogain_settings,
     _make_image_capture_config,

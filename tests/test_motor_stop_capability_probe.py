@@ -34,8 +34,9 @@ import logging
 
 import pytest
 
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.lib.log_helpers import VERBOSE
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier
@@ -73,7 +74,7 @@ class TestMotorStopCapabilityProbe:
     def test_the_probe_on_firmware_without_stop_logs_no_firmware_error(self, board, caplog):
         """The probe must opt into FIRMWARE ERROR suppression so the
         warning doesn't fire on firmware that doesn't support STOP."""
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             board.motor_stop()
         assert len(_stop_exchanges(caplog)) == 1
         assert _firmware_errors(caplog) == [], (
@@ -97,7 +98,7 @@ class TestMotorStopCapabilityProbe:
     @pytest.mark.parametrize('board', ['field'], indirect=True)
     def test_motor_stop_skips_wire_when_cached_unsupported(self, board, caplog):
         """Cached unsupported: the STOP is not sent again; each stop halts axis by axis."""
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             assert board.motor_stop() is True
             assert board.motor_stop() is True
         assert len(_stop_exchanges(caplog)) == 1, (
@@ -109,7 +110,7 @@ class TestMotorStopCapabilityProbe:
     def test_motor_stop_shares_cache_with_supports_predicate(self, board, caplog):
         """motor_stop's verdict feeds supports_motor_stop without a
         second wire exchange."""
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             board.motor_stop()
             assert board.supports_motor_stop() is False
         assert len(_stop_exchanges(caplog)) == 1
@@ -126,7 +127,7 @@ class TestExchangeCommandExpectUnsupportedSuppresses:
         """Sanity: default exchange_command (no flag) DOES fire the
         warning when the response contains ERROR. This guards against
         the flag being inverted or always-suppressing."""
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             resp = board.exchange_command('STOP')
         assert resp == "ERROR: command 'STOP' not found:"
         records = _firmware_errors(caplog)
@@ -143,7 +144,7 @@ class TestExchangeCommandExpectUnsupportedSuppresses:
     def test_expect_unsupported_suppresses_warning(self, board, caplog):
         """The capability-probe shape: same ERROR reply, flag on -- no
         FIRMWARE ERROR warning."""
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             resp = board.exchange_command('STOP', expect_unsupported=True)
         assert resp == "ERROR: command 'STOP' not found:"
         assert _firmware_errors(caplog) == [], (

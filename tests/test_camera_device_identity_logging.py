@@ -22,9 +22,9 @@ per field, and libusb exposes plain descriptor attributes. Only the
 rendering convention is common, so bundles stay greppable alike.
 """
 
-from drivers.fx2driver import describe_usb_device
-from drivers.idscamera import describe_device_descriptor
-from drivers.pyloncamera import describe_device_info
+from _lumascope.drivers.fx2driver import describe_usb_device
+from _lumascope.drivers.idscamera import describe_device_descriptor
+from _lumascope.drivers.pyloncamera import describe_device_info
 
 
 class _StubDeviceInfo:

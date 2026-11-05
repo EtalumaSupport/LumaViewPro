@@ -14,9 +14,15 @@ import dataclasses
 
 from fastapi.testclient import TestClient
 
-from modules.coord_transformations import PlateLocation
-from modules.protocol import _STEP_CELLS, _STEP_FIELDS, Stimulation, StepRecord, VideoConfig
-from rest.app import build_app
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.protocol import (
+    _STEP_CELLS,
+    _STEP_FIELDS,
+    Stimulation,
+    StepRecord,
+    VideoConfig,
+)
+from _lumascope.rest.app import build_app
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.stock_channels import LED0
 

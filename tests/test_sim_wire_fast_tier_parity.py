@@ -18,7 +18,7 @@ the marker goes with it.
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.sim_wire_bench import (
     BENCH,

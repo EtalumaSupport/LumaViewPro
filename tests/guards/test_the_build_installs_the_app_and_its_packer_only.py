@@ -9,7 +9,7 @@ hooks to requirements.txt, each pinned, and is the one file that names them.
 
 from packaging.requirements import Requirement
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 PACKER = {'pyinstaller', 'pyinstaller-hooks-contrib'}
 
@@ -39,7 +39,7 @@ def test_the_build_file_adds_exactly_the_pinned_packer_to_the_app():
 
 
 def test_no_other_requirements_file_names_the_packer():
-    for path in sorted(REPO_ROOT.glob('requirements*.txt')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(pattern='requirements*.txt')]:
         if path.name == 'requirements-build.txt':
             continue
         own = {

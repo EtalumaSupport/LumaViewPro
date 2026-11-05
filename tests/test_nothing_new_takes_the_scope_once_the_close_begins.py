@@ -16,13 +16,13 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import PostProcessingOperation, SessionClosingError
+from _lumascope.modules.exceptions import PostProcessingOperation, SessionClosingError
 from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -93,7 +93,7 @@ def test_work_lent_by_an_activity_already_under_way_is_still_admitted(sim_sessio
 
 
 def _built(message, folder):
-    from modules.post_processing_api import BuildResult
+    from _lumascope.modules.post_processing_api import BuildResult
 
     return BuildResult(
         message=message,
@@ -125,7 +125,7 @@ def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
     """The close's start and end are told as every claim edge is, so a client
     that subscribes -- the LiveWork event over REST, a GUI of its own -- can
     stop its listeners when the close begins, not after the scope has gone."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

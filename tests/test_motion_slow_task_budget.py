@@ -17,8 +17,8 @@ Retuning the value does not red them.
 
 import inspect
 
-from modules.lumascope_api.motion import MotionAPI
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.lumascope_api.motion import MotionAPI
+from _lumascope.modules.sequential_io_executor import IOTask
 
 
 class TestDeclaredBudgetReachesTheTask:
@@ -111,7 +111,7 @@ class TestABudgetRunInsideAnotherTask:
     task, so the member's budget is raised onto it, never lowered."""
 
     def test_a_turret_move_inside_a_gui_task_gives_that_task_its_budget(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -137,8 +137,8 @@ class TestABudgetRunInsideAnotherTask:
         )
 
     def test_an_inline_budget_never_lowers_the_running_tasks(self):
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.sequential_io_executor import SequentialIOExecutor, slow_task_budget
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, slow_task_budget
 
         @slow_task_budget(15.0)
         def _member():

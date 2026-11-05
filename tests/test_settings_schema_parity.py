@@ -23,7 +23,7 @@ import pathlib
 
 import pytest
 
-from modules.layer_record import release_old_names
+from _lumascope.modules.layer_record import release_old_names
 from tests.settings_fixtures import shipped_template
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -79,13 +79,15 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 # - profiling.stim_profiling: shipped with no reader, removed.
 # - profiling.handle_trace_obj_sample_every: the interval of the handle
 #   trace's object-type sampler, removed with it.
+# - profiling.enabled: the switch of a second tracemalloc profiler (the
+#   deep view), retired with it; the memory profiler is the one.
 # - rest_api.host, api_key, cors_origins: nothing read them; where the
 #   server serves is rest_api.address.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'protocol.autogain': {'max_duration_seconds'},
     'video': {'max_duration_seconds'},
-    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every'},
+    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every', 'enabled'},
     'rest_api': {'host', 'api_key', 'cors_origins'},
 }
 
@@ -93,7 +95,9 @@ RETIRED_PER_LAYER = {
 # - autofocus, stage: six shipped keys with no reader; the autofocus
 #   optimisation work adds each back with its reader.
 # - camera_type: no reader; bring-up asks the camera registry.
-RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type'}
+# - tracemalloc_enabled: the switch of a second tracemalloc profiler,
+#   retired with it; the memory profiler is the one.
+RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type', 'tracemalloc_enabled'}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),

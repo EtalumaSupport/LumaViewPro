@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames
+from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 
 _WRITE_BODIES = MemberNames(
-    'modules/lumascope_api/camera.py',
+    'src/_lumascope/modules/lumascope_api/camera.py',
     {
         '_set_gain_db_impl',
         '_set_exposure_ms_impl',
@@ -81,7 +81,7 @@ def test_every_camera_write_keeps_the_held_layer_true():
         (name, *reference)
         for name in _CAMERA_MODULES
         for reference in _write_body_references(
-            ast.parse((REPO_ROOT / 'modules' / 'lumascope_api' / name).read_text())
+            ast.parse((REPO_ROOT / 'src/_lumascope/modules' / 'lumascope_api' / name).read_text())
         )
     ]
     assert {name for name, *_ in references} == set(_CAMERA_MODULES), (
@@ -96,9 +96,11 @@ def test_every_camera_write_keeps_the_held_layer_true():
 
 
 def test_no_module_outside_the_camera_reaches_a_camera_write_body():
-    roots = [REPO_ROOT / name for name in ('modules', 'ui', 'rest')]
     files = [REPO_ROOT / 'lumaviewpro.py']
-    files += [path for root in roots for path in sorted(root.rglob('*.py'))]
+    files += [
+        REPO_ROOT / rel
+        for rel in tracked_files(('src/_lumascope/modules', 'ui', 'src/_lumascope/rest'))
+    ]
     offenders = [
         f'{path.relative_to(REPO_ROOT)}:{line} {body}'
         for path in files

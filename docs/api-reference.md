@@ -2,7 +2,9 @@
 
 <!-- Generated from the code; do not edit. Regenerate: LVP_WRITE_API_REFERENCE=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+
+Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
@@ -96,7 +98,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`PluginHealth`](#PluginHealth)
 - [`PluginNotLoaded`](#PluginNotLoaded)
 - [`PluginRegistry`](#PluginRegistry)
-- [`PluginRuntimeError`](#PluginRuntimeError)
+- [`PluginRuntimeFailure`](#PluginRuntimeFailure)
 - [`PluginSpec`](#PluginSpec)
 - [`PluginStatus`](#PluginStatus)
 - [`PositionChanged`](#PositionChanged)
@@ -153,9 +155,9 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`VideoProgress`](#VideoProgress)
 - [`WorkItem`](#WorkItem)
 - [`ZProject`](#ZProject)
-- [`modules.notification_center`](#modules.notification_center)
-- [`rest.app`](#rest.app)
-- [`rest.server`](#rest.server)
+- [`build_app`](#build_app)
+- [`build_server`](#build_server)
+- [`outcome_of`](#outcome_of)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
 - [Routes](#routes)
@@ -163,10 +165,10 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [Saved-file facts](#saved-file-facts)
 
 <a id="ScopeSession"></a>
-## `ScopeSession`
+## `lumascope.ScopeSession`
 
 Made by [`ScopeSession.create`](#ScopeSession.create); every member below is on the wire under `/api/v1/` unless it is in-process.  
-Taken by: [`rest.app.build_app`](#rest.app.build_app), [`rest.server.build_server`](#rest.server.build_server).
+Taken by: [`build_app`](#build_app), [`build_server`](#build_server).
 
 Owns the shared, GUI-independent state for one microscope session.
 
@@ -1090,14 +1092,14 @@ then the camera start gate released) and is torn down by
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall` or `focal_spread_um` for a model simulated with an FX2 (`argument` names the scope's `sim_camera_stall` or `sim_focal_spread_um`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts` or `refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it).
+- `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall` or `focal_spread_um` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall` or `sim_focal_spread_um`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts` or `refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts` or `refused_camera_writes` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
 
 **Refusals**
 
 - [`ScopeInUseError`](#ScopeInUseError): `scope_in_use`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `needs_simulated_camera`, `not_injectable_on_board`, `fault_bound`, `not_offered`, `wrong_kind`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `needs_simulated_camera`, `not_injectable_on_board`, `fault_unknown`, `fault_bound`, `not_offered`, `wrong_kind`
 - [`SettingRefusedError`](#SettingRefusedError): `wrong_kind`, `out_of_range`
 
 <a id="ScopeSession.create_empty_protocol"></a>
@@ -2079,7 +2081,7 @@ Route: `GET /api/v1/plugin_api_level`.
 
 What this LumaViewPro does that a plugin may rely on.
 
-`modules.plugins.PLUGIN_API_LEVEL`; each level's additions are
+`lumascope.PLUGIN_API_LEVEL`; each level's additions are
 listed in plugin-tutorial.md, "The plugin API level".
 
 **Raises**
@@ -2504,8 +2506,9 @@ Route: `POST /api/v1/save_bookmark`.
 Save where the stage is on `axes` as the bookmark, as the bookmark buttons do.
 
 X and Y are stored in plate millimetres on the selected plate, Z in
-micrometres: the frame the go-to-bookmark moves read them in. The one
-writer of `bookmark`.
+micrometres: the frame the go-to-bookmark moves read them in. The
+writer of `bookmark`'s X and Y; `save_all_bookmarks` also writes
+its Z.
 
 **Args**
 
@@ -3019,11 +3022,12 @@ Marks: in-process.
 
 Remember `file_path` as the protocol to open at the next start; `''` forgets it.
 
-The one writer of `protocol.filepath`, which the next start opens.
+The one writer of `protocol.filepath`, which the next start opens,
+stored as it is at load.
 
 **Args**
 
-- `file_path`: The protocol file to open at the next start; `''` opens none.
+- `file_path`: The protocol file to open at the next start; one given relative is the data root's, as the shipped default is, and is stored absolute. `''` opens none.
 
 **Raises**
 
@@ -3364,9 +3368,8 @@ copies drifted.
 
 The motion, in order:
 
-1. home ALL axes via `move_home`. Firmware homes Z, T, X, Y in
-   one routine; on Z-only boards it homes what it has and
-   reports the missing axes.
+1. home ALL axes via `move_home`: Z, T, X, Y, each the board
+   has; a Z-only board homes Z alone.
 
 2. (when `self.scope.capabilities.has_turret` is True) move T
    to position 1; the active objective is then slot 1's
@@ -3391,6 +3394,10 @@ without the turret move -- an absolute move against a reference the
 home did not establish; the operation settles with None. A refusal
 that is not for the hardware's state is a defect, and settles the
 operation with it.
+
+The motion's end, however it ends, and a skip end bring-up's log
+window: the serial, camera and api logs are written at VERBOSE until
+then, and at the session's level after (`log_helpers.end_bring_up`).
 
 `disable_homing=True` skips every step: no startup motion on any
 axis. The turret is left where it is, like the stage axes, in no
@@ -3855,7 +3862,7 @@ first. Nothing is read or created here.
 Nothing.
 
 <a id="ManualCaptureController"></a>
-## `ManualCaptureController`
+## `lumascope.ManualCaptureController`
 
 Reached through `session.manual_capture`; on the wire, `/api/v1/manual_capture/`.  
 Held in: [`ScopeSession.manual_capture`](#ScopeSession.manual_capture).
@@ -3929,7 +3936,7 @@ True from a capture call until its camera-lane body has ended.
 Nothing.
 
 <a id="ManualRecordingController"></a>
-## `ManualRecordingController`
+## `lumascope.ManualRecordingController`
 
 Reached through `session.manual_recording`; on the wire, `/api/v1/manual_recording/`.  
 Held in: [`ScopeSession.manual_recording`](#ScopeSession.manual_recording).
@@ -4150,7 +4157,7 @@ one of those into the manifest.
 Nothing.
 
 <a id="PostProcessingAPI"></a>
-## `PostProcessingAPI`
+## `lumascope.PostProcessingAPI`
 
 Reached through `session.post_processing`; on the wire, `/api/v1/post_processing/`.  
 Held in: [`ScopeSession.post_processing`](#ScopeSession.post_processing).
@@ -4276,23 +4283,24 @@ def count_cells(
 Route: `POST /api/v1/post_processing/count_cells`.
 
 Count the cells in every image in *folder* by *method*, writing
-`results.csv` into the folder.
+`results.csv` into the folder and *method* beside it as
+`results_method.json`.
 
 **Args**
 
-- `folder`: The folder of images to count; a `results.csv` already there is replaced only once the new one is written whole.
+- `folder`: The folder of images to count; a `results.csv` and `results_method.json` already there are replaced only once both new ones are written whole.
 - `method`: The cell-count method to count by.
 - `on_progress`: Called with a percentage and what the count is doing, from the thread it runs on; None for no progress.
 
 **Returns**
 
-The results table, how many images were counted, and the outcome in words.
+The results table, the method file, how many images were counted, and the outcome in words.
 
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; or the folder has nothing to count (reason `no_data`).
-- `PostProcessingFailedError`: the results could not be written, or some images could not be counted; the file holds every image that was, and the error names the rest.
+- `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
 **Refusals by REST status**
 
@@ -4619,7 +4627,7 @@ The modes `stitch(mode=)` and `Stitch(mode)` take.
 Nothing.
 
 <a id="Lumascope"></a>
-## `Lumascope`
+## `lumascope.Lumascope`
 
 Reached through `session.scope`; on the wire, `/api/v1/scope/`.  
 Held in: [`ScopeSession.scope`](#ScopeSession.scope).
@@ -4667,7 +4675,7 @@ Route: `GET /api/v1/scope/motion_expected`.
 
 Whether this scope's model has a motor board at all.
 
-False for a manual scope (an LS620 or LS560): it is complete
+False for a manual scope (an LS620, LS560 or LS460): it is complete
 without one, so its absence is not a disconnection. Set from the
 model's catalogue entry by `initialize()`; True before that.
 
@@ -4684,11 +4692,11 @@ no_hardware: bool  # property
 
 Route: `GET /api/v1/scope/no_hardware`.
 
-True if no real hardware was detected (LED, motor, and camera all missing).
+True if no part came up at bring-up (LED, motor, and camera all missing).
 
 **Returns**
 
-bool: True when all three subsystems are absent or stubbed.
+bool: True when none of the three came up.
 
 **Raises**
 
@@ -4780,8 +4788,8 @@ The parts this scope needs that are not connected.
 Each term is the one the matching single-board question asks, so
 a run gate and a per-board gate cannot disagree about the same
 hardware. Each term reads its driver's own flags, with no exchange
-with the board or the camera (`drivers/protocols.py`,
-`Camera.is_connected`).
+with the board or the camera (each board's and the camera's
+`is_connected`).
 
 A scope whose model has no motor board is not asked for one: a
 manual scope is complete without it.
@@ -4795,7 +4803,7 @@ Each of `LED`, `MOTOR` and `CAMERA` that is not connected, in that order; empty 
 Nothing.
 
 <a id="CameraAPI"></a>
-## `CameraAPI`
+## `lumascope.CameraAPI`
 
 Reached through `session.scope.camera`; on the wire, `/api/v1/scope/camera/`.  
 Held in: [`Lumascope.camera`](#Lumascope.camera).
@@ -6109,7 +6117,7 @@ the camera took it, as `set_high_conversion_gain` is.
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="DiagnosticsAPI"></a>
-## `DiagnosticsAPI`
+## `lumascope.DiagnosticsAPI`
 
 Reached through `session.scope.diagnostics`; on the wire, `/api/v1/scope/diagnostics/`.  
 Held in: [`Lumascope.diagnostics`](#Lumascope.diagnostics).
@@ -6263,7 +6271,7 @@ MotorBoardInfo: Each field None when unknown, all of them with no board connecte
 Nothing.
 
 <a id="IlluminationAPI"></a>
-## `IlluminationAPI`
+## `lumascope.IlluminationAPI`
 
 Reached through `session.scope.illumination`; on the wire, `/api/v1/scope/illumination/`.  
 Held in: [`Lumascope.illumination`](#Lumascope.illumination).
@@ -6481,7 +6489,7 @@ the addresses they have lit at a positive current.
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ImagingAPI"></a>
-## `ImagingAPI`
+## `lumascope.ImagingAPI`
 
 Reached through `session.scope.imaging`; on the wire, `/api/v1/scope/imaging/`.  
 Held in: [`Lumascope.imaging`](#Lumascope.imaging).
@@ -6513,11 +6521,11 @@ The supplied handler is wrapped in a budget enforcer
 over-budget or raising invocations remove it, reported once as a
 `FrameHandlerRemovedError` warning). Callback
 signature is `cb(frame)`, the camera's `Frame` record
-(`modules.lumascope_api.Frame`: `image`, `seq`,
+(`Frame`: `image`, `seq`,
 `timestamp`, `arrived_ns`, `significant_bits`, `chunks`);
 runs on the SDK
 callback thread (Pylon `PylonImageGrab` / IDS grab loop /
-simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
+simulated delivery thread). Listeners MUST NOT block -- heavy work belongs
 on an executor.
 
 **Args**
@@ -6550,35 +6558,28 @@ name are kept).
 ```python
 def changes_in_force(
     self,
-    mapping: ClockMapping | None = None,
     exclude_sources: tuple[FrameValiditySource, ...] = (),
 ) -> bool
 ```
 
-Marks: reads (changes nothing); in-process arguments: `mapping`.  
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/imaging/changes_in_force`.
 
-Whether every change recorded is in force, so a frame starting now counts.
+Whether every change recorded is in force, so a frame arriving now counts.
 
 The one answer to whether a frame would count: a capture's drain
 ends on it, a recording waits on it before its first frame, and the
 live view, a REST client and a plugin ask it, so none waits on
-anything else: no frame is owed under the credit rule
-(`FrameValidity.owed`), and the host's steady clock has passed the
-instant a frame must start after under the clock rule, taken with
-`mapping`'s uncertainty. It latches nothing, so asking it is never
-a camera command: a capture or a recording passes the mapping its
-frames are judged by (`map_camera_clock`); a caller with no frame
-to judge passes none and is answered without the uncertainty.
+anything else: no frame is owed (`FrameValidity.owed`). It is
+never a camera command.
 
 **Args**
 
-- `mapping`: The camera's clock mapping the caller judges by, or None; in-process only, never on the wire.
 - `exclude_sources`: Sources whose changes are not waited for.
 
 **Returns**
 
-bool: True when a frame starting now counts for every change.
+bool: True when a frame arriving now counts for every change.
 
 **Raises**
 
@@ -6600,9 +6601,8 @@ How long the changes now recorded may take to come into force, in seconds.
 
 The capture's own limit for its wait (`capture_still`), so a
 recording that waits for `changes_in_force` gives up when a capture
-would: the frames owed under the credit rule, each at the exposure in
-force or the slowest frame period, with a margin; the time until the
-clock rule's instant; and a floor for one grab's timeout.
+would: the frames owed, each at the exposure in force or the slowest
+frame period, with a margin, and a floor for one grab's timeout.
 
 **Args**
 
@@ -6873,20 +6873,16 @@ Nothing.
 ### `ImagingAPI.judge_frame`
 
 ```python
-def judge_frame(
-    self,
-    frame: Frame,
-    mapping: ClockMapping | None,
-) -> tuple[Judgment, ...]
+def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]
 ```
 
 Marks: in-process.
 
-Whether `frame` counts for each source's last change, by the rule a capture waits on.
+Whether `frame` counts for each source's last change, as a capture waits on it.
 
 The one decision (`FrameValidity.judge`), asked of every change
 recorded so far (gain, exposure, black level, LED, a move, ...), by
-the rule each change's source runs (`capabilities.frame_rules`): a
+each change's source's count (`capabilities.frame_rules`): a
 capture's record carries it for the frame it returns, and a frame
 listener can ask it of any frame it receives. Each `Judgment`
 carries the change it was judged against: the last frame the driver
@@ -6897,7 +6893,6 @@ axis settled.
 **Args**
 
 - `frame`: A frame the camera delivered (a frame listener's `Frame`).
-- `mapping`: The camera's clock mapped onto the host's, which the clock rule judges a frame's start by: a capture's `frame_record.clock_mapping`. None for a camera without a latch; a clock-rule change then counts no frame.
 
 **Raises**
 
@@ -7049,7 +7044,7 @@ DeliveredRate: The rate as `get_delivered_rate` answers it once one is measured;
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 
 <a id="MotionAPI"></a>
-## `MotionAPI`
+## `lumascope.MotionAPI`
 
 Reached through `session.scope.motion`; on the wire, `/api/v1/scope/motion/`.  
 Held in: [`Lumascope.motion`](#Lumascope.motion).
@@ -8200,7 +8195,7 @@ monitor sets; no serial I/O from the calling thread.
 - 500: [`MoveFaultError`](#MoveFaultError): `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 
 <a id="RuntimeState"></a>
-## `RuntimeState`
+## `lumascope.RuntimeState`
 
 Reached through `session.scope.runtime_state`; on the wire, `/api/v1/scope/runtime_state/`.  
 Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
@@ -8493,7 +8488,7 @@ Convert a stage position (um) to a plate position (mm).
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="SimulationAPI"></a>
-## `SimulationAPI`
+## `lumascope.SimulationAPI`
 
 Reached through `session.scope.simulation`; on the wire, `/api/v1/scope/simulation/`.  
 Returned by: [`Lumascope.simulation`](#Lumascope.simulation).
@@ -9169,7 +9164,7 @@ the frame is delivered, and only that one fact of it is missing.
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
 
 <a id="AppliedAutoGain"></a>
-## `AppliedAutoGain`
+## `lumascope.AppliedAutoGain`
 
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for).
@@ -9183,7 +9178,7 @@ What a stored auto-gain preference becomes on the attached camera (`applied_auto
 - <a id="AppliedAutoGain.stored"></a>`stored`: `bool` -- (no description)
 
 <a id="AppliedExposure"></a>
-## `AppliedExposure`
+## `lumascope.AppliedExposure`
 
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).
@@ -9197,7 +9192,7 @@ What a stored exposure becomes on the attached camera, in ms (`applied_exposure_
 - <a id="AppliedExposure.stored_ms"></a>`stored_ms`: `float` -- (no description)
 
 <a id="AppliedGain"></a>
-## `AppliedGain`
+## `lumascope.AppliedGain`
 
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).
@@ -9211,7 +9206,7 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 - <a id="AppliedGain.stored_db"></a>`stored_db`: `float` -- (no description)
 
 <a id="AutoGainLock"></a>
-## `AutoGainLock`
+## `lumascope.AutoGainLock`
 
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain), [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock), [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain).
@@ -9231,7 +9226,7 @@ arm was recorded (nothing was locked, no driver traffic happened).
 - <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- (no description)
 
 <a id="AxisLimits"></a>
-## `AxisLimits`
+## `lumascope.AxisLimits`
 
 A record: it crosses the wire as its data.  
 Returned by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits).
@@ -9244,7 +9239,7 @@ An axis's travel, in um: a move outside it is refused.
 - <a id="AxisLimits.min_um"></a>`min_um`: `float` -- (no description)
 
 <a id="AxisPosition"></a>
-## `AxisPosition`
+## `lumascope.AxisPosition`
 
 A record: it crosses the wire as its data.  
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions).  
@@ -9264,7 +9259,7 @@ not be handed it. The turret has a slot, not a position: `TurretStatus`.
 - <a id="AxisPosition.state"></a>`state`: `AxisState` -- (no description)
 
 <a id="BringUpRecord"></a>
-## `BringUpRecord`
+## `lumascope.BringUpRecord`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.bring_up_record`](#ScopeSession.bring_up_record).
@@ -9291,7 +9286,7 @@ The parts this scope should have and lacks.
 Nothing.
 
 <a id="BuildResult"></a>
-## `BuildResult`
+## `lumascope.BuildResult`
 
 A record: it crosses the wire as its data.  
 Held in: [`BuildStep.result`](#BuildStep.result).
@@ -9308,7 +9303,7 @@ What a stitch, z-projection, composite or video build made.
 - <a id="BuildResult.output_root"></a>`output_root`: `pathlib.Path` -- The folder it read and wrote under.
 
 <a id="BuildStep"></a>
-## `BuildStep`
+## `lumascope.BuildStep`
 
 A record: it crosses the wire as its data.  
 Held in: [`BuildsResult.built`](#BuildsResult.built).
@@ -9321,7 +9316,7 @@ One build `build` ran, and what it made.
 - <a id="BuildStep.result"></a>`result`: `BuildResult` -- What it made.
 
 <a id="BuildsResult"></a>
-## `BuildsResult`
+## `lumascope.BuildsResult`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
@@ -9335,7 +9330,7 @@ What `build` made.
 - <a id="BuildsResult.skipped"></a>`skipped`: `tuple[SkippedBuild, ...]` -- Each build that had nothing to do, and why.
 
 <a id="CameraLimits"></a>
-## `CameraLimits`
+## `lumascope.CameraLimits`
 
 A record: it crosses the wire as its data.  
 Held in: [`ScopeCapabilities.camera_limits`](#ScopeCapabilities.camera_limits).
@@ -9375,7 +9370,7 @@ reported at connect.
 - <a id="CameraLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- (no description)
 
 <a id="CameraLink"></a>
-## `CameraLink`
+## `lumascope.CameraLink`
 
 A record: it crosses the wire as its data.  
 Returned by: [`DiagnosticsAPI.get_camera_link_info`](#DiagnosticsAPI.get_camera_link_info).
@@ -9392,7 +9387,7 @@ camera does not report it.
 - <a id="CameraLink.transport"></a>`transport`: `str | None` -- `'USB3'`, `'GigE'` or `'USB2'`; the SDK's own name when it is none of these.
 
 <a id="CaptureTally"></a>
-## `CaptureTally`
+## `lumascope.CaptureTally`
 
 A record: it crosses the wire as its data.  
 Held in: [`RunOutcome.captures`](#RunOutcome.captures).
@@ -9427,7 +9422,7 @@ Captures asked for that produced no image, failed or never reached.
 Nothing.
 
 <a id="CapturedStill"></a>
-## `CapturedStill`
+## `lumascope.CapturedStill`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.capture_still`](#ScopeSession.capture_still).
@@ -9444,7 +9439,7 @@ frozen dataclass's own would compare the arrays elementwise and raise.
 - <a id="CapturedStill.record"></a>`record`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`).
 
 <a id="CellCountFilters"></a>
-## `CellCountFilters`
+## `lumascope.CellCountFilters`
 
 A record: it crosses the wire as its data.  
 Held in: [`CellCountMethod.filters`](#CellCountMethod.filters).
@@ -9465,7 +9460,7 @@ Which regions a count keeps, each bound checked as the filters are built.
 - <a id="CellCountFilters.sphericity"></a>`sphericity`: `FilterBounds` -- From 0 to 1.
 
 <a id="CellCountMethod"></a>
-## `CellCountMethod`
+## `lumascope.CellCountMethod`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.default_cell_count_method`](#PostProcessingAPI.default_cell_count_method), [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method).  
@@ -9489,7 +9484,7 @@ size filter, so an image that states none is counted in pixels.
 - <a id="CellCountMethod.threshold_pct"></a>`threshold_pct`: `float` -- The brightness that separates a cell from the field, in percent of full scale.
 
 <a id="CellCountPreview"></a>
-## `CellCountPreview`
+## `lumascope.CellCountPreview`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count).
@@ -9502,7 +9497,7 @@ One image counted by a method, as a form shows it.
 - <a id="CellCountPreview.image"></a>`image`: `np.ndarray` -- The image with the kept regions' outlines drawn on it.
 
 <a id="CellCountResult"></a>
-## `CellCountResult`
+## `lumascope.CellCountResult`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells).
@@ -9513,10 +9508,11 @@ What a cell count wrote.
 
 - <a id="CellCountResult.counted"></a>`counted`: `int` -- How many images it counted.
 - <a id="CellCountResult.message"></a>`message`: `str` -- The outcome in words.
+- <a id="CellCountResult.method_path"></a>`method_path`: `pathlib.Path` -- The method it counted by, written beside the results as a method file `load_cell_count_method` reads.
 - <a id="CellCountResult.results_path"></a>`results_path`: `pathlib.Path` -- The results table it wrote.
 
 <a id="CellCountSizeScale"></a>
-## `CellCountSizeScale`
+## `lumascope.CellCountSizeScale`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale).
@@ -9530,7 +9526,7 @@ The scale an image is counted at, and what its size sliders stand for.
 - <a id="CellCountSizeScale.pixels_per_um"></a>`pixels_per_um`: `float | None` -- The pixels per micron the count measures at, or None when it counts in pixels.
 
 <a id="CellCounts"></a>
-## `CellCounts`
+## `lumascope.CellCounts`
 
 A record: it crosses the wire as its data.  
 Held in: [`CellCountPreview.counts`](#CellCountPreview.counts).
@@ -9545,7 +9541,7 @@ What a cell count measured in one image: the values of its row in `results.csv`.
 - <a id="CellCounts.total_object_intensity"></a>`total_object_intensity`: `float` -- Their area in pixels times their mean intensity in percent of full scale, so it does not change with the scale.
 
 <a id="Change"></a>
-## `Change`
+## `lumascope.Change`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
@@ -9561,16 +9557,16 @@ long after the change its frame came.
 
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped (`FrameValidity.motion_settled`). A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until `skip` was met.
-- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A delay measured from here is never short; the rule judges from `written_ns` or `in_force_ns`, the latest, so the pair never accepts a frame early.
+- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
 - <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`host_clock.steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API (`FrameValidity.motion_settled`); None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
-- <a id="Change.rule"></a>`rule`: `FrameRule` -- The rule the change is judged by, as its source's stood when it was recorded.
+- <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
 - <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
 
 <a id="ChannelIdentity"></a>
-## `ChannelIdentity`
+## `lumascope.ChannelIdentity`
 
 A record: it crosses the wire as its data.  
 Held in: [`Lumascope.channel_identity`](#Lumascope.channel_identity).
@@ -9655,7 +9651,7 @@ told it is missing hardware.
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`
 
 <a id="ChannelRecord"></a>
-## `ChannelRecord`
+## `lumascope.ChannelRecord`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ChannelIdentity.find`](#ChannelIdentity.find).  
@@ -9710,7 +9706,7 @@ a fluorescence layer's excitation (`'405 nm'`), any other layer's
 - <a id="ChannelRecord.modality"></a>`modality`: `Modality` -- (no description)
 
 <a id="ChannelSettings"></a>
-## `ChannelSettings`
+## `lumascope.ChannelSettings`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Protocol.channel_settings`](#Protocol.channel_settings).
@@ -9733,7 +9729,7 @@ the channel's control keeps what it holds.
 - <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None` -- The channel's stimulation is on; never inferred from the steps.
 
 <a id="ChannelSliderMaxima"></a>
-## `ChannelSliderMaxima`
+## `lumascope.ChannelSliderMaxima`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima).
@@ -9753,12 +9749,11 @@ never by this record.
 - <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a layer with no LED on this scope (luminescence).
 
 <a id="ClockMapping"></a>
-## `ClockMapping`
+## `lumascope.ClockMapping`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.map_camera_clock`](#ImagingAPI.map_camera_clock).  
-Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).  
-Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
+Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).
 
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
@@ -9780,7 +9775,7 @@ middle by the steady clock.
 - <a id="ClockMapping.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at `host_ns`.
 
 <a id="ControlSession"></a>
-## `ControlSession`
+## `lumascope.ControlSession`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.acting_in_control`](#ScopeSession.acting_in_control), [`ScopeSession.control`](#ScopeSession.control), [`ScopeSession.end_control`](#ScopeSession.end_control), [`ScopeSession.take_back_control`](#ScopeSession.take_back_control).  
@@ -9796,10 +9791,10 @@ client, a plugin, the GUI -- can act as the holder.
 
 - <a id="ControlSession.name"></a>`name`: `str` -- The name the client took it with, for the person at the scope.
 - <a id="ControlSession.taken_at_epoch_s"></a>`taken_at_epoch_s`: `float` -- When it was taken, as `time.time()`.
-- <a id="ControlSession.taken_by"></a>`taken_by`: `Caller` -- The host the take came through (`modules.caller`).
+- <a id="ControlSession.taken_by"></a>`taken_by`: `Caller` -- The host the take came through.
 
 <a id="ControlsLock"></a>
-## `ControlsLock`
+## `lumascope.ControlsLock`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.controls_lock`](#ScopeSession.controls_lock).  
@@ -9864,7 +9859,7 @@ the queue empties.
 Nothing.
 
 <a id="Credit"></a>
-## `Credit`
+## `lumascope.Credit`
 
 A record: it crosses the wire as its data.  
 Held in: [`Change.credits`](#Change.credits).
@@ -9877,7 +9872,7 @@ One frame counted toward a change, and who counted it.
 - <a id="Credit.seq"></a>`seq`: `int` -- (no description)
 
 <a id="DegradedOutput"></a>
-## `DegradedOutput`
+## `lumascope.DegradedOutput`
 
 A record: it crosses the wire as its data.  
 Held in: [`BuildResult.degraded_outputs`](#BuildResult.degraded_outputs).
@@ -9892,7 +9887,7 @@ A file a build made by its fallback algorithm, and why.
 - <a id="DegradedOutput.path"></a>`path`: `pathlib.Path` -- The file.
 
 <a id="DeliveredRate"></a>
-## `DeliveredRate`
+## `lumascope.DeliveredRate`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate), [`ImagingAPI.wait_for_delivered_rate`](#ImagingAPI.wait_for_delivered_rate).
@@ -9912,7 +9907,7 @@ camera not streaming, or no recent window measured.
 - <a id="DeliveredRate.frame_rate_fps"></a>`frame_rate_fps`: `float` -- (no description)
 
 <a id="DisplayRates"></a>
-## `DisplayRates`
+## `lumascope.DisplayRates`
 
 Taken by: [`ScopeSession.enable_metrics`](#ScopeSession.enable_metrics).
 
@@ -9953,7 +9948,7 @@ frames, in ms, and `n` the samples; empty before the first.
 Nothing.
 
 <a id="EnhanceResult"></a>
-## `EnhanceResult`
+## `lumascope.EnhanceResult`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance).
@@ -9967,7 +9962,7 @@ What a Quick Enhance made.
 - <a id="EnhanceResult.output_folder"></a>`output_folder`: `pathlib.Path` -- The folder the derived files are in.
 
 <a id="EnhancedFile"></a>
-## `EnhancedFile`
+## `lumascope.EnhancedFile`
 
 A record: it crosses the wire as its data.  
 Held in: [`EnhanceResult.created`](#EnhanceResult.created).
@@ -9981,7 +9976,7 @@ One file Quick Enhance derived: its source, the derived image, and its recipe.
 - <a id="EnhancedFile.source_path"></a>`source_path`: `pathlib.Path` -- (no description)
 
 <a id="ExcludedInput"></a>
-## `ExcludedInput`
+## `lumascope.ExcludedInput`
 
 A record: it crosses the wire as its data.  
 Held in: [`BuildResult.excluded_inputs`](#BuildResult.excluded_inputs), [`PostProcessingFailedError.excluded_inputs`](#PostProcessingFailedError.excluded_inputs).
@@ -9997,7 +9992,7 @@ made.
 - <a id="ExcludedInput.kind"></a>`kind`: `PostProcessingOperation` -- The build that made the files: `COMPOSITE`, `STITCH`, `Z_PROJECTION`, `VIDEO` or `HYPERSTACK`. A recording's frames, which only a video or a hyperstack takes, are never among them.
 
 <a id="ExposureChanged"></a>
-## `ExposureChanged`
+## `lumascope.ExposureChanged`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`CameraAPI.add_exposure_listener`](#CameraAPI.add_exposure_listener).
@@ -10009,7 +10004,7 @@ An exposure event: the exposure now in effect, in ms.
 - <a id="ExposureChanged.exposure_ms"></a>`exposure_ms`: `float` -- (no description)
 
 <a id="FailedCapture"></a>
-## `FailedCapture`
+## `lumascope.FailedCapture`
 
 A record: it crosses the wire as its data.  
 Held in: [`CaptureTally.failed`](#CaptureTally.failed).
@@ -10024,7 +10019,7 @@ One capture a run was asked for that produced no image.
 - <a id="FailedCapture.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
 <a id="FieldOfView"></a>
-## `FieldOfView`
+## `lumascope.FieldOfView`
 
 A record: it crosses the wire as its data.  
 Returned by: [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view).
@@ -10037,7 +10032,7 @@ The area a frame covers on the sample, in micrometres.
 - <a id="FieldOfView.width_um"></a>`width_um`: `float` -- (no description)
 
 <a id="FilesWritten"></a>
-## `FilesWritten`
+## `lumascope.FilesWritten`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.files_written`](#RunEvents.files_written).
@@ -10050,7 +10045,7 @@ A `files_written` event: the run's folder, and what became of its images.
 - <a id="FilesWritten.run_dir"></a>`run_dir`: `pathlib.Path | None` -- (no description)
 
 <a id="FilterBounds"></a>
-## `FilterBounds`
+## `lumascope.FilterBounds`
 
 A record: it crosses the wire as its data.  
 Held in: [`CellCountFilters.area_um2`](#CellCountFilters.area_um2), [`CellCountFilters.intensity_max_pct`](#CellCountFilters.intensity_max_pct), [`CellCountFilters.intensity_mean_pct`](#CellCountFilters.intensity_mean_pct), [`CellCountFilters.intensity_min_pct`](#CellCountFilters.intensity_min_pct), [`CellCountFilters.perimeter_um`](#CellCountFilters.perimeter_um), [`CellCountFilters.sphericity`](#CellCountFilters.sphericity).
@@ -10063,7 +10058,7 @@ One filter's bounds: a region outside them is not counted.
 - <a id="FilterBounds.min"></a>`min`: `float | None` -- The lowest value kept; None is no lower bound.
 
 <a id="FocusFailure"></a>
-## `FocusFailure`
+## `lumascope.FocusFailure`
 
 A record: it crosses the wire as its data.  
 Held in: [`RunOutcome.focus_failures`](#RunOutcome.focus_failures).
@@ -10078,7 +10073,7 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 - <a id="FocusFailure.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
 <a id="Frame"></a>
-## `Frame`
+## `lumascope.Frame`
 
 A record: it crosses the wire as its data.  
 Held in: [`FrameDelivered.frame`](#FrameDelivered.frame).  
@@ -10103,7 +10098,7 @@ records are equal only when they are the same delivery (identity).
 - <a id="Frame.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at the hand-over, the arrival a saved file states. It can step backwards; order by `seq`.
 
 <a id="FrameCaptured"></a>
-## `FrameCaptured`
+## `lumascope.FrameCaptured`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.frame_captured`](#RunEvents.frame_captured).
@@ -10117,7 +10112,7 @@ A `frame_captured` event: the frame as its file gets it, how many summed, its bi
 - <a id="FrameCaptured.image"></a>`image`: `np.ndarray` -- (no description)
 
 <a id="FrameDelivered"></a>
-## `FrameDelivered`
+## `lumascope.FrameDelivered`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener).
@@ -10131,7 +10126,7 @@ the camera sends any.
 - <a id="FrameDelivered.frame"></a>`frame`: `Frame` -- (no description)
 
 <a id="FrameRecord"></a>
-## `FrameRecord`
+## `lumascope.FrameRecord`
 
 A record: it crosses the wire as its data.  
 Held in: [`CapturedStill.record`](#CapturedStill.record), [`SavedStill.frame`](#SavedStill.frame).
@@ -10169,26 +10164,24 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.saturated_fraction"></a>`saturated_fraction`: `float | None` -- The fraction of the frame's pixels at or near full scale, measured when the capture asked for the check (`all_ones_check`); for a summed capture, its most saturated frame. None when it did not ask.
 
 <a id="FrameRule"></a>
-## `FrameRule`
+## `lumascope.FrameRule`
 
 A record: it crosses the wire as its data.  
 Held in: [`Change.rule`](#Change.rule), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).
 
-The rule a source's changes are judged by, and where it came from.
+The frames a source's changes wait, and where the count came from.
 
 **Raises**
 
-- `ValueError`: a count that is not a whole number, 0 or more; a clock rule without its delay or provenance; a credit rule with a delay.
+- `ValueError`: a count that is not a whole number, 0 or more.
 
 **Fields**
 
-- <a id="FrameRule.count"></a>`count`: `int` -- The frames a change of the source needs counted after it, which under the credit rule come before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
-- <a id="FrameRule.delay_us"></a>`delay_us`: `float | None` -- Under the clock rule, the source's measured delay: the larger of its directions' `apply_delay_us`, each the least start over its trials of the first frame showing the change. A frame starting later than the change plus this shows it. 0 for a move with none measured. None under the credit rule.
-- <a id="FrameRule.provenance"></a>`provenance`: `Mapping[str, str] | None` -- Under the clock rule, the run that measured the delay (`TIMING_PROVENANCE`), or that none did (`at_the_stop`). Under the credit rule, the run that measured the count, naming the microscope it was measured on (`TIMING_MICROSCOPE`); None for a shipped count.
-- <a id="FrameRule.rule"></a>`rule`: `Rule` -- `Rule.CLOCK` when the camera has a clock latch and its timing record holds a measured delay for the source, or the source is a move with no measured count; `Rule.CREDIT` otherwise.
+- <a id="FrameRule.count"></a>`count`: `int` -- The frames a change of the source needs counted after it, before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
+- <a id="FrameRule.provenance"></a>`provenance`: `Mapping[str, str] | None` -- The run that measured the count, naming the microscope it was measured on (`TIMING_MICROSCOPE`); None for a shipped count.
 
 <a id="FrameSize"></a>
-## `FrameSize`
+## `lumascope.FrameSize`
 
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.frame_size`](#CameraAPI.frame_size), [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size), [`CameraAPI.set_binning`](#CameraAPI.set_binning), [`CameraAPI.set_frame_size`](#CameraAPI.set_frame_size).  
@@ -10202,7 +10195,7 @@ A frame's size, in pixels.
 - <a id="FrameSize.width"></a>`width`: `int` -- (no description)
 
 <a id="FrameTime"></a>
-## `FrameTime`
+## `lumascope.FrameTime`
 
 A record: it crosses the wire as its data.  
 Held in: [`FrameRecord.captured_at`](#FrameRecord.captured_at).
@@ -10222,7 +10215,7 @@ give a frame its time, and a reader comparing frames must know which.
 - <a id="FrameTime.source"></a>`source`: `TimestampSource` -- What `at` is (`TimestampSource`).
 
 <a id="GainChanged"></a>
-## `GainChanged`
+## `lumascope.GainChanged`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`CameraAPI.add_gain_listener`](#CameraAPI.add_gain_listener).
@@ -10234,7 +10227,7 @@ A gain event: the gain now in effect, in dB.
 - <a id="GainChanged.gain_db"></a>`gain_db`: `float` -- (no description)
 
 <a id="GraphOptions"></a>
-## `GraphOptions`
+## `lumascope.GraphOptions`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options).
@@ -10248,7 +10241,7 @@ What a graph of a results table can be drawn with.
 - <a id="GraphOptions.y_axes"></a>`y_axes`: `tuple[str, ...]` -- The columns that can be the Y axis: numbers.
 
 <a id="GraphResult"></a>
-## `GraphResult`
+## `lumascope.GraphResult`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
@@ -10261,7 +10254,7 @@ What a graph save wrote.
 - <a id="GraphResult.path"></a>`path`: `pathlib.Path` -- The PNG it wrote.
 
 <a id="HeldClaim"></a>
-## `HeldClaim`
+## `lumascope.HeldClaim`
 
 Returned by: [`ScopeSession.diagnostic_claim`](#ScopeSession.diagnostic_claim).  
 Taken by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus).
@@ -10291,7 +10284,7 @@ same claim is a different object.
 Nothing.
 
 <a id="ImageStatistics"></a>
-## `ImageStatistics`
+## `lumascope.ImageStatistics`
 
 A record: it crosses the wire as its data.  
 Held in: [`SavedStill.statistics`](#SavedStill.statistics).
@@ -10314,7 +10307,7 @@ against the frame's full scale by the capture.
 - <a id="ImageStatistics.standard_deviation"></a>`standard_deviation`: `float` -- The population standard deviation.
 
 <a id="InjectedFault"></a>
-## `InjectedFault`
+## `lumascope.InjectedFault`
 
 A record: it crosses the wire as its data.  
 Returned by: [`SimulationAPI.injected`](#SimulationAPI.injected).
@@ -10327,7 +10320,7 @@ One fault injected on a simulated scope, as it was asked for.
 - <a id="InjectedFault.member"></a>`member`: `str` -- The `scope.simulation` member that injected it.
 
 <a id="Judgment"></a>
-## `Judgment`
+## `lumascope.Judgment`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).  
@@ -10339,15 +10332,13 @@ Whether one frame counts for one change, and the facts that decided it.
 
 - <a id="Judgment.after_in_force_ms"></a>`after_in_force_ms`: `float | None` -- Milliseconds from the change's in-force time to the frame's arrival; None when it has none.
 - <a id="Judgment.after_write_ms"></a>`after_write_ms`: `float` -- Milliseconds from the change's recording to the frame's arrival.
-- <a id="Judgment.change"></a>`change`: `Change` -- The change judged against, as it stood when judged; its `rule` is the rule it was judged by.
-- <a id="Judgment.counts"></a>`counts`: `bool` -- Under the credit rule, the frame arrived after the change, the change's count was met by frames before it, and an axis the change waits on had settled before it arrived. Under the clock rule, the frame started after `qualifies_after_ticks`; never when either is unknown.
+- <a id="Judgment.change"></a>`change`: `Change` -- The change judged against, as it stood when judged.
+- <a id="Judgment.counts"></a>`counts`: `bool` -- The frame arrived after the change, the change's count was met by frames before it, and an axis the change waits on had settled before it arrived.
 - <a id="Judgment.frame_seq"></a>`frame_seq`: `int` -- The frame's hand-over ordinal.
-- <a id="Judgment.frame_start_ticks"></a>`frame_start_ticks`: `int | None` -- Under the clock rule, when the frame started exposing on the camera's clock (its `Timestamp` chunk); None under the credit rule, and for a frame without the chunk.
 - <a id="Judgment.frames_after"></a>`frames_after`: `int` -- Frames handed over after the change was recorded, up to and including this one: an upper bound on the frames stored after it, since a frame handed over may be dropped before the store.
-- <a id="Judgment.qualifies_after_ticks"></a>`qualifies_after_ticks`: `int | None` -- Under the clock rule, the camera-clock tick a frame must start after to count: the change, its source's delay and the clock mapping's uncertainty. None under the credit rule, and when it cannot be known (no mapping, or a move not yet in force).
 
 <a id="Labware"></a>
-## `Labware`
+## `lumascope.Labware`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Lumascope.labware`](#Lumascope.labware).
@@ -10387,9 +10378,10 @@ The (column, row) of the well centre nearest a plate position, each counted from
 
 None when that centre is outside the grid: the position is more
 than half a pitch beyond the outer well centres, off the plate's
-wells, or the plate has no wells at all (the Blank labware). No
-shipped plate states a well size, so within the grid a position
-names its nearest well whether or not it is inside it.
+wells, or the plate has no wells at all (the Blank labware).
+Within the grid a position names its nearest well whether or not
+it is inside it: the well is judged by the spacing, never the
+diameter.
 
 **Args**
 
@@ -10424,8 +10416,26 @@ The centre of the well in column `i` and row `j`, in mm from the plate's top-lef
 
 Nothing.
 
+<a id="Labware.well_size_mm"></a>
+### `Labware.well_size_mm`
+
+```python
+well_size_mm: tuple[float, float]  # property
+```
+
+Marks: in-process; reads (changes nothing).
+
+A well's width and height in mm.
+
+Its diameter both ways, or, where the catalogue states none, its
+spacing on each axis, so each well fills its place in the grid.
+
+**Raises**
+
+Nothing.
+
 <a id="LayerCameraRequest"></a>
-## `LayerCameraRequest`
+## `lumascope.LayerCameraRequest`
 
 A record: it crosses the wire as its data.  
 Held in: [`LayerHold.request`](#LayerHold.request).
@@ -10440,7 +10450,7 @@ A layer's stored camera settings, read from its store, for the camera to take.
 - <a id="LayerCameraRequest.gain_db"></a>`gain_db`: `float` -- The layer's stored gain, in dB.
 
 <a id="LayerHold"></a>
-## `LayerHold`
+## `lumascope.LayerHold`
 
 A record: it crosses the wire as its data.
 
@@ -10454,7 +10464,7 @@ the other. The Session reads `request` from the layer's store.
 - <a id="LayerHold.request"></a>`request`: `LayerCameraRequest` -- The layer's stored camera settings.
 
 <a id="LedBoardInfo"></a>
-## `LedBoardInfo`
+## `lumascope.LedBoardInfo`
 
 A record: it crosses the wire as its data.  
 Returned by: [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info).
@@ -10472,7 +10482,7 @@ peripheral). Whether a board is connected is `led_connected`.
 - <a id="LedBoardInfo.firmware_version"></a>`firmware_version`: `str | None` -- As `MotorBoardInfo.firmware_version`.
 
 <a id="LedReading"></a>
-## `LedReading`
+## `lumascope.LedReading`
 
 A record: it crosses the wire as its data.  
 Returned by: [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states).  
@@ -10491,7 +10501,7 @@ The answer of every LED read and the `led` event.
 - <a id="LedReading.state"></a>`state`: `LedState` -- Lit, dark, or unknown.
 
 <a id="LiveFolderEntry"></a>
-## `LiveFolderEntry`
+## `lumascope.LiveFolderEntry`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing).
@@ -10506,7 +10516,7 @@ One file or folder in a live-folder listing.
 - <a id="LiveFolderEntry.size_bytes"></a>`size_bytes`: `int` -- Its size in bytes, as the file system reports it.
 
 <a id="LiveProcessingRegistry"></a>
-## `LiveProcessingRegistry`
+## `lumascope.LiveProcessingRegistry`
 
 Held in: [`PluginRegistry.live_processing`](#PluginRegistry.live_processing).
 
@@ -10575,7 +10585,7 @@ Remove the listener a plugin registered; nothing when it registered none.
 Nothing.
 
 <a id="LiveWork"></a>
-## `LiveWork`
+## `lumascope.LiveWork`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.live_work`](#ScopeSession.live_work).  
@@ -10594,7 +10604,7 @@ slightly different moments; the close waits until a read finds none.
 - <a id="LiveWork.work"></a>`work`: `tuple[WorkItem, ...]` -- The work still under way, in the order the session asked: what holds the scope first, then what finishes after.
 
 <a id="MotorBoardInfo"></a>
-## `MotorBoardInfo`
+## `lumascope.MotorBoardInfo`
 
 A record: it crosses the wire as its data.  
 Returned by: [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info).
@@ -10613,7 +10623,7 @@ answer, or a reply that could not be read.
 - <a id="MotorBoardInfo.serial_number"></a>`serial_number`: `str | None` -- The board's serial number.
 
 <a id="NamespaceHealth"></a>
-## `NamespaceHealth`
+## `lumascope.NamespaceHealth`
 
 A record: it crosses the wire as its data.  
 Held in: [`PluginHealth.namespaces`](#PluginHealth.namespaces).
@@ -10622,12 +10632,12 @@ Per-namespace snapshot for tech-support + diagnostic probes.
 
 **Fields**
 
-- <a id="NamespaceHealth.last_runtime_errors"></a>`last_runtime_errors`: `tuple[PluginRuntimeError, ...]` -- (no description)
+- <a id="NamespaceHealth.last_runtime_failures"></a>`last_runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- (no description)
 - <a id="NamespaceHealth.loaded"></a>`loaded`: `tuple[PluginStatus, ...]` -- (no description)
 - <a id="NamespaceHealth.namespace"></a>`namespace`: `str` -- (no description)
 
 <a id="Notification"></a>
-## `Notification`
+## `lumascope.Notification`
 
 A record: it crosses the wire as its data.  
 Taken by: [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener), [`ScopeSession.create`](#ScopeSession.create), [`ScopeSession.remove_outcome_listener`](#ScopeSession.remove_outcome_listener).  
@@ -10662,7 +10672,7 @@ them all.
 - <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float` -- When it was posted, in seconds since the epoch, for a client in another process.
 
 <a id="Objective"></a>
-## `Objective`
+## `lumascope.Objective`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Lumascope.objectives`](#Lumascope.objectives), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).  
@@ -10677,7 +10687,9 @@ from the id alone (`objective_short_name`). Autofocus starts at
 across `autofocus_half_range_um` either side of where it starts. A
 jog moves the `jog_*` distance on its axis. `focus_peak_fwhm_dense_um`
 is the objective's measured focus-peak width (full width at half
-maximum), None until it has been measured.
+maximum), None until it has been measured. `manufacturer` names
+who makes the glass; the catalogue lists each maker's objectives
+together (`ObjectiveLoader.objectives`).
 
 **Fields**
 
@@ -10694,6 +10706,7 @@ maximum), None until it has been measured.
 - <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- (no description)
 - <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- (no description)
 - <a id="Objective.magnification"></a>`magnification`: `float` -- (no description)
+- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- (no description)
 - <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- (no description)
 - <a id="Objective.short_name"></a>`short_name`: `str` -- (no description)
 - <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- (no description)
@@ -10701,7 +10714,7 @@ maximum), None until it has been measured.
 - <a id="Objective.z_settle_tolerance_um"></a>`z_settle_tolerance_um`: `float` -- (no description)
 
 <a id="ObjectiveQuestion"></a>
-## `ObjectiveQuestion`
+## `lumascope.ObjectiveQuestion`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.current_slot_objective_question`](#ScopeSession.current_slot_objective_question), [`ScopeSession.objective_question`](#ScopeSession.objective_question).
@@ -10726,7 +10739,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 - <a id="ObjectiveQuestion.turret_slot"></a>`turret_slot`: `int | None` -- The slot the answer binds to, or None on a non-turret model.
 
 <a id="Operation"></a>
-## `Operation`
+## `lumascope.Operation`
 
 Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
@@ -10871,10 +10884,10 @@ still): a stop that arrives late never touches another operation.
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 
 <a id="Outcome"></a>
-## `Outcome`
+## `lumascope.Outcome`
 
 A record: it crosses the wire as its data.  
-Returned by: [`modules.notification_center.outcome_of`](#modules.notification_center.outcome_of).
+Returned by: [`outcome_of`](#outcome_of).
 
 What an exception's type says it is, read once for every host that answers it.
 
@@ -10890,7 +10903,7 @@ What an exception's type says it is, read once for every host that answers it.
 - <a id="Outcome.words"></a>`words`: `str` -- Its own words, or a sentence saying they could not be written.
 
 <a id="PartStatus"></a>
-## `PartStatus`
+## `lumascope.PartStatus`
 
 A record: it crosses the wire as its data.  
 Returned by: [`BringUpRecord.missing`](#BringUpRecord.missing).  
@@ -10935,7 +10948,7 @@ Expected and not up: the part this scope should have and lacks.
 Nothing.
 
 <a id="PlateLocation"></a>
-## `PlateLocation`
+## `lumascope.PlateLocation`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position), [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
@@ -10952,7 +10965,7 @@ None on an axis is no position there: a move to it leaves that axis where it is.
 - <a id="PlateLocation.z_um"></a>`z_um`: `float | None` -- (no description)
 
 <a id="PlatePosition"></a>
-## `PlatePosition`
+## `lumascope.PlatePosition`
 
 A record: it crosses the wire as its data.  
 Returned by: [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
@@ -10965,7 +10978,7 @@ A position on a plate, in mm from the plate's top-left corner.
 - <a id="PlatePosition.y_mm"></a>`y_mm`: `float` -- (no description)
 
 <a id="PluginHealth"></a>
-## `PluginHealth`
+## `lumascope.PluginHealth`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.plugin_health`](#ScopeSession.plugin_health).
@@ -10978,7 +10991,7 @@ Every namespace's health and the plugins that did not load, for tech-support rep
 - <a id="PluginHealth.not_loaded"></a>`not_loaded`: `tuple[PluginNotLoaded, ...]` -- (no description)
 
 <a id="PluginNotLoaded"></a>
-## `PluginNotLoaded`
+## `lumascope.PluginNotLoaded`
 
 A record: it crosses the wire as its data.  
 Held in: [`PluginHealth.not_loaded`](#PluginHealth.not_loaded).
@@ -10995,7 +11008,7 @@ which a plugin that never loaded did not do.
 - <a id="PluginNotLoaded.version"></a>`version`: `str` -- (no description)
 
 <a id="PluginRegistry"></a>
-## `PluginRegistry`
+## `lumascope.PluginRegistry`
 
 Returned by: [`ScopeSession.plugins`](#ScopeSession.plugins).
 
@@ -11014,30 +11027,30 @@ Lifecycle:
 - <a id="PluginRegistry.rest"></a>`rest`: `RESTRegistry` -- Reserved: a plugin cannot add REST routes in this release.
 - <a id="PluginRegistry.ui"></a>`ui`: `UIRegistry` -- Widgets at the window's mount points.
 
-<a id="PluginRuntimeError"></a>
-## `PluginRuntimeError`
+<a id="PluginRuntimeFailure"></a>
+## `lumascope.PluginRuntimeFailure`
 
 A record: it crosses the wire as its data.  
-Held in: [`NamespaceHealth.last_runtime_errors`](#NamespaceHealth.last_runtime_errors).
+Held in: [`NamespaceHealth.last_runtime_failures`](#NamespaceHealth.last_runtime_failures).
 
-A runtime error caught from a plugin handler.
+The record of an exception caught from a plugin handler; a record, never raised.
 
 Distinct from a load failure: the plugin loaded fine, but failed
 while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
 PluginRegistry.record_runtime_error and kept in
-NamespaceHealth.last_runtime_errors so diagnostic probes can
+NamespaceHealth.last_runtime_failures so diagnostic probes can
 attribute fault to the right plugin.
 
 **Fields**
 
-- <a id="PluginRuntimeError.exc_type"></a>`exc_type`: `str` -- (no description)
-- <a id="PluginRuntimeError.hook"></a>`hook`: `str` -- (no description)
-- <a id="PluginRuntimeError.message"></a>`message`: `str` -- (no description)
-- <a id="PluginRuntimeError.namespace"></a>`namespace`: `str` -- (no description)
-- <a id="PluginRuntimeError.plugin_name"></a>`plugin_name`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.exc_type"></a>`exc_type`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.hook"></a>`hook`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.message"></a>`message`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.namespace"></a>`namespace`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.plugin_name"></a>`plugin_name`: `str` -- (no description)
 
 <a id="PluginSpec"></a>
-## `PluginSpec`
+## `lumascope.PluginSpec`
 
 A record: it crosses the wire as its data.  
 Taken by: [`LiveProcessingRegistry.register`](#LiveProcessingRegistry.register), [`PostProcessingRegistry.register`](#PostProcessingRegistry.register), [`UIRegistry.register`](#UIRegistry.register).
@@ -11056,7 +11069,7 @@ Declarative metadata a plugin presents at registration time.
 - <a id="PluginSpec.version"></a>`version`: `str` -- The plugin's version.
 
 <a id="PluginStatus"></a>
-## `PluginStatus`
+## `lumascope.PluginStatus`
 
 A record: it crosses the wire as its data.  
 Held in: [`NamespaceHealth.loaded`](#NamespaceHealth.loaded).
@@ -11070,7 +11083,7 @@ A loaded plugin, for health reports.
 - <a id="PluginStatus.version"></a>`version`: `str` -- (no description)
 
 <a id="PositionChanged"></a>
-## `PositionChanged`
+## `lumascope.PositionChanged`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener).
@@ -11083,7 +11096,7 @@ A position event: a stage axis, and its state and position as `axis_positions` a
 - <a id="PositionChanged.axis"></a>`axis`: `StageAxis` -- (no description)
 
 <a id="PostProcessingRegistry"></a>
-## `PostProcessingRegistry`
+## `lumascope.PostProcessingRegistry`
 
 Held in: [`PluginRegistry.post_processing`](#PluginRegistry.post_processing).
 
@@ -11164,7 +11177,7 @@ Register a processor of saved files.
 - [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
 
 <a id="ProcessorResult"></a>
-## `ProcessorResult`
+## `lumascope.ProcessorResult`
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingRegistry.get`](#PostProcessingRegistry.get).  
@@ -11182,7 +11195,7 @@ a failure to the person with its message.
 - <a id="ProcessorResult.success"></a>`success`: `bool` -- Whether the processor completed.
 
 <a id="Protocol"></a>
-## `Protocol`
+## `lumascope.Protocol`
 
 A wire client holds one as a handle: `/api/v1/handles/Protocol/{handle_id}/`.  
 Returned by: [`ScopeSession.create_empty_protocol`](#ScopeSession.create_empty_protocol), [`ScopeSession.load_protocol`](#ScopeSession.load_protocol), [`ScopeSession.new_protocol`](#ScopeSession.new_protocol).  
@@ -11437,7 +11450,7 @@ Returns an empty list if all steps are valid.
 Nothing.
 
 <a id="ProtocolRunner"></a>
-## `ProtocolRunner`
+## `lumascope.ProtocolRunner`
 
 A wire client holds one as a handle: `/api/v1/handles/ProtocolRunner/{handle_id}/`.  
 Returned by: [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner).
@@ -12059,7 +12072,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ProtocolSizeAdvisory"></a>
-## `ProtocolSizeAdvisory`
+## `lumascope.ProtocolSizeAdvisory`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory).
@@ -12077,7 +12090,7 @@ have to parse it back out.
 - <a id="ProtocolSizeAdvisory.projected_mb"></a>`projected_mb`: `float` -- (no description)
 
 <a id="RESTRegistry"></a>
-## `RESTRegistry`
+## `lumascope.RESTRegistry`
 
 Held in: [`PluginRegistry.rest`](#PluginRegistry.rest).
 
@@ -12119,7 +12132,7 @@ so a route it expects to serve is never silently missing.
 Nothing.
 
 <a id="RecordingFinished"></a>
-## `RecordingFinished`
+## `lumascope.RecordingFinished`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ManualRecordingController.start`](#ManualRecordingController.start).
@@ -12132,7 +12145,7 @@ What a manual recording's operation answers once it is done.
 - <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result.
 
 <a id="Remedy"></a>
-## `Remedy`
+## `lumascope.Remedy`
 
 A record: it crosses the wire as its data.  
 Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).  
@@ -12154,7 +12167,7 @@ place.
 - <a id="Remedy.member"></a>`member`: `RemedyName` -- The remedy that answers the refusal, which the Session applies.
 
 <a id="RunEnded"></a>
-## `RunEnded`
+## `lumascope.RunEnded`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.run_ended`](#RunEvents.run_ended).
@@ -12168,7 +12181,7 @@ A `run_ended` event: the outcome, the run's folder (None when it saved nothing),
 - <a id="RunEnded.run_dir"></a>`run_dir`: `pathlib.Path | None` -- (no description)
 
 <a id="RunEvents"></a>
-## `RunEvents`
+## `lumascope.RunEvents`
 
 A record: it crosses the wire as its data.  
 Taken by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack).
@@ -12203,7 +12216,7 @@ event elsewhere builds the record from them.
 - <a id="RunEvents.video_progress"></a>`video_progress`: `Callable[[VideoProgress], object] | None` -- `(progress)`, a `VideoProgress`, as a video step records and writes.
 
 <a id="RunFiles"></a>
-## `RunFiles`
+## `lumascope.RunFiles`
 
 A record: it crosses the wire as its data.  
 Held in: [`Operation.files`](#Operation.files).
@@ -12222,7 +12235,7 @@ and when it is `INCOMPLETE`, how many images are not on disk and why
 - <a id="RunFiles.written"></a>`written`: `int` -- (no description)
 
 <a id="RunOutcome"></a>
-## `RunOutcome`
+## `lumascope.RunOutcome`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run).  
@@ -12261,7 +12274,7 @@ shape for every run kind.
 - <a id="RunOutcome.video_save_wait_s"></a>`video_save_wait_s`: `float | None` -- Seconds the run's end waited for its video steps to finish saving, when every step finished having written every frame it kept; None when nothing was waited for, or when a step did not finish, was discarded or lost a frame.
 
 <a id="RunProgress"></a>
-## `RunProgress`
+## `lumascope.RunProgress`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Operation.progress`](#Operation.progress).
@@ -12280,7 +12293,7 @@ Where one run has got, read in one hold of the run lock: every field is that run
 - <a id="RunProgress.step_index"></a>`step_index`: `int | None` -- The step executing now, its row from 0; None once the run is not live.
 
 <a id="SavedFocus"></a>
-## `SavedFocus`
+## `lumascope.SavedFocus`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.save_focus`](#ScopeSession.save_focus).
@@ -12293,7 +12306,7 @@ What `ScopeSession.save_focus` wrote.
 - <a id="SavedFocus.z_um"></a>`z_um`: `float` -- The Z saved as the layer's focus.
 
 <a id="SavedStill"></a>
-## `SavedStill`
+## `lumascope.SavedStill`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture).
@@ -12319,7 +12332,7 @@ place a JPG's channel, position and frame are stated.
 - <a id="SavedStill.well_label"></a>`well_label`: `str | None` -- The well at that position; None off the plate's wells, on a plate with none, or at an unknown position.
 
 <a id="ScanEnded"></a>
-## `ScanEnded`
+## `lumascope.ScanEnded`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.scan_ended`](#RunEvents.scan_ended).
@@ -12333,7 +12346,7 @@ A `scan_ended` event: the scan's index from 0, the scans left after it, the peri
 - <a id="ScanEnded.scans_remaining"></a>`scans_remaining`: `int` -- (no description)
 
 <a id="ScanStarted"></a>
-## `ScanStarted`
+## `lumascope.ScanStarted`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.scan_started`](#RunEvents.scan_started).
@@ -12347,7 +12360,7 @@ A `scan_started` event: the scan's index from 0, the scans left with it, the per
 - <a id="ScanStarted.scans_remaining"></a>`scans_remaining`: `int` -- (no description)
 
 <a id="ScopeCapabilities"></a>
-## `ScopeCapabilities`
+## `lumascope.ScopeCapabilities`
 
 A record: it crosses the wire as its data.  
 Held in: [`Lumascope.capabilities`](#Lumascope.capabilities).
@@ -12361,7 +12374,7 @@ tuple.
 
 **Fields**
 
-- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS620 or LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board.
+- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board (an LS460, LS560 or LS620).
 - <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
@@ -12381,7 +12394,7 @@ tuple.
 - <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range).
 - <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes.
 - <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- The rate of the camera's frame timestamp clock in Hz, or None for a camera whose frames carry no timestamp.
-- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the rule a frame is judged by against its changes, and the source's frame count: the clock rule, with its measured delay and the run that measured it, where the camera has a clock latch and its timing record holds a delay for the source, and for every move on such a camera whose record measured no move count, from its stop; the credit rule everywhere else. The count is the largest the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
+- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the frames a change of it waits before a frame counts, on every camera: the largest count the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
 - <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.
 - <a id="ScopeCapabilities.has_focus"></a>`has_focus`: `bool` -- True when `axes` holds Z.
 - <a id="ScopeCapabilities.has_turret"></a>`has_turret`: `bool` -- Whether this scope has a turret: T in `axes` when the motor board came up, else the declared model's. A turret scope whose board did not come up has a turret in an unknown slot.
@@ -12394,7 +12407,7 @@ tuple.
 - <a id="ScopeCapabilities.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The camera's pixel size in um, from the motor board's optics configuration, else the installation's model entry (a Classic), else the camera's own pitch; None when none says, and then the scope measures nothing (field of view, scale bar, plate coordinates). Never a default: a guessed pixel size is written into every image and cannot be told from a measured one.
 
 <a id="ScopeModel"></a>
-## `ScopeModel`
+## `lumascope.ScopeModel`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Lumascope.scope_models`](#Lumascope.scope_models).
@@ -12430,7 +12443,7 @@ sensor. Each is None where the row declares none.
 - <a id="ScopeModel.pixel_size_um"></a>`pixel_size_um`: `float | None` -- (no description)
 
 <a id="SensorExposure"></a>
-## `SensorExposure`
+## `lumascope.SensorExposure`
 
 A record: it crosses the wire as its data.  
 Returned by: [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
@@ -12461,7 +12474,7 @@ gain its pixels were made at.
 - <a id="SensorExposure.z_um"></a>`z_um`: `float | None` -- Z when the exposure started; None on a scope with no focus axis.
 
 <a id="SettingsChanged"></a>
-## `SettingsChanged`
+## `lumascope.SettingsChanged`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`ScopeSession.add_settings_listener`](#ScopeSession.add_settings_listener).
@@ -12473,7 +12486,7 @@ Settings one write stored, told once the write has let go of the store.
 - <a id="SettingsChanged.paths"></a>`paths`: `tuple[str, ...]` -- The dotted paths stored, each once, in the order stored.
 
 <a id="SettingsSetAside"></a>
-## `SettingsSetAside`
+## `lumascope.SettingsSetAside`
 
 A record: it crosses the wire as its data.  
 Held in: [`BringUpRecord.settings_set_aside`](#BringUpRecord.settings_set_aside).
@@ -12489,7 +12502,7 @@ save over the file until the person decides what happens to it.
 - <a id="SettingsSetAside.reason"></a>`reason`: `str` -- (no description)
 
 <a id="ShownChannel"></a>
-## `ShownChannel`
+## `lumascope.ShownChannel`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel), [`ScopeSession.show_channel`](#ScopeSession.show_channel), [`ScopeSession.shown_channel`](#ScopeSession.shown_channel).  
@@ -12504,7 +12517,7 @@ the camera, and whether its LED is lit with every other one dark.
 - <a id="ShownChannel.lit"></a>`lit`: `bool` -- Whether its LED reads lit in the LED store, whoever lit it. An LED whose last write went unanswered reads unknown there, and is not lit here; the `led` event carries its unknown state.
 
 <a id="SimulatedCameraWriteRefusal"></a>
-## `SimulatedCameraWriteRefusal`
+## `lumascope.SimulatedCameraWriteRefusal`
 
 A record: it crosses the wire as its data.  
 Held in: [`SimulatedScope.refused_camera_writes`](#SimulatedScope.refused_camera_writes).
@@ -12518,7 +12531,7 @@ Camera writes of one setting that a simulated camera refuses (`refuse_camera_wri
 - <a id="SimulatedCameraWriteRefusal.node"></a>`node`: `CameraWriteNode` -- The setting written.
 
 <a id="SimulatedModelAnswer"></a>
-## `SimulatedModelAnswer`
+## `lumascope.SimulatedModelAnswer`
 
 A record: it crosses the wire as its data.  
 Held in: [`SimulatedScope.model_answer`](#SimulatedScope.model_answer).
@@ -12533,7 +12546,7 @@ is an answer a caller can ask for.
 - <a id="SimulatedModelAnswer.model"></a>`model`: `str | None` -- The model the board names, or None for none.
 
 <a id="SimulatedScope"></a>
-## `SimulatedScope`
+## `lumascope.SimulatedScope`
 
 A record: it crosses the wire as its data.  
 Taken by: [`ScopeSession.create`](#ScopeSession.create).
@@ -12548,6 +12561,7 @@ is the declared scope with no fault. A fault is refused where the
 
 **Fields**
 
+- <a id="SimulatedScope.camera_present"></a>`camera_present`: `bool` -- Whether the camera is on the bus at bring-up. False is a camera unplugged for the session: bring-up finds none, as it finds none on a real scope, and every camera command is refused `not_connected`. On a model simulated with an FX2 the camera is the FX2, so its LED board is missing with it. True is the camera there.
 - <a id="SimulatedScope.camera_stall"></a>`camera_stall`: `SimulatedStall | None` -- A stall for the simulated camera's stream, so the scope shows a stream that stops delivering; the simulated camera's alone. None stalls nothing.
 - <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
 - <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there.
@@ -12555,9 +12569,10 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
 - <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
 - <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
+- <a id="SimulatedScope.slide"></a>`slide`: `Slide` -- The slide on the stage, which the scope's camera images for the session: the cell specimen, or a Ronchi ruling, the target the bench measures a camera's move count on. Either simulated camera takes it. The cell specimen is the default.
 
 <a id="SimulatedStall"></a>
-## `SimulatedStall`
+## `lumascope.SimulatedStall`
 
 A record: it crosses the wire as its data.  
 Held in: [`SimulatedScope.camera_stall`](#SimulatedScope.camera_stall), [`SimulatedScope.file_stall`](#SimulatedScope.file_stall).
@@ -12579,7 +12594,7 @@ launch argument, a test), so a stall that cannot happen is refused there.
 - <a id="SimulatedStall.for_s"></a>`for_s`: `float` -- How long the stall lasts, in seconds.
 
 <a id="SizeSliderStops"></a>
-## `SizeSliderStops`
+## `lumascope.SizeSliderStops`
 
 A record: it crosses the wire as its data.  
 Held in: [`CellCountSizeScale.area`](#CellCountSizeScale.area), [`CellCountSizeScale.perimeter`](#CellCountSizeScale.perimeter).
@@ -12631,7 +12646,7 @@ The sizes a slider's two positions stand for.
 Nothing.
 
 <a id="SkippedBuild"></a>
-## `SkippedBuild`
+## `lumascope.SkippedBuild`
 
 A record: it crosses the wire as its data.  
 Held in: [`BuildsResult.skipped`](#BuildsResult.skipped).
@@ -12644,7 +12659,7 @@ A build `build` was asked for that had nothing to do in the folder.
 - <a id="SkippedBuild.operation"></a>`operation`: `PostProcessingOperation` -- The build.
 
 <a id="StageOffset"></a>
-## `StageOffset`
+## `lumascope.StageOffset`
 
 A record: it crosses the wire as its data.  
 Returned by: [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset).  
@@ -12658,7 +12673,7 @@ Where the plate is mounted on the stage, in um: the offset the two conversions a
 - <a id="StageOffset.y_um"></a>`y_um`: `float` -- (no description)
 
 <a id="StagePosition"></a>
-## `StagePosition`
+## `lumascope.StagePosition`
 
 A record: it crosses the wire as its data.  
 Returned by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage).
@@ -12671,7 +12686,7 @@ A stage X/Y position, in um.
 - <a id="StagePosition.y_um"></a>`y_um`: `float` -- (no description)
 
 <a id="Status"></a>
-## `Status`
+## `lumascope.Status`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.status`](#ScopeSession.status).  
@@ -12696,7 +12711,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret.
 
 <a id="StepRecord"></a>
-## `StepRecord`
+## `lumascope.StepRecord`
 
 A record: it crosses the wire as its data.  
 Returned by: [`Protocol.step_records`](#Protocol.step_records).
@@ -12734,7 +12749,7 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.z_um"></a>`z_um`: `float | None` -- Z in um; None as for X.
 
 <a id="StepStarted"></a>
-## `StepStarted`
+## `lumascope.StepStarted`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.step_started`](#RunEvents.step_started).
@@ -12746,7 +12761,7 @@ A `step_started` event: the index of the step beginning.
 - <a id="StepStarted.step_index"></a>`step_index`: `int` -- (no description)
 
 <a id="Stimulation"></a>
-## `Stimulation`
+## `lumascope.Stimulation`
 
 A record: it crosses the wire as its data.  
 Held in: [`StepRecord.stim_config`](#StepRecord.stim_config).
@@ -12765,7 +12780,7 @@ value was kept.
 - <a id="Stimulation.pulse_width_ms"></a>`pulse_width_ms`: `float | None` -- (no description)
 
 <a id="Stitch"></a>
-## `Stitch`
+## `lumascope.Stitch`
 
 A record: it crosses the wire as its data.  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
@@ -12777,7 +12792,7 @@ A stitch, as `build` takes it: each tiled scan to one mosaic.
 - <a id="Stitch.mode"></a>`mode`: `StitchMode` -- How the tiles are registered.
 
 <a id="Substitution"></a>
-## `Substitution`
+## `lumascope.Substitution`
 
 A record: it crosses the wire as its data.  
 Held in: [`BringUpRecord.substitutions`](#BringUpRecord.substitutions).
@@ -12797,7 +12812,7 @@ the saved image mode stays saved.
 - <a id="Substitution.used"></a>`used`: `SettingValue` -- (no description)
 
 <a id="SupportReportSaved"></a>
-## `SupportReportSaved`
+## `lumascope.SupportReportSaved`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip), [`ScopeSession.make_support_report`](#ScopeSession.make_support_report).
@@ -12836,7 +12851,7 @@ The title the saved report's notice is shown under.
 Nothing.
 
 <a id="TakenCapture"></a>
-## `TakenCapture`
+## `lumascope.TakenCapture`
 
 A record: it crosses the wire as its data.  
 Held in: [`CaptureTally.dark`](#CaptureTally.dark), [`CaptureTally.saturated`](#CaptureTally.saturated).
@@ -12852,7 +12867,7 @@ One capture a run was asked for that produced an image, and what its frame was.
 - <a id="TakenCapture.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
 <a id="TilingConfig"></a>
-## `TilingConfig`
+## `lumascope.TilingConfig`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.tiling_config`](#ScopeSession.tiling_config).
@@ -12865,7 +12880,7 @@ The tiling grids an installation offers.
 - <a id="TilingConfig.default"></a>`default`: `str` -- The grid to preselect, one of `available`.
 
 <a id="TurretChanged"></a>
-## `TurretChanged`
+## `lumascope.TurretChanged`
 
 A record: it crosses the wire as its data.  
 Delivered by: [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener).
@@ -12877,7 +12892,7 @@ A turret event: its state and slot as `turret_status` answers.
 - <a id="TurretChanged.at"></a>`at`: `TurretStatus` -- (no description)
 
 <a id="TurretSlotQuestion"></a>
-## `TurretSlotQuestion`
+## `lumascope.TurretSlotQuestion`
 
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions).
@@ -12900,7 +12915,7 @@ to one of these steps are refused.
 - <a id="TurretSlotQuestion.step_indexes"></a>`step_indexes`: `tuple[int, ...]` -- The indexes of the steps the answer points, ascending.
 
 <a id="TurretStatus"></a>
-## `TurretStatus`
+## `lumascope.TurretStatus`
 
 A record: it crosses the wire as its data.  
 Returned by: [`MotionAPI.turret_status`](#MotionAPI.turret_status).  
@@ -12921,7 +12936,7 @@ or unknown.
 - <a id="TurretStatus.state"></a>`state`: `AxisState` -- (no description)
 
 <a id="UIRegistry"></a>
-## `UIRegistry`
+## `lumascope.UIRegistry`
 
 Held in: [`PluginRegistry.ui`](#PluginRegistry.ui).
 
@@ -12958,7 +12973,7 @@ Add a widget at a mount point.
 - [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
 
 <a id="UiDispatcher"></a>
-## `UiDispatcher`
+## `lumascope.UiDispatcher`
 
 A record: it crosses the wire as its data.  
 Taken by: [`ScopeSession.set_ui_dispatcher`](#ScopeSession.set_ui_dispatcher).
@@ -12975,7 +12990,7 @@ do would never return, and a run's waits refuse it.
 - <a id="UiDispatcher.thread"></a>`thread`: `Thread | None` -- The thread `schedule` delivers on; None for a dispatcher that calls inline on the caller's thread.
 
 <a id="UnfitArgument"></a>
-## `UnfitArgument`
+## `lumascope.UnfitArgument`
 
 A record: it crosses the wire as its data.  
 Held in: [`ServerRefusedError.errors`](#ServerRefusedError.errors).
@@ -12989,7 +13004,7 @@ One argument of a request that does not fit its member, as the request reader fo
 - <a id="UnfitArgument.type"></a>`type`: `str` -- (no description)
 
 <a id="UsbDeviceBinding"></a>
-## `UsbDeviceBinding`
+## `lumascope.UsbDeviceBinding`
 
 A record: it crosses the wire as its data.  
 Held in: [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
@@ -13008,7 +13023,7 @@ One device of a USB identity and the driver Windows has bound to it.
 - <a id="UsbDeviceBinding.version"></a>`version`: `str | None` -- The bound package's version.
 
 <a id="UsbIdentityBindings"></a>
-## `UsbIdentityBindings`
+## `lumascope.UsbIdentityBindings`
 
 A record: it crosses the wire as its data.  
 Returned by: [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
@@ -13024,7 +13039,7 @@ A USB identity of a Lumascope Classic and each of its devices' drivers.
 - <a id="UsbIdentityBindings.usable"></a>`usable`: `bool` -- False when a present device is on none of them; a device seen before does not count, since it is matched afresh when plugged.
 
 <a id="Video"></a>
-## `Video`
+## `lumascope.Video`
 
 A record: it crosses the wire as its data.  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
@@ -13037,7 +13052,7 @@ A video, as `build` takes it: each position's time series to one video.
 - <a id="Video.timestamp_overlay"></a>`timestamp_overlay`: `bool` -- Whether each frame shows its time.
 
 <a id="VideoConfig"></a>
-## `VideoConfig`
+## `lumascope.VideoConfig`
 
 A record: it crosses the wire as its data.  
 Held in: [`StepRecord.video_config`](#StepRecord.video_config).
@@ -13054,7 +13069,7 @@ may not say.
 - <a id="VideoConfig.duration_s"></a>`duration_s`: `float | None` -- (no description)
 
 <a id="VideoProgress"></a>
-## `VideoProgress`
+## `lumascope.VideoProgress`
 
 A record: it crosses the wire as its data.  
 Held in: [`RunEvents.video_progress`](#RunEvents.video_progress).  
@@ -13075,7 +13090,7 @@ that ends before it records sends no phase and no `ENDED`.
 - <a id="VideoProgress.total_s"></a>`total_s`: `float | None` -- (no description)
 
 <a id="WorkItem"></a>
-## `WorkItem`
+## `lumascope.WorkItem`
 
 A record: it crosses the wire as its data.  
 Held in: [`LiveWork.work`](#LiveWork.work).
@@ -13091,7 +13106,7 @@ One piece of work the session is still doing.
 - <a id="WorkItem.progress_pct"></a>`progress_pct`: `float | None` -- How far a build has got, as its own progress last said; None before it has said, or for work that reports none.
 
 <a id="ZProject"></a>
-## `ZProject`
+## `lumascope.ZProject`
 
 A record: it crosses the wire as its data.  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
@@ -13102,37 +13117,8 @@ A z-projection, as `build` takes it: each Z-stack to one image.
 
 - <a id="ZProject.method"></a>`method`: `ZProjectMethod` -- How each stack's slices are reduced.
 
-<a id="modules.notification_center"></a>
-## `modules.notification_center`
-
-Functions of the module; each is in-process, since the wire routes only a class's members.
-
-<a id="modules.notification_center.outcome_of"></a>
-### `modules.notification_center.outcome_of`
-
-```python
-def outcome_of(exception: BaseException) -> Outcome
-```
-
-Marks: in-process.
-
-What *exception* is, as its type says: the one reading of an outcome's kind and words.
-
-**Args**
-
-- `exception`: The exception to read, raised or not: any exception, a cancellation and one the API does not declare included.
-
-**Raises**
-
-Nothing.
-
-<a id="rest.app"></a>
-## `rest.app`
-
-Functions of the module; each is in-process, since the wire routes only a class's members.
-
-<a id="rest.app.build_app"></a>
-### `rest.app.build_app`
+<a id="build_app"></a>
+## `lumascope.build_app`
 
 ```python
 def build_app(session: ScopeSession) -> fastapi.FastAPI
@@ -13166,13 +13152,8 @@ never from a header naming another.
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `route_shadowed`
 - [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
-<a id="rest.server"></a>
-## `rest.server`
-
-Functions of the module; each is in-process, since the wire routes only a class's members.
-
-<a id="rest.server.build_server"></a>
-### `rest.server.build_server`
+<a id="build_server"></a>
+## `lumascope.build_server`
 
 ```python
 def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Server
@@ -13183,7 +13164,7 @@ Marks: in-process.
 The one way to serve *session*'s API: judged, bound and configured here, served by `run()`.
 
 Every host serves through it -- the GUI (`serve_beside`),
-`python -m rest`, and a program serving a session it brought up
+`python -m lumascope.rest`, and a program serving a session it brought up
 itself. Where it serves and whom it admits are *session*'s
 `rest_api` settings, judged first: one address of this computer, and
 when `allowed_clients` lists any, only a client at an address in it
@@ -13206,12 +13187,31 @@ the close: SIGINT, SIGTERM or the host's `close()`.
 
 - [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
+<a id="outcome_of"></a>
+## `lumascope.outcome_of`
+
+```python
+def outcome_of(exception: BaseException) -> Outcome
+```
+
+Marks: in-process.
+
+What *exception* is, as its type says: the one reading of an outcome's kind and words.
+
+**Args**
+
+- `exception`: The exception to read, raised or not: any exception, a cancellation and one the API does not declare included.
+
+**Raises**
+
+Nothing.
+
 ## Closed sets
 
 A closed set crosses the wire as its value, and in Python equals its value's string.
 
 <a id="AcquireMode"></a>
-### `AcquireMode`
+### `lumascope.AcquireMode`
 
 Returned by: [`ScopeSession.channel_acquire`](#ScopeSession.channel_acquire).  
 Held in: [`ChannelSettings.acquire`](#ChannelSettings.acquire), [`StepRecord.acquire`](#StepRecord.acquire).  
@@ -13226,7 +13226,7 @@ the ones the settings and a protocol file store, so neither changes.
 - `video`
 
 <a id="AppRuntime"></a>
-### `AppRuntime`
+### `lumascope.AppRuntime`
 
 Returned by: [`ScopeSession.app_runtime`](#ScopeSession.app_runtime).
 
@@ -13242,7 +13242,7 @@ installer wrote, its marker beside the exe.
 - `installed`
 
 <a id="AutoGainConvergence"></a>
-### `AutoGainConvergence`
+### `lumascope.AutoGainConvergence`
 
 Held in: [`AutoGainLock.state`](#AutoGainLock.state), [`FrameRecord.auto_gain`](#FrameRecord.auto_gain).
 
@@ -13264,7 +13264,7 @@ the achieved values and a run continues.
 - `FAILED` (`FAILED`)
 
 <a id="Axis"></a>
-### `Axis`
+### `lumascope.Axis`
 
 Returned by: [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position).  
 Held in: [`PositionOutOfRangeError.axis`](#PositionOutOfRangeError.axis), [`ScopeCapabilities.axes`](#ScopeCapabilities.axes).  
@@ -13281,7 +13281,7 @@ that answers a position takes a `StageAxis`.
 - `T` (`T`)
 
 <a id="AxisState"></a>
-### `AxisState`
+### `lumascope.AxisState`
 
 Returned by: [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position).  
 Held in: [`AxisPosition.state`](#AxisPosition.state), [`TurretStatus.state`](#TurretStatus.state).
@@ -13294,7 +13294,7 @@ Possible states for a motion axis.
 - `homing`
 
 <a id="Background"></a>
-### `Background`
+### `lumascope.Background`
 
 Held in: [`ChannelRecord.background`](#ChannelRecord.background).
 
@@ -13305,7 +13305,7 @@ darkfield is transmitted light on a dark field.
 - `dark`
 
 <a id="Caller"></a>
-### `Caller`
+### `lumascope.Caller`
 
 Held in: [`ControlSession.taken_by`](#ControlSession.taken_by), [`ControlSessionRefusedError.holder_trigger`](#ControlSessionRefusedError.holder_trigger), [`DiagnosticRefusedError.holder_trigger`](#DiagnosticRefusedError.holder_trigger), [`HardwareCommandRefusedError.holder_trigger`](#HardwareCommandRefusedError.holder_trigger), [`ProtocolRunRefusedError.holder_trigger`](#ProtocolRunRefusedError.holder_trigger), [`RecordingRefusedError.holder_trigger`](#RecordingRefusedError.holder_trigger).
 
@@ -13316,7 +13316,7 @@ Which host a call came through.
 - `api`
 
 <a id="CameraAutoMode"></a>
-### `CameraAutoMode`
+### `lumascope.CameraAutoMode`
 
 Returned by: [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure), [`CameraAPI.auto_gain`](#CameraAPI.auto_gain), [`CameraAPI.read_auto_exposure`](#CameraAPI.read_auto_exposure), [`CameraAPI.read_auto_gain`](#CameraAPI.read_auto_gain).  
 Taken by: [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure).
@@ -13331,7 +13331,7 @@ ONCE: a one-shot the camera is still running; it turns itself Off when
 - `Continuous` (`CONTINUOUS`)
 
 <a id="CameraReadAnswer"></a>
-### `CameraReadAnswer`
+### `lumascope.CameraReadAnswer`
 
 Taken by: [`SimulationAPI.refuse_camera_read`](#SimulationAPI.refuse_camera_read).
 
@@ -13341,7 +13341,7 @@ How a failed camera read fails.
 - `removed`
 
 <a id="CameraReadNode"></a>
-### `CameraReadNode`
+### `lumascope.CameraReadNode`
 
 Taken by: [`SimulationAPI.refuse_camera_read`](#SimulationAPI.refuse_camera_read).
 
@@ -13359,7 +13359,7 @@ A camera setting whose read a simulated fault can fail.
 - `auto_exposure`
 
 <a id="CameraShutter"></a>
-### `CameraShutter`
+### `lumascope.CameraShutter`
 
 Held in: [`ScopeCapabilities.camera_shutter`](#ScopeCapabilities.camera_shutter).
 
@@ -13369,7 +13369,7 @@ How a camera's sensor exposes a frame, as its datasheet entry says.
 - `global`
 
 <a id="CameraWriteAnswer"></a>
-### `CameraWriteAnswer`
+### `lumascope.CameraWriteAnswer`
 
 Held in: [`SimulatedCameraWriteRefusal.answer`](#SimulatedCameraWriteRefusal.answer).  
 Taken by: [`SimulationAPI.refuse_camera_write`](#SimulationAPI.refuse_camera_write).
@@ -13384,7 +13384,7 @@ What a refused camera write answers.
 - `no_answer`
 
 <a id="CameraWriteNode"></a>
-### `CameraWriteNode`
+### `lumascope.CameraWriteNode`
 
 Held in: [`SimulatedCameraWriteRefusal.node`](#SimulatedCameraWriteRefusal.node).  
 Taken by: [`SimulationAPI.refuse_camera_write`](#SimulationAPI.refuse_camera_write).
@@ -13402,7 +13402,7 @@ A camera setting whose write a simulated fault can refuse.
 - `auto_gain_once`
 
 <a id="Counter"></a>
-### `Counter`
+### `lumascope.Counter`
 
 Held in: [`Credit.by`](#Credit.by).
 
@@ -13417,7 +13417,7 @@ record of a wait names who counted each frame.
 - `preview`
 
 <a id="DisconnectPart"></a>
-### `DisconnectPart`
+### `lumascope.DisconnectPart`
 
 Held in: [`ScopeDisconnectError.part_reasons`](#ScopeDisconnectError.part_reasons), [`ScopeDisconnectError.parts`](#ScopeDisconnectError.parts).
 
@@ -13430,7 +13430,7 @@ A part of the microscope `Lumascope.disconnect` shuts down, in teardown order.
 - `camera`
 
 <a id="EntryKind"></a>
-### `EntryKind`
+### `lumascope.EntryKind`
 
 Held in: [`LiveFolderEntry.kind`](#LiveFolderEntry.kind).
 
@@ -13440,7 +13440,7 @@ What a live-folder listing's entry is.
 - `folder`
 
 <a id="FilesOutcome"></a>
-### `FilesOutcome`
+### `lumascope.FilesOutcome`
 
 Held in: [`FilesWritten.files`](#FilesWritten.files), [`RunEvents.files_written`](#RunEvents.files_written), [`RunFiles.outcome`](#RunFiles.outcome).
 
@@ -13454,7 +13454,7 @@ given up on by a writer recovery or a shutdown.
 - `incomplete`
 
 <a id="FrameChunk"></a>
-### `FrameChunk`
+### `lumascope.FrameChunk`
 
 Taken by: [`SimulationAPI.withhold_chunk`](#SimulationAPI.withhold_chunk).
 
@@ -13466,7 +13466,7 @@ A chunk the simulated camera's frames carry, which a fault can withhold.
 - `Gain` (`GAIN`)
 
 <a id="FrameValiditySource"></a>
-### `FrameValiditySource`
+### `lumascope.FrameValiditySource`
 
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
@@ -13489,7 +13489,7 @@ What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAME
 - `line_noise_reduction`
 
 <a id="Holder"></a>
-### `Holder`
+### `lumascope.Holder`
 
 Held in: [`ControlSessionRefusedError.holder`](#ControlSessionRefusedError.holder), [`DiagnosticRefusedError.holder`](#DiagnosticRefusedError.holder), [`HardwareCommandRefusedError.holder`](#HardwareCommandRefusedError.holder), [`ProtocolRunRefusedError.holder`](#ProtocolRunRefusedError.holder), [`RecordingRefusedError.holder`](#RecordingRefusedError.holder).
 
@@ -13502,7 +13502,7 @@ What holds the microscope when a refusal names its holder.
 - `autofocus`
 
 <a id="HomeFault"></a>
-### `HomeFault`
+### `lumascope.HomeFault`
 
 Taken by: [`SimulationAPI.fail_home`](#SimulationAPI.fail_home).
 
@@ -13513,7 +13513,7 @@ How a home fails, as the EL-0940 firmware's simulated hardware takes it.
 - `absent`
 
 <a id="HomeTarget"></a>
-### `HomeTarget`
+### `lumascope.HomeTarget`
 
 Taken by: [`MotionAPI.home`](#MotionAPI.home), [`MotionAPI.start_home`](#MotionAPI.start_home), [`ScopeSession.run_application_session`](#ScopeSession.run_application_session), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session).
 
@@ -13526,7 +13526,7 @@ X and Y home only with the rest.
 - `ALL` (`ALL`)
 
 <a id="IdentitySource"></a>
-### `IdentitySource`
+### `lumascope.IdentitySource`
 
 Held in: [`ChannelIdentity.source`](#ChannelIdentity.source).
 
@@ -13537,7 +13537,7 @@ Which rung of the identity resolver answered.
 - `unresolved`
 
 <a id="ImageMode"></a>
-### `ImageMode`
+### `lumascope.ImageMode`
 
 Returned by: [`CameraAPI.image_mode`](#CameraAPI.image_mode).  
 Taken by: [`CameraAPI.set_image_mode`](#CameraAPI.set_image_mode).
@@ -13550,7 +13550,7 @@ The image mode captures are taken and saved in (the module docstring).
 - `12bit_false_color_rgb` (`FALSE_COLOR_RGB`)
 
 <a id="Interlock"></a>
-### `Interlock`
+### `lumascope.Interlock`
 
 Returned by: [`MotionAPI.interlocks`](#MotionAPI.interlocks).
 
@@ -13565,7 +13565,7 @@ a command it stopped before anything moved is refused with its
 - `stage_unpowered`
 
 <a id="LedBoardFamily"></a>
-### `LedBoardFamily`
+### `lumascope.LedBoardFamily`
 
 Held in: [`ScopeModel.led_board`](#ScopeModel.led_board).
 
@@ -13578,7 +13578,7 @@ and LEDs both.
 - `FX2` (`FX2`)
 
 <a id="LedCommandSet"></a>
-### `LedCommandSet`
+### `lumascope.LedCommandSet`
 
 Held in: [`LedBoardInfo.command_set`](#LedBoardInfo.command_set).
 
@@ -13592,7 +13592,7 @@ all (the FX2's LED peripheral) answers None.
 - `v2`
 
 <a id="LedState"></a>
-### `LedState`
+### `lumascope.LedState`
 
 Held in: [`LedReading.state`](#LedReading.state).  
 Taken by: [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener), [`IlluminationAPI.remove_led_listener`](#IlluminationAPI.remove_led_listener).
@@ -13604,7 +13604,7 @@ What an LED address is doing, as far as the API can vouch for it.
 - `unknown`
 
 <a id="LightTiming"></a>
-### `LightTiming`
+### `lumascope.LightTiming`
 
 Held in: [`FrameRecord.illumination_timing`](#FrameRecord.illumination_timing).
 
@@ -13619,7 +13619,7 @@ ON_ARRIVAL: as the frame arrived from the camera (a recorded frame):
 - `on_arrival`
 
 <a id="Modality"></a>
-### `Modality`
+### `lumascope.Modality`
 
 Held in: [`ChannelRecord.modality`](#ChannelRecord.modality).
 
@@ -13630,7 +13630,7 @@ The kind of light a layer images.
 - `luminescence`
 
 <a id="MotorBoardFamily"></a>
-### `MotorBoardFamily`
+### `lumascope.MotorBoardFamily`
 
 Held in: [`ScopeModel.motor_board`](#ScopeModel.motor_board).
 
@@ -13640,7 +13640,7 @@ The kind of board a model's motor axes are on, as its catalogue row names it.
 - `TMCM-6110` (`TMCM_6110`)
 
 <a id="MotorCommandSet"></a>
-### `MotorCommandSet`
+### `lumascope.MotorCommandSet`
 
 Held in: [`MotorBoardInfo.command_set`](#MotorBoardInfo.command_set).
 
@@ -13653,7 +13653,7 @@ datagrams), or no board connected, answers None.
 - `text`
 
 <a id="OutcomeKind"></a>
-### `OutcomeKind`
+### `lumascope.OutcomeKind`
 
 Held in: [`Notification.kind`](#Notification.kind), [`Outcome.kind`](#Outcome.kind).
 
@@ -13673,7 +13673,7 @@ that receives one as its answer reads.
 - `unclassified`
 
 <a id="OutputFormat"></a>
-### `OutputFormat`
+### `lumascope.OutputFormat`
 
 Held in: [`SavedStill.output_format`](#SavedStill.output_format).
 
@@ -13690,7 +13690,7 @@ per-well stack build.
 - `OME-TIFF Hyperstack` (`HYPERSTACK`)
 
 <a id="Part"></a>
-### `Part`
+### `lumascope.Part`
 
 Returned by: [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts).  
 Held in: [`PartStatus.part`](#PartStatus.part).  
@@ -13703,7 +13703,7 @@ The parts a scope is made of, in the order the record lists them.
 - `camera`
 
 <a id="PostProcessingOperation"></a>
-### `PostProcessingOperation`
+### `lumascope.PostProcessingOperation`
 
 Held in: [`BuildStep.operation`](#BuildStep.operation), [`ExcludedInput.kind`](#ExcludedInput.kind), [`SkippedBuild.operation`](#SkippedBuild.operation).
 
@@ -13725,7 +13725,7 @@ where its outcome is built.
 - `Post-Processing` (`POST_PROCESSING`)
 
 <a id="RefusalCause"></a>
-### `RefusalCause`
+### `lumascope.RefusalCause`
 
 Held in: [`Notification.cause`](#Notification.cause), [`Outcome.cause`](#Outcome.cause).
 
@@ -13749,7 +13749,7 @@ itself.
 - `restart`
 
 <a id="RemedyName"></a>
-### `RemedyName`
+### `lumascope.RemedyName`
 
 Held in: [`Remedy.member`](#Remedy.member).
 
@@ -13758,18 +13758,8 @@ The remedies a refusal can name, each one the Session applies (`ScopeSession.app
 - `recover_file_writer`
 - `repair_camera_driver`
 
-<a id="Rule"></a>
-### `Rule`
-
-Held in: [`FrameRule.rule`](#FrameRule.rule).
-
-How a frame is judged against a change of one source.
-
-- `clock`
-- `credit`
-
 <a id="RunStatus"></a>
-### `RunStatus`
+### `lumascope.RunStatus`
 
 Held in: [`RunOutcome.status`](#RunOutcome.status).
 
@@ -13789,7 +13779,7 @@ committed.
 - `failed_at_start`
 
 <a id="SettingSource"></a>
-### `SettingSource`
+### `lumascope.SettingSource`
 
 Held in: [`FrameRecord.exposure_source`](#FrameRecord.exposure_source), [`FrameRecord.gain_source`](#FrameRecord.gain_source).
 
@@ -13805,7 +13795,7 @@ READ: a read of the camera's setting beside the grab, for a frame that
 - `read`
 
 <a id="Severity"></a>
-### `Severity`
+### `lumascope.Severity`
 
 Held in: [`Notification.severity`](#Notification.severity).
 
@@ -13828,8 +13818,18 @@ strings cannot be written.
 - `ERROR` (`ERROR`)
 - `CRITICAL` (`CRITICAL`)
 
+<a id="Slide"></a>
+### `lumascope.Slide`
+
+Held in: [`SimulatedScope.slide`](#SimulatedScope.slide).
+
+The slide a simulated scope is brought up with.
+
+- `cells`
+- `ronchi`
+
 <a id="StageAxis"></a>
-### `StageAxis`
+### `lumascope.StageAxis`
 
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep).  
 Held in: [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
@@ -13847,7 +13847,7 @@ axis is `ScopeCapabilities.axes`.
 - `Z` (`Z`)
 
 <a id="StitchAlgorithm"></a>
-### `StitchAlgorithm`
+### `lumascope.StitchAlgorithm`
 
 Held in: [`DegradedOutput.algorithm`](#DegradedOutput.algorithm), [`DegradedOutput.fallback_from`](#DegradedOutput.fallback_from).
 
@@ -13865,7 +13865,7 @@ then places them by their recorded stage positions
 - `simple_position_stitcher` (`SIMPLE_POSITION`)
 
 <a id="StitchMode"></a>
-### `StitchMode`
+### `lumascope.StitchMode`
 
 Returned by: [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes).  
 Held in: [`Stitch.mode`](#Stitch.mode).
@@ -13881,7 +13881,7 @@ the `FastPreview` token; a quality stitch's carries none.
 - `fast_preview`
 
 <a id="SupportReportKind"></a>
-### `SupportReportKind`
+### `lumascope.SupportReportKind`
 
 Held in: [`SupportReportSaved.report`](#SupportReportSaved.report).
 
@@ -13891,7 +13891,7 @@ Which ZIP a support request saved: the full support report, or the logs alone.
 - `logs zip` (`LOGS_ZIP`)
 
 <a id="TimestampSource"></a>
-### `TimestampSource`
+### `lumascope.TimestampSource`
 
 Held in: [`FrameTime.source`](#FrameTime.source).
 
@@ -13914,7 +13914,7 @@ HOST_WALLCLOCK: the host's wall clock read after the grab returned the
 - `host_wallclock`
 
 <a id="Trendline"></a>
-### `Trendline`
+### `lumascope.Trendline`
 
 Held in: [`GraphOptions.trendlines`](#GraphOptions.trendlines).  
 Taken by: [`PostProcessingAPI.draw_graph`](#PostProcessingAPI.draw_graph), [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
@@ -13928,7 +13928,7 @@ The kind of curve a graph's trendline is fitted as.
 - `Logarithmic` (`LOGARITHMIC`)
 
 <a id="UIMountPoint"></a>
-### `UIMountPoint`
+### `lumascope.UIMountPoint`
 
 Taken by: [`UIRegistry.register`](#UIRegistry.register).
 
@@ -13944,7 +13944,7 @@ contract for that mount.
 - `left_sidebar.accordion` (`LEFT_SIDEBAR_ACCORDION`)
 
 <a id="VideoPhase"></a>
-### `VideoPhase`
+### `lumascope.VideoPhase`
 
 Held in: [`VideoProgress.phase`](#VideoProgress.phase).
 
@@ -13955,7 +13955,7 @@ Which part of a video step a `VideoProgress` reports.
 - `ended`
 
 <a id="WorkKind"></a>
-### `WorkKind`
+### `lumascope.WorkKind`
 
 Held in: [`WorkItem.kind`](#WorkItem.kind).
 
@@ -13979,7 +13979,7 @@ so a holder's kind is its item's kind.
 - `still`
 
 <a id="ZProjectMethod"></a>
-### `ZProjectMethod`
+### `lumascope.ZProjectMethod`
 
 Returned by: [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods).  
 Held in: [`ZProject.method`](#ZProject.method).
@@ -13998,7 +13998,7 @@ name and derivation record carry the name lower-cased
 - `StdDev` (`StdDev`)
 
 <a id="ZStackReference"></a>
-### `ZStackReference`
+### `lumascope.ZStackReference`
 
 Taken by: [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking).
 
@@ -14015,7 +14015,7 @@ value; the GUI shows its own label for each.
 Every outcome class: its kind, its reasons, whether the same request could succeed later (each reason's cause), and the HTTP status REST answers it with.
 
 <a id="AccelerationLimitRefusedError"></a>
-### `AccelerationLimitRefusedError`
+### `lumascope.AccelerationLimitRefusedError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -14045,7 +14045,7 @@ the words.
 | `acceleration_out_of_range` | request | 422 |
 
 <a id="AlreadyStartedError"></a>
-### `AlreadyStartedError`
+### `lumascope.AlreadyStartedError`
 
 A refusal; bases `Refusal`, `RuntimeError`.
 
@@ -14066,7 +14066,7 @@ forever-ticking events. Still a `RuntimeError`, as it was documented.
 | `plugins_loaded` | request | 422 |
 
 <a id="ArgumentRefusedError"></a>
-### `ArgumentRefusedError`
+### `lumascope.ArgumentRefusedError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -14137,7 +14137,7 @@ words; the client already holds the value it sent.
 | `wrong_kind` | request | 422 |
 
 <a id="ArgumentTypeRefusedError"></a>
-### `ArgumentTypeRefusedError`
+### `lumascope.ArgumentTypeRefusedError`
 
 A refusal; bases `Refusal`, `TypeError`.
 
@@ -14169,7 +14169,7 @@ membership and a dictionary's contents stay their member's.
 | `wrong_argument_type` | request | 422 |
 
 <a id="AutoGainNotSettledError"></a>
-### `AutoGainNotSettledError`
+### `lumascope.AutoGainNotSettledError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -14183,7 +14183,7 @@ exposure check.
 | `auto_gain_not_settled` | -- | 500 |
 
 <a id="AutofocusAborted"></a>
-### `AutofocusAborted`
+### `lumascope.AutofocusAborted`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -14193,7 +14193,7 @@ An autofocus sweep cut short before it chose a focus: the subject, never raised 
 child raised says which, and its kind with it.
 
 <a id="AutofocusFailedError"></a>
-### `AutofocusFailedError`
+### `lumascope.AutofocusFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -14210,7 +14210,7 @@ An autofocus sweep chose no focus; the stage goes back to where it started.
 | `unexpected_error` | -- | 500 |
 
 <a id="AutofocusLedsHeldError"></a>
-### `AutofocusLedsHeldError`
+### `lumascope.AutofocusLedsHeldError`
 
 A refusal; bases `Refusal`, `AutofocusAborted`.
 
@@ -14229,7 +14229,7 @@ so it does not start. The run goes on and captures at its fallback Z.
 | `leds_held` | state | 409 |
 
 <a id="AutofocusOutOfTravelError"></a>
-### `AutofocusOutOfTravelError`
+### `lumascope.AutofocusOutOfTravelError`
 
 A refusal; bases `Refusal`, `CaptureError`.
 
@@ -14248,7 +14248,7 @@ after the stage has moved, is `AutofocusFailedError('travel_exhausted')`.
 | `out_of_travel` | state | 409 |
 
 <a id="AutofocusRunEnded"></a>
-### `AutofocusRunEnded`
+### `lumascope.AutofocusRunEnded`
 
 A quiet outcome; bases `Quiet`, `AutofocusAborted`.
 
@@ -14266,7 +14266,7 @@ the run's own end is the report.
 | `sweep_run_ended` | state | 409 |
 
 <a id="AutofocusStopped"></a>
-### `AutofocusStopped`
+### `lumascope.AutofocusStopped`
 
 A quiet outcome; bases `Quiet`, `AutofocusAborted`.
 
@@ -14283,7 +14283,7 @@ Recorded, never shown: the run's own end is the report.
 | `sweep_stopped` | state | 409 |
 
 <a id="AutofocusZNotRestoredError"></a>
-### `AutofocusZNotRestoredError`
+### `lumascope.AutofocusZNotRestoredError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -14302,7 +14302,7 @@ where it was found, and the run ends on the lost position.
 | `z_left_at_search_position` | -- | 500 |
 
 <a id="AxisMovingError"></a>
-### `AxisMovingError`
+### `lumascope.AxisMovingError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -14329,7 +14329,7 @@ and needs only to stop; the user waits, never homes.
 | `axis_moving` | state | 409 |
 
 <a id="AxisStateUnknownError"></a>
-### `AxisStateUnknownError`
+### `lumascope.AxisStateUnknownError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -14365,7 +14365,7 @@ several-axis gesture reads as one.
 | `position_unknown` | state | 409 |
 
 <a id="BinningSubstitutedNotice"></a>
-### `BinningSubstitutedNotice`
+### `lumascope.BinningSubstitutedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14380,7 +14380,7 @@ camera delivered.
 | `binning_substituted` | -- | 409 |
 
 <a id="BlockingCallRefusedError"></a>
-### `BlockingCallRefusedError`
+### `lumascope.BlockingCallRefusedError`
 
 A refusal; bases `Refusal`, `RuntimeError`.
 
@@ -14403,7 +14403,7 @@ as it was documented.
 | `wait_on_ui_thread` | request | 422 |
 
 <a id="BoardNoReplyError"></a>
-### `BoardNoReplyError`
+### `lumascope.BoardNoReplyError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14418,7 +14418,7 @@ may not have been taken, and the raise site's words say which.
 | `board_no_reply` | -- | 500 |
 
 <a id="BoardPortFailedError"></a>
-### `BoardPortFailedError`
+### `lumascope.BoardPortFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14431,7 +14431,7 @@ A cable or power state: nothing reached the board.
 | `board_port_failed` | -- | 500 |
 
 <a id="BoardReplyUnreadableError"></a>
-### `BoardReplyUnreadableError`
+### `lumascope.BoardReplyUnreadableError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14445,7 +14445,7 @@ another command: the board is talking, and what it said cannot be used.
 | `board_reply_unreadable` | -- | 500 |
 
 <a id="BoardReportedError"></a>
-### `BoardReportedError`
+### `lumascope.BoardReportedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14459,7 +14459,7 @@ complete: the board heard the command and said no.
 | `board_reported_error` | -- | 500 |
 
 <a id="BringUpError"></a>
-### `BringUpError`
+### `lumascope.BringUpError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -14476,7 +14476,7 @@ naming what did not come up; never built itself.
 - `reason`: The machine-readable code a client branches on, the child's.
 
 <a id="CameraConfigNotAppliedNotice"></a>
-### `CameraConfigNotAppliedNotice`
+### `lumascope.CameraConfigNotAppliedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14495,7 +14495,7 @@ named, the image orientation among them when it is one.
 | `camera_config_not_applied` | -- | 409 |
 
 <a id="CameraDriverRepairFailedError"></a>
-### `CameraDriverRepairFailedError`
+### `lumascope.CameraDriverRepairFailedError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -14509,7 +14509,7 @@ its log folder.
 | `camera_driver_repair_failed` | -- | 500 |
 
 <a id="CameraDriverRepairRefusedError"></a>
-### `CameraDriverRepairRefusedError`
+### `lumascope.CameraDriverRepairRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -14535,7 +14535,7 @@ question whether to install Etaluma's driver, and a binding that needs it.
 | `repair_needs_windows` | request | 422 |
 
 <a id="CameraDriverRepairedNotice"></a>
-### `CameraDriverRepairedNotice`
+### `lumascope.CameraDriverRepairedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14546,7 +14546,7 @@ Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects 
 | `camera_driver_repaired` | -- | 409 |
 
 <a id="CameraFeatureAbsentNotice"></a>
-### `CameraFeatureAbsentNotice`
+### `lumascope.CameraFeatureAbsentNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14565,7 +14565,7 @@ value's place, as a substituted binning is.
 | `camera_feature_absent` | -- | 409 |
 
 <a id="CameraFirmwareMissingError"></a>
-### `CameraFirmwareMissingError`
+### `lumascope.CameraFirmwareMissingError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -14579,7 +14579,7 @@ not a `HardwareError`. The words name each place the driver looked.
 | `camera_firmware_missing` | -- | 500 |
 
 <a id="CameraNoAnswerError"></a>
-### `CameraNoAnswerError`
+### `lumascope.CameraNoAnswerError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14594,7 +14594,7 @@ sent again; whether this one was applied is not known.
 | `camera_no_answer` | -- | 500 |
 
 <a id="CameraNotAvailableError"></a>
-### `CameraNotAvailableError`
+### `lumascope.CameraNotAvailableError`
 
 A fault; bases `Fault`, `BringUpError`.
 
@@ -14602,7 +14602,7 @@ The camera did not come up; the heading and the advice follow the cause.
 
 **Attributes**
 
-- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
+- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14615,7 +14615,7 @@ The camera did not come up; the heading and the advice follow the cause.
 | `port_in_use` | -- | 500 |
 
 <a id="CameraReadFailedError"></a>
-### `CameraReadFailedError`
+### `lumascope.CameraReadFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14628,7 +14628,7 @@ The words carry the SDK's own text, so the person reads the title.
 | `camera_read_failed` | -- | 500 |
 
 <a id="CameraSettingOutOfRangeError"></a>
-### `CameraSettingOutOfRangeError`
+### `lumascope.CameraSettingOutOfRangeError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -14664,7 +14664,7 @@ the words.
 | `gain_db_out_of_range` | request | 422 |
 
 <a id="CameraSettingRejected"></a>
-### `CameraSettingRejected`
+### `lumascope.CameraSettingRejected`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -14694,7 +14694,7 @@ notifies it.
 | `camera_rejected` | -- | 500 |
 
 <a id="CameraSettingUnsupportedError"></a>
-### `CameraSettingUnsupportedError`
+### `lumascope.CameraSettingUnsupportedError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -14722,7 +14722,7 @@ for a caller that treats it as the bad argument it is.
 | `line_noise_reduction_unsupported` | request | 422 |
 
 <a id="CameraStreamStalledError"></a>
-### `CameraStreamStalledError`
+### `lumascope.CameraStreamStalledError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -14747,7 +14747,7 @@ is still connected.
 | `camera_stream_stalled` | -- | 500 |
 
 <a id="CameraStreamStartFailedError"></a>
-### `CameraStreamStartFailedError`
+### `lumascope.CameraStreamStartFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14759,7 +14759,7 @@ the library's text.
 | `camera_stream_start_failed` | -- | 500 |
 
 <a id="CameraUsbDriverUnusableError"></a>
-### `CameraUsbDriverUnusableError`
+### `lumascope.CameraUsbDriverUnusableError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14775,7 +14775,7 @@ name the device, the driver it is bound to and what it needs.
 | `camera_usb_driver_unusable` | -- | 500 |
 
 <a id="CameraUsbLookupFailedError"></a>
-### `CameraUsbLookupFailedError`
+### `lumascope.CameraUsbLookupFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14789,7 +14789,7 @@ there is not known. The words name the call and its error code.
 | `camera_usb_lookup_failed` | -- | 500 |
 
 <a id="CameraUsbNotFoundError"></a>
-### `CameraUsbNotFoundError`
+### `lumascope.CameraUsbNotFoundError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14803,7 +14803,7 @@ The words carry the identity and the system's own text.
 | `camera_usb_not_found` | -- | 500 |
 
 <a id="CameraUsbOpenFailedError"></a>
-### `CameraUsbOpenFailedError`
+### `lumascope.CameraUsbOpenFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14815,7 +14815,7 @@ for streaming. The words name the call and its error code.
 | `camera_usb_open_failed` | -- | 500 |
 
 <a id="CameraWriteFailedError"></a>
-### `CameraWriteFailedError`
+### `lumascope.CameraWriteFailedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -14828,7 +14828,7 @@ The words carry the SDK's own text, so the person reads the title.
 | `camera_write_failed` | -- | 500 |
 
 <a id="CaptureError"></a>
-### `CaptureError`
+### `lumascope.CaptureError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -14847,7 +14847,7 @@ written for the person. It is each child's, read from its own table; the
 subject has none, as it has no kind.
 
 <a id="CaptureFailedError"></a>
-### `CaptureFailedError`
+### `lumascope.CaptureFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -14877,7 +14877,7 @@ not be read; a camera that is not there is refused instead
 | `unknown_save_encoding` | -- | 500 |
 
 <a id="CaptureLocationError"></a>
-### `CaptureLocationError`
+### `lumascope.CaptureLocationError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -14897,7 +14897,7 @@ may then succeed.
 | `names_exhausted` | state | 409 |
 
 <a id="CapturePositionNotRecordedNotice"></a>
-### `CapturePositionNotRecordedNotice`
+### `lumascope.CapturePositionNotRecordedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14908,7 +14908,7 @@ A still was saved, without its well or position, because X or Y is unknown.
 | `position_not_recorded` | -- | 409 |
 
 <a id="CatalogueNameRefusedError"></a>
-### `CatalogueNameRefusedError`
+### `lumascope.CatalogueNameRefusedError`
 
 A refusal; bases `Refusal`, `ConfigError`.
 
@@ -14946,7 +14946,7 @@ same fact for a protocol's steps; `argument` is on this type only.
 | `objective_not_in_catalogue` | request | 422 |
 
 <a id="CellCountScaleDroppedNotice"></a>
-### `CellCountScaleDroppedNotice`
+### `lumascope.CellCountScaleDroppedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14961,7 +14961,7 @@ image at its own scale. A person who meant 1.0 types it again.
 | `cell_count_scale_dropped` | -- | 409 |
 
 <a id="ChannelBlockSupersededNotice"></a>
-### `ChannelBlockSupersededNotice`
+### `lumascope.ChannelBlockSupersededNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14975,7 +14975,7 @@ are its `Channels` block, beside its `Filterset`.
 | `channel_block_superseded` | -- | 409 |
 
 <a id="ChannelBlockUnusableNotice"></a>
-### `ChannelBlockUnusableNotice`
+### `lumascope.ChannelBlockUnusableNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -14989,7 +14989,7 @@ itself is not read in part: no row can be trusted over another.
 | `channel_block_unusable` | -- | 409 |
 
 <a id="ChannelRowsSkippedNotice"></a>
-### `ChannelRowsSkippedNotice`
+### `lumascope.ChannelRowsSkippedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15007,7 +15007,7 @@ one notice.
 | `channel_rows_skipped` | -- | 409 |
 
 <a id="ClaimStillLentError"></a>
-### `ClaimStillLentError`
+### `lumascope.ClaimStillLentError`
 
 A fault; bases `Fault`, `RuntimeError`.
 
@@ -15029,7 +15029,7 @@ it was documented.
 | `claim_still_lent` | -- | 500 |
 
 <a id="CompositeFailedError"></a>
-### `CompositeFailedError`
+### `lumascope.CompositeFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -15058,7 +15058,7 @@ raised, is a field, since each is another vocabulary's string.
 | `run_not_completed` | -- | 500 |
 
 <a id="ConfigError"></a>
-### `ConfigError`
+### `lumascope.ConfigError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -15068,7 +15068,7 @@ Its children's words are written for the person unless a child says
 otherwise.
 
 <a id="ConfigReadError"></a>
-### `ConfigReadError`
+### `lumascope.ConfigReadError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -15087,7 +15087,7 @@ source's answer for a unit that has its own.
 | `config_unread` | -- | 500 |
 
 <a id="ConfigurationDefectError"></a>
-### `ConfigurationDefectError`
+### `lumascope.ConfigurationDefectError`
 
 A fault; bases `Fault`, `ConfigError`.
 
@@ -15118,7 +15118,7 @@ the reason's are written for the person.
 | `zstack_reference_unchecked` | -- | 500 |
 
 <a id="ControlSessionRefusedError"></a>
-### `ControlSessionRefusedError`
+### `lumascope.ControlSessionRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15161,7 +15161,7 @@ was taken or written.
 | `write_in_flight` | state | 409 |
 
 <a id="DiagnosticRefusedError"></a>
-### `DiagnosticRefusedError`
+### `lumascope.DiagnosticRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15195,7 +15195,7 @@ holder or stop it. Nothing was committed.
 | `exclusive_activity_running` | state | 409 |
 
 <a id="DriverNotLiveError"></a>
-### `DriverNotLiveError`
+### `lumascope.DriverNotLiveError`
 
 A fault; bases `Fault`, `RuntimeError`.
 
@@ -15206,7 +15206,7 @@ A driver selected by name constructed, but its hardware is not live.
 | `driver_not_live` | -- | 500 |
 
 <a id="DuplicateCaptureFilenamesNotice"></a>
-### `DuplicateCaptureFilenamesNotice`
+### `lumascope.DuplicateCaptureFilenamesNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15220,7 +15220,7 @@ refused at start until each step's file name is unique.
 | `duplicate_capture_filenames` | -- | 409 |
 
 <a id="ExposureAtMaximumNotice"></a>
-### `ExposureAtMaximumNotice`
+### `lumascope.ExposureAtMaximumNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15233,7 +15233,7 @@ The setting keeps the ceiling; the person can add light or raise it.
 | `exposure_at_maximum` | -- | 409 |
 
 <a id="ExposureAtMinimumNotice"></a>
-### `ExposureAtMinimumNotice`
+### `lumascope.ExposureAtMinimumNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15246,7 +15246,7 @@ The setting keeps the floor, since it cannot hold the raw value.
 | `exposure_at_minimum` | -- | 409 |
 
 <a id="FalsifyingChangeInFlightError"></a>
-### `FalsifyingChangeInFlightError`
+### `lumascope.FalsifyingChangeInFlightError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15267,7 +15267,7 @@ change ends, and the same start may then succeed.
 | `falsifying_change_in_flight` | state | 409 |
 
 <a id="Fault"></a>
-### `Fault`
+### `lumascope.Fault`
 
 The fault kind; bases `LumascopeError`.
 
@@ -15283,7 +15283,7 @@ cause: a fault answers 500 whatever was asked.
 - `words_for_person`: True when the class writes its message for the person who will read it. Declared, never defaulted here: a default on this mixin would sit ahead of a value a fault inherits from its subject's class, and hide it. Unset reads as False.
 
 <a id="FileWriterNotStuckError"></a>
-### `FileWriterNotStuckError`
+### `lumascope.FileWriterNotStuckError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15304,7 +15304,7 @@ would be data loss for nothing.
 | `file_writer_not_stuck` | state | 409 |
 
 <a id="FileWriterReplacedError"></a>
-### `FileWriterReplacedError`
+### `lumascope.FileWriterReplacedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -15319,7 +15319,7 @@ file; nothing will say when.
 | `file_writer_replaced` | -- | 500 |
 
 <a id="FileWriterStalledError"></a>
-### `FileWriterStalledError`
+### `lumascope.FileWriterStalledError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -15339,7 +15339,7 @@ and the remedy below are the one wording of both.
 | `file_writer_stalled` | -- | 500 |
 
 <a id="FocusNotSavedError"></a>
-### `FocusNotSavedError`
+### `lumascope.FocusNotSavedError`
 
 A refusal; bases `Refusal`, `ConfigError`.
 
@@ -15359,7 +15359,7 @@ stored placeholder is what sent every such channel to one fixed height.
 | `focus_not_saved` | state | 409 |
 
 <a id="FocusNotWrittenError"></a>
-### `FocusNotWrittenError`
+### `lumascope.FocusNotWrittenError`
 
 A refusal; bases `Refusal`, `ProtocolError`.
 
@@ -15382,7 +15382,7 @@ again focuses the steps it has now.
 | `focus_not_written` | state | 409 |
 
 <a id="FrameDepthError"></a>
-### `FrameDepthError`
+### `lumascope.FrameDepthError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -15406,7 +15406,7 @@ over-range frame to white instead.
 | `frame_depth_exceeded` | -- | 500 |
 
 <a id="FrameHandlerRemovedError"></a>
-### `FrameHandlerRemovedError`
+### `lumascope.FrameHandlerRemovedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15428,7 +15428,7 @@ declining to go on calling the handler, which the plugin's author can fix
 | `raised` | state | 409 |
 
 <a id="FrameRefittedNotice"></a>
-### `FrameRefittedNotice`
+### `lumascope.FrameRefittedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15442,7 +15442,7 @@ substituted binning is, so the next bring-up has nothing to refit.
 | `frame_refitted` | -- | 409 |
 
 <a id="HardwareCommandRefusedError"></a>
-### `HardwareCommandRefusedError`
+### `lumascope.HardwareCommandRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -15527,7 +15527,7 @@ log.
 | `stage_unpowered_before_motion` | state | 409 |
 
 <a id="HardwareError"></a>
-### `HardwareError`
+### `lumascope.HardwareError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -15537,7 +15537,7 @@ A fault in the hardware (motor, LED, camera): the subject, never raised itself.
 fault it was, with its own reason and title.
 
 <a id="HomingFailedError"></a>
-### `HomingFailedError`
+### `lumascope.HomingFailedError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -15554,7 +15554,7 @@ when the home failed, `HomingStoppedError` when a Stop ended it.
 - `axes`: The axes left without a known position.
 
 <a id="HomingFaultError"></a>
-### `HomingFaultError`
+### `lumascope.HomingFaultError`
 
 A fault; bases `Fault`, `HomingFailedError`.
 
@@ -15577,7 +15577,7 @@ driver's exception when there is one.
 | `unread` | -- | 500 |
 
 <a id="HomingStoppedError"></a>
-### `HomingStoppedError`
+### `lumascope.HomingStoppedError`
 
 A notice; bases `Notice`, `HomingFailedError`.
 
@@ -15598,7 +15598,7 @@ had moved.
 | `stopped` | state | 409 |
 
 <a id="HyperstackRefusedError"></a>
-### `HyperstackRefusedError`
+### `lumascope.HyperstackRefusedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -15624,7 +15624,7 @@ read a log.
 | `unreadable_input_frame` | -- | 500 |
 
 <a id="HyperstacksSavedNotice"></a>
-### `HyperstacksSavedNotice`
+### `lumascope.HyperstacksSavedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15635,7 +15635,7 @@ A run's hyperstacks were built: how many and where, or what was degraded.
 | `hyperstacks_saved` | -- | 409 |
 
 <a id="HyperstacksSavingNotice"></a>
-### `HyperstacksSavingNotice`
+### `lumascope.HyperstacksSavingNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15646,7 +15646,7 @@ A run's hyperstacks are being built, which can take minutes.
 | `hyperstacks_saving` | -- | 409 |
 
 <a id="ImageSaveError"></a>
-### `ImageSaveError`
+### `lumascope.ImageSaveError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -15666,7 +15666,7 @@ is not this and propagates as itself.
 | `image_save_failed` | -- | 500 |
 
 <a id="InputFramesUnusableError"></a>
-### `InputFramesUnusableError`
+### `lumascope.InputFramesUnusableError`
 
 A refusal; bases `Refusal`, `CaptureError`, `ValueError`.
 
@@ -15691,7 +15691,7 @@ cannot read keeps doing so.
 | `unreadable` | request | 422 |
 
 <a id="InstallationFileError"></a>
-### `InstallationFileError`
+### `lumascope.InstallationFileError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -15712,7 +15712,7 @@ nothing; whoever catches it logs it once.
 | `installation_file_unusable` | -- | 500 |
 
 <a id="LaneCallStillRunningError"></a>
-### `LaneCallStillRunningError`
+### `lumascope.LaneCallStillRunningError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -15734,7 +15734,7 @@ means only that the caller's own wait ran out.
 | `lane_closed` | -- | 500 |
 
 <a id="LayerSettingCappedNotice"></a>
-### `LayerSettingCappedNotice`
+### `lumascope.LayerSettingCappedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -15755,7 +15755,7 @@ at a time.
 | `layer_setting_capped` | -- | 409 |
 
 <a id="LedBoardUnavailableError"></a>
-### `LedBoardUnavailableError`
+### `lumascope.LedBoardUnavailableError`
 
 A fault; bases `Fault`, `BringUpError`.
 
@@ -15767,18 +15767,19 @@ controls that appear to do nothing. The advice follows the cause.
 
 **Attributes**
 
-- `reason`: The hardware registry's cause, `'not_detected'` and `'port_in_use'` as `CameraNotAvailableError` explains them, or: `'not_responding'` -- the board's port opened and the board answered nothing. `'connect_failed'` -- the board's driver raised while connecting. `'no_driver'` -- no real LED board driver is registered on this installation.
+- `reason`: The hardware registry's cause, `'not_detected'` and `'port_in_use'` as `CameraNotAvailableError` explains them, or: `'not_responding'` -- the board's port opened and the board answered nothing. `'connect_failed'` -- the board's driver raised while connecting. `'no_driver'` -- no real LED board driver is registered on this installation. Or, not the registry's: `'led_driver_unavailable'` -- no LED board was found, and an LED driver this scope could be using did not load on this installation.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `connect_failed` | -- | 500 |
+| `led_driver_unavailable` | -- | 500 |
 | `no_driver` | -- | 500 |
 | `not_detected` | -- | 500 |
 | `not_responding` | -- | 500 |
 | `port_in_use` | -- | 500 |
 
 <a id="LedFirmwareWedgedError"></a>
-### `LedFirmwareWedgedError`
+### `lumascope.LedFirmwareWedgedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -15791,7 +15792,7 @@ Only a power cycle brings it back, and its words say so.
 | `led_firmware_wedged` | -- | 500 |
 
 <a id="LedSafetyOffNotTakenError"></a>
-### `LedSafetyOffNotTakenError`
+### `lumascope.LedSafetyOffNotTakenError`
 
 A fault; bases `Fault`, `BringUpError`.
 
@@ -15809,7 +15810,7 @@ on, photobleaching whatever is on the stage.
 | `safety_off_failed` | -- | 500 |
 
 <a id="LiveFolderFileNotWrittenError"></a>
-### `LiveFolderFileNotWrittenError`
+### `lumascope.LiveFolderFileNotWrittenError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -15829,7 +15830,7 @@ Nothing is left at the name.
 | `live_folder_file_not_written` | -- | 500 |
 
 <a id="LiveFolderPathRefusedError"></a>
-### `LiveFolderPathRefusedError`
+### `lumascope.LiveFolderPathRefusedError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -15857,7 +15858,7 @@ wrong kind, before the member reads or writes it.
 | `wrong_extension` | request | 422 |
 
 <a id="MotionInterlockError"></a>
-### `MotionInterlockError`
+### `lumascope.MotionInterlockError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -15882,7 +15883,7 @@ to stop the motors in refusing it.
 | `stage_unpowered` | -- | 500 |
 
 <a id="MotionNotCompletedError"></a>
-### `MotionNotCompletedError`
+### `lumascope.MotionNotCompletedError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -15897,7 +15898,7 @@ API's stop generation to say, never this type.
 | `motion_not_completed` | -- | 500 |
 
 <a id="MotorBoardUnavailableError"></a>
-### `MotorBoardUnavailableError`
+### `lumascope.MotorBoardUnavailableError`
 
 A fault; bases `Fault`, `BringUpError`.
 
@@ -15908,7 +15909,7 @@ first symptom is a stage that does not move and a home refused.
 
 **Attributes**
 
-- `reason`: The hardware registry's cause, as `LedBoardUnavailableError` explains them.
+- `reason`: The hardware registry's cause, one of the five `DriverFallback.cause` names, as `LedBoardUnavailableError` explains them.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15919,7 +15920,7 @@ first symptom is a stage that does not move and a home refused.
 | `port_in_use` | -- | 500 |
 
 <a id="MotorStopFailedError"></a>
-### `MotorStopFailedError`
+### `lumascope.MotorStopFailedError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -15935,7 +15936,7 @@ moved, so no waited move reads itself as arrived.
 | `motor_stop_failed` | -- | 500 |
 
 <a id="MoveFaultError"></a>
-### `MoveFaultError`
+### `lumascope.MoveFaultError`
 
 A fault; bases `Fault`, `MoveNotCompletedError`.
 
@@ -15957,7 +15958,7 @@ A move failed: the motor may have travelled any part of the way.
 | `status_unread` | -- | 500 |
 
 <a id="MoveNotCompletedError"></a>
-### `MoveNotCompletedError`
+### `lumascope.MoveNotCompletedError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -15981,7 +15982,7 @@ for a move that already happened.
 - `title`: The heading shown with the sentence.
 
 <a id="MoveStoppedError"></a>
-### `MoveStoppedError`
+### `lumascope.MoveStoppedError`
 
 A notice; bases `Notice`, `MoveNotCompletedError`.
 
@@ -16002,7 +16003,7 @@ the scope is closed its position is unknown.
 | `superseded` | state | 409 |
 
 <a id="MoveWaitExpiredError"></a>
-### `MoveWaitExpiredError`
+### `lumascope.MoveWaitExpiredError`
 
 A quiet outcome; bases `MoveNotCompletedError`, `Quiet`, `TimeoutError`.
 
@@ -16022,7 +16023,7 @@ reads the axis and reason as an errno.
 | `still_moving` | state | 409 |
 
 <a id="NoHardwareDetectedNotice"></a>
-### `NoHardwareDetectedNotice`
+### `lumascope.NoHardwareDetectedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -16031,12 +16032,17 @@ Nothing came up at bring-up: no LED board, no motor board, no camera.
 One notice for the whole scope, in place of one per part: the person
 with no instrument attached needs to be told once, not three times.
 
+**Attributes**
+
+- `reason`: `'no_hardware'` -- nothing was found on USB. `'no_hardware_driver_unavailable'` -- nothing was found, and a driver this scope could be using did not load on this installation.
+
 | Reason | Cause | REST status |
 |---|---|---|
 | `no_hardware` | -- | 409 |
+| `no_hardware_driver_unavailable` | -- | 409 |
 
 <a id="NoLiveDriverError"></a>
-### `NoLiveDriverError`
+### `lumascope.NoLiveDriverError`
 
 A fault; bases `Fault`, `RuntimeError`.
 
@@ -16054,7 +16060,7 @@ a board's `DriverFallback` is recorded beside its null driver.
 | `no_live_driver` | -- | 500 |
 
 <a id="NoWireFormError"></a>
-### `NoWireFormError`
+### `lumascope.NoWireFormError`
 
 A fault; bases `Fault`, `TypeError`.
 
@@ -16065,7 +16071,7 @@ A value whose type has no wire form reached `encode`.
 | `no_wire_form` | -- | 500 |
 
 <a id="NotHandedOutError"></a>
-### `NotHandedOutError`
+### `lumascope.NotHandedOutError`
 
 A fault; bases `NoWireFormError`.
 
@@ -16076,7 +16082,7 @@ A parameter takes only a live object no wire member hands out, so no client can 
 | `not_handed_out` | -- | 500 |
 
 <a id="Notice"></a>
-### `Notice`
+### `lumascope.Notice`
 
 The notice kind; bases `LumascopeError`.
 
@@ -16100,7 +16106,7 @@ it to None.
 - `title`: The heading the person reads above the message.
 
 <a id="ObjectiveUnknownError"></a>
-### `ObjectiveUnknownError`
+### `lumascope.ObjectiveUnknownError`
 
 A refusal; bases `Refusal`, `ConfigError`.
 
@@ -16130,7 +16136,7 @@ selected.
 | `slot_unknown` | state | 409 |
 
 <a id="OperationSettleRefusedError"></a>
-### `OperationSettleRefusedError`
+### `lumascope.OperationSettleRefusedError`
 
 A refusal; bases `Refusal`, `RuntimeError`.
 
@@ -16154,7 +16160,7 @@ refusal of a second settle is.
 | `settled_by_its_producer` | request | 422 |
 
 <a id="PartAbsentError"></a>
-### `PartAbsentError`
+### `lumascope.PartAbsentError`
 
 A fault; bases `Fault`, `HardwareError`.
 
@@ -16170,7 +16176,7 @@ lacks before the driver is asked (`axis_absent`, `not_on_this_scope`,
 | `part_absent` | -- | 500 |
 
 <a id="PluginError"></a>
-### `PluginError`
+### `lumascope.PluginError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -16186,7 +16192,7 @@ of the application carries on.
 Each kind's title is its class's; the words name the plugin.
 
 <a id="PluginFailedError"></a>
-### `PluginFailedError`
+### `lumascope.PluginFailedError`
 
 A fault; bases `Fault`, `PluginError`.
 
@@ -16203,7 +16209,7 @@ A loaded plugin failed while the host was calling it.
 | `plugin_failed` | -- | 500 |
 
 <a id="PluginNotLoadedError"></a>
-### `PluginNotLoadedError`
+### `lumascope.PluginNotLoadedError`
 
 A fault; bases `Fault`, `PluginError`.
 
@@ -16224,7 +16230,7 @@ carries each traceback.
 | `plugin_not_loaded` | -- | 500 |
 
 <a id="PluginProcessorSkippedError"></a>
-### `PluginProcessorSkippedError`
+### `lumascope.PluginProcessorSkippedError`
 
 A fault; bases `Fault`, `PluginError`.
 
@@ -16248,7 +16254,7 @@ to process again.
 | `processor_skipped` | -- | 500 |
 
 <a id="PluginRegistrationError"></a>
-### `PluginRegistrationError`
+### `lumascope.PluginRegistrationError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -16269,7 +16275,7 @@ is the request.
 | `rest_namespace_reserved` | request | 422 |
 
 <a id="PositionOutOfRangeError"></a>
-### `PositionOutOfRangeError`
+### `lumascope.PositionOutOfRangeError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -16319,7 +16325,7 @@ without reading the words.
 | `position_out_of_range` | request | 422 |
 
 <a id="PostProcessingFailedError"></a>
-### `PostProcessingFailedError`
+### `lumascope.PostProcessingFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16350,7 +16356,7 @@ incomplete build as a complete one.
 | `post_processing_incomplete` | -- | 500 |
 
 <a id="PostProcessingRefusedError"></a>
-### `PostProcessingRefusedError`
+### `lumascope.PostProcessingRefusedError`
 
 A refusal; bases `Refusal`, `CaptureError`.
 
@@ -16396,7 +16402,7 @@ same request may succeed once it ends.
 | `unsupported_source_format` | request | 422 |
 
 <a id="ProtocolError"></a>
-### `ProtocolError`
+### `lumascope.ProtocolError`
 
 A subject: never raised, its children are; bases `Exception`.
 
@@ -16406,7 +16412,7 @@ Its children's words are written for the person unless a child says
 otherwise.
 
 <a id="ProtocolFormatError"></a>
-### `ProtocolFormatError`
+### `lumascope.ProtocolFormatError`
 
 A refusal; bases `Refusal`, `ProtocolError`.
 
@@ -16427,7 +16433,7 @@ one log line -- needs no log line of its own beside each check.
 | `protocol_invalid` | request | 422 |
 
 <a id="ProtocolNotLoadedError"></a>
-### `ProtocolNotLoadedError`
+### `lumascope.ProtocolNotLoadedError`
 
 A fault; bases `Fault`, `ProtocolError`.
 
@@ -16448,7 +16454,7 @@ that was read but is not a protocol LumaViewPro can take is
 | `protocol_not_loaded` | -- | 500 |
 
 <a id="ProtocolNotSavedError"></a>
-### `ProtocolNotSavedError`
+### `lumascope.ProtocolNotSavedError`
 
 A fault; bases `Fault`, `ProtocolError`.
 
@@ -16469,7 +16475,7 @@ first, so a file already there is unchanged.
 | `protocol_not_saved` | -- | 500 |
 
 <a id="ProtocolRunRefusedError"></a>
-### `ProtocolRunRefusedError`
+### `lumascope.ProtocolRunRefusedError`
 
 A refusal; bases `Refusal`, `ProtocolError`.  
 Held in: [`Status.run_refused`](#Status.run_refused).
@@ -16493,7 +16499,7 @@ prints it prints what the GUI shows.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
-- `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
+- `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'`; for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 - `remedy`: The action that answers this refusal, or None. A stalled file writer has one (recover it); a writer still making progress does not, since its files will land.
 
 `holder` and `holder_trigger` are published, so a REST problem
@@ -16502,7 +16508,7 @@ carries who holds the scope beside the words.
 **Fields**
 
 - <a id="ProtocolRunRefusedError.holder"></a>`holder`: `Holder | None` -- What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
-- <a id="ProtocolRunRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'` (`modules.caller`); for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
+- <a id="ProtocolRunRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'`; for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16551,7 +16557,7 @@ carries who holds the scope beside the words.
 | `zstack_not_configured` | request | 422 |
 
 <a id="ProtocolScheduleRefusedError"></a>
-### `ProtocolScheduleRefusedError`
+### `lumascope.ProtocolScheduleRefusedError`
 
 A refusal; bases `ProtocolFormatError`.
 
@@ -16568,7 +16574,7 @@ A period or duration the scope cannot run, refused rather than changed.
 | `schedule_not_runnable` | request | 422 |
 
 <a id="ProtocolStepsInvalidNotice"></a>
-### `ProtocolStepsInvalidNotice`
+### `lumascope.ProtocolStepsInvalidNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -16583,7 +16589,7 @@ are the validator's own lines, one per field.
 | `protocol_steps_invalid` | -- | 409 |
 
 <a id="Quiet"></a>
-### `Quiet`
+### `lumascope.Quiet`
 
 The quiet outcome kind; bases `LumascopeError`.
 
@@ -16600,7 +16606,7 @@ Every reason maps to its `RefusalCause` in `causes`, as a refusal's
 does, since a quiet outcome answers a caller's request too.
 
 <a id="RecordIncompleteError"></a>
-### `RecordIncompleteError`
+### `lumascope.RecordIncompleteError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16619,7 +16625,7 @@ with no row is skipped by stitching and video builds.
 | `record_incomplete` | -- | 500 |
 
 <a id="RecordingDetailsNotSavedError"></a>
-### `RecordingDetailsNotSavedError`
+### `lumascope.RecordingDetailsNotSavedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16634,7 +16640,7 @@ these frames later falls back to grayscale and a default rate.
 | `recording_details_not_saved` | -- | 500 |
 
 <a id="RecordingFinalizeError"></a>
-### `RecordingFinalizeError`
+### `lumascope.RecordingFinalizeError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16655,7 +16661,7 @@ are on disk.
 | `video_step_finalize_failed` | -- | 500 |
 
 <a id="RecordingFramesUnstampedError"></a>
-### `RecordingFramesUnstampedError`
+### `lumascope.RecordingFramesUnstampedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16676,7 +16682,7 @@ this is not a stalled camera and not an empty feed.
 | `frames_unstamped` | -- | 500 |
 
 <a id="RecordingPositionNotRecordedNotice"></a>
-### `RecordingPositionNotRecordedNotice`
+### `lumascope.RecordingPositionNotRecordedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -16695,7 +16701,7 @@ labware or stage offset there is no plate frame to record X and Y in.
 | `position_not_recorded` | -- | 409 |
 
 <a id="RecordingRefusedError"></a>
-### `RecordingRefusedError`
+### `lumascope.RecordingRefusedError`
 
 A refusal; bases `Refusal`, `CaptureError`.
 
@@ -16741,7 +16747,7 @@ asked for the recording reports it where its flight ends.
 | `recording_active` | state | 409 |
 
 <a id="RecordingSavedLateNotice"></a>
-### `RecordingSavedLateNotice`
+### `lumascope.RecordingSavedLateNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -16756,7 +16762,7 @@ raiser passes the facts; the words are the type's.
 | `recording_saved_late` | -- | 409 |
 
 <a id="RecordingStoppedError"></a>
-### `RecordingStoppedError`
+### `lumascope.RecordingStoppedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16778,7 +16784,7 @@ frames written so far are on disk.
 | `disk_floor` | -- | 500 |
 
 <a id="Refusal"></a>
-### `Refusal`
+### `lumascope.Refusal`
 
 The refusal kind; bases `LumascopeError`.
 
@@ -16802,13 +16808,13 @@ caller changing nothing.
 - `remedy`: The action that answers this refusal, when one exists; the reporter then shows the refusal as an offer to take it. Set per instance: one reason of a refusal type can have a remedy that its others do not.
 
 <a id="RestServerNotStartedError"></a>
-### `RestServerNotStartedError`
+### `lumascope.RestServerNotStartedError`
 
 A fault; bases `Fault`, `Exception`.
 
 The REST server was not started: a `rest_api` setting cannot be used, or its port could not be taken.
 
-Raised by `rest.server.build_server`, through which every host serves,
+Raised by `build_server`, through which every host serves,
 before anything is served. A setting that cannot be used is named with
 why; a port that could not be taken is chained from the `OSError` of
 the bind, so the words name the address and the operating system's own
@@ -16821,7 +16827,7 @@ without a server; the headless server exits.
 | `rest_server_not_started` | -- | 500 |
 
 <a id="RunCheckFailedError"></a>
-### `RunCheckFailedError`
+### `lumascope.RunCheckFailedError`
 
 A fault; bases `Fault`, `ProtocolError`.
 
@@ -16848,7 +16854,7 @@ it where its flight ends.
 | `validation_crashed` | -- | 500 |
 
 <a id="RunCleanupFailedError"></a>
-### `RunCleanupFailedError`
+### `lumascope.RunCleanupFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16867,7 +16873,7 @@ the person expects. The run's outcome names the steps too.
 | `cleanup_failed` | -- | 500 |
 
 <a id="RunEndedByStopNotice"></a>
-### `RunEndedByStopNotice`
+### `lumascope.RunEndedByStopNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -16885,7 +16891,7 @@ reported as that failure, where it was pressed.
 | `stage_stopped` | -- | 409 |
 
 <a id="RunFailedError"></a>
-### `RunFailedError`
+### `lumascope.RunFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16924,7 +16930,7 @@ read the same.
 | `video_writer_died` | -- | 500 |
 
 <a id="RunFailedToStartError"></a>
-### `RunFailedToStartError`
+### `lumascope.RunFailedToStartError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16961,7 +16967,7 @@ unattended mute, so the person who started it sees it.
 | `video_writer_died` | -- | 500 |
 
 <a id="RunFilesNotWrittenError"></a>
-### `RunFilesNotWrittenError`
+### `lumascope.RunFilesNotWrittenError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -16986,7 +16992,7 @@ silently incomplete. Nothing is built.
 | `write_batch_video_unfinished` | -- | 500 |
 
 <a id="RunImagesNotSavedError"></a>
-### `RunImagesNotSavedError`
+### `lumascope.RunImagesNotSavedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -17010,7 +17016,7 @@ count is known, since a run's images keep landing after it ends.
 | `write_batch_video_unfinished` | -- | 500 |
 
 <a id="RunIncompleteError"></a>
-### `RunIncompleteError`
+### `lumascope.RunIncompleteError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -17031,7 +17037,7 @@ run ends. The images that were captured are saved.
 | `captures_failed` | -- | 500 |
 
 <a id="RunStartError"></a>
-### `RunStartError`
+### `lumascope.RunStartError`
 
 A fault; bases `Fault`, `ProtocolError`.
 
@@ -17073,7 +17079,7 @@ and the popup.
 | `video_writer_died` | -- | 500 |
 
 <a id="RunWaitExpiredError"></a>
-### `RunWaitExpiredError`
+### `lumascope.RunWaitExpiredError`
 
 A quiet outcome; bases `ProtocolError`, `Quiet`, `TimeoutError`.
 
@@ -17096,7 +17102,7 @@ as an errno.
 | `still_running` | state | 409 |
 
 <a id="RunWriteRefusedError"></a>
-### `RunWriteRefusedError`
+### `lumascope.RunWriteRefusedError`
 
 A refusal; bases `Refusal`, `CaptureError`.
 
@@ -17120,7 +17126,7 @@ write into a live run is taken, so its cause is the state.
 | `writes_abandoned` | state | 409 |
 
 <a id="ScopeDisconnectError"></a>
-### `ScopeDisconnectError`
+### `lumascope.ScopeDisconnectError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -17149,7 +17155,7 @@ a client reads is each part's reason. A failure, not a refusal.
 | `disconnect_failed` | -- | 500 |
 
 <a id="ScopeInUseError"></a>
-### `ScopeInUseError`
+### `lumascope.ScopeInUseError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -17171,7 +17177,7 @@ that did not come up beside the rest, this refuses the whole scope.
 | `scope_in_use` | state | 409 |
 
 <a id="ScopeModelDeferredNotice"></a>
-### `ScopeModelDeferredNotice`
+### `lumascope.ScopeModelDeferredNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -17186,7 +17192,7 @@ own model overrides the selection then.
 | `scope_model_deferred` | -- | 409 |
 
 <a id="ScopeModelUnknownError"></a>
-### `ScopeModelUnknownError`
+### `lumascope.ScopeModelUnknownError`
 
 A refusal; bases `Refusal`, `ValueError`.
 
@@ -17211,16 +17217,16 @@ models the catalogue does list.
 | `model_unknown` | request | 422 |
 
 <a id="ServerRefusedError"></a>
-### `ServerRefusedError`
+### `lumascope.ServerRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
 A request the REST server itself answers: it never reached a member.
 
-Raised by `rest/` for a request it answers itself: from its request
+Raised by the REST server for a request it answers itself: from its request
 reader, its handle and job stores, its idempotency keys, its live view
 and its close. What the refusal is lives here; how it is sent -- each
-reason's status, the `Retry-After` header -- is `rest.problems`'s,
+reason's status, the `Retry-After` header -- is the server's,
 read from this record.
 
 **Attributes**
@@ -17249,7 +17255,7 @@ read from this record.
 | `unsupported_media_type` | request | 415 |
 
 <a id="SessionClosingError"></a>
-### `SessionClosingError`
+### `lumascope.SessionClosingError`
 
 A refusal; bases `Refusal`, `Exception`.
 
@@ -17281,7 +17287,7 @@ closed: that work was not done.
 | `session_closing` | restart | 503 |
 
 <a id="SettingRefusedError"></a>
-### `SettingRefusedError`
+### `lumascope.SettingRefusedError`
 
 A refusal; bases `Refusal`, `ConfigError`.
 
@@ -17326,7 +17332,7 @@ beside the words.
 | `wrong_kind` | request | 422 |
 
 <a id="SettingsFileError"></a>
-### `SettingsFileError`
+### `lumascope.SettingsFileError`
 
 A fault; bases `Fault`, `ValueError`.
 
@@ -17343,7 +17349,7 @@ crash.
 | `settings_file_unreadable` | -- | 500 |
 
 <a id="SettingsFileNotReplacedError"></a>
-### `SettingsFileNotReplacedError`
+### `lumascope.SettingsFileNotReplacedError`
 
 A fault; bases `Fault`, `ConfigError`.
 
@@ -17365,7 +17371,7 @@ answered again.
 | `settings_file_not_replaced` | -- | 500 |
 
 <a id="SettingsFileNotWrittenError"></a>
-### `SettingsFileNotWrittenError`
+### `lumascope.SettingsFileNotWrittenError`
 
 A fault; bases `Fault`, `ConfigError`.
 
@@ -17385,7 +17391,7 @@ unchanged; the next accepted write, and the close, save again.
 | `settings_file_not_written` | -- | 500 |
 
 <a id="SettingsNotSavedNotice"></a>
-### `SettingsNotSavedNotice`
+### `lumascope.SettingsNotSavedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -17407,7 +17413,7 @@ that it will not be there.
 | `settings_unmeasured` | -- | 409 |
 
 <a id="SingleScanNotice"></a>
-### `SingleScanNotice`
+### `lumascope.SingleScanNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -17418,7 +17424,7 @@ A timed run will perform one scan, because of its period and duration.
 | `single_scan` | -- | 409 |
 
 <a id="SlowFileWritesNotice"></a>
-### `SlowFileWritesNotice`
+### `lumascope.SlowFileWritesNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -17429,7 +17435,7 @@ A run spent long enough waiting on the save disk to say so at its end.
 | `slow_file_writes` | -- | 409 |
 
 <a id="StepEditRefusedError"></a>
-### `StepEditRefusedError`
+### `lumascope.StepEditRefusedError`
 
 A refusal; bases `Refusal`, `ProtocolError`.
 
@@ -17444,7 +17450,7 @@ a z-stack. A refusal, as a missing step is.
 | `step_value_refused` | request | 422 |
 
 <a id="StepNotFoundError"></a>
-### `StepNotFoundError`
+### `lumascope.StepNotFoundError`
 
 A refusal; bases `Refusal`, `ProtocolError`.
 
@@ -17469,7 +17475,7 @@ that wants it reads it here.
 | `no_such_step` | request | 422 |
 
 <a id="StoredSettingReplacedNotice"></a>
-### `StoredSettingReplacedNotice`
+### `lumascope.StoredSettingReplacedNotice`
 
 A notice; bases `Notice`, `Exception`.
 
@@ -17489,7 +17495,7 @@ settings the app runs on and so in the file at its next save.
 | `stored_setting_replaced` | -- | 409 |
 
 <a id="SupportReportNotSavedError"></a>
-### `SupportReportNotSavedError`
+### `lumascope.SupportReportNotSavedError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -17509,7 +17515,7 @@ report.
 | `support_report_not_saved` | -- | 500 |
 
 <a id="UpdateError"></a>
-### `UpdateError`
+### `lumascope.UpdateError`
 
 A fault; bases `Fault`, `Exception`.
 
@@ -17520,7 +17526,7 @@ Firmware update failure with stage and recoverability info.
 | `update_failed` | -- | 500 |
 
 <a id="VideoFramesDroppedError"></a>
-### `VideoFramesDroppedError`
+### `lumascope.VideoFramesDroppedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -17543,7 +17549,7 @@ counts too.
 | `video_frames_dropped` | -- | 500 |
 
 <a id="VideoWriterFailedError"></a>
-### `VideoWriterFailedError`
+### `lumascope.VideoWriterFailedError`
 
 A fault; bases `Fault`, `CaptureError`.
 
@@ -17842,11 +17848,11 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 
 ## Saved-file facts
 
-Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
+Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
 
 | Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
 |---|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no | `id`, `description`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
+| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
 | `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
 | `z_pos_um` | shared | `PositionZ` | um | no | -- |
 | `illumination_ma` | channel | `Illumination` | mA | no | -- |
@@ -17862,7 +17868,7 @@ Every fact a saved file's record can state, by its key (`modules/image_utils.FIL
 | `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- |
 | `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- |
 | `frame_id` | capture | `FrameID` | -- | no | -- |
-| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `rule`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `frame_start_ticks`, `qualifies_after_ticks` |
+| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- |
 | `dark` | capture | `Dark` | -- | no | -- |
 | `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- |

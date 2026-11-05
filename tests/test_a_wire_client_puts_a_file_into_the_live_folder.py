@@ -16,10 +16,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import path_utils
-from modules.caller import Caller, current_caller
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules import path_utils
+from _lumascope.modules.caller import Caller, current_caller
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 

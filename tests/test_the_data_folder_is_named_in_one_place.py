@@ -13,36 +13,38 @@ the mark, and `path_utils.data_folder_name` is the one derivation.
 import ast
 import pathlib
 
-from modules.path_utils import data_folder_name, read_version
+from _lumascope.modules import path_utils
+from _lumascope.modules.path_utils import data_folder_name, read_version
 from tests.ast_seams import parse_module
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def _write_version(tmp_path, raw: bytes) -> pathlib.Path:
+def _write_version(tmp_path, monkeypatch, raw: bytes) -> None:
+    """The build's version.txt holds ``raw``."""
     (tmp_path / 'version.txt').write_bytes(raw)
-    return tmp_path
+    monkeypatch.setattr(path_utils, 'build_root', lambda: tmp_path)
 
 
-def test_a_byte_order_mark_does_not_reach_the_version(tmp_path):
-    root = _write_version(tmp_path, b'\xef\xbb\xbf4.0.0-beta40\n2026-09-30 12:00\n')
+def test_a_byte_order_mark_does_not_reach_the_version(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xef\xbb\xbf4.0.0-beta40\n2026-09-30 12:00\n')
 
-    assert read_version(root) == ('4.0.0-beta40', '2026-09-30 12:00')
+    assert read_version() == ('4.0.0-beta40', '2026-09-30 12:00')
 
 
-def test_the_folder_name_carries_the_version_alone(tmp_path):
-    root = _write_version(tmp_path, b'\xef\xbb\xbf4.0.0-beta40\n')
+def test_the_folder_name_carries_the_version_alone(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xef\xbb\xbf4.0.0-beta40\n')
 
-    version, _ = read_version(root)
+    version, _ = read_version()
 
     assert data_folder_name(version) == 'LumaViewPro 4.0.0-beta40'
     assert data_folder_name(version).isascii()
 
 
-def test_an_undecodable_file_reads_as_no_version(tmp_path):
-    root = _write_version(tmp_path, b'\xff\xfe4.0\n')
+def test_an_undecodable_file_reads_as_no_version(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xff\xfe4.0\n')
 
-    assert read_version(root) == ('', '')
+    assert read_version() == ('', '')
 
 
 def _names_the_folder_itself(rel_path: str) -> list[int]:
@@ -58,9 +60,13 @@ def _names_the_folder_itself(rel_path: str) -> list[int]:
 
 
 def test_no_reader_of_the_folder_builds_its_name_itself():
-    for rel_path in ('lvp_logger.py', 'modules/app_environment.py', 'modules/path_utils.py'):
+    for rel_path in (
+        'src/_lumascope/lvp_logger.py',
+        'src/_lumascope/modules/app_environment.py',
+        'src/_lumascope/modules/path_utils.py',
+    ):
         lines = _names_the_folder_itself(rel_path)
-        if rel_path == 'modules/path_utils.py':
+        if rel_path == 'src/_lumascope/modules/path_utils.py':
             assert len(lines) == 1, f'path_utils builds the name once, in data_folder_name: {lines}'
         else:
             assert lines == [], f'{rel_path} builds the folder name itself at {lines}'
@@ -70,7 +76,7 @@ def test_the_logger_reads_the_version_through_the_one_reader():
     # The logger runs at import, before any test can stand in for its file,
     # so its read is asked of its source: a module-level call of read_version,
     # and no open() of version.txt at module level.
-    tree = parse_module('lvp_logger.py')
+    tree = parse_module('src/_lumascope/lvp_logger.py')
     module_level = [n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.ClassDef))]
     calls = {
         getattr(c.func, 'id', getattr(c.func, 'attr', None))

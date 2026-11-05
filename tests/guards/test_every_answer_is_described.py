@@ -21,7 +21,9 @@ over a simulated session builds:
   for every annotation that names it; two project classes of one name are
   refused by the table every answer is read from (``wire_encoding.closure``);
 - every enum an answer or argument reaches crosses as its name, a
-  ``StrEnum`` as its value: what ``encode`` sends is what is declared.
+  ``StrEnum`` as its value: what ``encode`` sends is what is declared;
+- no string in the description names a private path (``_lumascope``, a
+  file under ``src/``), which a client can neither import nor open.
 """
 
 from __future__ import annotations
@@ -33,9 +35,9 @@ import typing
 
 import pytest
 
-from modules import wire_encoding
+from _lumascope.modules import wire_encoding
 from tests import ratchets as _ratchets
-from rest import routes as rest_routes
+from _lumascope.rest import routes as rest_routes
 from tests.ast_seams import MemberNames
 
 # Keyless objects, arrays of nothing said and values of no type, over every
@@ -64,7 +66,8 @@ from tests.ast_seams import MemberNames
 UNTYPED_PIN = 13
 
 _SERVER_MODELS = MemberNames(
-    ('rest/routes.py', 'rest/app.py'), {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'}
+    ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),
+    {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'},
 )
 # A JSON Schema keyword that says what a value is.
 _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
@@ -73,9 +76,9 @@ _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     """The application's description, its member routes, its events' models, and their records."""
-    from modules.scope_session import ScopeSession
-    from rest import events
-    from rest.app import build_app
+    from _lumascope.modules.scope_session import ScopeSession
+    from _lumascope.rest import events
+    from _lumascope.rest.app import build_app
     from tests.settings_fixtures import complete_settings
 
     live = tmp_path_factory.mktemp('live')
@@ -96,7 +99,7 @@ def built(tmp_path_factory):
 
 
 def _url(route: rest_routes.Route) -> str:
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     if route.root is ScopeSession:
         return f'/api/v1/{route.path}'
@@ -209,6 +212,30 @@ def test_every_route_is_described_in_its_own_words(built):
     assert not wrong, '\n'.join(wrong)
     columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
     assert columns['description'].startswith('The columns of the steps table'), columns
+
+
+def test_the_description_names_no_private_path(built):
+    """A REST client reads the description's words as the reference's: no
+    string in it names ``_lumascope`` or a file under ``src/``, which a
+    client can neither import nor open."""
+    from tests.api_reference import PRIVATE_PATH
+
+    described, _routes, _events, _records = built
+    named = []
+
+    def walk(value: object, where: str) -> None:
+        if isinstance(value, str):
+            if PRIVATE_PATH.search(value):
+                named.append(f'  {where}: {value[:120]!r}')
+        elif isinstance(value, dict):
+            for key, inner in value.items():
+                walk(inner, f'{where}/{key}')
+        elif isinstance(value, list):
+            for i, inner in enumerate(value):
+                walk(inner, f'{where}/{i}')
+
+    walk(described, '')
+    assert not named, 'the OpenAPI description names a private path:\n' + '\n'.join(named)
 
 
 def test_a_route_that_is_not_json_declares_what_it_is(built):

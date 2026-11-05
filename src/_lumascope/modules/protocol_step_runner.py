@@ -1,0 +1,774 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+
+"""Per-step execution logic for protocol runs.
+
+Handles scan iteration, motion, LED control, autofocus orchestration,
+and grease redistribution.  Extracted from ``sequenced_capture_runner.py``
+during the protocol-decomposition refactor.
+
+Thread ownership:
+- ``scan_loop()`` and ``scan_iterate()`` run on the **protocol-executor** thread.
+- ``_leds_off()`` / ``_led_on()`` queue work onto the **IO-executor** thread.
+- ``_grease_redist_w_pos()`` runs on the **IO-executor** thread.
+"""
+
+from __future__ import annotations
+
+import gc
+import time
+from typing import TYPE_CHECKING
+
+from _lumascope.lvp_logger import logger
+
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.config_helpers as config_helpers
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules.exceptions import (
+    AutofocusAborted,
+    AutofocusOutOfTravelError,
+    AxisStateUnknownError,
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+)
+from _lumascope.modules.lumascope_api.illumination import (
+    FIRE_AND_FORGET_TRANSITIONS,
+    LedEndPolicy,
+    LedTransition,
+    LedTransitionCtx,
+    resolve_end_state,
+)
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.run_outcome import RunEnding, RunStatus
+from _lumascope.modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
+
+if TYPE_CHECKING:
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+
+from _lumascope.modules.run_events import deliver
+
+
+def _ending_of_a_failed_autofocus(failed: BaseException) -> RunEnding:
+    """How a single-autofocus run ends when its autofocus did not focus, in its words."""
+    if isinstance(failed, AutofocusOutOfTravelError):
+        return RunEnding(RunStatus.FAILED, 'autofocus_not_started', str(failed))
+    return RunEnding(RunStatus.FAILED, 'autofocus_failed', str(failed))
+
+
+class ProtocolStepRunner:
+    """Executes individual protocol steps within a scan.
+
+    Receives a reference to the parent ``SequencedCaptureRunner`` to
+    access shared state (protocol, scope, events, executors).  This keeps
+    the step-execution logic in its own file without duplicating state.
+    """
+
+    def __init__(self, parent: SequencedCaptureRunner):
+        self._p = parent
+
+    # ------------------------------------------------------------------
+    # Scan loop
+    # ------------------------------------------------------------------
+
+    def scan_loop(self):
+        """Iterate through all protocol steps until scan completes.
+
+        Blocks until the scan is done (all steps executed or aborted).
+        Exceptions propagate to the outer run-loop so it can classify
+        the failure as fatal (hardware disconnected -> abort + notify)
+        or transient (everything else -> silent retry on next period).
+        Catching exceptions here at the inner layer fires a
+        notification at the wrong level and turns transient faults
+        into protocol-halting popups.
+        """
+        last_maintenance_time = time.monotonic()
+
+        # `_aborted` is a threading.Event read here and at every
+        # `p._aborted.is_set()` site below WITHOUT holding `_state_lock`.
+        # Intentional: Event.is_set() is atomic by contract, and the lock on
+        # ProtocolThread.abort() exists only to make new-Future-with-cleared-
+        # aborted publication atomic against a concurrent abort -- not for
+        # readers. The worst-case race window for a reader to miss the abort
+        # signal is one step-body tick.
+        while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
+            # Periodic cleanup and watchdog logging for long runs
+            now_mono = time.monotonic()
+            if now_mono - last_maintenance_time > 60:
+                last_maintenance_time = now_mono
+
+                collected = gc.collect()
+                if collected > 0:
+                    logger.info(f'[Scan Watchdog] GC collected {collected} objects')
+
+            # Run one step iteration. Exceptions propagate to the
+            # outer run loop for fatal/transient classification.
+            self.scan_iterate()
+
+            # Small delay to prevent CPU throttling
+            time.sleep(0.001)
+
+    # ------------------------------------------------------------------
+    # Single step iteration
+    # ------------------------------------------------------------------
+
+    def scan_iterate(self, dt: float | None = None) -> None:
+        """Execute one iteration of the scan state machine."""
+        p = self._p  # shorthand
+
+        if p._aborted.is_set():
+            return
+        # Video encoding runs on FILE_WORKER in background -- do NOT block
+        # the next step waiting for it. Frames are already captured and queued.
+        if not p._scan_in_progress.is_set():
+            return
+        if not p._is_run_live():
+            return
+        if p._af_future is not None and not p._af_future.done():
+            return
+
+        if p._af_future is not None and not p._af_result_consumed:
+            # The autofocus run has resolved (we passed the not-done gate above).
+            # Handle it exactly once. AFE restores the pre-AF Z on a non-success,
+            # which leaves the stage in motion, so the polls that immediately
+            # follow hit the is_any_axis_moving early-return below WITHOUT clearing
+            # _af_future (it is cleared only at the step transition). Without this
+            # one-shot latch each of those ~1 kHz settle polls would re-enter and
+            # re-handle the same resolved future.
+            #
+            # The autofocus thread is the sole owner of recording the fault with
+            # a full traceback: it logs every non-abort exception before setting
+            # it on the future, but at that altitude it has no idea which protocol
+            # step or well the run belonged to. When AFE restored its pre-sweep Z,
+            # an AF fault mid-protocol is non-fatal -- the step still captures at
+            # that fallback Z and the run continues (no halt, no modal). When the
+            # restore itself failed, Z is unknown, and the position check before
+            # the capture ends the run instead. A fallback capture may be out of
+            # focus, so emit one step-correlated warning that ties a
+            # possibly-blurry frame back to its step and well.
+            # It is complementary to the AF thread's traceback (which it does not
+            # repeat), and the one-shot latch keeps it to a single line per fault
+            # rather than one per ~1 kHz settle poll. An intentional abort is not a
+            # fault, so it stays at debug.
+            p._af_result_consumed = True
+            _af_exc = p._af_future.exception()
+            _af_step = p._protocol.step_row(step_index=p._curr_step)
+            if isinstance(_af_exc, AutofocusAborted):
+                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step + 1}')
+            else:
+                # On the run's record either way: a later scan that focuses
+                # the step clears an earlier failure.
+                p._image_writer.note_autofocus(
+                    step_name=str(_af_step.get('Name', '?')),
+                    curr_step=p._curr_step,
+                    scan_count=p._scan_count,
+                    failed=_af_exc,
+                )
+            if _af_exc is not None and not isinstance(_af_exc, AutofocusAborted):
+                _af_well = _af_step.get('Well', '?')
+                logger.warning(
+                    f'[PROTOCOL] Autofocus failed at step {p._curr_step + 1} '
+                    f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
+                    f'capturing at fallback Z and continuing'
+                )
+                # A run whose only job was this autofocus ends on its failure:
+                # it did not focus. Recorded, not told -- the autofocus told it
+                # where its flight stopped. A position the failed restore lost
+                # is left to the step's position check, which ends the run
+                # 'position_lost' with its remedy.
+                if (
+                    p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS
+                    and not p._scope.motion.axes_without_position()
+                ):
+                    p._ending.set_if_unset(_ending_of_a_failed_autofocus(_af_exc))
+            _cam_gain = p._scope.camera.gain_db
+            _cam_exp = p._scope.camera.exposure_ms
+            logger.info(
+                f'[SCAN DIAG] AF gate passed: future.done()=True '
+                f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
+            )
+
+        remaining_scans = p._remaining_scans()
+        if remaining_scans <= 0:
+            return
+
+        # The step waits while the stage moves. The move is judged by the
+        # motion monitor, which gives an axis up once it stops progressing;
+        # an axis given up ends the run at its position check.
+        if p._scope.motion.is_any_axis_moving():
+            return
+
+        if not p._grease_redistribution_event.is_set():
+            return
+
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
+            return
+
+        # Fetch the step row only after the early-return gates above.
+        # scan_iterate polls at up to ~1 kHz while motion is in flight,
+        # and protocol.step_row() builds a fresh pandas Series per call --
+        # fetching before the is_any_axis_moving gate burned that allocation on
+        # every poll of every move.
+        step = p._protocol.step_row(step_index=p._curr_step)
+
+        # A z-stack slice never triggers its own sweep. Focusing every slice
+        # walks them all onto the same plane and the stack spans nothing, so
+        # the group is focused ONCE, at its first slice, and every slice is
+        # then placed from that result. The protocol answers where a sweep
+        # runs and in whose light.
+        sweep_step_index = p._protocol.focus_sweep_step(step_index=p._curr_step)
+        wants_af = sweep_step_index is not None
+        in_zstack = step['Z-Stack Group ID'] != -1
+
+        # --- Pipeline timing instrumentation ---
+        _t_settle = time.monotonic()
+        _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
+        logger.debug(f'[TIMING] Step {p._curr_step + 1} motion settle: {_settle_wait_ms:.1f}ms')
+
+        # Camera settings (gain, exposure) and LED_ON are handled by
+        # protocol_image_writer.capture() right before the actual frame grab.
+        # Setting them here would duplicate the commands.
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
+            return
+
+        if wants_af and p._af_future is None:
+            if p._aborted.is_set() or not p._scan_in_progress.is_set():
+                return
+
+            # A group's sweep runs in its reference slice's light, centred on
+            # its Z, the user's focus. The first slice fires it, and may be
+            # another channel's: a group holds every channel at the position,
+            # in Z order.
+            sweep_step = p._protocol.step_row(step_index=sweep_step_index)
+            p._af_future = p.autofocus_thread.run_autofocus(
+                objective_id=sweep_step['Objective'],
+                center_um=float(sweep_step['Z']),
+                save_results_to_file=p._save_autofocus_data,
+                results_dir=p._parent_dir,
+                write_batch=p._write_batch,
+                run=p._run_identity,
+                led_color=sweep_step['Color'],
+                led_illumination=sweep_step['Illumination'],
+                camera_gain=sweep_step['Gain'],
+                camera_exposure=sweep_step['Exposure'],
+                # Capture immediately follows AF on the same step, so it
+                # mostly uses the same channel + illumination AF just lit.
+                # Tell AF to skip its off + state-restore cycle so the
+                # capture inherits the LED state already established; a
+                # slice of another channel is switched by its step light.
+                keep_led_on=True,
+                # AF runs inside this protocol step, which holds the LED
+                # lease; AF drives the LEDs through a child of it.
+                led_lease=p._led_lease,
+                # The run whose only job is this autofocus ends on its
+                # failure, so the autofocus tells that failure as the ending.
+                ends_its_run=p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            )
+            return
+
+        if wants_af and p._af_future is not None and not p._af_future.done():
+            return
+
+        # Place the whole z-stack group the moment its focus is known, then move
+        # THIS slice to where the placement put it.
+        #
+        # A step's move is issued at the END of the previous step, from the
+        # stored frame. So the sweep's result arrives too late for the very
+        # slice that produced it: placement reaches slices 2..N (their moves
+        # have not gone out yet) and can never reach this one, which would
+        # otherwise capture wherever autofocus parked the stage and put the
+        # found focus at the stack's BOTTOM instead of its reference plane.
+        # Re-issuing the move here is what makes the stack span its range.
+        #
+        # Placing before the Auto_Gain arm below matters: gain converges on
+        # whatever the camera is grabbing, so arming first and moving second
+        # would converge it on a plane this slice does not capture.
+        #
+        # The move is one-shot per step. Placement is idempotent (a second
+        # call computes a zero shift), but the move is not -- re-issuing it on
+        # every poll would return here forever and the step would never reach
+        # its capture.
+        if wants_af and in_zstack and p._focus_placed_step != p._curr_step:
+            found_z = p._autofocus_runner.best_focus_position()
+            if found_z is not None:
+                moved = p._protocol.apply_zstack_group_focus(
+                    reference_step_idx=sweep_step_index, z=found_z
+                )
+                logger.info(
+                    f'[Capture   ] Z-stack group placed around Z={found_z} ({moved} slices)'
+                )
+                # Read the target back out of the stored frame rather than
+                # computing it: the frame is what every other slice's move is
+                # issued from, so reading it here keeps this slice on the same
+                # ladder as its siblings.
+                placed_z = float(p._protocol.step_row(step_index=p._curr_step)['Z'])
+                self._move_z_through_io(placed_z)
+                p._focus_placed_step = p._curr_step
+                # Let the next poll's motion gate settle the stage before the
+                # capture. That poll also re-reads the step row, so the frame
+                # this slice is saved with carries the placed Z.
+                return
+
+        # Light the channel LED, then arm continuous Auto_Gain against the lit
+        # scene. Hardware AG converges on whatever the camera is grabbing; if
+        # the LED is dark when AG arms, it rails on noise and the grab is mis-
+        # exposed. Lighting first lets AG settle toward the real exposure. The
+        # capture_still drain then waits the measured auto_gain settle frames
+        # (invalidated inside set_auto_gain) before grabbing -- no separate
+        # timed wait. The STEP_LIGHT illuminate makes this channel the only lit
+        # one; the capture path re-asserts the same channel idempotently. Arm
+        # once per step (_auto_gain_armed_step is a one-shot keyed on _curr_step).
+        if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
+            self._apply_step_light(step)
+            # Cap AG/AE exposure to this step's channel-class ceiling before
+            # arming. Set on the shared settings dict so capture() inherits it.
+            # step['Color'] is the layer; the per-install override map rides
+            # the run plan, so a headless run honours it too.
+            p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+                step['Color'], p._ag_ae_max_exposure_ms
+            )
+            p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
+                step['Color']
+            )
+            try:
+                p._scope.camera.apply(
+                    channel=step['Color'],
+                    gain_db=step['Gain'],
+                    exposure_ms=step['Exposure'],
+                    auto_gain=True,
+                    auto_gain_settings=p._autogain_settings,
+                    # A step's arm is unattended: the capture that locks it
+                    # records the state and moves on -- no notice, no re-arm
+                    # (the step-end disarm below is the only Off this path
+                    # needs). Left at the live-view default, every protocol
+                    # capture re-armed and popped a notice.
+                    resume_after_capture=False,
+                )
+                p._auto_gain_arm_refused = None
+            except CameraSettingRejected as rejected:
+                # The apply ran every write before raising. An arm that was
+                # not taken leaves the step at values nobody chose, so the
+                # capture tick does not capture it; a starting gain or
+                # exposure that was not taken only seeds what auto-gain then
+                # chooses, so it is told here and the step captures.
+                if 'auto_gain' in rejected.setting.split(','):
+                    p._auto_gain_arm_refused = rejected
+                else:
+                    p._auto_gain_arm_refused = None
+                    notifications.report_outcome(rejected, solicited=False, category='Camera')
+            p._auto_gain_armed_step = p._curr_step
+            # Return after arming; the next tick falls through to capture, where
+            # the auto_gain settle drain runs against the now-lit scene.
+            return
+
+        # The step commits from here on: its autofocus result is written into
+        # the protocol and its frame is saved with this position. Neither may
+        # happen where an axis position is not known -- the image would carry
+        # a position that is not true. Asked here, once, rather than at each
+        # path that can lose a position on the way (a failed autofocus
+        # restore reaches this point without raising). The raise ends the run
+        # through the run loop's classification.
+        lost_axes = p._scope.motion.axes_without_position()
+        if lost_axes:
+            raise AxisStateUnknownError(lost_axes)
+
+        # A found focus is written into the run's own copy of the protocol,
+        # whatever the run, so the step's next interval starts its sweep from
+        # it, as a z-stack group's placement above does. The caller's
+        # protocol is not this copy: only a completed Autofocus All Steps
+        # scan writes into it, at the run's end.
+        if wants_af:
+            new_z_pos = p._autofocus_runner.best_focus_position()
+            if new_z_pos is None:
+                logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
+            elif not in_zstack:
+                p._protocol.modify_step_z_height(step_index=p._curr_step, z=new_z_pos)
+
+        if wants_af:
+            p._autofocus_count += 1
+
+        # --- Capture ---
+        if remaining_scans > 0:
+            if not p._disable_saving_artifacts:
+                if p._separate_folder_per_channel:
+                    save_folder = p._run_dir / step['Color']
+                    save_folder.mkdir(parents=True, exist_ok=True)
+                else:
+                    save_folder = p._run_dir
+
+                output_format = p._image_capture_config.output_format_sequenced
+                if output_format == image_mode.OutputFormat.HYPERSTACK:
+                    output_format = image_mode.OutputFormat.TIFF
+
+                # Video encoding runs on FILE_WORKER after capture -- no gate needed
+
+                # Whether to hold this channel lit across the step boundary is
+                # the LED authority's STEP_BOUNDARY decision. The caller reads
+                # the protocol and precomputes primitives into the boundary
+                # ctx; the authority owns the policy (hold within a z-stack
+                # group, hold across a same-color move only on the opt-in, go
+                # dark across a scan boundary, hold on the final step when
+                # run-end will re-light this same channel). The decision is
+                # applied through the authority after the capture completes
+                # (below), not threaded into the capture leaf.
+                num_steps = p._protocol.num_steps()
+                same_color = False
+                same_zstack_group = False
+                is_scan_boundary = False
+                is_run_end_boundary = False
+                end_policy = LedEndPolicy.OFF
+                snapshot_lit = frozenset()
+                if p._curr_step < num_steps - 1:
+                    next_step = p._protocol.step_row(step_index=p._curr_step + 1)
+                    same_color = next_step['Color'] == step['Color']
+                    # A z-stack group holds every channel at one position, so the
+                    # color is judged too: the LED is held only across slices of
+                    # one channel.
+                    same_zstack_group = (
+                        same_color
+                        and step['Z-Stack Group ID'] != -1
+                        and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                    )
+                elif p._remaining_scans() <= 1:
+                    # Final step of the final scan -- the run-end boundary. The
+                    # authority holds this channel only if the run-end target
+                    # re-lights it, so the boundary off plus the restore a few
+                    # ms later is not a visible end-of-acquire flicker on a
+                    # live-view-lit z-stack. Feed the SAME end-state the cleanup
+                    # RUN_END uses (resolved once), so the boundary and cleanup
+                    # cannot disagree about what run-end will light.
+                    is_run_end_boundary = True
+                    end_policy = p._run_mode.led_end_policy
+                    snapshot_lit = resolve_end_state(
+                        end_policy, getattr(p, '_original_led_states', None)
+                    )
+                else:
+                    # Last step of a non-final scan: the inter-scan idle runs dark.
+                    is_scan_boundary = True
+                # An unmapped channel makes the boundary target empty. That
+                # covers three states: no LED board (diff is a no-op), a
+                # layer that drives no LED (nothing to hold), and a layer
+                # this unit's identity lacks (the light seam already said
+                # so loudly) -- in every case there is nothing to keep lit.
+                boundary_ctx = LedTransitionCtx(
+                    channel=p._scope.illumination.color2ch(step['Color']),
+                    illumination_ma=step['Illumination'],
+                    same_color=same_color,
+                    same_zstack_group=same_zstack_group,
+                    keep_led_across_moves=p._keep_led_between_steps,
+                    is_scan_boundary=is_scan_boundary,
+                    is_run_end_boundary=is_run_end_boundary,
+                    end_policy=end_policy,
+                    snapshot_lit=snapshot_lit,
+                )
+
+                # Illuminate the step's channel and confirm it on BEFORE the
+                # grab. The capture leaf no longer drives the LED -- it is a pure
+                # grab+save -- so the run-lifecycle illuminate lives here on the
+                # authority, the symmetric twin of the STEP_BOUNDARY off applied
+                # after capture. Idempotent on an AG step (already lit when AG
+                # armed) and on a held same-color channel.
+                self._apply_step_light(step)
+
+                _t_capture_start = time.monotonic()
+                completed = p._image_writer.capture(
+                    save_folder=save_folder,
+                    step=step,
+                    output_format=output_format,
+                    protocol=p._protocol,
+                    scan_count=p._scan_count,
+                    sum_count=step['Sum'],
+                    enable_image_saving=p._enable_image_saving,
+                    autogain_settings=p._autogain_settings,
+                    video_as_frames=p._video_as_frames,
+                    separate_folder_per_channel=p._separate_folder_per_channel,
+                    curr_step=p._curr_step,
+                    # Set by this step's own arm, the tick before; every
+                    # Auto_Gain step arms before it captures.
+                    arm_refused=p._auto_gain_arm_refused if step['Auto_Gain'] else None,
+                )
+                _t_capture_done = time.monotonic()
+                logger.debug(
+                    f'[TIMING] Step {p._curr_step + 1} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
+                )
+                # Record the scan's first completed acquisition; the run loop
+                # anchors scan 1's timelapse period on it (a scan whose every
+                # capture fails keeps the run-start fallback anchor).
+                if completed and p._scan_first_capture_t is None:
+                    p._scan_first_capture_t = _t_capture_start
+                # Drive the step-boundary LED decision through the authority,
+                # but only when the capture completed with the LED left lit. A
+                # failed or aborted capture has already turned the LED off as
+                # cleanup, so applying a hold target here would re-light it.
+                # The fatal gate closes the cross-thread race: a fatal abort
+                # raised from the file-IO thread (disk floor) can land while
+                # this capture is completing, and its force_off must not be
+                # undone by a boundary HOLD here. Keyed on the fatal flag,
+                # NOT the abort flag -- on a user Stop the boundary's common
+                # case is an EXTINGUISH, and skipping that would lengthen
+                # sample illumination; Stop behavior stays exactly as it was.
+                if completed and not p._fatal_abort_event.is_set():
+                    self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
+
+            else:
+                # No saving -- turn off LEDs manually (capture normally does this)
+                self.leds_off()
+
+        # Disable autogain when moving between steps. A refused disarm is
+        # reported and the run goes on: the next step writes its own values.
+        if step['Auto_Gain']:
+            try:
+                p._scope.camera.set_auto_gain(False, p._autogain_settings)
+            except CameraSettingRejected as rejected:
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
+
+        logger.debug(
+            f'[TIMING] Step {p._curr_step + 1} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
+        )
+
+        num_steps = p._protocol.num_steps()
+        if p._curr_step < num_steps - 1:
+            with p._protocol_state_lock:
+                p._curr_step = min(p._curr_step + 1, num_steps - 1)
+                p._af_future = None
+                # The handled-latch travels with the future pointer: the next
+                # step starts a fresh AF run whose outcome must be consumed anew.
+                p._af_result_consumed = False
+
+            self.go_to_step(step_index=p._curr_step)
+            return
+
+        # End of scan -- grease redistribution if needed
+        if p._autofocus_count >= 100:
+            self.perform_grease_redistribution()
+            p._autofocus_count = 0
+
+        p._scan_in_progress.clear()
+
+    # ------------------------------------------------------------------
+    # Motion
+    # ------------------------------------------------------------------
+
+    def default_move(
+        self, px: float | None = None, py: float | None = None, z: float | None = None
+    ) -> None:
+        """Move to plate coordinates, converting to stage coordinates.
+
+        Each axis move is submitted through ``io_executor.protocol_put``
+        and the protocol thread waits on the future, so all motor I/O
+        is serialized to one worker. Calling
+        ``scope.motion.move_xy`` directly from PROTOCOL_WORKER
+        instead would let motor serial writes from this thread
+        interleave with any io_executor-queued motor command (UI
+        sliders, manual moves) mid-step.
+        """
+        p = self._p
+        # Through the one conversion a step move takes, so only the axes this
+        # scope has are driven; against the plate the PROTOCOL stores, not
+        # the one the session has selected -- a run images the plate it was
+        # written for even if the operator has since picked a different
+        # one -- and with the offset this run started with.
+        sx, sy, sz = p._scope.protocols.stage_targets(
+            p._protocol, px, py, z, stage_offset=p._stage_offset
+        )
+        self._move_to_stage(sx, sy, sz)
+
+    def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
+        """Move X and Y as one request, then Z, each to its stage target given, and record it."""
+        p = self._p
+        if sx is not None and sy is not None:
+            self._move_xy_through_io(sx, sy)
+            p._target_x_pos = sx
+            p._target_y_pos = sy
+
+        # Z does not depend on X/Y: a step whose plate position is unknown
+        # still has a focus, and its image records that Z.
+        if z is not None:
+            self._move_z_through_io(z)
+            p._target_z_pos = z
+
+    def _move_xy_through_io(self, x_um: float, y_um: float) -> None:
+        """Start X and Y moving on the io lane as one request, and wait for the command, not the arrival.
+
+        The public member, under the run's taking: it goes through the run's
+        door on the lane, and a refusal raises rather than letting the step
+        capture wherever the last move left the stage; a refusal of either
+        axis moves neither. X, Y and Z are started one after another and
+        travel together; the run's tick waits for them by polling
+        ``is_any_axis_moving``.
+        """
+        self._p._scope.motion.start_move_xy(x_um, y_um)
+
+    def _move_z_through_io(self, z_um: float) -> None:
+        """Start Z moving on the io lane, as ``_move_xy_through_io`` starts X and Y."""
+        self._p._scope.motion.start_move_z(z_um)
+
+    def _move_turret_through_io(self, slot: int) -> None:
+        """Turn the turret to ``slot`` on the io lane and wait for it.
+
+        Z is not restored after the turret's safety park: the step's own Z
+        move follows at once and would overwrite it.
+        """
+        self._p._scope.motion.move_turret(slot, restore_z=False)
+
+    def go_to_step(self, step_index: int) -> None:
+        """Move to the position for a given protocol step."""
+        p = self._p
+        p._step_start_time = time.monotonic()
+        if p._aborted.is_set():
+            return
+        deliver(p._events, 'step_started', step_index)
+
+        # The targets a person's navigation to this step computes too, with
+        # the offset this run started with.
+        targets = p._scope.protocols.step_targets(
+            p._protocol, step_index, stage_offset=p._stage_offset
+        )
+        # The run turns the turret itself, on every host: a step's captures
+        # are only of its objective if that objective is in the light path.
+        if targets.turret_slot is not None:
+            self._move_turret_through_io(targets.turret_slot)
+        self._move_to_stage(targets.x_um, targets.y_um, targets.z_um)
+
+    # ------------------------------------------------------------------
+    # Grease redistribution
+    # ------------------------------------------------------------------
+
+    def perform_grease_redistribution(self):
+        p = self._p
+        p._grease_redistribution_event.clear()
+        result = p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+        if result is not PROTOCOL_ENQUEUED:
+            # The grease task did not enter the queue -- io executor disabled,
+            # protocol not running, or queue full all return a non-enqueued
+            # value -- so the matching set() inside _grease_redist_w_pos's
+            # finally will never run. Release the gate now or the next scan's
+            # scan_iterate gate blocks forever waiting on a task that does not
+            # exist, a silent hang the consecutive-failure cap cannot catch.
+            logger.warning(
+                '[PROTOCOL] Grease redistribution task was not queued '
+                '(io executor unavailable or queue full); skipping it and '
+                'releasing the scan gate'
+            )
+            p._grease_redistribution_event.set()
+
+    def _grease_redist_w_pos(self):
+        p = self._p
+        axis = 'Z'
+        _t_start = time.monotonic()
+        try:
+            # get_current_position is a cache read (a zero-serial-IO accessor);
+            # safe to call directly from any thread that needs the live z position.
+            z_orig = p._scope.motion.get_current_position(axis=axis)
+            # This routine RUNS on the io worker, so the lane runs these moves
+            # inline there: enqueueing them back onto the single worker and
+            # waiting could never complete.
+            p._scope.motion.move_z(0)
+
+            p._scope.motion.move_z(z_orig)
+
+            elapsed = time.monotonic() - _t_start
+            if elapsed > 30:
+                logger.warning(
+                    f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+                )
+            else:
+                logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
+        finally:
+            # ALWAYS release the gate, even if a move raised. A raise propagates
+            # to the io_executor task runner (which logs it with a traceback), so
+            # the failure is still surfaced -- but the gate MUST be released
+            # first or the next scan's scan_iterate gate blocks forever, a silent
+            # hang the consecutive-failure cap cannot catch (this runs
+            # fire-and-forget; nothing reaches the run loop).
+            p._grease_redistribution_event.set()
+
+    # ------------------------------------------------------------------
+    # LED control
+    # ------------------------------------------------------------------
+
+    def leds_off(self) -> None:
+        """Turn all LEDs off on the io lane; if the lane refuses, off regardless.
+
+        A darken never waits for permission: a refused one would leave the
+        sample lit, so it falls to the lease-bypassing safety off. UI update
+        is handled by the LED observer -- no manual callback needed.
+        """
+        p = self._p
+        try:
+            p._scope.illumination.leds_off()
+        except HardwareCommandRefusedError as refused:
+            logger.warning(f'[{p.LOGGER_NAME}] leds_off refused ({refused}); forcing all off')
+            p._scope.illumination.force_off()
+
+    def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
+        """Drive an LED lifecycle transition through the run's LED authority.
+
+        Submitted on the protocol IO queue so the transition's LED commands
+        serialize with the run's moves and captures -- a move must not race the
+        LEDs off at a well boundary. No-op when the run holds no lease.
+
+        Whether the submitter waits for completion is a property of the
+        transition (FIRE_AND_FORGET_TRANSITIONS): the scan-idle darkening is
+        enqueued without waiting, because on the failure-retry path the
+        executor carrying it may be the very thing that wedged the scan and
+        FIFO ordering already places the off before anything later.
+
+        A waited transition's failure is its waiter's to report, so its task
+        is silent and the lane does not report it a second time; a
+        fire-and-forget one has no waiter, and the lane is its reporter.
+        """
+        p = self._p
+        lease = getattr(p, '_led_lease', None)
+        if lease is None:
+            return
+        waited = transition not in FIRE_AND_FORGET_TRANSITIONS
+        fut = p._io_executor.protocol_put(
+            IOTask(action=lease.apply, args=(transition, ctx), silent_on_failure=waited),
+            return_future=True,
+        )
+        if fut:
+            if waited:
+                fut.result(timeout=30)
+        else:
+            lease.apply(transition, ctx)
+
+    def _apply_step_light(self, step) -> None:
+        """Illuminate the step's channel through the authority, confirmed on.
+
+        The LED must be lit before the camera grabs the step's frame (a dark
+        grab is mis-exposed) and before continuous auto-gain arms against the
+        scene. STEP_LIGHT is a confirm-on transition, so apply blocks until the
+        board reports the channel on; the short settle after covers the board's
+        on-to-stable lag before the grab. A same-color step that kept its channel
+        lit is left untouched (the diff self-skips), so consecutive z-slices do
+        not blink off->on. With no LED controller connected the light is
+        refused (``not_connected``) and the refusal ends the run as a
+        disconnect, before the step's frame is grabbed.
+        """
+        p = self._p
+        if p._aborted.is_set():
+            # Aborting: do not re-illuminate the sample during teardown -- the
+            # abort path is turning the LEDs off, and a stray on here flashes
+            # the sample at cancel time.
+            return
+        channel = p._scope.illumination.color2ch(step['Color'])
+        if channel is None and step['Color'] in common_utils.get_layers_with_led():
+            # The layer is one that drives an LED, so an unresolvable name
+            # here means this unit's identity has no such layer: the step
+            # will capture dark, deterministically, every scan. Say so per step -- a
+            # run in progress gets logs, not popups -- rather than let
+            # the frames come back dark with no named cause.
+            logger.error(
+                f"[Capture   ] This scope has no '{step['Color']}' LED "
+                f'channel; the step will capture dark.'
+            )
+        self.apply_led_transition(
+            LedTransition.STEP_LIGHT,
+            LedTransitionCtx(
+                channel=channel,
+                illumination_ma=step['Illumination'],
+            ),
+        )
+        if p._on_step_lit is not None:
+            p._on_step_lit(step['Color'])
+        time.sleep(0.005)

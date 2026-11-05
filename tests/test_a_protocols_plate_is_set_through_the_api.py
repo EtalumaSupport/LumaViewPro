@@ -17,10 +17,10 @@ import logging
 
 import pytest
 
-from modules.exceptions import CatalogueNameRefusedError
-from modules.labware_loader import CENTER_PLATE
-import modules.scope_session as scope_session_module
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CatalogueNameRefusedError
+from _lumascope.modules.labware_loader import CENTER_PLATE
+import _lumascope.modules.scope_session as scope_session_module
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 STORED_PLATE = '96 well microplate'

@@ -5,7 +5,7 @@ Bug
 ---
 Three call sites rolled disk-space checks by hand with shutil.disk_usage
 (protocol_image_writer.py:498-510, protocol_run_loop.py:113-133,
-main_display.py:236-254) while modules/common_utils.py:824 already
+main_display.py:236-254) while src/_lumascope/modules/common_utils.py:824 already
 exposed check_disk_space using psutil.disk_usage. On Windows partition
 mounts, shutil.disk_usage and psutil.disk_usage can disagree (different
 free-bytes calculation on network mounts / VSS / sparse filesystems);
@@ -39,8 +39,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules import common_utils
-from modules.common_utils import check_disk_space_ok
+from _lumascope.modules import common_utils
+from _lumascope.modules.common_utils import check_disk_space_ok
 from tests.case_walk import failing_cases
 
 
@@ -156,9 +156,9 @@ def test_propagates_oserror(monkeypatch):
 # ---------------------------------------------------------------------------
 
 SITES = {
-    'modules/protocol_image_writer.py': 'common_utils.check_disk_space_ok',
-    'modules/protocol_run_loop.py': 'check_disk_space_ok',
-    'modules/manual_recording.py': 'check_disk_space_ok',
+    'src/_lumascope/modules/protocol_image_writer.py': 'common_utils.check_disk_space_ok',
+    'src/_lumascope/modules/protocol_run_loop.py': 'check_disk_space_ok',
+    'src/_lumascope/modules/manual_recording.py': 'check_disk_space_ok',
 }
 
 

@@ -17,9 +17,9 @@ import shutil
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import StoredSettingReplacedNotice
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import StoredSettingReplacedNotice
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 TURRET_MODEL = 'LS850T'

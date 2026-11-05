@@ -18,26 +18,26 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from modules.activity_claim import ActivityClaim
-import modules.manual_recording as manual_recording_module
-import modules.stack_builder as stack_builder_module
-from modules.coord_transformations import PlatePosition
-from modules.exceptions import RecordingRefusedError
-from modules.image_utils import read_file_record
-from modules.layer_record import load_scope_models
-from modules.lumascope_api.illumination import LedReading, LedState
-from modules.lumascope_api.frame_record import ClockMapping
-from modules.manual_recording import ManualRecordingController
-from modules.notification_center import Severity
-from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
-from modules.scope_capabilities import FrameSize
-from modules.video_cadence import stall_threshold_s
+from _lumascope.modules.activity_claim import ActivityClaim
+import _lumascope.modules.manual_recording as manual_recording_module
+import _lumascope.modules.stack_builder as stack_builder_module
+from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.exceptions import RecordingRefusedError
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.layer_record import load_scope_models
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.lumascope_api.frame_record import ClockMapping
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+from _lumascope.modules.scope_capabilities import FrameSize
+from _lumascope.modules.video_cadence import stall_threshold_s
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from tests.camera_fakes import delivered_frame
-from modules.lumascope_api import AxisPosition, AxisState
-from modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.layer_record import release_colors
 from tests.frame_records import plate
 from tests.objective_records import objective
 from tests.post_processing_lane import a_post_processing_api
@@ -126,7 +126,7 @@ class _FakeImaging:
         the clock's reading, as a frame's time is."""
         return lambda: round(clock() * 1e9)
 
-    def changes_in_force(self, mapping=None, exclude_sources=()):
+    def changes_in_force(self, exclude_sources=()):
         # This scope records no change, so a recording's wait before its
         # first frame ends at once; the wait itself is pinned on the
         # simulated scope (test_a_recording_keeps_no_frame_from_before_a_change.py).
@@ -1601,7 +1601,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     @staticmethod
     def _described_frames(tmp_path):
-        from modules.image_utils import read_file_record
+        from _lumascope.modules.image_utils import read_file_record
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         described = [read_file_record(path) for path in folder.glob('*.tiff')]

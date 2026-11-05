@@ -15,7 +15,7 @@ import logging
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.motion_moves import axis_move

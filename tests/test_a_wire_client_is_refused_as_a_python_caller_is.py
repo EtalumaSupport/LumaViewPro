@@ -26,15 +26,15 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     RunWaitExpiredError,
     LiveFolderPathRefusedError,
     Remedy,
 )
-from modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
@@ -67,7 +67,7 @@ def client(session):
 def reported(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        'modules.notification_center.notifications.report_outcome',
+        '_lumascope.modules.notification_center.notifications.report_outcome',
         lambda exc, **kw: calls.append((exc, kw)),
     )
     return calls
@@ -135,8 +135,8 @@ def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_r
 
 def test_a_hardware_fault_answers_500_naming_which_fault_it_was(client, session, monkeypatch):
     """Each fault a driver raises answers its own reason and title, never one shared by all."""
-    import drivers.exceptions as driver_exceptions
-    from drivers.exceptions import HardwareError, MotionInterlockError
+    import _lumascope.drivers.exceptions as driver_exceptions
+    from _lumascope.drivers.exceptions import HardwareError, MotionInterlockError
 
     faults = [
         cls
@@ -431,7 +431,7 @@ def test_a_cancel_that_declares_no_cause_is_409(client, session, monkeypatch):
 def test_a_call_the_server_cannot_start_is_a_fault_and_holds_no_count(client, monkeypatch):
     import threading
 
-    import rest.jobs
+    import _lumascope.rest.jobs
 
     def cannot(_self):
         raise RuntimeError("can't start new thread")
@@ -447,7 +447,7 @@ def test_a_call_the_server_cannot_start_is_a_fault_and_holds_no_count(client, mo
     body = _problem(failed, 500)
     assert (body['kind'], body['detail']) == ('fault', _UNTYPED_FAULT_BODY)
     # The failed start left no call counted: one call still fits under a limit of one.
-    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 1)
     assert client.get('/api/v1/app_version').status_code == 200
 
 

@@ -27,13 +27,13 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from modules.coord_transformations import PlatePosition
-from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import parse_module
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 LAYER = 'Lumi'
 
@@ -89,7 +89,7 @@ def _run_on_the_calling_thread(impl, name, args=(), *, waiter, bound_s):
 
 def _run_capture(ctx, sum_count=1):
     """Drive the one manual-capture path and hand back its save calls."""
-    from modules.manual_capture import ManualCaptureController
+    from _lumascope.modules.manual_capture import ManualCaptureController
     from tests.settings_fixtures import complete_settings
 
     settings = complete_settings(
@@ -109,7 +109,7 @@ def _run_capture(ctx, sum_count=1):
     def _saved(scope, array, *, file_root, append, **kwargs):
         return pathlib.Path(ctx.tmp_path) / f'{file_root}{append}.tiff'
 
-    with patch('modules.manual_capture.save_image', side_effect=_saved) as save_one:
+    with patch('_lumascope.modules.manual_capture.save_image', side_effect=_saved) as save_one:
         capture.capture(
             false_color_on=False,
             bullseye=ctx.use_bullseye,
@@ -183,7 +183,7 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
                         if name == 'save_image':
                             yield inner.lineno
 
-        tree = parse_module('modules/manual_capture.py')
+        tree = parse_module('src/_lumascope/modules/manual_capture.py')
         offenders = []
         for node in ast.walk(tree):
             if isinstance(node, ast.If) and _reads_the_mode(node.test):
@@ -191,7 +191,7 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
             elif isinstance(node, ast.IfExp) and _reads_the_mode(node.test):
                 offenders.extend(_save_calls([node.body, node.orelse]))
         assert not offenders, (
-            f'modules/manual_capture.py chooses a save call on engineering_mode at '
+            f'src/_lumascope/modules/manual_capture.py chooses a save call on engineering_mode at '
             f'line(s) {offenders}. What a capture writes follows from which '
             'overlays are switched on, not from how the application was built.'
         )

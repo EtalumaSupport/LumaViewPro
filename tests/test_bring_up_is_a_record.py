@@ -17,30 +17,29 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import modules.lumascope_api._lumascope as lumascope_module
-import modules.settings_init as settings_init
-from drivers.exceptions import BoardNoReplyError
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverFallback, NoLiveDriverError
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import (
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MotorBoardUnavailableError,
-    NoHardwareDetectedNotice,
 )
-from modules.lumascope_api.bring_up import (
+from _lumascope.modules.lumascope_api.bring_up import (
     CAUSE_PHRASES,
     Part,
     PartStatus,
     SettingsSetAside,
 )
-from modules.notification_center import OutcomeKind
-from modules.scope_session import ScopeSession
+from _lumascope.modules.notification_center import OutcomeKind
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.settings_fixtures import complete_settings, installation_of_its_own
@@ -144,16 +143,16 @@ class TestEachPartNamesItsCause:
     def test_each_board_is_told_once_for_every_cause_with_that_cause_s_advice(
         self, monkeypatch, tmp_path, centre_posts
     ):
-        # One walk over the registry's causes, the LED's table naming all
-        # five, for both boards: an offender is a board and cause told other
-        # than once, by its own type, in its own words.
+        # One walk over the registry's five causes, the motor's table naming
+        # exactly those, for both boards: an offender is a board and cause
+        # told other than once, by its own type, in its own words.
         boards = (
             ('led', LedBoardUnavailableError, 'LEDBoard'),
             ('motor', MotorBoardUnavailableError, 'MotorBoard'),
         )
         offenders = []
         for part, notice, driver in boards:
-            for cause in sorted(LedBoardUnavailableError.causes):
+            for cause in sorted(MotorBoardUnavailableError.causes):
                 centre_posts.clear()
                 s = _bring_up(
                     monkeypatch,
@@ -348,9 +347,129 @@ class TestNothingCameUp:
             assert s.scope.no_hardware
             record = s.bring_up_record()
             assert [p.up for p in record.parts] == [False, False, False]
-            assert [n.reason for n in centre_posts] == [NoHardwareDetectedNotice.reason]
+            assert [n.reason for n in centre_posts] == ['no_hardware']
             assert centre_posts[0].kind == OutcomeKind.NOTICE
             assert centre_posts[0].shown
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+
+# The FX2 driver this installation did not load, as both registries carry it.
+_FX2_DECLINED = (DeclinedDriver('fx2', 'pyusb is not installed'),)
+
+
+def _no_camera_with_the_fx2_declined():
+    return NoLiveDriverError(
+        'camera', DriverFallback('not_detected', ('PylonCamera',), declined=_FX2_DECLINED)
+    )
+
+
+def _told(posts):
+    """Each fault told, as (category, reason)."""
+    return sorted((n.category, n.reason) for n in _outcomes(posts, OutcomeKind.FAULT))
+
+
+class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
+    """A declined FX2 driver is told where the scope may be an FX2 scope (LS560,
+    LS620, LS720), and never where the hardware has shown it is not: an
+    EL-0940 LED board found on USB, or a camera that came up."""
+
+    def test_an_el0940_with_its_led_board_up_is_told_its_camera_is_not_found(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        s = _bring_up(
+            monkeypatch, tmp_path, camera=_no_camera_with_the_fx2_declined(), microscope='LS850T'
+        )
+        try:
+            camera = _status(s.bring_up_record(), Part.CAMERA)
+            assert camera.cause == 'not_detected'
+            # The record still names the driver that did not load.
+            assert 'fx2: pyusb is not installed' in camera.detail
+            assert _told(centre_posts) == [('Camera', 'not_detected')]
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_scope_where_nothing_came_up_is_told_once_that_a_driver_did_not_load(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # An LS620 or LS560: every part is on the FX2.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            motor=DriverFallback('not_detected', ('MotorBoard',)),
+            led=DriverFallback('not_detected', ('LEDBoard',), declined=_FX2_DECLINED),
+            camera=_no_camera_with_the_fx2_declined(),
+            microscope='LS620',
+        )
+        try:
+            assert [n.reason for n in centre_posts] == ['no_hardware_driver_unavailable']
+            assert 'A driver did not load on this installation' in centre_posts[0].message
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_scope_whose_motor_came_up_is_told_a_driver_did_not_load_for_camera_and_leds(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # An LS720: its motor controller is its own board, its LEDs and camera the FX2.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('not_detected', ('LEDBoard',), declined=_FX2_DECLINED),
+            camera=_no_camera_with_the_fx2_declined(),
+            microscope='LS720',
+        )
+        try:
+            record = s.bring_up_record()
+            assert _status(record, Part.CAMERA).cause == 'camera_driver_unavailable'
+            assert _status(record, Part.LED).cause == 'led_driver_unavailable'
+            assert _told(centre_posts) == [
+                ('Camera', 'camera_driver_unavailable'),
+                ('Illumination', 'led_driver_unavailable'),
+            ]
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_camera_that_came_up_rules_the_fx2_out_for_a_missing_led_board(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # No FX2 scope has a camera that can come up with the FX2 declined.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('not_detected', ('LEDBoard',), declined=_FX2_DECLINED),
+            microscope='LS850T',
+        )
+        try:
+            assert _status(s.bring_up_record(), Part.LED).cause == 'not_detected'
+            assert _told(centre_posts) == [('Illumination', 'not_detected')]
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_an_led_board_found_on_usb_rules_the_fx2_out_for_a_missing_camera(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # A board the port search did not find is sent nothing, so one whose
+        # port is held was found: the EL-0940's.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('port_in_use', ('LEDBoard',), declined=_FX2_DECLINED),
+            camera=_no_camera_with_the_fx2_declined(),
+            microscope='LS850T',
+        )
+        try:
+            record = s.bring_up_record()
+            assert _status(record, Part.LED).cause == 'port_in_use'
+            assert _status(record, Part.CAMERA).cause == 'not_detected'
+            assert _told(centre_posts) == [
+                ('Camera', 'not_detected'),
+                ('Illumination', 'port_in_use'),
+            ]
         finally:
             s.shutdown()
             s.scope.disconnect()

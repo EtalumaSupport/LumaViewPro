@@ -16,9 +16,9 @@ import ast
 
 import pytest
 
-from modules.acquire_mode import AcquireMode
-from modules.exceptions import ArgumentRefusedError
-from tests.ast_seams import REPO_ROOT
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
 )
@@ -107,13 +107,7 @@ def _acquire_writes(path):
 
 
 def test_no_gui_code_writes_a_layers_acquire_mode_itself():
-    found = {
-        hit
-        for path in sorted(
-            p.relative_to(REPO_ROOT).as_posix() for p in (REPO_ROOT / 'ui').glob('*.py')
-        )
-        for hit in _acquire_writes(path)
-    }
+    found = {hit for path in tracked_files(('ui',), '*.py') for hit in _acquire_writes(path)}
     assert found == _UI_WRITERS_ALLOWED, (
         'a layer acquire mode is set through ScopeSession.set_channel_acquire; '
         f'these write it themselves: {sorted(found - _UI_WRITERS_ALLOWED)}'

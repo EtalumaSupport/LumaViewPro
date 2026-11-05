@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from tests.stock_channels import LED0, LED1

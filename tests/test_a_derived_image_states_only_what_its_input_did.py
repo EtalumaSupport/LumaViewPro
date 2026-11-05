@@ -22,11 +22,11 @@ import pandas as pd
 import tifffile as tf
 from PIL import Image
 
-from modules import image_utils
-from modules.layer_record import release_color, release_colors
-from modules.stitcher import Stitcher
-from modules.zproject_method import ZProjectMethod
-from modules.zprojector import ZProjector
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import release_color, release_colors
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.zproject_method import ZProjectMethod
+from _lumascope.modules.zprojector import ZProjector
 from tests.stock_channels import LED1, LED2
 
 _ACQUISITION_FIELDS = ('plate_pos_mm', 'z_pos_um', 'exposure_time_ms', 'gain_db', 'illumination_ma')

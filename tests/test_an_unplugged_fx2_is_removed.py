@@ -22,11 +22,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import BoardPortFailedError, CameraWriteFailedError
-from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
-from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import BoardPortFailedError, CameraWriteFailedError
+from _lumascope.modules.exceptions import (
+    CaptureFailedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import fx2_stream
 from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings

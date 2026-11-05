@@ -1,0 +1,9 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"press","path":"MotionSettings/motionsettings_postprocessing_accordion_id","settle_s":2,"note":"the drawer opens on Create Video"},
+  {"do":"shot","name":"../images/post-processing-drawer-ls850","path":"PostProcessingAccordion","note":"the drawer alone: Create Video open, the other five tools below it"},
+  {"do":"press","path":"PostProcessingAccordion/cell_count_accordion_id","settle_s":1},
+  {"do":"press","path":"PostProcessingAccordion/RoundedButton[text=Analyze]","settle_s":2,"note":"no image loaded, so no specimen in the shot"},
+  {"do":"shot","name":"../images/post-processing-object-analysis-ls850","path":"CellCountControls/BoxLayout[size_hint_x=0.45]","note":"the method's controls alone, the popup's left column, at the default method"},
+  {"do":"quit"}
+]

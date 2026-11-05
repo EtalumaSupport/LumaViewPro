@@ -16,7 +16,7 @@ import types
 import pandas as pd
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from ui.stage import Stage
 
 

@@ -14,7 +14,11 @@ does not declare is not checked.
 
 import pytest
 
-from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected, Refusal
+from _lumascope.modules.exceptions import (
+    CameraSettingOutOfRangeError,
+    CameraSettingRejected,
+    Refusal,
+)
 from tests.scope_fakes import set_camera_limits
 
 

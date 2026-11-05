@@ -16,9 +16,9 @@ import logging
 
 import pytest
 
-from modules.exceptions import ProtocolNotLoadedError
-import modules.protocol as protocol_module
-from modules.protocol import ProtocolFormatError
+from _lumascope.modules.exceptions import ProtocolNotLoadedError
+import _lumascope.modules.protocol as protocol_module
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.test_labware_name_resolution import _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,

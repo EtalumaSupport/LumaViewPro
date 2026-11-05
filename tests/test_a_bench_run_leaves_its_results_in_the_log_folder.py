@@ -75,7 +75,8 @@ def test_a_probe_under_hardware_leaves_its_verdict_in_the_log_folder(folder):
     # directory is handed the clone's path as its working directory.
     code = (
         'import sys\n'
-        "sys.path.insert(0, 'tests/capability')\n"
+        # The folder's own src/ first, so the run's log folder is the folder's.
+        "sys.path[:0] = ['tests/capability', 'src']\n"
         "sys.argv = ['verdict_probe', '--hardware']\n"
         'import harness\n'
         "harness.figure('a figure', 1)\n"
@@ -101,7 +102,8 @@ def test_a_probe_run_leaves_its_console_and_its_verdict_in_the_log_folder(folder
     # console file holds the traceback and every line before it.
     code = (
         'import sys\n'
-        "sys.path.insert(0, 'tests/capability')\n"
+        # The folder's own src/ first, so the run's log folder is the folder's.
+        "sys.path[:0] = ['tests/capability', 'src']\n"
         "sys.argv = ['console_probe']\n"
         'import harness\n'
         "harness.check('a check', True)\n"
@@ -135,7 +137,8 @@ def test_a_probe_ended_before_its_report_still_leaves_what_it_measured(folder):
     # A Ctrl-C mid-run: the figure recorded before it is in the verdict.
     code = (
         'import sys\n'
-        "sys.path.insert(0, 'tests/capability')\n"
+        # The folder's own src/ first, so the run's log folder is the folder's.
+        "sys.path[:0] = ['tests/capability', 'src']\n"
         "sys.argv = ['interrupted_probe']\n"
         'import harness\n'
         "harness.figure('measured before the interrupt', 7)\n"

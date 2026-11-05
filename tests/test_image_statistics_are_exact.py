@@ -9,7 +9,7 @@ are the lowest value at or above the fraction of the samples, numpy's
 
 import numpy as np
 
-from modules.image_utils import ImageStatistics, image_statistics
+from _lumascope.modules.image_utils import ImageStatistics, image_statistics
 
 
 def _expected(image: np.ndarray) -> ImageStatistics:

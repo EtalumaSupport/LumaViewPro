@@ -31,7 +31,7 @@ import pytest
 # mocks so the real libusb stack loads here. When the flag is NOT set,
 # this import succeeds against the conftest mock and the marker below
 # skips the tests at collection time.
-from drivers.fx2driver import (
+from _lumascope.drivers.fx2driver import (
     IMG_WIDTH,
     REG_EXPOSURE,
     REG_COL_SIZE,
@@ -45,7 +45,7 @@ from drivers.fx2driver import (
     frame_time_s,
     shutter_width_for,
 )
-from lvp_logger import logger
+from _lumascope.lvp_logger import logger
 
 
 @pytest.mark.fx2_hardware

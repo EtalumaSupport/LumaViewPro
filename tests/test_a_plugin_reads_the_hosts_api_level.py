@@ -11,8 +11,8 @@ saying what it added, so a plugin author can find which level to ask for.
 import re
 from pathlib import Path
 
-from modules.plugins import PLUGIN_API_LEVEL
-from modules.scope_session import ScopeSession
+from _lumascope.modules.plugins import PLUGIN_API_LEVEL
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 _TUTORIAL = Path(__file__).resolve().parents[1] / 'docs' / 'plugin-tutorial.md'

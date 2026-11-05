@@ -23,8 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.camera import HandOver
-from drivers.pyloncamera import (
+from _lumascope.drivers.camera import HandOver
+from _lumascope.drivers.pyloncamera import (
     _PYLON_ERR_BUFFER_CANCELED,
     _PYLON_ERR_PAYLOAD_DISCARDED,
     _PylonImageGrabWorker,
@@ -211,7 +211,7 @@ class TestTheCapturesQueueCarriesTheStoredFrame(unittest.TestCase):
     """
 
     def _worker_with_a_cropping_store(self):
-        from drivers.camera import FrameWindow, ImageHandlerBase
+        from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
 
         parent = MagicMock()
         parent._device_removed = False

@@ -16,8 +16,8 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
 
 import ui.post_processing as post_processing
 
@@ -40,7 +40,10 @@ def session(monkeypatch):
         message='done', output_folder=pathlib.Path('folder'), created=()
     )
     ctx.session.post_processing.count_cells.return_value = CellCountResult(
-        message='done', results_path=pathlib.Path('folder/results.csv'), counted=0
+        message='done',
+        results_path=pathlib.Path('folder/results.csv'),
+        method_path=pathlib.Path('folder/results_method.json'),
+        counted=0,
     )
     monkeypatch.setattr(post_processing._app_ctx, 'ctx', ctx)
 

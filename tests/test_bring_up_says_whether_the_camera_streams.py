@@ -7,7 +7,7 @@ camera logged a camera that was not there. It reads the imaging API now.
 
 import logging
 
-import modules.scope_session as scope_session_mod
+import _lumascope.modules.scope_session as scope_session_mod
 from tests.log_capture import messages, records_of
 from tests.test_bring_up_is_a_record import _bring_up
 

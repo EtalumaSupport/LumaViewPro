@@ -7,7 +7,7 @@ a section would be committed with the file rather than fail it. These pin
 what each reader gives.
 """
 
-from modules.api_surface import entries_of, markdown_of
+from _lumascope.modules.api_surface import entries_of, markdown_of
 
 DOC = """Set the gain, and answer with it.
 

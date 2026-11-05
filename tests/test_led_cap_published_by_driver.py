@@ -17,15 +17,15 @@ from dataclasses import replace
 
 import pytest
 
-from drivers import fx2driver
-from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, LEDBoard
-from drivers.null_ledboard import NullLEDBoard
-from drivers.registry import led_registry
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from modules.exceptions import ArgumentRefusedError
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
-from modules.scope_capabilities import ScopeCapabilities
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, LEDBoard
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.registry import led_registry
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
 from tests.scope_fakes import capabilities_of
@@ -81,7 +81,7 @@ def test_from_drivers_has_no_led_cap_parameter():
 
 
 def test_the_module_constant_is_gone():
-    import modules.scope_capabilities as caps_module
+    import _lumascope.modules.scope_capabilities as caps_module
 
     assert not hasattr(caps_module, 'LED_MAX_MA')
 

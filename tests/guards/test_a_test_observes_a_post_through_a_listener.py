@@ -29,7 +29,7 @@ import re
 from tests.ast_seams import MemberNames, iter_package_modules
 
 POST_METHODS = MemberNames(
-    'modules/notification_center.py',
+    'src/_lumascope/modules/notification_center.py',
     {'debug', 'info', 'notice', 'warning', 'error', 'critical', 'notify'},
 )
 
@@ -172,11 +172,11 @@ def test_the_guard_sees_every_form_it_refuses():
         'patch.object(notification_center.notifications, "error", spy)',
         'setattr(notifications, "critical", spy)',
         'for level in ("error", "warning"):\n    monkeypatch.setattr(notifications, level, spy)',
-        "monkeypatch.setattr('modules.notification_center.notifications.notify', spy)",
-        "monkeypatch.setattr(f'modules.lumascope_api.imaging.notifications.{level}', spy)",
+        "monkeypatch.setattr('_lumascope.modules.notification_center.notifications.notify', spy)",
+        "monkeypatch.setattr(f'_lumascope.modules.lumascope_api.imaging.notifications.{level}', spy)",
         "monkeypatch.setattr(manual_recording_module, 'notifications', recorder)",
-        "monkeypatch.setattr('modules.lumascope_api.imaging.notifications', fake)",
-        "with patch('modules.notification_center.notifications') as mock:\n    pass",
+        "monkeypatch.setattr('_lumascope.modules.lumascope_api.imaging.notifications', fake)",
+        "with patch('_lumascope.modules.notification_center.notifications') as mock:\n    pass",
         "with patch.object(imaging_mod, 'notifications') as mock:\n    pass",
         'notifications.warning = spy',
         'sio.notifications = centre',
@@ -187,8 +187,8 @@ def test_the_guard_sees_every_form_it_refuses():
 def test_the_guard_passes_what_observes_rightly():
     allowed = [
         'monkeypatch.setattr(notifications, "report_outcome", spy)',
-        "monkeypatch.setattr('modules.notification_center.notifications.report_outcome', spy)",
-        "patch('modules.protocol.notifications.report_outcome')",
+        "monkeypatch.setattr('_lumascope.modules.notification_center.notifications.report_outcome', spy)",
+        "patch('_lumascope.modules.protocol.notifications.report_outcome')",
         'monkeypatch.setattr(sio, "notifications", notification_center.notifications)',
         'monkeypatch.setattr(module.logger, "warning", spy)',
         "monkeypatch.setattr('ui.notification_popup.show_notification_popup', spy)",

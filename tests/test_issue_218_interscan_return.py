@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.protocol_run_loop import ProtocolRunLoop
+from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
 
 def _make_loop(remaining, aborted=False):

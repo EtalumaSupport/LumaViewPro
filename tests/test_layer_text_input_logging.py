@@ -18,7 +18,7 @@ what landed on the ``LVP.gui_interactions`` logger.
 import logging
 from types import SimpleNamespace
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from tests.settings_fixtures import settings_writer
 from ui.layer_control import LayerControl
 from tests.stock_channels import LED0

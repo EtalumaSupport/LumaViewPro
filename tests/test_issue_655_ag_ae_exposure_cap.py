@@ -38,14 +38,14 @@ import pathlib
 import threading
 from unittest.mock import MagicMock
 
-import modules.config_helpers as config_helpers
+import _lumascope.modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
 from tests.stock_channels import LED0, LED1, LED2
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-PYLON_SRC = REPO / 'drivers' / 'pyloncamera.py'
+PYLON_SRC = REPO / 'src/_lumascope/drivers' / 'pyloncamera.py'
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     from tests.protocol_drives import protocol_step, scan_ready_runner
 
     monkeypatch.setattr(
-        'modules.config_helpers.get_ag_ae_max_exposure_ms',
+        '_lumascope.modules.config_helpers.get_ag_ae_max_exposure_ms',
         lambda color, overrides: 456.0,
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
@@ -205,8 +205,8 @@ def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkey
     and a fluorescence step with auto-gain arms the camera at that class's
     ceiling: the whole chain, settings to driver, on the simulated scope.
     No caller hands the map in, so none can leave it out."""
-    from modules.run_events import RunEvents
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.run_events import RunEvents
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.protocol_drives import wait_until_not_running
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
@@ -280,7 +280,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
 def _video_step_autogain_call(scope, tmp_path, monkeypatch, autogain_settings):
     """Drive a protocol video step with auto-gain on and return the
     auto_gain_once kwargs the camera received at the first-frame re-arm."""
-    import modules.protocol_recording as protocol_recording
+    import _lumascope.modules.protocol_recording as protocol_recording
     from tests.video_step_drives import ElapsedClock, video_step_on
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))

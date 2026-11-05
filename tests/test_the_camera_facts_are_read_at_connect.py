@@ -11,8 +11,8 @@ size.
 
 from __future__ import annotations
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.scope_capabilities import FrameSize
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import capabilities_of
 
 

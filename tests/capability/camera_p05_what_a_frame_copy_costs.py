@@ -68,7 +68,7 @@ def _ms(timings):
 
 
 def _measure(session):
-    from modules import image_utils
+    from _lumascope.modules import image_utils
 
     scope = session.scope
     imaging = scope.imaging

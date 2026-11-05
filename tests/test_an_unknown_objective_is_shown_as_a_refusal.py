@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.exceptions import ObjectiveUnknownError
 from tests.scope_fakes import home_sim_scope
 
 
@@ -37,7 +37,7 @@ def popups(monkeypatch):
 
 
 def _assert_shown_once_as_a_refusal(centre_posts, popups, caplog, error):
-    from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
+    from _lumascope.modules.notification_center import REFUSAL_OPERATION_KEY, Severity
 
     shown = [n for n in centre_posts if n.severity in (Severity.WARNING, Severity.ERROR)]
     assert [(n.severity.name.lower(), n.message) for n in shown] == [('warning', str(error))]

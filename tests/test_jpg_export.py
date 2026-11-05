@@ -26,10 +26,10 @@ import numpy as np
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from modules import image_utils
+from _lumascope.modules import image_utils
 from tests.frame_records import frame_record, plate
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -107,7 +107,7 @@ def test_quality_affects_file_size():
 def test_save_image_routes_jpg_to_encoder(tmp_path):
     # The save path must route the JPG format to the display encoder and
     # resolve a .jpg extension -- proven by saving and decoding the file.
-    from modules import image_save
+    from _lumascope.modules import image_save
 
     path = image_save.save_image(
         _scope_with_depth(),
@@ -166,8 +166,8 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH):
 def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path, caplog):
     # The post-save log line reports the depth that was written; for a single
     # (non-summed) wide frame it must log the depth resolved at capture.
-    import modules.image_mode as image_mode
-    from modules import manual_capture
+    import _lumascope.modules.image_mode as image_mode
+    from _lumascope.modules import manual_capture
     from tests.log_capture import records_of
     from tests.test_manual_capture_member import _capture, _open_session, _settings
 

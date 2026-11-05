@@ -11,8 +11,8 @@ from collections import defaultdict
 
 import pytest
 
-from modules import config_helpers
-from modules.scope_session import ScopeSession
+from _lumascope.modules import config_helpers
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

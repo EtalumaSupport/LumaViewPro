@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Frame filename contract pins: modules/recording_frames.py is the one
+Frame filename contract pins: src/_lumascope/modules/recording_frames.py is the one
 home that builds AND parses the recording engine's on-disk names.
 
 The literal name shapes are pinned here on purpose: existing user
@@ -15,11 +15,11 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
 
-from modules import recording_frames
-from modules.image_mode import OutputFormat
-from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
-from modules.video_builder import VideoBuilder
-from modules.layer_record import release_colors
+from _lumascope.modules import recording_frames
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+from _lumascope.modules.video_builder import VideoBuilder
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 
 
@@ -149,7 +149,7 @@ class TestManualFramesTakeTheNumericSortBranch:
         writer.dropped_frames = 0
         with (
             patch.object(VideoBuilder, '_add_source_frame', _record_frame),
-            patch('modules.video_builder.VideoWriter', return_value=writer),
+            patch('_lumascope.modules.video_builder.VideoWriter', return_value=writer),
         ):
             builder = VideoBuilder(has_turret=False)
             builder._create_video(

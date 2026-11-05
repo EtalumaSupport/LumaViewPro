@@ -19,9 +19,9 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-import modules.common_utils as common_utils
-from modules.exceptions import RecordIncompleteError, RunImagesNotSavedError
-from modules.run_outcome import ENDING_TITLES, EndingLatch, FatalTold, RunEnding
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.exceptions import RecordIncompleteError, RunImagesNotSavedError
+from _lumascope.modules.run_outcome import ENDING_TITLES, EndingLatch, FatalTold, RunEnding
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -196,8 +196,8 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
 
     The file lane's floor check answers only once the run has settled, so
     the order holds however long the run takes on this host."""
-    import modules.lumascope_api.illumination as illumination
-    import modules.protocol_run_loop  # noqa: F401 -- binds the run's own floor check first
+    import _lumascope.modules.lumascope_api.illumination as illumination
+    import _lumascope.modules.protocol_run_loop  # noqa: F401 -- binds the run's own floor check first
 
     settled_at = []
     darkened_at = []
@@ -238,7 +238,7 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
 
 def test_a_crashed_run_loop_is_shown_once(tmp_path, monkeypatch, centre_posts):
     """It was latched and logged, and shown to nobody."""
-    import modules.protocol_run_loop as prl
+    import _lumascope.modules.protocol_run_loop as prl
 
     def crashes(self, run):
         raise RuntimeError('the loop died here')
@@ -269,7 +269,7 @@ def test_a_cleanup_that_raised_before_its_read_settles_the_fault_not_the_callers
     caller's word while the files report read the fault."""
     from tests.guards.test_run_ending import _cleanup_stub
 
-    import modules.sequenced_capture_runner as scr
+    import _lumascope.modules.sequenced_capture_runner as scr
 
     stub = _cleanup_stub(latched=_fatal('disk_space_critical'), forced_dark=True)
     # The video drain cleanup waits on raises before the read.
@@ -290,8 +290,8 @@ def test_files_lost_to_a_fault_shown_behind_a_stop_are_not_shown_again(centre_po
     the fault; behind a Stop it was shown a second time."""
     from tests.guards.test_run_ending import _cleanup_stub
 
-    import modules.sequenced_capture_runner as scr
-    from modules.protocol_image_writer import RunWriteBatch
+    import _lumascope.modules.sequenced_capture_runner as scr
+    from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
     stub = _cleanup_stub(latched=STOPPED)
     stub._ending.record_fatal(_fatal('disk_space_critical'))

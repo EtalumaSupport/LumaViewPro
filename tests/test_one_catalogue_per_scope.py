@@ -23,10 +23,10 @@ import time
 
 import pytest
 
-from modules.exceptions import InstallationFileError
-from modules.notification_center import Severity, notifications
-from modules.path_utils import get_source_root
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.path_utils import get_source_root
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -78,7 +78,7 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
 
 
 def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_path):
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     root = _data_folder(tmp_path)
     _add_extra_entries(root)

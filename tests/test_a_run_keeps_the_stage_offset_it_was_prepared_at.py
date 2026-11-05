@@ -6,7 +6,7 @@ The run reads the scope's offset once, when it is prepared, as a frozen
 steps, and the next run is prepared with the change.
 """
 
-from modules.coord_transformations import StageOffset
+from _lumascope.modules.coord_transformations import StageOffset
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.test_a_run_cannot_start_where_it_cannot_save import _prepare
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures

@@ -17,7 +17,7 @@ import pytest
 # tests/conftest.py at module-import time.
 
 
-from modules.protocol import Protocol
+from _lumascope.modules.protocol import Protocol
 from tests.protocol_fixtures import protocol_of
 
 
@@ -35,7 +35,7 @@ class TestAFRaceCondition:
     moves before it returns to its worker thread, and the Future resolves
     AFTER AFE.run() returns. The moves are started, not waited: the step
     runner, which polls p._af_future.done(), then holds its capture while
-    the stage reports motion (``modules/protocol_step_runner.py``).
+    the stage reports motion (``src/_lumascope/modules/protocol_step_runner.py``).
     """
 
     def test_final_moves_are_issued_before_run_returns(self, sim_scope, monkeypatch):
@@ -153,7 +153,7 @@ class TestVideoBitDepth:
         """Conversion preserves relative brightness, rescaling the full 16-bit
         range to 8-bit (value / 65535 * 255) -- the one canonical mapping shared
         with convert_to_8bit, not the legacy high-byte (/256) truncation."""
-        import modules.image_utils as image_utils
+        import _lumascope.modules.image_utils as image_utils
 
         frame = np.array([[0, 256, 512, 65535]], dtype=np.uint16)
         result = image_utils.convert_16bit_to_8bit(frame)

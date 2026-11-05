@@ -18,7 +18,7 @@ import pytest
 import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
-from modules.notification_center import Severity
+from _lumascope.modules.notification_center import Severity
 from tests.test_run_refusal_contract import _make_single_step_protocol
 
 

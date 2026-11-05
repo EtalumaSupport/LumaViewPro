@@ -14,8 +14,8 @@ import contextlib
 
 import pytest
 
-from modules.autofocus_thread import AutofocusThread
-from modules.scope_session import ScopeSession
+from _lumascope.modules.autofocus_thread import AutofocusThread
+from _lumascope.modules.scope_session import ScopeSession
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope

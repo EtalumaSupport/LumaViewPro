@@ -11,7 +11,7 @@ import pathlib
 
 import pytest
 
-from modules.protocol import ProtocolFormatError
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parents[1]

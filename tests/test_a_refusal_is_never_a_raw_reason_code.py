@@ -24,10 +24,10 @@ from unittest.mock import MagicMock
 import pytest
 
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.protocol_settings as ps
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
 
 @pytest.fixture

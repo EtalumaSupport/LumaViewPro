@@ -17,9 +17,9 @@ import threading
 
 import pytest
 
-from modules.autofocus_thread import AutofocusThread
-from modules.caller import Caller
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.autofocus_thread import AutofocusThread
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
 

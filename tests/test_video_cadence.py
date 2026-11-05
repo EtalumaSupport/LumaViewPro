@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Characterization tests for the manual-video cadence selector and the
-frame-budget arithmetic (modules/video_cadence.py).
+frame-budget arithmetic (src/_lumascope/modules/video_cadence.py).
 
 These pin the semantics the video-capture engine KEEPS through the port:
 slot cadence (one frame per 1/fps window, sampling not loss) and
@@ -24,7 +24,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from modules.video_cadence import CadenceSelector, frame_budget
+from _lumascope.modules.video_cadence import CadenceSelector, frame_budget
 
 settings.register_profile('ci', derandomize=True)
 if os.environ.get('CI'):

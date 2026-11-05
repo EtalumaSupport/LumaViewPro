@@ -30,10 +30,10 @@ import time
 
 import pytest
 
-from modules.caller import Caller, calling
-from modules.exceptions import AutofocusAborted
-from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.exceptions import AutofocusAborted
+from _lumascope.modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 
 # (run mode, who started it, under a diagnostic's claim)

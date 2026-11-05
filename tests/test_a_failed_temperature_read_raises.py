@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import CameraReadFailedError, HardwareError
+from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.test_ids_diagnostics import _Nodemap, _temp_nodemap, _TempNode, _TempSelector
 
@@ -56,7 +56,7 @@ def test_a_pylon_camera_whose_listed_sensors_are_all_unreadable_raises():
     nodemap.GetNode.return_value.GetEntries.return_value = [MagicMock()]
 
     with (
-        patch('drivers.pyloncamera.genicam.IsReadable', return_value=False),
+        patch('_lumascope.drivers.pyloncamera.genicam.IsReadable', return_value=False),
         pytest.raises(HardwareError, match='temperature'),
     ):
         cam.get_all_temperatures()
@@ -187,7 +187,7 @@ def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_sess
     camera lane is running; taken on the session's timer, the sample cannot
     hold the window, and its failure is the scheduler's to report, as a tick's.
     """
-    from modules.notification_center import Severity, notifications
+    from _lumascope.modules.notification_center import Severity, notifications
 
     # The thread that asks the API read is the one that waits on the lane; the
     # driver's own read always runs on the lane's thread, so it cannot tell.
@@ -229,7 +229,7 @@ def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_sess
 
 def test_the_support_report_writes_a_temperature_failure_as_one(sim_session, tmp_path):
     """The camera block still writes, and says the temperatures were not read."""
-    from modules.tech_support_report import TechSupportReport
+    from _lumascope.modules.tech_support_report import TechSupportReport
 
     report = TechSupportReport(sim_session)
     with patch.object(

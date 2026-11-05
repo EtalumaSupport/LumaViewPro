@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import camera_profiles
-from drivers.camera_profiles import lookup_profile, simulated_profile
-from modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.drivers import camera_profiles
+from _lumascope.drivers.camera_profiles import lookup_profile, simulated_profile
+from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 

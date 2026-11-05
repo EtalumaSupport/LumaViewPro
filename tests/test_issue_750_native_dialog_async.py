@@ -33,7 +33,7 @@ import pathlib
 import time
 import typing
 
-from modules.kivy_utils import schedule_ui
+from _lumascope.modules.ui_queue import schedule_ui
 
 _SRC_PATH = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'file_dialogs.py'
 _SRC = _SRC_PATH.read_text()
@@ -303,7 +303,7 @@ def test_raising_dialog_clears_guard_and_notifies(monkeypatch):
     """A primitive that raises (missing python3-tk, TclError, an osascript
     failure) must clear the guard and be reported -- a latched guard would
     silently lock out every dialog context until restart."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))

@@ -33,7 +33,9 @@ def _run(args, scratch, code=None):
     folder = linked_checkout(scratch)
     capability = folder / 'tests' / 'capability'
     env = dict(os.environ)
-    env['PYTHONPATH'] = os.pathsep.join([str(capability), str(folder), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join(
+        [str(capability), str(folder / 'src'), str(folder), env.get('PYTHONPATH', '')]
+    )
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
     command = [sys.executable, '-P', *(['-c', code] if code else []), *args]
     return subprocess.run(
@@ -59,9 +61,9 @@ def test_the_hardware_door_refuses_an_installation_with_no_current_json(tmp_path
         'import sys\n'
         "sys.argv = ['door_probe', '--hardware']\n"
         'import pathlib, harness\n'
-        'import modules.path_utils as path_utils\n'
+        'import _lumascope.modules.path_utils as path_utils\n'
         f'path_utils.get_source_root = lambda source_path=None: pathlib.Path({str(root)!r})\n'
-        'import modules.scope_session as scope_session\n'
+        'import _lumascope.modules.scope_session as scope_session\n'
         "scope_session.ScopeSession.create = lambda *a, **k: sys.exit('CREATE REACHED')\n"
         'with harness.hardware_session():\n'
         '    pass\n'

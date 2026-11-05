@@ -14,9 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules.exceptions import PostProcessingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 _SHAPE = (1000, 2000)

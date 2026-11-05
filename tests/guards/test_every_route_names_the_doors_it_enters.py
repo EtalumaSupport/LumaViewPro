@@ -7,7 +7,7 @@ held by someone else; a guarded write refuses the second. The reference
 states those refusals once, so no member's ``Raises:`` lists them, and a
 route's description adds them from the member's mark,
 ``@api(admitted_by=(...))``, each door's own ``Raises:`` read through
-``rest.problems.DOORS``. Unmarked, a route that refuses a held session
+``_lumascope.rest.problems.DOORS``. Unmarked, a route that refuses a held session
 would describe no such refusal. This guard holds the mark to the code over
 every member a REST route serves:
 
@@ -46,18 +46,28 @@ from collections.abc import Callable
 
 import pytest
 
-from modules import api_surface, wire_encoding
-from modules.api_surface import Admission, admitted_by_of
-from modules.post_processing_api import PostProcessingAPI
-from modules.lumascope_api.camera import CameraAPI
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import SequentialIOExecutor
-from rest import problems
-from rest import routes as rest_routes
+from _lumascope.modules import api_surface, wire_encoding
+from _lumascope.modules.api_surface import Admission, admitted_by_of
+from _lumascope.modules.post_processing_api import PostProcessingAPI
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.rest import problems
+from _lumascope.rest import routes as rest_routes
 from tests.ast_seams import Packages
 from tests.settings_fixtures import complete_settings
 
-_PROJECT = Packages({'modules', 'lib', 'drivers', 'rest'})
+# The project's code, read as folders (where a function's code is) and as
+# the head of a module name (where a class or an import comes from).
+_PROJECT_FOLDERS = Packages(
+    {
+        'src/_lumascope/modules',
+        'src/_lumascope/lib',
+        'src/_lumascope/drivers',
+        'src/_lumascope/rest',
+    }
+)
+_PROJECT = Packages({'_lumascope'}, under='src')
 _LANE_DOORS = {
     SequentialIOExecutor.call,
     SequentialIOExecutor.call_overriding,
@@ -69,7 +79,9 @@ _DOOR_OF = {function: door for door, function in problems.DOORS.items()}
 # The packages whose files are the project's code, and the argument door's
 # own file, read by where a function's code is: a wrapper takes its
 # wrapped function's module name (``functools.wraps``), not its file.
-_PACKAGES = tuple(str(pathlib.Path(api_surface.__file__).parents[1] / p) + os.sep for p in _PROJECT)
+_PACKAGES = tuple(
+    str(pathlib.Path(api_surface.__file__).parents[3] / p) + os.sep for p in _PROJECT_FOLDERS
+)
 _ARGUMENT_DOOR_FILE = api_surface.__file__
 
 
@@ -410,7 +422,7 @@ class _Scope:
                             return {_FOREIGN}
                         module = importlib.import_module(n.module)
                         if not hasattr(module, alias.name):
-                            # A submodule not imported yet: ``from lib import memory_profile``.
+                            # A submodule not imported yet: ``from _lumascope.lib import memory_profile``.
                             return _known(importlib.import_module(f'{n.module}.{alias.name}'))
                         return _known(getattr(module, alias.name))
             if isinstance(n, ast.Import):

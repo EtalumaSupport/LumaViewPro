@@ -5,11 +5,11 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.debounce import debounce
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.debounce import debounce
 from ui.image_settings import AccordionItemXyStageControl
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from ui.ui_helpers import (
     go_to_bookmark,
     move_home,

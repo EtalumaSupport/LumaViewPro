@@ -22,8 +22,8 @@ import pathlib
 
 import pytest
 
-from modules import wire_encoding
-from modules.exceptions import Remedy
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.exceptions import Remedy
 
 
 @pytest.fixture(scope='module')
@@ -85,18 +85,18 @@ def test_a_duration_parameter_has_no_inbound_form(classes, aliases):
 def test_a_record_is_built_from_its_published_fields(classes, aliases):
     sent = {'member': 'recover_file_writer', 'confirm_text': 'Go', 'cancel_text': 'Stay'}
 
-    assert _decode(sent, 'modules.exceptions.Remedy', classes, aliases) == Remedy(**sent)
+    assert _decode(sent, '_lumascope.modules.exceptions.Remedy', classes, aliases) == Remedy(**sent)
 
 
 def test_a_record_inside_an_array_or_object_is_built_as_a_record_alone_is(classes, aliases):
     sent = {'member': 'recover_file_writer', 'confirm_text': 'Go', 'cancel_text': 'Stay'}
 
-    assert _decode([sent], 'tuple[modules.exceptions.Remedy, ...]', classes, aliases) == (
-        Remedy(**sent),
-    )
-    assert _decode({'a': sent}, 'dict[str, modules.exceptions.Remedy]', classes, aliases) == {
-        'a': Remedy(**sent)
-    }
+    assert _decode(
+        [sent], 'tuple[_lumascope.modules.exceptions.Remedy, ...]', classes, aliases
+    ) == (Remedy(**sent),)
+    assert _decode(
+        {'a': sent}, 'dict[str, _lumascope.modules.exceptions.Remedy]', classes, aliases
+    ) == {'a': Remedy(**sent)}
 
 
 def test_an_alias_is_read_through_to_its_value(classes, aliases):
@@ -107,7 +107,10 @@ def test_an_alias_is_read_through_to_its_value(classes, aliases):
 
 def test_a_parameter_the_host_fills_is_not_sent(classes, aliases):
     assert wire_encoding.inbound('Callable[[int, str], None] | None', classes, aliases) == ()
-    assert wire_encoding.inbound('modules.run_events.RunEvents | None', classes, aliases) == ()
+    assert (
+        wire_encoding.inbound('_lumascope.modules.run_events.RunEvents | None', classes, aliases)
+        == ()
+    )
 
 
 @pytest.mark.parametrize(
@@ -135,7 +138,7 @@ def test_a_type_a_client_cannot_send_unambiguously_is_refused(classes, aliases, 
 
 
 def test_every_session_parameter_has_an_inbound_form(classes, aliases):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     seen, queue, parameters = set(), [ScopeSession], 0
     while queue:

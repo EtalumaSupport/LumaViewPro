@@ -18,8 +18,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.graph_analysis import Trendline
-from modules.zproject_method import ZProjectMethod
+from _lumascope.modules.graph_analysis import Trendline
+from _lumascope.modules.zproject_method import ZProjectMethod
 
 import ui.post_processing as post_processing
 

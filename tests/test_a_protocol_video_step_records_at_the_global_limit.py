@@ -28,9 +28,9 @@ import threading
 
 import pytest
 
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
-from modules.video_cadence import video_sizing_fps
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.video_cadence import video_sizing_fps
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import _settings
@@ -59,6 +59,13 @@ def _video_step_protocol():
 @pytest.mark.slow
 def test_a_video_step_with_no_limit_keeps_every_delivered_frame(session, tmp_path):
     done = threading.Event()
+    # Every frame the camera stores, by its counter: a frame dropped before
+    # the store is no frame the camera delivered, and a gap in the counter
+    # is no frame the step skipped.
+    delivered = set()
+    session.scope.imaging.add_frame_listener(
+        lambda frame: delivered.add(frame.chunks['FrameID']), name='test_delivered'
+    )
 
     run = session.protocol_runner().start_single_scan(
         protocol=_video_step_protocol(),
@@ -75,9 +82,8 @@ def test_a_video_step_with_no_limit_keeps_every_delivered_frame(session, tmp_pat
     assert manifest['configured_fps'] is None, 'a step with no limit records at a rate'
     frame_ids = [frame['chunks']['FrameID'] for frame in manifest['frame_index']]
     assert frame_ids, 'the step recorded no frame'
-    assert frame_ids == list(range(frame_ids[0], frame_ids[0] + len(frame_ids))), (
-        f'the step skipped frames the camera delivered: {frame_ids}'
-    )
+    skipped = sorted(i for i in delivered if frame_ids[0] <= i <= frame_ids[-1]) != frame_ids
+    assert not skipped, f'the step kept {frame_ids} of the delivered {sorted(delivered)}'
 
 
 def test_a_recording_is_sized_at_the_limit_else_the_delivered_rate():

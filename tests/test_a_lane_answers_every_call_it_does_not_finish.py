@@ -15,16 +15,16 @@ import threading
 
 import pytest
 
-from modules.activity_claim import ActivityClaim, acting
-from modules.exceptions import (
+from _lumascope.modules.activity_claim import ActivityClaim, acting
+from _lumascope.modules.exceptions import (
     FileWriterReplacedError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
     SessionClosingError,
 )
-from modules.executor_registry import session_lane_closed
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import (
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import (
     PRIORITY_HIGH,
     PRIORITY_MED,
     IOTask,

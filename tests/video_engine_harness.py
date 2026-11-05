@@ -14,7 +14,7 @@ import threading
 
 import numpy as np
 
-from modules.notification_center import Severity
+from _lumascope.modules.notification_center import Severity
 
 
 class FakeClock:

@@ -9,7 +9,7 @@ an IDS-vs-Pylon comparison) unobservable. The fix caches + primes a single
 Process handle so the reading is the delta over the inter-snapshot interval.
 """
 
-from modules import common_utils
+from _lumascope.modules import common_utils
 
 
 def test_self_process_is_cached(monkeypatch):

@@ -9,22 +9,21 @@ steady clock and records the mapping, half the bracket being how far off
 it can be; a camera without a latch records none.
 
 A still's time is its first frame's start on that clock, carried to the
-host's wall clock through the same mapping: the frame validity judges it
-by, so one instant means one thing. A camera without a latch, or a frame
+host's wall clock through the same mapping. A camera without a latch, or a frame
 that came without its tick, states the frame's arrival instead.
 """
 
 from __future__ import annotations
 
 import datetime
-import logging
 import threading
 
 import pytest
 
-from drivers import host_clock
-from modules import wall_time
-from modules.lumascope_api.frame_record import (
+from _lumascope.drivers import host_clock
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.modules import wall_time
+from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
     FrameTime,
     TimestampSource,
@@ -109,7 +108,7 @@ def _capture_lines(caplog):
 
 
 def test_a_captured_frame_mapped_through_its_record_began_before_it_arrived(sim_scope, caplog):
-    caplog.set_level(logging.INFO, logger='LVP.api')
+    caplog.set_level(VERBOSE, logger='LVP.api')
     imaging = sim_scope.imaging
     arrivals = {}
     lock = threading.Lock()
@@ -143,7 +142,7 @@ def test_a_captured_frame_mapped_through_its_record_began_before_it_arrived(sim_
 
 
 def test_a_camera_without_a_latch_records_no_mapping(caplog):
-    caplog.set_level(logging.INFO, logger='LVP.api')
+    caplog.set_level(VERBOSE, logger='LVP.api')
     scope = build_scope(simulate=True, sim_model='LS620', register_atexit=False)
     try:
         bind_settings_like_a_session(scope)

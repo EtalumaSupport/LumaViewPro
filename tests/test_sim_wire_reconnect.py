@@ -17,21 +17,21 @@ import time
 
 import pytest
 
-import drivers.sim_wire.backend as sim_backend
+import _lumascope.drivers.sim_wire.backend as sim_backend
 from fastapi.testclient import TestClient
-from lib.lumascope_error import RefusalCause
-from modules.exceptions import (
+from _lumascope.lib.lumascope_error import RefusalCause
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
     MissingPart,
     MoveFaultError,
 )
-from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
-from modules.lumascope_api.diagnostics import MotorBoardInfo
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api.diagnostics import MotorBoardInfo
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 pytestmark = pytest.mark.firmware_tier

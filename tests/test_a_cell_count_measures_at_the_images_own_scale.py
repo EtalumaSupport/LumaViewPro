@@ -19,16 +19,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from modules import image_utils, post_processing
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.cell_count_method import (
+from _lumascope.modules import image_utils, post_processing
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from _lumascope.modules.cell_count_method import (
     CellCountFilters,
     CellCountMethod,
     FilterBounds,
     saved_form,
 )
-from modules.post_processing import PostProcessing, load_cell_count_method
-from modules.layer_record import release_color
+from _lumascope.modules.post_processing import PostProcessing, load_cell_count_method
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED1
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)
@@ -85,7 +85,7 @@ def test_the_default_method_states_no_scale_and_filters_no_size():
 def test_the_count_scale_is_the_override_else_the_images_own(
     override, image_pixel_size_um, expected
 ):
-    from modules.post_processing import cell_count_scale
+    from _lumascope.modules.post_processing import cell_count_scale
 
     method = CellCountMethod(pixels_per_um=override)
 

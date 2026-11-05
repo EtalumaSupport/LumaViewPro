@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from tests.gesture_fakes import inline_submit_reported
 from ui.layer_control import LayerControl
 from tests.stock_channels import LED0

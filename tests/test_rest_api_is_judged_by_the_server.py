@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""``rest_api`` has one judge, the server's (``rest.server.build_server``), and fails closed.
+"""``rest_api`` has one judge, the server's (``_lumascope.rest.server.build_server``), and fails closed.
 
 A ``rest_api`` the server cannot use is refused with
 ``RestServerNotStartedError`` naming each value, before anything is bound
 or started, from every host: the builder a program calls, the GUI's
-``serve_beside``, and ``python -m rest``, which prints it and exits 1. The
+``serve_beside``, and ``python -m lumascope.rest``, which prints it and exits 1. The
 load neither judges nor replaces the section, so a session comes up on it
 and a save writes back what the user wrote.
 """
@@ -16,9 +16,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import RestServerNotStartedError
-from modules.scope_session import ScopeSession
-from rest.server import build_server, serve_beside
+from _lumascope.modules.exceptions import RestServerNotStartedError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.server import build_server, serve_beside
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 # A section the server serves: this computer only, every client.
@@ -120,11 +120,11 @@ def _installation_with(rest_api: dict):
 
 
 def test_the_headless_server_prints_it_and_exits_1(monkeypatch, capsys):
-    import modules.path_utils
-    from rest.__main__ import main
+    import _lumascope.modules.path_utils
+    from _lumascope.rest.headless import main
 
     root = _installation_with({**_SERVABLE, 'enabled': False, 'port': 70000})
-    monkeypatch.setattr(modules.path_utils, 'get_source_root', lambda *_args: root)
+    monkeypatch.setattr(_lumascope.modules.path_utils, 'get_source_root', lambda *_args: root)
 
     assert main(['--simulate']) == 1
     said = capsys.readouterr()

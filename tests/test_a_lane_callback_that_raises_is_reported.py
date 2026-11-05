@@ -9,11 +9,11 @@ the default log level; now each is reported.
 
 import pytest
 
-from modules import kivy_utils
-from modules.notification_center import notifications
-from modules.scope_session import ScopeSession
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules import ui_queue
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 class _CallbackError(RuntimeError):
@@ -47,7 +47,7 @@ def test_a_task_callback_that_raises_is_reported(reported):
 
 def test_a_headless_scheduled_callback_is_reported(reported):
     ScopeSession.set_ui_dispatcher(None)
-    kivy_utils.schedule_ui(lambda dt: _raising())
+    ui_queue.schedule_ui(lambda dt: _raising())
 
     [(ex, _kw)] = reported
     assert isinstance(ex, _CallbackError)

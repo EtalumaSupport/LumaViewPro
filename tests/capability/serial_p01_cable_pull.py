@@ -24,7 +24,7 @@ import time
 import traceback
 
 from harness import HARDWARE, banner, check, figure, hardware_session, make_session, report
-from drivers.exceptions import HardwareError
+from _lumascope.drivers.exceptions import HardwareError
 
 # Gap between the two commands at each stage, as K68's simulator run had it.
 _COMMAND_GAP_S = 2.0

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The event stream carries what the scope tells its listeners, to a wire client.
 
-``GET /api/v1/events`` (``rest.events``): the first event is ``status``;
+``GET /api/v1/events`` (``_lumascope.rest.events``): the first event is ``status``;
 each listener member's event follows as its declared record; a run's events
 each name the run by its job, its first ones included, which can come
 before the call that started it returns; every job's end is ``job_ended``,
@@ -33,14 +33,14 @@ import httpx
 import pytest
 import uvicorn
 
-import rest.events
-from modules import wire_encoding
-from modules.api_surface import api_fields
-from modules.exceptions import LiveFolderPathRefusedError
-from modules.notification_center import notifications
-from modules.protocol import Protocol
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+import _lumascope.rest.events
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import api_fields
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
@@ -304,7 +304,7 @@ def test_a_field_that_can_hold_a_live_object_is_left_out_while_it_holds_none(ses
     # is the test's own, sent on a stream the way the server builds one; the
     # server does not hand its stream out, so this reads the stream itself.
     classes, aliases = wire_encoding.project_classes(), wire_encoding.project_aliases()
-    stream = rest.events.EventStream(
+    stream = _lumascope.rest.events.EventStream(
         session,
         lambda value: wire_encoding.encode(
             value,
@@ -390,7 +390,7 @@ def test_a_reconnect_is_sent_what_it_missed_and_no_status(client):
 
 
 def test_a_reconnect_past_what_is_held_is_sent_reset_then_status(session, monkeypatch):
-    monkeypatch.setattr(rest.events, 'BUFFER', 2)
+    monkeypatch.setattr(_lumascope.rest.events, 'BUFFER', 2)
     with _serving(session) as client:
         with _reading(client) as stream:
             stream.until('status')
@@ -410,7 +410,7 @@ def test_a_reconnect_past_what_is_held_is_sent_reset_then_status(session, monkey
 
 
 def test_a_quiet_stream_carries_a_comment(client, monkeypatch):
-    monkeypatch.setattr(rest.events, 'KEEPALIVE_S', 0.05)
+    monkeypatch.setattr(_lumascope.rest.events, 'KEEPALIVE_S', 0.05)
     with _reading(client) as stream:
         stream.until('status')
         quiet = stream.next()
@@ -528,7 +528,7 @@ def test_the_first_event_says_how_soon_to_reconnect(client):
     with _reading(client) as stream:
         first = stream.next()
 
-    assert (first['event'], first['retry']) == ('status', str(rest.events.RECONNECT_MS))
+    assert (first['event'], first['retry']) == ('status', str(_lumascope.rest.events.RECONNECT_MS))
 
 
 def test_a_poll_answers_the_events_held_after_an_id_and_the_id_to_ask_after_next(client):
@@ -553,7 +553,7 @@ def test_a_poll_answers_the_events_held_after_an_id_and_the_id_to_ask_after_next
 
 
 def test_a_poll_after_an_id_no_longer_held_answers_reset_then_status(session, monkeypatch):
-    monkeypatch.setattr(rest.events, 'BUFFER', 2)
+    monkeypatch.setattr(_lumascope.rest.events, 'BUFFER', 2)
     with _serving(session) as client:
         for _ in range(3):
             client.post(

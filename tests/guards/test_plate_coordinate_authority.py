@@ -21,14 +21,14 @@ from typing import ClassVar
 
 import pytest
 
-from modules.coord_transformations import (
+from _lumascope.modules.coord_transformations import (
     AxisLimits,
     CoordinateTransformer,
     PlateLocation,
     StageOffset,
 )
-from modules.exceptions import PositionOutOfRangeError
-from tests.ast_seams import REPO_ROOT
+from _lumascope.modules.exceptions import PositionOutOfRangeError
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 # The shipped 96-well geometry and a stock LS850T's travel. The reachable
 # plate band these produce -- X 2.26-122.26, Y 1.48-81.48 -- is the
@@ -137,7 +137,7 @@ def _refuses(move, *args, **kwargs) -> bool:
 class TestHatchesAndBoundaries:
     def test_missing_stage_offset_refuses_legibly(self):
         """A scope no session bound has no offset; that must not be a TypeError."""
-        from modules.exceptions import ConfigError
+        from _lumascope.modules.exceptions import ConfigError
         from tests.scope_fakes import build_scope
 
         scope = build_scope(simulate=True)
@@ -174,11 +174,11 @@ class TestTheConversionLeftTheCallers:
 
     Four modules are exempt, each for its own reason.
 
-    ``modules/lumascope_api/runtime_state.py`` owns the pair, and
-    ``modules/lumascope_api/motion.py``'s plate-frame move is the bound
+    ``src/_lumascope/modules/lumascope_api/runtime_state.py`` owns the pair, and
+    ``src/_lumascope/modules/lumascope_api/motion.py``'s plate-frame move is the bound
     itself, converting after it has checked the typed number.
 
-    ``modules/protocol.py`` ENUMERATES rather than commands -- protocol
+    ``src/_lumascope/modules/protocol.py`` ENUMERATES rather than commands -- protocol
     validation and tile generation convert in order to test each
     candidate and report them all -- so it legitimately wants the value.
 
@@ -194,10 +194,10 @@ class TestTheConversionLeftTheCallers:
     """
 
     SANCTIONED: ClassVar[set[str]] = {
-        'modules/protocol.py',
-        'modules/lumascope_api/motion.py',
-        'modules/lumascope_api/protocols.py',
-        'modules/lumascope_api/runtime_state.py',
+        'src/_lumascope/modules/protocol.py',
+        'src/_lumascope/modules/lumascope_api/motion.py',
+        'src/_lumascope/modules/lumascope_api/protocols.py',
+        'src/_lumascope/modules/lumascope_api/runtime_state.py',
     }
 
     def test_only_the_enumerators_call_the_raw_transform(self):
@@ -208,11 +208,10 @@ class TestTheConversionLeftTheCallers:
         call = re.compile(r'\.plate_to_stage\s*\(')
 
         offenders = []
-        for path in sorted([*REPO_ROOT.glob('ui/**/*.py'), *REPO_ROOT.glob('modules/**/*.py')]):
-            relative = path.relative_to(REPO_ROOT).as_posix()
+        for relative in tracked_files(('ui', 'src/_lumascope/modules')):
             if relative in self.SANCTIONED:
                 continue
-            for number, line in enumerate(path.read_text().splitlines(), 1):
+            for number, line in enumerate((REPO_ROOT / relative).read_text().splitlines(), 1):
                 if call.search(line):
                     offenders.append(f'{relative}:{number}')
 

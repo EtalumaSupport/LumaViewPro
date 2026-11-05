@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -66,7 +66,7 @@ def test_the_running_model_is_reported_as_nothing(ls620_session, heard):
 
 
 def test_an_unknown_model_is_refused_and_reported_as_nothing(ls620_session, heard):
-    from modules.exceptions import ScopeModelUnknownError
+    from _lumascope.modules.exceptions import ScopeModelUnknownError
 
     with pytest.raises(ScopeModelUnknownError):
         ls620_session.select_model('LS9999')

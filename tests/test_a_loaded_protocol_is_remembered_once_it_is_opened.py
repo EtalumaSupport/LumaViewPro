@@ -11,7 +11,7 @@ path where it was.
 
 import pytest
 
-from modules.protocol import ProtocolFormatError
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.test_labware_name_resolution import _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     FILE_PLATE,
@@ -33,6 +33,18 @@ def test_an_opened_protocol_is_on_its_plate_and_remembered(session, tmp_path):
 
     assert protocol.labware_id() == FILE_PLATE
     assert session.settings['protocol']['labware'] == FILE_PLATE
+    assert _remembered(session) == str(path)
+
+
+def test_a_protocol_opened_by_a_relative_path_is_remembered_as_the_file_opened(
+    session, tmp_path, monkeypatch
+):
+    # Opened against the working folder, which the next start may not share.
+    path = _protocol_file(tmp_path, FILE_PLATE)
+    monkeypatch.chdir(tmp_path)
+
+    session.open_protocol(path.name)
+
     assert _remembered(session) == str(path)
 
 

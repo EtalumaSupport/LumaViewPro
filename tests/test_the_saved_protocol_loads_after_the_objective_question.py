@@ -72,7 +72,7 @@ class TestTheLatch:
                 'lumaviewpro', fromlist=['LumaViewProApp']
             ).LumaViewProApp._load_persisted_protocol_once
 
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
 
         app = _App()
         panel = _Panel()
@@ -160,7 +160,7 @@ class TestAnEmptyPathIsNoSavedProtocol:
         import logging
         from types import SimpleNamespace
 
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
         from tests.settings_fixtures import protocol_filepath_writer, settings_writer
         from ui.protocol_settings import ProtocolSettings
 
@@ -209,8 +209,8 @@ class TestARefusedStartupLoadIsShown:
         panel's report is the only one."""
         from types import SimpleNamespace
 
-        import modules.app_context as _app_ctx
-        from modules.exceptions import ProtocolRunRefusedError
+        import _lumascope.modules.app_context as _app_ctx
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
         from ui.protocol_settings import ProtocolSettings
 
         refusal = ProtocolRunRefusedError(

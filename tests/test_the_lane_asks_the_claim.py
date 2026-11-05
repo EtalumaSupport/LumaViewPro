@@ -14,17 +14,17 @@ import threading
 
 import pytest
 
-from modules.activity_claim import ActivityClaim, acting, current_taking
-from modules.exceptions import (
+from _lumascope.modules.activity_claim import ActivityClaim, acting, current_taking
+from _lumascope.modules.exceptions import (
     BlockingCallRefusedError,
     FileWriterStalledError,
     HardwareCommandRefusedError,
     Refusal,
 )
-from modules.run_events import RunEvents
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0
@@ -289,7 +289,7 @@ class TestNoLaneWorkerWaitsOnALane:
         """The pool the app is built with, not one built for the test: a
         Stop's inline cleanup and a GUI job both run there and call the
         blocking public members, which must wait on the lane, not raise."""
-        from modules.executor_registry import create_default
+        from _lumascope.modules.executor_registry import create_default
         from tests.scope_fakes import build_scope
 
         scope = build_scope(simulate=True, warn_pre_release=False)
@@ -310,7 +310,7 @@ class TestNoLaneWorkerWaitsOnALane:
 class TestTheSession:
     @pytest.fixture
     def sim_session(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -390,7 +390,7 @@ class TestTheSession:
     def test_a_wire_clients_move_is_refused_under_a_hold(self, sim_session):
         from fastapi.testclient import TestClient
 
-        from rest.app import build_app
+        from _lumascope.rest.app import build_app
 
         with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
             answer = client.post('/api/v1/scope/motion/move_z', json={'z_um': 2000.0})
@@ -400,7 +400,7 @@ class TestTheSession:
 
 class TestEveryHolderThreadActsUnderItsTaking:
     def test_the_autofocus_sweep_acts_under_its_callers_taking(self, claim):
-        from modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.autofocus_thread import AutofocusThread
 
         seen = {}
 
@@ -431,7 +431,7 @@ class TestTheHardwareMembersUseTheLanesDispatch:
 
     @pytest.fixture
     def sim_session(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -465,7 +465,7 @@ class TestTheShutdownOverride:
     def test_shutdown_waits_for_a_diagnostic_then_darkens_on_the_io_lane(
         self, tmp_path, monkeypatch
     ):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -532,7 +532,7 @@ class TestTheHoldersWorkRunsOnTheLane:
     def test_a_member_called_on_its_own_lanes_worker_runs_inline(self, tmp_path):
         """A task already on the IO worker that moves the stage runs the move
         there; waiting on the queue it is draining would deadlock."""
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -564,9 +564,9 @@ class TestTheHoldersWorkRunsOnTheLane:
 
 class TestTheRunsOwnWorkRunsUnderItsClaim:
     def test_a_protocol_with_autofocus_video_and_grease_completes(self, tmp_path, monkeypatch):
-        from modules.protocol_step_runner import ProtocolStepRunner
-        from modules.scope_session import ScopeSession
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
+        from _lumascope.modules.scope_session import ScopeSession
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
         from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
@@ -627,8 +627,8 @@ class TestTheSupportReportUnderItsClaim:
     def test_its_writing_steps_reach_the_hardware(self, tmp_path):
         """The report's LED, fan and homing steps run under its diagnostic
         claim on a real session, and none of them is refused by the lanes."""
-        from modules.scope_session import ScopeSession
-        from modules.tech_support_report import TechSupportReport
+        from _lumascope.modules.scope_session import ScopeSession
+        from _lumascope.modules.tech_support_report import TechSupportReport
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

@@ -19,15 +19,15 @@ except for the two runs, whose GUI hands None when no drawer is open:
 import numpy as np
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     ArgumentTypeRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
     RefusalCause,
 )
-from modules.layer_record import release_catalogue
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
 

@@ -3,7 +3,7 @@
 
 The API is what carries ``@api`` or is published by ``@api_fields``; a
 host's wiring is what its class declares with ``@host_wiring``
-(``modules/api_surface.py``). Anything else on an API object stays
+(``src/_lumascope/modules/api_surface.py``). Anything else on an API object stays
 callable from Python, and 4.0 freezes none of it, so a client reaching it
 reaches round the surface. This guard walks every client of the API in
 LumaViewPro -- ``ui/`` and its ``.kv`` rules, ``lumaviewpro.py``,
@@ -20,7 +20,7 @@ fields, properties and return annotations, a parameter's annotation, a
 local function's return annotation, and a name or a ``self`` attribute
 assigned within the file. It cannot follow a ``getattr`` with a string,
 a widget field (``AppContext``'s widgets are ``object``: their classes
-live in ``ui/``, which ``modules/`` may not import), or anything typed
+live in ``ui/``, which ``src/_lumascope/modules/`` may not import), or anything typed
 ``object`` or not at all; what it cannot type it does not count.
 
 The count is an equality ratchet per member: a new read fails, and a read
@@ -45,16 +45,17 @@ from collections import Counter
 import pytest
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT, Packages
+from tests.ast_seams import REPO_ROOT, Packages, tracked_files
 
-from modules import app_context
-from modules.api_surface import HOST_WIRING_ATTRIBUTE, fields_of, host_wiring_of, mark_of
+from _lumascope.modules import app_context
+from _lumascope.modules.api_surface import HOST_WIRING_ATTRIBUTE, fields_of, host_wiring_of, mark_of
 
 # The clients walked: each a directory of them, or one module.
 _CLIENTS = Packages({'ui', 'tools', 'scripts', 'docs/api_examples', 'lumaviewpro'})
-# The packages an annotation or an import is resolved in; a client's own
-# modules (ui, tools) are never imported here.
-_PROJECT = Packages({'modules', 'drivers', 'rest'})
+# The packages an annotation or an import is resolved in, by the head of the
+# module's name: the API's and its public face, which the examples import
+# from; a client's own modules (ui, tools) are never imported here.
+_PROJECT = Packages({'_lumascope', 'lumascope'}, under='src')
 # The classes whose members are read through as forwarders: the GUI's
 # context holds the session and forwards to it.
 _FORWARDERS = (app_context.AppContext,)
@@ -553,7 +554,7 @@ def _client_paths() -> list[pathlib.Path]:
     for client in sorted(_CLIENTS):
         root = REPO_ROOT / client
         if root.is_dir():
-            paths += sorted(p for p in root.rglob('*.py') if '__pycache__' not in p.parts)
+            paths += [REPO_ROOT / rel for rel in tracked_files((client,))]
         else:
             paths.append(root.with_suffix('.py'))
     return paths
@@ -569,7 +570,7 @@ def every_reach() -> tuple[Reach, ...]:
         reaches += walk.reaches
         if label == 'lumaviewpro.py':
             app = walk
-    for kv in sorted((REPO_ROOT / 'ui').rglob('*.kv')):
+    for kv in [REPO_ROOT / rel for rel in tracked_files(('ui',), '**/*.kv')]:
         reaches += walk_kv(kv.relative_to(REPO_ROOT).as_posix(), kv.read_text(), app)
     return tuple(reaches)
 
@@ -596,9 +597,9 @@ def test_no_client_reads_an_unmarked_member_past_its_pin():
 
 def test_a_host_wired_name_is_a_member_and_not_api(sim_session):
     """Each name a class declares as host wiring is a member of it, and none is also API."""
-    from modules.plugins import PluginRegistry, UIRegistry
-    from modules.post_processing_api import PostProcessingAPI
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.plugins import PluginRegistry, UIRegistry
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.scope_session import ScopeSession
 
     holders = {
         ScopeSession: sim_session,
@@ -620,7 +621,7 @@ def test_a_host_wired_name_is_a_member_and_not_api(sim_session):
 def test_the_host_mark_states_its_sentence_and_refuses_an_api_member():
     """A host-wired method's docstring carries the mark's sentence after its
     summary, and a member marked API cannot also be declared host wiring."""
-    from modules.api_surface import HOST_WIRING_SENTENCE, api, host_wiring
+    from _lumascope.modules.api_surface import HOST_WIRING_SENTENCE, api, host_wiring
 
     @host_wiring('lane')
     class Wired:
@@ -655,7 +656,7 @@ def _reads(source: str) -> list[str]:
 def test_the_walk_counts_a_read_through_the_context_and_an_alias():
     assert _reads(
         """
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
 
         def through_the_context():
             _app_ctx.ctx.scope.motion.get_current_position('Z')
@@ -671,7 +672,7 @@ def test_the_walk_counts_a_read_through_the_context_and_an_alias():
 def test_the_walk_resolves_a_parameters_annotation_by_the_files_imports():
     assert _reads(
         """
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         def f(scope: Lumascope):
             scope.camera.active
@@ -679,13 +680,25 @@ def test_the_walk_resolves_a_parameters_annotation_by_the_files_imports():
     ) == ['CameraAPI.active']
 
 
+def test_the_walk_resolves_a_name_imported_from_the_public_module():
+    """The examples import from ``lumascope``: a read through its names is counted as one through ``_lumascope``'s."""
+    assert _reads(
+        """
+        from lumascope import ScopeSession
+
+        def f(session: ScopeSession):
+            session.scope.camera.active
+        """
+    ) == ['CameraAPI.active']
+
+
 def test_the_walk_counts_what_a_forwarder_reads(monkeypatch):
     """``ctx.settings`` is a read of ``ScopeSession.settings``: counted once the
     session no longer declares it host wiring, and not while it does."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     planted = """
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
 
         def f():
             _app_ctx.ctx.settings['live_folder']
@@ -707,7 +720,7 @@ def test_the_walk_counts_nothing_marked_or_host_wired():
     assert (
         _reads(
             """
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
 
         def f():
             session = _app_ctx.ctx.session
@@ -723,7 +736,7 @@ def test_the_walk_counts_nothing_marked_or_host_wired():
 def test_the_walk_follows_a_global_and_a_self_attribute():
     assert _reads(
         """
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         ctx = None
 
@@ -746,7 +759,7 @@ def test_the_walk_reads_a_kv_rule_s_python():
         'lumaviewpro.py',
         textwrap.dedent(
             """
-            from modules.scope_session import ScopeSession
+            from _lumascope.modules.scope_session import ScopeSession
 
             class LumaViewProApp:
                 def build(self):

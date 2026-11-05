@@ -21,9 +21,9 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-import modules.settings_init as settings_init
-from modules import image_utils, layer_record
-from modules.path_utils import read_installation_file
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.modules import image_utils, layer_record
+from _lumascope.modules.path_utils import read_installation_file
 from tests.installation_fixtures import (
     ADDED_CHANNELS,
     copy_installation_files,

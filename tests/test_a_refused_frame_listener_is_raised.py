@@ -24,12 +24,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import modules.lumascope_api.imaging as imaging_mod
-import modules.protocol_recording as protocol_recording
-from modules import notification_center
-from modules.lumascope_api.imaging import HANDLER_BUDGET_MS, HANDLER_DROP_K, _BudgetedHandler
-from modules.notification_center import OutcomeKind, Severity
-from modules.run_events import RunEvents
+import _lumascope.modules.lumascope_api.imaging as imaging_mod
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules import notification_center
+from _lumascope.modules.lumascope_api.imaging import (
+    HANDLER_BUDGET_MS,
+    HANDLER_DROP_K,
+    _BudgetedHandler,
+)
+from _lumascope.modules.notification_center import OutcomeKind, Severity
+from _lumascope.modules.run_events import RunEvents
 from tests.test_manual_recording_controller import make_controller
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.protocol_drives import run_identity
@@ -76,7 +80,7 @@ class TestTheRegistrantHearsTheFailure:
     def test_a_plugin_whose_listener_is_refused_is_not_listed_as_loaded(
         self, sim_scope, monkeypatch
     ):
-        from modules.plugins import PluginRegistry, PluginSpec
+        from _lumascope.modules.plugins import PluginRegistry, PluginSpec
 
         registry = PluginRegistry(sim_scope)
         spec = PluginSpec(
@@ -318,7 +322,7 @@ class TestTheUnwindAndRemovalEdges:
     def test_a_start_refused_at_the_engine_leaves_no_empty_frames_folder(
         self, tmp_path, post_processing
     ):
-        from modules.exceptions import RecordingRefusedError
+        from _lumascope.modules.exceptions import RecordingRefusedError
 
         controller, _, _ = make_controller(
             tmp_path, video_as_frames=True, post_processing=post_processing

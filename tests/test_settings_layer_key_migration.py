@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import config_helpers, settings_init
+from _lumascope.modules import config_helpers, settings_init
 from tests.test_settings_schema_parity import MIGRATED_PER_LAYER, RUNTIME_ONLY_PER_LAYER
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

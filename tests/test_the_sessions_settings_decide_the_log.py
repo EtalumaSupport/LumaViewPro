@@ -16,8 +16,8 @@ import logging
 import numpy as np
 import pytest
 
-import modules.autofocus_functions as autofocus_functions
-from modules.scope_session import ScopeSession
+import _lumascope.modules.autofocus_functions as autofocus_functions
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 

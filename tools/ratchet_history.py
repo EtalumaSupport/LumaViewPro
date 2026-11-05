@@ -48,6 +48,8 @@ import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+# This checkout's own API, whatever lumascope.pth the interpreter holds.
+sys.path.insert(0, str(REPO / 'src'))
 
 from tests import ast_seams as _seams
 from tests.guards import test_a_scope_is_the_simulator_not_a_stand_in as _stand_ins
@@ -124,14 +126,42 @@ def sample_points(since, until, every_days, branch):
     return points
 
 
-def tree_size(root):
-    """Lines and files under ui/, modules/ and tests/ -- the denominators."""
-    out = {}
-    for sub in ('ui', 'modules', 'tests'):
-        files = sorted(pathlib.Path(root, sub).rglob('*.py'))
-        out[f'{sub}_files'] = len(files)
-        out[f'{sub}_lines'] = sum(len(p.read_text(errors='replace').splitlines()) for p in files)
-    return out
+# (folder, files column, lines column): the size denominators, read by
+# SIZE_COLUMNS and `render`. The column keys are spelled out rather than
+# built from the folder, so a folder that moves keeps its columns' names and
+# a series spanning the move stays one series.
+SIZE_FOLDERS = (
+    ('ui', 'ui_files', 'ui_lines'),
+    ('src/_lumascope/modules', 'modules_files', 'modules_lines'),
+    ('tests', 'tests_files', 'tests_lines'),
+)
+
+
+def _file_count(folder):
+    def count():
+        return dict.fromkeys(_seams.tracked_files((folder,)), 1)
+
+    return count
+
+
+def _line_count(folder):
+    def count():
+        return {
+            rel: len((_seams.REPO_ROOT / rel).read_text(errors='replace').splitlines())
+            for rel in _seams.tracked_files((folder,))
+        }
+
+    return count
+
+
+# The size cells, each shaped as a detector and measured as one, so a folder
+# the sampled tree lacks records None naming it, as a detector's missing
+# folder does: counted as 0 lines it would read as a folder emptied.
+SIZE_COLUMNS = tuple(
+    column
+    for folder, files_key, lines_key in SIZE_FOLDERS
+    for column in ((files_key, _file_count(folder)), (lines_key, _line_count(folder)))
+)
 
 
 def measure_tree(worktree):
@@ -149,7 +179,7 @@ def measure_tree(worktree):
     for module, name, kind in ROOTS:
         setattr(module, name, kind(worktree))
     try:
-        for label, fn in DETECTORS:
+        for label, fn in (*DETECTORS, *SIZE_COLUMNS):
             try:
                 row[label] = sum(fn().values())
             except Exception as exc:
@@ -158,23 +188,52 @@ def measure_tree(worktree):
     finally:
         for module, name, value in previous:
             setattr(module, name, value)
-    with contextlib.suppress(Exception):
-        row.update(tree_size(worktree))
     return row
 
 
-def run(points, branch):
+# (old path, new path): a folder the code has moved. A sampled tree that
+# tracks the old path, and nothing under the new, has the old path moved to
+# the new before it is measured, whenever the instrument (REPO) itself
+# tracks the new path, so a tree from before a move is measured in the
+# layout today's detectors read and the two sides of the move compare.
+# Read from the two trees, not from a commit id: until the move lands the
+# instrument tracks nothing under the new path and nothing moves.
+LAYOUT_MOVES = (('modules', 'src/_lumascope/modules'),)
+
+
+def _tracks(root, folder):
+    return bool(_seams.tracked_files(pattern=f'{folder}/**', root=root))
+
+
+def _bring_to_instrument_layout(tree):
+    """Move each LAYOUT_MOVES old path to its new one in `tree`'s index and
+    disk, creating every folder above the new path; returns the moves made."""
+    moved = []
+    for old, new in LAYOUT_MOVES:
+        if _tracks(REPO, new) and _tracks(tree, old) and not _tracks(tree, new):
+            pathlib.Path(tree, new).parent.mkdir(parents=True, exist_ok=True)
+            _git('mv', old, new, cwd=tree)
+            moved.append(f'{old} -> {new}')
+    return moved
+
+
+def run(points, branch, repo=REPO):
+    """Measure each (date, sha) of `repo`'s `branch` with this checkout's
+    instrument. The scratch worktree is reset before each checkout, so a
+    move made in one sample is never carried into the next."""
     worktree = pathlib.Path(tempfile.mkdtemp(prefix='ratchet_history_'))
     rows = []
     try:
-        _git('worktree', 'add', '-q', '--detach', str(worktree), branch)
+        _git('worktree', 'add', '-q', '--detach', str(worktree), branch, cwd=repo)
         for date, sha in points:
+            _git('reset', '--hard', '-q', cwd=worktree)
             _git('checkout', '--detach', '-q', sha, cwd=worktree)
-            rows.append({'date': date, 'sha': sha, **measure_tree(worktree)})
+            moved = _bring_to_instrument_layout(worktree)
+            rows.append({'date': date, 'sha': sha, 'layout moved': moved, **measure_tree(worktree)})
             print(f'  measured {date} {sha}', file=sys.stderr, flush=True)
     finally:
         with contextlib.suppress(Exception):
-            _git('worktree', 'remove', '--force', str(worktree))
+            _git('worktree', 'remove', '--force', str(worktree), cwd=repo)
         shutil.rmtree(worktree, ignore_errors=True)
     return rows
 
@@ -194,10 +253,10 @@ def render(rows):
             for lab in labels
         )
         lines += ['-' * len(head), f'{"net":<12}{"":<10}{deltas}']
-        for sub in ('ui', 'modules', 'tests'):
-            a, b = first.get(f'{sub}_lines'), last.get(f'{sub}_lines')
+        for folder, _files_key, lines_key in SIZE_FOLDERS:
+            a, b = first.get(lines_key), last.get(lines_key)
             if a and b:
-                lines.append(f'{sub}/ lines {a} -> {b}  ({(b / a - 1) * 100:+.0f}%)')
+                lines.append(f'{folder}/ lines {a} -> {b}  ({(b / a - 1) * 100:+.0f}%)')
     return '\n'.join(lines)
 
 

@@ -18,7 +18,7 @@ import importlib
 import numpy as np
 import pytest
 
-from drivers.camera import ImageHandlerBase
+from _lumascope.drivers.camera import ImageHandlerBase
 from tests.camera_fakes import bare_image_handler
 
 
@@ -36,9 +36,9 @@ class TestEveryDriverHandlerIsAnImageHandlerBase:
     @pytest.mark.parametrize(
         'module_name, class_name',
         [
-            ('drivers.pyloncamera', 'ImageHandler'),
-            ('drivers.idscamera', 'ImageHandler'),
-            ('drivers.fx2driver', '_FX2ImageHandler'),
+            ('_lumascope.drivers.pyloncamera', 'ImageHandler'),
+            ('_lumascope.drivers.idscamera', 'ImageHandler'),
+            ('_lumascope.drivers.fx2driver', '_FX2ImageHandler'),
         ],
     )
     def test_handler_class_inherits_the_base(self, module_name, class_name):
@@ -63,7 +63,7 @@ class TestPylonHandlerBaseSurface:
         assert dict(handler.get_last_image().chunks) == {'ExposureTime': 10000.0, 'Gain': 0.0}
 
     def test_detached_device_reports_no_frame(self):
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         handler, parent = bare_image_handler()
         _store_one(handler, chunks={'ExposureTime': 10000.0})

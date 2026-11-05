@@ -30,12 +30,12 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import rest.jobs
-from modules import wall_time
-from modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
-from modules.scope_session import ScopeSession
-from rest import problems
-from rest.app import build_app
+import _lumascope.rest.jobs
+from _lumascope.modules import wall_time
+from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest import problems
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -85,7 +85,7 @@ def test_a_call_past_the_clients_wait_is_a_job_that_ends_in_its_answer(client, h
     assert accepted.status_code == 202
     job = accepted.json()
     assert accepted.headers['Location'] == f'/api/v1/jobs/{job["id"]}'
-    assert accepted.headers['Retry-After'] == str(rest.jobs.RETRY_AFTER_S)
+    assert accepted.headers['Retry-After'] == str(_lumascope.rest.jobs.RETRY_AFTER_S)
     assert accepted.headers['Preference-Applied'] == 'wait=0'
     assert (job['member'], job['status'], job['ended']) == (
         'scope/illumination/leds_off',
@@ -107,7 +107,7 @@ def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
     # Read in the same loop pass its answer settles, before the loop runs
     # anything else: a reader on the loop can be scheduled there.
     async def read_as_it_settles():
-        jobs = rest.jobs.JobRegistry(ended=lambda job: None)
+        jobs = _lumascope.rest.jobs.JobRegistry(ended=lambda job: None)
         answered = asyncio.get_running_loop().create_future()
         job = jobs.adopt(
             answered, member='scope/illumination/leds_off', requested=wall_time.now(), progress=None
@@ -145,7 +145,7 @@ def test_a_call_inside_the_wait_is_answered_and_the_wait_is_capped(client):
     answered = client.get('/api/v1/app_version', headers={'Prefer': 'wait=999'})
 
     assert answered.status_code == 200
-    assert answered.headers['Preference-Applied'] == f'wait={int(rest.jobs.WAIT_CAP_S)}'
+    assert answered.headers['Preference-Applied'] == f'wait={int(_lumascope.rest.jobs.WAIT_CAP_S)}'
     unsaid = client.get('/api/v1/app_version')
     assert 'Preference-Applied' not in unsaid.headers
 
@@ -232,7 +232,7 @@ def test_a_running_call_a_member_hands_back_is_a_job(client):
     assert started.status_code == 202
     job = started.json()
     assert started.headers['Location'] == f'/api/v1/jobs/{job["id"]}'
-    assert started.headers['Retry-After'] == str(rest.jobs.RETRY_AFTER_S)
+    assert started.headers['Retry-After'] == str(_lumascope.rest.jobs.RETRY_AFTER_S)
     assert job['member'] == 'scope/motion/start_home'
     ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
     assert ended['status'] == 'completed'
@@ -560,12 +560,12 @@ def test_a_stop_the_scope_refuses_is_the_deletes_answer(tmp_path, monkeypatch):
 
 
 def test_a_call_past_the_live_limit_is_refused_before_it_runs(client, held, monkeypatch):
-    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 0)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 0)
 
     refused = client.post('/api/v1/scope/illumination/leds_off')
 
     assert (refused.status_code, refused.json()['reason']) == (503, 'overloaded')
-    assert refused.headers['Retry-After'] == str(rest.jobs.RETRY_AFTER_S)
+    assert refused.headers['Retry-After'] == str(_lumascope.rest.jobs.RETRY_AFTER_S)
     assert held.calls == []
 
 
@@ -579,7 +579,7 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(
     held = session.scope.simulation.hold_axis('Z')
     first = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 100.0}).json()
     assert held.wait(10), 'the first job never got part of the way'
-    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 1)
 
     refused = client.post('/api/v1/scope/motion/start_home')
     # A call that hands out no job is not refused for running jobs.
@@ -592,7 +592,7 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(
 
 
 def test_a_finished_job_past_the_count_bound_is_let_go(client, held, monkeypatch):
-    monkeypatch.setattr(rest.jobs, 'FINISHED_LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'FINISHED_LIMIT', 1)
 
     def finished_job():
         # Held until it is a job, then let finish: a call that ended inside

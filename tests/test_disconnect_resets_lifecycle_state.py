@@ -13,7 +13,7 @@ disconnect / same-instance reconnect starts clean. Exercised with
 SimulatedCamera (no hardware).
 """
 
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 

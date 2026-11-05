@@ -2,8 +2,8 @@
 """The FX2 LED wire trace is switched by the settings the session prepared.
 
 The trace was switched by three private reads of the settings file at
-import, one in the FX2 driver (an upward import from drivers/ into
-modules/), one in the illumination API and one in the layer panel. A
+import, one in the FX2 driver (an upward import from src/_lumascope/drivers/ into
+src/_lumascope/modules/), one in the illumination API and one in the layer panel. A
 driver that reads the application's settings cannot be loaded without the
 application, and three reads of one file can disagree with the settings the
 session actually runs on. The session now hands the prepared value to the
@@ -17,17 +17,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import drivers.fx2driver as fx2driver
-import modules.lumascope_api._lumascope as lumascope_module
-import modules.lumascope_api.illumination as illumination_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from modules.scope_session import ScopeSession
+import _lumascope.drivers.fx2driver as fx2driver
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+import _lumascope.modules.lumascope_api.illumination as illumination_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
+from tests.scope_fakes import simulated_camera_on_a_real_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
 
-_DRIVER = pathlib.Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
+_DRIVER = pathlib.Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'fx2driver.py'
 
 
 def _info_lines(caplog, module, text) -> list[str]:
@@ -52,9 +53,11 @@ def test_the_fx2_driver_imports_no_application_module():
         upward += [
             (node.lineno, name)
             for name in names
-            if name == 'modules' or name.startswith('modules.')
+            if name == '_lumascope.modules' or name.startswith('_lumascope.modules.')
         ]
-    assert not upward, f'drivers/fx2driver.py imports from modules/: {upward}'
+    assert not upward, (
+        f'src/_lumascope/drivers/fx2driver.py imports from src/_lumascope/modules/: {upward}'
+    )
 
 
 @pytest.mark.parametrize('enabled', [True, False])
@@ -65,19 +68,14 @@ def test_the_session_hands_the_setting_to_the_led_driver(monkeypatch, tmp_path, 
         asked.append(kwargs)
         return NullLEDBoard(), None
 
-    real_camera_create = lumascope_module.camera_registry.create
     monkeypatch.setattr(lumascope_module.led_registry, 'create_with_fallback', led_create)
     monkeypatch.setattr(
         lumascope_module.motor_registry,
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullMotionBoard(), None),
     )
-    # No real camera in the suite: the by-name path builds the simulated one.
-    monkeypatch.setattr(
-        lumascope_module.camera_registry,
-        'create',
-        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
-    )
+    # No real camera in the suite.
+    simulated_camera_on_a_real_scope(monkeypatch)
 
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), fx2_debug_wire_enabled=enabled),

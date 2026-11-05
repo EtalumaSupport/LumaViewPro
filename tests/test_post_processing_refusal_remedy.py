@@ -19,8 +19,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from modules.common_utils import PostFunction
-from modules.protocol_post_processor import _remedy_for
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.protocol_post_processor import _remedy_for
 
 
 class TestTheRemedyFitsTheRefusal:

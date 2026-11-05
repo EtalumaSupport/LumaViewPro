@@ -38,12 +38,12 @@ import inspect
 import pathlib
 from types import SimpleNamespace
 
-from modules.config_helpers import (
+from _lumascope.modules.config_helpers import (
     DEFAULT_MAX_GAIN_DB,
     camera_max_gain_for_ui,
     layer_slider_maxima,
 )
-from modules.layer_record import release_catalogue
+from _lumascope.modules.layer_record import release_catalogue
 from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent

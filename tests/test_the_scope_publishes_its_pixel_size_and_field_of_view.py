@@ -18,11 +18,11 @@ from __future__ import annotations
 import pytest
 import tifffile
 
-from modules import common_utils
-from modules.exceptions import CameraSettingRejected
-from modules.image_utils import read_pixel_size_um
-from modules.scope_capabilities import FieldOfView
-from modules.scope_session import ScopeSession
+from _lumascope.modules import common_utils
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.image_utils import read_pixel_size_um
+from _lumascope.modules.scope_capabilities import FieldOfView
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

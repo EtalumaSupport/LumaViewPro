@@ -16,10 +16,10 @@ import time
 
 import pytest
 
-import modules.protocol_image_writer as protocol_image_writer
-from modules.exceptions import CaptureError, RunFilesNotWrittenError
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_events import RunEvents
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.exceptions import CaptureError, RunFilesNotWrittenError
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.stock_channels import LED0
@@ -29,8 +29,8 @@ WAIT_S = 30.0
 
 @pytest.fixture
 def lane():
-    from modules.executor_registry import session_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.executor_registry import session_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     executor = SequentialIOExecutor(closed_answer=session_lane_closed, name='FILE_TEST')
     executor.start()

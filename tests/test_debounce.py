@@ -11,7 +11,7 @@ import logging
 
 import pytest
 
-from modules.debounce import debounce
+from _lumascope.modules.debounce import debounce
 
 
 class _Turret:

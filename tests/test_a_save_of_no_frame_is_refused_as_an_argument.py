@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules import image_save
-from modules.exceptions import ArgumentRefusedError
-from modules.layer_record import release_colors
+from _lumascope.modules import image_save
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.layer_record import release_colors
 from tests.frame_records import frame_record, plate
 from tests.test_jpg_export import _scope_with_depth
 

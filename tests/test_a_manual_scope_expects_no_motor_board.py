@@ -2,7 +2,7 @@
 """A manual scope's startup says its missing motor board was expected.
 
 Bring-up probes for a motor board on every model, so a board that is
-plugged in can correct a wrongly selected model. On an LS620 or LS560 the
+plugged in can correct a wrongly selected model. On an LS620, LS560 or LS460 the
 probe finds nothing, as it should, and the registry used to log that at
 WARNING on every start, the same line a motorized scope with an unplugged
 board gets. The scope now tells the registry when its model has no motor
@@ -15,13 +15,13 @@ import logging
 
 import pytest
 
-import drivers.registry as registry_module
-import modules.lumascope_api._lumascope as lumascope_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverRegistry
+import _lumascope.drivers.registry as registry_module
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.registry import DriverRegistry
 from tests.log_capture import records_of
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 
 
 class _NothingFound:
@@ -92,9 +92,9 @@ def test_the_scope_tells_the_probe_whether_its_model_has_a_motor_board(
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
+    simulated_camera_on_a_real_scope(monkeypatch)
     build_scope(
         simulate=False,
-        camera_type='sim',
         configured_model=model,
         warn_pre_release=False,
         register_atexit=False,

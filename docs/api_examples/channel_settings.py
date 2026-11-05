@@ -16,13 +16,7 @@ Run it in a LumaViewPro source folder (how, step by step: README.md here):
 The same stills over REST are ``channel_settings.sh``.
 """
 
-import pathlib
-import sys
-
-# The installation folder, importable when the script is run by its path.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
-
-from modules.scope_session import ScopeSession
+from lumascope import ScopeSession
 
 # Each channel's current (mA), exposure (ms) and gain (dB): each lights the
 # simulator's specimen without clipping.

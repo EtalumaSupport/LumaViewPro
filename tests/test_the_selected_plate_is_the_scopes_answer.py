@@ -30,7 +30,7 @@ def test_the_answer_is_the_plate_the_settings_name(scope_and_settings):
 
 def test_a_stored_plate_the_catalogue_lacks_is_refused_by_name(scope_and_settings):
     # 'New' was the old KV spinner default that leaked into settings.
-    from modules.exceptions import CatalogueNameRefusedError
+    from _lumascope.modules.exceptions import CatalogueNameRefusedError
 
     scope, settings = scope_and_settings
     settings['protocol']['labware'] = 'New'

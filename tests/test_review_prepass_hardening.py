@@ -16,7 +16,7 @@ import pathlib
 import numpy as np
 import tifffile as tf
 
-from modules import image_utils
+from _lumascope.modules import image_utils
 from tests.stock_channels import LED0
 
 
@@ -119,7 +119,9 @@ class TestStitchMixedChannelGuard:
     and color tiles rather than a cryptic broadcast ValueError."""
 
     def test_source_has_ndim_consistency_guard(self):
-        src = _method_src('modules/stitch_algorithms.py', None, 'stitch_registered_tiles')
+        src = _method_src(
+            'src/_lumascope/modules/stitch_algorithms.py', None, 'stitch_registered_tiles'
+        )
         assert '.ndim != sample.ndim' in src, (
             'stitch_registered_tiles must reject a mix of mono/color tiles up front.'
         )
@@ -131,7 +133,7 @@ class TestVideoTimestampAfterFalseColor:
     the text stays neutral white instead of being tinted."""
 
     def test_add_timestamp_runs_after_mono_to_rgb_falsecolor(self):
-        src = _method_src('modules/video_writer.py', 'VideoWriter', 'add_frame')
+        src = _method_src('src/_lumascope/modules/video_writer.py', 'VideoWriter', 'add_frame')
         fc_idx = src.find('mono_to_rgb_falsecolor')
         ts_idx = src.find('add_timestamp')
         assert fc_idx != -1 and ts_idx != -1
@@ -161,7 +163,7 @@ class TestJpgSkipsMetadata:
     (objective/labware) is configured."""
 
     def test_save_image_jpg_branch_uses_save_path_not_prepare(self):
-        src = _method_src('modules/image_save.py', None, 'save_image')
+        src = _method_src('src/_lumascope/modules/image_save.py', None, 'save_image')
         # The JPG branch must compute the path directly; prepare_image_for_saving
         # (which calls generate_image_metadata) is the else branch only.
         assert 'if output_format == image_mode.OutputFormat.JPG:' in src

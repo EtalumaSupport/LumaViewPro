@@ -6,7 +6,7 @@ also calls one of the false-color helpers
 (``image_utils.maybe_apply_false_color`` or ``image_utils.write_tiff``).
 
 The guard prevents regression on the freshly-fixed sites in
-``modules/zprojector.py`` and ``modules/stitcher.py`` (#669, #678).
+``src/_lumascope/modules/zprojector.py`` and ``src/_lumascope/modules/stitcher.py`` (#669, #678).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ import tifffile as tf
 def _zproject(self, path, df):
     tf.imwrite("out.tiff", data=some_array)
 """
-        violations = _violations(src, 'modules/zprojector.py')
+        violations = _violations(src, 'src/_lumascope/modules/zprojector.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_tiff_write'
         assert violations[0].line == 5
@@ -44,7 +44,7 @@ import tifffile
 def _stitch(path):
     tifffile.imwrite(path / "out.tiff", arr)
 """
-        violations = _violations(src, 'modules/stitcher.py')
+        violations = _violations(src, 'src/_lumascope/modules/stitcher.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_tiff_write'
 
@@ -53,13 +53,13 @@ class TestRule31cAllowsBareImwriteWithPairedHelper:
     def test_zprojector_with_maybe_apply_false_color_passes(self):
         src = """
 import tifffile as tf
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def _zproject(self, path, df):
     data = image_utils.maybe_apply_false_color(data=arr, color=df['Color'].iloc[0])
     tf.imwrite("out.tiff", data=data)
 """
-        assert _violations(src, 'modules/zprojector.py') == []
+        assert _violations(src, 'src/_lumascope/modules/zprojector.py') == []
 
     def test_stitcher_with_write_tiff_passes(self):
         # If a future refactor routes the whole save through write_tiff
@@ -67,12 +67,12 @@ def _zproject(self, path, df):
         # but the regex still passes because write_tiff is in the
         # helper allowlist.
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def _stitch(path):
     image_utils.write_tiff(data=arr, file_loc=path, ...)
 """
-        assert _violations(src, 'modules/stitcher.py') == []
+        assert _violations(src, 'src/_lumascope/modules/stitcher.py') == []
 
 
 class TestRule31cScopedToPostProcessorPaths:
@@ -87,7 +87,7 @@ import tifffile as tf
 def helper(path, arr):
     tf.imwrite(path, arr)
 """
-        assert _violations(src, 'modules/protocol_image_writer.py') == []
+        assert _violations(src, 'src/_lumascope/modules/protocol_image_writer.py') == []
 
     def test_bare_imwrite_in_test_file_does_not_fire(self):
         # Test files build synthetic TIFFs via tf.imwrite all the time.
@@ -106,7 +106,7 @@ class TestRule31cFunctionScopingHonored:
         # no helper. The pairing is per-function -- B must fire.
         src = """
 import tifffile as tf
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def function_a(arr, color):
     return image_utils.maybe_apply_false_color(data=arr, color=color)
@@ -114,7 +114,7 @@ def function_a(arr, color):
 def function_b(arr, path):
     tf.imwrite(str(path), arr)
 """
-        violations = _violations(src, 'modules/zprojector.py')
+        violations = _violations(src, 'src/_lumascope/modules/zprojector.py')
         assert len(violations) == 1
         assert violations[0].line == 9
 
@@ -132,18 +132,18 @@ import tifffile as tf
 def _build_composite(arr, path):
     tf.imwrite(str(path), arr)
 """
-        violations = _violations(src, 'modules/composite_generation.py')
+        violations = _violations(src, 'src/_lumascope/modules/composite_generation.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_tiff_write'
 
     def test_composite_with_write_tiff_helper_passes(self):
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def _build_composite(arr, path):
     image_utils.write_tiff(data=arr, file_loc=path)
 """
-        assert _violations(src, 'modules/composite_generation.py') == []
+        assert _violations(src, 'src/_lumascope/modules/composite_generation.py') == []
 
     def test_stack_builder_bare_tf_imwrite_blocks(self):
         # stack_builder joined the post-processor write path set when
@@ -157,7 +157,7 @@ import tifffile as tf
 def _save(arr, path):
     tf.imwrite(str(path), arr, ome=True)
 """
-        violations = _violations(src, 'modules/stack_builder.py')
+        violations = _violations(src, 'src/_lumascope/modules/stack_builder.py')
         assert len(violations) == 1
         assert violations[0].rule == 'cv2_channel_tiff_write'
 
@@ -166,7 +166,7 @@ def _save(arr, path):
         # The helper presence in the same function satisfies the pairing
         # requirement even if a bare imwrite slipped in (belt-and-suspenders).
         src = """
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 def _create_stack(arr, path):
     image_utils.write_hyperstack_tiff(
@@ -175,4 +175,4 @@ def _create_stack(arr, path):
         hyperstack_metadata={'axes': 'TZCYX'},
     )
 """
-        assert _violations(src, 'modules/stack_builder.py') == []
+        assert _violations(src, 'src/_lumascope/modules/stack_builder.py') == []

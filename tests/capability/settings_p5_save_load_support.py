@@ -43,8 +43,8 @@ try:
     (root / 'data').mkdir(parents=True)
     shutil.copy(_common.REPO / 'data' / 'settings.json', root / 'data' / 'settings.json')
     shutil.copy(out, root / 'data' / 'current.json')
-    import modules.settings_init as settings_init
-    from lvp_logger import logger
+    import _lumascope.modules.settings_init as settings_init
+    from _lumascope.lvp_logger import logger
 
     loaded, rejected = settings_init.prepare_settings(logger, str(root), fall_back_to_template=True)
     _common.ok(

@@ -26,7 +26,7 @@ from typing import ClassVar
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from ui.advanced_settings import AdvancedSettings
 from ui.microscope_settings import MicroscopeSettings, _CoalescingApplier
 from ui.protocol_settings import ProtocolSettings

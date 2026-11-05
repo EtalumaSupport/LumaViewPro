@@ -14,7 +14,7 @@ LS850 (X, Y and Z) as the control.
 
 import tifffile
 
-from modules.notification_center import Severity
+from _lumascope.modules.notification_center import Severity
 from tests.test_manual_capture_member import (
     _files,
     _open_session,

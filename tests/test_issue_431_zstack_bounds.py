@@ -8,7 +8,7 @@ projected as if whole (#431).
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
 
-from modules.coord_transformations import AxisLimits
+from _lumascope.modules.coord_transformations import AxisLimits
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
 

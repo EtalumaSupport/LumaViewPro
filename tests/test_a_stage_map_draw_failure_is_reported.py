@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.notification_center import notifications
+from _lumascope.modules.notification_center import notifications
 from ui.stage import Stage
 
 

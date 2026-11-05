@@ -15,7 +15,7 @@ it there is naming the right run.
 
 The run is named by its kind in a person's words ('the Z-stack run'), never
 by who started it: that is provenance, the caller its host stamped
-(``modules.caller``), carried on the refusal as ``holder_trigger``.
+(``_lumascope.modules.caller``), carried on the refusal as ``holder_trigger``.
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.caller import Caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_image_writer import RunWriteBatch
-from modules.protocol_state_machine import ProtocolState
-from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.run_outcome import PendingRunOutcome
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_autogain_settings,
     _make_image_capture_config,
@@ -121,9 +121,9 @@ class TestWhoStartedTheRunNeverReachesTheSentence:
         assert refusal.value.holder_trigger == Caller.REST
 
     def test_a_diagnostic_refused_by_a_run_names_the_run(self):
-        from modules.activity_claim import ActivityClaim
-        from modules.exceptions import DiagnosticRefusedError
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.activity_claim import ActivityClaim
+        from _lumascope.modules.exceptions import DiagnosticRefusedError
+        from _lumascope.modules.scope_session import ScopeSession
 
         session = ScopeSession.__new__(ScopeSession)
         session.activity_claim = ActivityClaim()
@@ -140,7 +140,7 @@ class TestWhoStartedTheRunNeverReachesTheSentence:
         assert refusal.value.holder_trigger == Caller.REST
 
     def test_a_run_claim_without_its_run_cannot_be_taken(self):
-        from modules.activity_claim import ActivityClaim
+        from _lumascope.modules.activity_claim import ActivityClaim
 
         with pytest.raises(ValueError):
             ActivityClaim().try_claim('protocol')

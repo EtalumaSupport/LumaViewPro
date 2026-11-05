@@ -20,13 +20,13 @@ import time
 
 import pytest
 
-import modules.protocol_run_loop as protocol_run_loop
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import MoveFaultError, ProtocolRunRefusedError
-from modules.lumascope_api import AxisState
-from modules.notification_center import Severity
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+import _lumascope.modules.protocol_run_loop as protocol_run_loop
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import MoveFaultError, ProtocolRunRefusedError
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol

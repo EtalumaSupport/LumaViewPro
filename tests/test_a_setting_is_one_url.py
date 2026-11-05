@@ -16,11 +16,11 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.api_surface import api
-from modules.scope_capabilities import FieldOfView, FrameSize
-from modules.scope_session import ScopeSession
-from rest.app import SERVER_SEGMENTS, build_app
-from rest.routes import routes
+from _lumascope.modules.api_surface import api
+from _lumascope.modules.scope_capabilities import FieldOfView, FrameSize
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import SERVER_SEGMENTS, build_app
+from _lumascope.rest.routes import routes
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1

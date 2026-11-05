@@ -21,7 +21,12 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 
 def test_importing_the_logger_with_no_shipped_settings_raises_naming_the_file(tmp_path):
     exe = tmp_path / 'LumaViewPro.exe'
-    code = f'import sys\nsys.frozen = True\nsys.executable = {str(exe)!r}\nimport lvp_logger\n'
+    # A frozen process has the bundle's folder beside sys.frozen; this
+    # checkout's holds the build's files.
+    code = (
+        f'import sys\nsys.frozen = True\nsys._MEIPASS = {str(REPO)!r}\n'
+        f'sys.executable = {str(exe)!r}\nimport _lumascope.lvp_logger\n'
+    )
 
     done = subprocess.run(
         [sys.executable, '-c', code], capture_output=True, text=True, timeout=60, cwd=str(REPO)
@@ -29,7 +34,9 @@ def test_importing_the_logger_with_no_shipped_settings_raises_naming_the_file(tm
 
     assert done.returncode != 0, 'the import must not carry on with debug read as off'
     last = done.stderr.strip().splitlines()[-1]
-    assert last.startswith('modules.exceptions.InstallationFileError: settings.json in '), last
+    assert last.startswith(
+        '_lumascope.modules.exceptions.InstallationFileError: settings.json in '
+    ), last
     assert str(tmp_path / 'data') in last
     # The main log records it once, as the crash it is: no crash hook exists
     # yet at import, so the bundle would otherwise say nothing of the stop.

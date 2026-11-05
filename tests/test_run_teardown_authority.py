@@ -25,8 +25,8 @@ The contract:
 import threading
 import time
 
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     _make_autogain_settings,
@@ -81,7 +81,7 @@ def _an_ended_run(executor, tmp_path):
 
 def _notified_since(centre_posts, start):
     """The warnings and errors the centre posted after ``start``."""
-    from modules.notification_center import Severity
+    from _lumascope.modules.notification_center import Severity
 
     return [n for n in centre_posts[start:] if n.severity in (Severity.WARNING, Severity.ERROR)]
 
@@ -177,8 +177,8 @@ class TestAStopControlCanSayTheRunIsStopping:
         """``is_stopping`` from the engine's progress read of a run that is *live* or not."""
         import types
 
-        from modules.run_outcome import EndingLatch
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.run_outcome import EndingLatch
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         # A stand-in by design: the engine's progress read over its own
         # latch, with liveness and the counters given, so each ending's
@@ -198,17 +198,17 @@ class TestAStopControlCanSayTheRunIsStopping:
         assert self._stopping(True) is False
 
     def test_a_live_run_with_an_accepted_stop_is_stopping(self):
-        from modules.run_outcome import RunEnding
+        from _lumascope.modules.run_outcome import RunEnding
 
         assert self._stopping(True, RunEnding('aborted', 'stopped', 'Stopped')) is True
 
     def test_a_run_the_instrument_ended_is_not_stopping(self):
-        from modules.run_outcome import RunEnding
+        from _lumascope.modules.run_outcome import RunEnding
 
         assert self._stopping(True, RunEnding('failed', 'position_lost', 'M')) is False
 
     def test_a_run_that_is_not_live_is_not_stopping(self):
-        from modules.run_outcome import RunEnding
+        from _lumascope.modules.run_outcome import RunEnding
 
         assert self._stopping(False, RunEnding('aborted', 'stopped', 'Stopped')) is False
 

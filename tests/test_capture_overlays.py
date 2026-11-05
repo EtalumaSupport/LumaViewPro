@@ -2,14 +2,14 @@
 """The overlays a still is saved with are rendered below the GUI.
 
 A headless capture asking for an overlay copy must get the pixels the
-Capture button gets, so the renderers live in modules/. Drawing the
+Capture button gets, so the renderers live in src/_lumascope/modules/. Drawing the
 crosshairs must not touch the frame it was given: with no bullseye drawn
 first, that frame is the raw capture itself.
 """
 
 import numpy as np
 
-from modules import capture_overlays
+from _lumascope.modules import capture_overlays
 
 
 def test_crosshairs_leave_the_input_unmarked():

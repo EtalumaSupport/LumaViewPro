@@ -20,12 +20,12 @@ import numpy as np
 import pytest
 
 import ui.post_processing as panel_module
-from modules import image_utils
-from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
-from modules.exceptions import PostProcessingRefusedError
-from modules.layer_record import release_color
-from modules.post_processing import read_cell_count_image
-from modules.scope_session import ScopeSession
+from _lumascope.modules import image_utils
+from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.post_processing import read_cell_count_image
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED1
 

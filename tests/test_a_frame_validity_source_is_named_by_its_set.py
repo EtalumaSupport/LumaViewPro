@@ -10,9 +10,9 @@ a person's words, whichever source it was.
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, CaptureFailedError
-from modules.frame_validity import FrameValiditySource
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError, CaptureFailedError
+from _lumascope.modules.frame_validity import FrameValiditySource
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
 

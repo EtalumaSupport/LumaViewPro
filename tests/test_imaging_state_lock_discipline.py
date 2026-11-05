@@ -24,7 +24,7 @@ import pytest
 
 from tests.ast_seams import parse_module
 
-IMAGING = 'modules/lumascope_api/imaging.py'
+IMAGING = 'src/_lumascope/modules/lumascope_api/imaging.py'
 LOCK = '_state_lock'
 EXEMPT_METHODS = {'__init__'}
 

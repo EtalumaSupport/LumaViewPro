@@ -44,10 +44,9 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
-from modules.frame_validity import FrameRule, Rule
-from modules.lumascope_api.camera import CameraAutoMode
-from modules.scope_capabilities import FrameSize
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
@@ -309,35 +308,6 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     )
 
 
-def test_capture_wait_carries_the_time_a_clock_rule_change_is_owed(sim_scope, executors):
-    """Under the clock rule a change is owed time, not frames: a frame counts
-    once it starts after the change plus its delay. The executor wait carries
-    that time, as the body's deadline does (one settle term for both), or a
-    long measured delay surfaces as an executor TimeoutError."""
-    imaging = sim_scope.imaging
-    delay_s = 40.0
-    rules = dict(imaging.frame_validity.credit_rules())
-    rules['gain'] = FrameRule(
-        rule=Rule.CLOCK,
-        count=rules['gain'].count,
-        delay_us=delay_s * 1e6,
-        provenance={'run_id': 'run-1', 'measured_date': '2026-10-20'},
-    )
-    imaging.frame_validity.use_rules(rules)
-    sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
-    recorded = {}
-
-    class _RecordingFuture:
-        def result(self, timeout=None):
-            recorded['timeout'] = timeout
-            return None
-
-    with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
-        imaging.capture_still()
-
-    assert recorded['timeout'] > imaging._CAPTURE_WAIT_TIMEOUT_S + delay_s - 1.0
-
-
 def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
     """Shape tripwire for the whole member class, not a spelling grep.
 
@@ -361,8 +331,8 @@ def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
     WRITE_SEAMS = {'_camera_write', 'invalidate', 'force_invalidate'}
     offenders = []
     for path, class_name in (
-        ('modules/lumascope_api/camera.py', 'CameraAPI'),
-        ('modules/lumascope_api/imaging.py', 'ImagingAPI'),
+        ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI'),
+        ('src/_lumascope/modules/lumascope_api/imaging.py', 'ImagingAPI'),
     ):
         tree = ast_seams.parse_module(path)
         cls = next(
@@ -403,11 +373,11 @@ def test_no_dispatcher_has_a_lane_less_branch():
     lane_names = {'ex', 'executor', '_io_executor', '_camera_executor'}
     offenders = []
     for path in (
-        'modules/lumascope_api/illumination.py',
-        'modules/lumascope_api/camera.py',
-        'modules/lumascope_api/imaging.py',
-        'modules/lumascope_api/motion.py',
-        'modules/lumascope_api/_lumascope.py',
+        'src/_lumascope/modules/lumascope_api/illumination.py',
+        'src/_lumascope/modules/lumascope_api/camera.py',
+        'src/_lumascope/modules/lumascope_api/imaging.py',
+        'src/_lumascope/modules/lumascope_api/motion.py',
+        'src/_lumascope/modules/lumascope_api/_lumascope.py',
     ):
         for node in ast.walk(ast_seams.parse_module(path)):
             if not isinstance(node, ast.Compare):

@@ -25,7 +25,7 @@ from tests.ast_seams import (
     walk_defs,
 )
 
-_WRITER_MODULE = 'modules/image_utils.py'
+_WRITER_MODULE = 'src/_lumascope/modules/image_utils.py'
 _WRITERS = MemberNames(
     (_WRITER_MODULE,),
     {'write_tiff', 'write_hyperstack_tiff', 'generate_tiff_data', '_splice_ome_additions'},
@@ -39,7 +39,7 @@ _DESCRIPTION_TAG = ('ImageDescription', 270)
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'rest'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'src/_lumascope/rest'))
 
 
 def _docstrings(tree: ast.Module) -> set[int]:
@@ -172,15 +172,15 @@ def test_the_guard_sees_every_shape_of_a_read():
             )
         )
     )
-    assert _offenders('modules/reader.py', planted) == [
-        'modules/reader.py:2 reader names the Info key',
-        'modules/reader.py:3 reader names the Info key',
-        'modules/reader.py:4 reader names the Info key',
-        "modules/reader.py:5 reader names a page's description",
-        'modules/reader.py:6 reader names the ImageDescription tag',
-        'modules/reader.py:7 reader names the ImageDescription tag',
-        "modules/reader.py:8 reader names the view's namespace",
-        'modules/reader.py:9 reader names _readable_view',
+    assert _offenders('src/_lumascope/modules/reader.py', planted) == [
+        'src/_lumascope/modules/reader.py:2 reader names the Info key',
+        'src/_lumascope/modules/reader.py:3 reader names the Info key',
+        'src/_lumascope/modules/reader.py:4 reader names the Info key',
+        "src/_lumascope/modules/reader.py:5 reader names a page's description",
+        'src/_lumascope/modules/reader.py:6 reader names the ImageDescription tag',
+        'src/_lumascope/modules/reader.py:7 reader names the ImageDescription tag',
+        "src/_lumascope/modules/reader.py:8 reader names the view's namespace",
+        'src/_lumascope/modules/reader.py:9 reader names _readable_view',
     ]
 
 

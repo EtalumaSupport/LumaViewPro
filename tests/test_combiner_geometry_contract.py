@@ -11,11 +11,11 @@ combine normally.
 import numpy as np
 import pytest
 
-from modules import image_utils
-import modules.layer_record as layer_record
-from modules.composite_builder import CompositeChannel, build_composite
-from modules.zproject_method import ZProjectMethod
-from modules.zprojection import zproject
+from _lumascope.modules import image_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.composite_builder import CompositeChannel, build_composite
+from _lumascope.modules.zproject_method import ZProjectMethod
+from _lumascope.modules.zprojection import zproject
 from tests.stock_channels import LED0, LED1, LED2
 
 

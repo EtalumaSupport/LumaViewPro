@@ -18,9 +18,9 @@ import tifffile
 # stitch_algorithms.py -- overlap registration
 # ---------------------------------------------------------------------------
 
-from modules import post_derivation
-from modules.stitch_mode import StitchMode
-from modules.stitch_algorithms import (
+from _lumascope.modules import post_derivation
+from _lumascope.modules.stitch_mode import StitchMode
+from _lumascope.modules.stitch_algorithms import (
     align_tile_positions,
     estimate_overlap_offset,
     estimate_phase_offset,
@@ -32,7 +32,7 @@ from modules.stitch_algorithms import (
 # Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
-from modules.stitching_core import (
+from _lumascope.modules.stitching_core import (
     _center_metadata,
     channel_aware_stitcher,
     fft_phase_stitcher,
@@ -40,11 +40,11 @@ from modules.stitching_core import (
     overlap_stitcher,
     stage_position_stitcher,
 )
-from modules.stitcher import Stitcher
-import modules.common_utils as common_utils
-import modules.image_utils as image_utils
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.stitcher import Stitcher
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
 from tests.installation_fixtures import shipped_grids
 
@@ -55,7 +55,7 @@ class TestStitchLoudDegradeOnMissingPixelSize:
     def test_warns_by_name_when_pixel_size_missing(self, caplog):
         from unittest import mock
 
-        import modules.stitcher as stitcher_mod
+        import _lumascope.modules.stitcher as stitcher_mod
         from tests.log_capture import records_of
 
         st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
@@ -151,7 +151,7 @@ class TestSimplePositionStitcher:
         and reused for its own placement -- not re-decoded in the placement loop.
         Each tile, including the first, is opened exactly once. The stitched
         output stays byte-identical to the unspied run."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         baseline = Stitcher._simple_position_stitcher(
             tile_dir, tile_df, channel_colors=release_colors()
@@ -339,7 +339,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(stitcher, '_add_record', lambda **kwargs: None)
 
         def degraded_group_algorithm(**kwargs):
-            from modules.protocol_post_processing_result import PostProcResult
+            from _lumascope.modules.protocol_post_processing_result import PostProcResult
 
             return PostProcResult.ok(
                 significant_bits=16,
@@ -396,7 +396,7 @@ class TestSimplePositionStitcher:
         assert all('0% overlap' in tooltip for tooltip in tooltips)
         assert (
             'Estimated remaining time'
-            in (root / 'modules' / 'protocol_post_processor.py').read_text()
+            in (root / 'src/_lumascope/modules' / 'protocol_post_processor.py').read_text()
         )
         assert 'stitching_mode' in ui_source
 
@@ -450,15 +450,19 @@ class TestSimplePositionStitcher:
             }
 
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
-        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
-            'modules.stitching_core.stage_position_stitcher',
+            '_lumascope.modules.stitching_core.overlap_stitcher', fail('overlap_stitcher')
+        )
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.stage_position_stitcher',
             fail('stage_position_stitcher'),
         )
-        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.simple_position_stitcher', simple_success
+        )
 
         result = channel_aware_stitcher(
             tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
@@ -521,10 +525,12 @@ class TestSimplePositionStitcher:
                 },
             }
 
-        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', overlap_fail)
-        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+        monkeypatch.setattr('_lumascope.modules.stitching_core.overlap_stitcher', overlap_fail)
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core.stage_position_stitcher', stage_success
+        )
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
@@ -586,14 +592,18 @@ class TestSimplePositionStitcher:
                 },
             }
 
-        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
-            'modules.stitching_core.stage_position_stitcher',
+            '_lumascope.modules.stitching_core.overlap_stitcher', fail('overlap_stitcher')
+        )
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.stage_position_stitcher',
             fail('stage_position_stitcher'),
         )
-        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core.simple_position_stitcher', simple_success
+        )
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
@@ -664,12 +674,16 @@ class TestSimplePositionStitcher:
         def slow_quality_should_not_run(*args, **kwargs):
             raise AssertionError('fast preview should not use current LVP quality registration')
 
-        monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_fail)
-        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', slow_quality_should_not_run)
-        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_fail)
-        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+        monkeypatch.setattr('_lumascope.modules.stitching_core.fft_phase_stitcher', fft_fail)
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core.overlap_stitcher', slow_quality_should_not_run
+        )
+        monkeypatch.setattr('_lumascope.modules.stitching_core.stage_position_stitcher', stage_fail)
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.simple_position_stitcher', simple_success
+        )
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8, None),
         )
 
@@ -724,7 +738,7 @@ class TestGroupAlgorithmPixelSize:
         )
 
     def test_pixel_size_read_from_tile_metadata_not_rederived(self, tmp_path, monkeypatch):
-        import modules.stitcher as stitcher_module
+        import _lumascope.modules.stitcher as stitcher_module
 
         tile_pixel_size_um = 4.0  # a binned capture's per-pixel size
         rows = []
@@ -763,7 +777,7 @@ class TestStitchOutputAlgorithmStamp:
     """
 
     def test_output_tiff_carries_producing_algorithm(self, tmp_path):
-        import modules.stitching_core as stitching_core
+        import _lumascope.modules.stitching_core as stitching_core
 
         for i in range(2):
             tifffile.imwrite(
@@ -791,15 +805,15 @@ class TestDegradedSummaryDeleaked:
     """
 
     def test_stitcher_wording_names_fallback_stitching(self):
-        from modules.common_utils import PostFunction
+        from _lumascope.modules.common_utils import PostFunction
 
         stitcher = Stitcher.__new__(Stitcher)
         stitcher._post_function = PostFunction.STITCHED
         assert 'fallback stitching' in stitcher._degraded_summary(2)
 
     def test_non_stitch_base_wording_is_generic(self):
-        from modules.common_utils import PostFunction
-        from modules.zprojector import ZProjector
+        from _lumascope.modules.common_utils import PostFunction
+        from _lumascope.modules.zprojector import ZProjector
 
         zproj = ZProjector.__new__(ZProjector)
         zproj._post_function = PostFunction.ZPROJECT
@@ -1268,11 +1282,13 @@ class TestStageConstrainedStitchModes:
             }
 
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
-        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', should_not_run)
-        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+        monkeypatch.setattr('_lumascope.modules.stitching_core.overlap_stitcher', should_not_run)
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.stage_position_stitcher', stage_success
+        )
 
         result = channel_aware_stitcher(
             tmp_path,
@@ -1342,12 +1358,12 @@ class TestStageConstrainedStitchModes:
             }
 
         monkeypatch.setattr(
-            'modules.stitching_core._read_tile_with_depth',
+            '_lumascope.modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
-        monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_success)
+        monkeypatch.setattr('_lumascope.modules.stitching_core.fft_phase_stitcher', fft_success)
         monkeypatch.setattr(
-            'modules.stitching_core.overlap_stitcher',
+            '_lumascope.modules.stitching_core.overlap_stitcher',
             lambda *_args, **_kwargs: pytest.fail('Fast Preview must not use Quality NCC'),
         )
 

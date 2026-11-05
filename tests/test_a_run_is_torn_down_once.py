@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.lumascope_api.bring_up import Part
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.lumascope_api.bring_up import Part
 
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,

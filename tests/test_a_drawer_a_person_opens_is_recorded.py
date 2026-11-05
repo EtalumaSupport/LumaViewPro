@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.scope_session import ShownChannel
+from _lumascope.modules.scope_session import ShownChannel
 from ui.ui_helpers import LoggedAccordionItem
 from tests.stock_channels import LED0
 
@@ -80,8 +80,8 @@ def test_the_apps_own_draw_is_not_recorded_as_a_pick_and_asks_nothing(monkeypatc
     a run's step) writes no pick and asks the Session nothing: no person
     picked it. The drawers are the real LoggedAccordionItem, whose record and
     ask are made only from a touch."""
-    import modules.app_context as _app_ctx
-    import modules.common_utils as common_utils
+    import _lumascope.modules.app_context as _app_ctx
+    import _lumascope.modules.common_utils as common_utils
     from ui.image_settings import ImageSettings
 
     layers = common_utils.get_layers()
@@ -122,7 +122,7 @@ def test_a_persons_open_asks_the_session_and_redraws_from_its_answer(monkeypatch
     layer, on the worker pool since show_channel spans the IO and camera
     lanes; whatever the answer, the drawers are redrawn from the store, so a
     refused show puts the drawer back."""
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
     import ui.ui_helpers as ui_helpers
     from ui.image_settings import ImageSettings
 

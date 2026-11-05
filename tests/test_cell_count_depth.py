@@ -13,10 +13,10 @@ from __future__ import annotations
 import datetime
 import numpy as np
 
-from modules.cell_count_method import CellCountMethod
-from modules import image_utils
-from modules.post_processing import PostProcessing
-from modules.layer_record import release_color
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules import image_utils
+from _lumascope.modules.post_processing import PostProcessing
+from _lumascope.modules.layer_record import release_color
 from tests.stock_channels import LED1
 
 

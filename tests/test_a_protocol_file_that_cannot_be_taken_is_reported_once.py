@@ -15,9 +15,9 @@ import logging
 
 import pytest
 
-from modules.exceptions import ProtocolNotLoadedError, Refusal
-from modules.notification_center import NotificationCenter, Severity
-from modules.protocol import ProtocolFormatError
+from _lumascope.modules.exceptions import ProtocolNotLoadedError, Refusal
+from _lumascope.modules.notification_center import NotificationCenter, Severity
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.protocol_fixtures import protocol_from_file
 
 

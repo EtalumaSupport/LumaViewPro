@@ -24,13 +24,13 @@ from concurrent.futures import Future
 
 import pytest
 
-from modules import wire_encoding
-from modules.api_surface import API, api_fields, mark_of
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import API, api_fields, mark_of
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -156,7 +156,7 @@ def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
 
 
 def test_a_plain_enum_crosses_as_its_name_and_a_str_enum_as_its_value(tmp_path):
-    from modules.notification_center import OutcomeKind, Severity
+    from _lumascope.modules.notification_center import OutcomeKind, Severity
 
     class Numbered(enum.Enum):
         FIRST = 1

@@ -3,8 +3,8 @@
 means, and that a home returns when the stage has stopped.
 
 Each of ``zhome``, ``home`` and ``thome`` returns on a reply saying the
-home is done, or that an axis it would home is absent, and raises
-HardwareError on no reply or a reply naming a failure.
+home is done (``thome`` also on one saying the board has no turret), and
+raises HardwareError on no reply or a reply naming a failure.
 
 The field firmware answers HOME and then drives X, Y and Z to the centre
 of travel, and answers THOME and then drives Z back to where it was,
@@ -14,12 +14,14 @@ real field firmware in realistic timing and read the stage the moment the
 home returns.
 """
 
+import logging
+
 import pytest
 
-from drivers.exceptions import BoardPortFailedError, HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.mp import tmc5072
+from _lumascope.drivers.exceptions import BoardPortFailedError, HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.mp import tmc5072
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier
@@ -51,23 +53,42 @@ def homing_boards():
         driver.disconnect()
 
 
-@pytest.mark.parametrize(
-    ('model', 'axes', 'dialect'),
-    [
-        ('LS850T', 'XYZT', '3.0'),  # 'XYZ home complete'
-        ('LS820', 'Z', '3.0'),  # 'ERROR: X not present'
-        ('LS820', 'Z', 'field'),  # 'X not present'
-        ('LS850', 'XZ', '3.0'),  # 'ERROR: Y not present'
-    ],
-)
-def test_a_home_done_or_with_x_or_y_absent_returns_and_the_board_is_homed(model, axes, dialect):
-    """The firmware homes Z (and T) before it reports a missing X or Y, so
-    that reply is a home, not a failure."""
-    driver, _sim = _firmware_board(model, axes, dialect)
+def test_a_home_on_a_full_board_returns_and_the_board_is_homed():
+    driver, _sim = _firmware_board('LS850T', 'XYZT')  # 'XYZ home complete'
     try:
         assert driver.initial_homing_complete is False
         assert driver.home() is None
         assert driver.initial_homing_complete is True
+    finally:
+        driver.disconnect()
+
+
+@pytest.mark.parametrize('dialect', ['3.0', 'field'])
+def test_a_home_on_a_board_with_no_xy_homes_z_and_reports_no_firmware_error(dialect, caplog):
+    """A board with no XY stage is asked to home only the axes it has: its
+    HOME would home Z and then answer that X is not present, which the 3.0
+    firmware words as an error."""
+    driver, _sim = _firmware_board('LS820', 'Z', dialect)
+    try:
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            assert driver.home() is None
+        assert driver.initial_homing_complete is True
+        # The board's own flag, read fresh: detect_homed_axes answers from
+        # the record cached at connect.
+        assert 'Z homed: True' in driver.exchange_command('FULLINFO')
+        assert [r.getMessage() for r in caplog.records if 'FIRMWARE ERROR' in r.getMessage()] == []
+    finally:
+        driver.disconnect()
+
+
+def test_a_home_on_a_board_with_x_and_no_y_raises():
+    """The firmware answers 'ERROR: Y not present' before it homes X, so the
+    home left X with no reference."""
+    driver, _sim = _firmware_board('LS850', 'XZ')
+    try:
+        with pytest.raises(HardwareError, match='Y not present'):
+            driver.home()
+        assert driver.initial_homing_complete is False
     finally:
         driver.disconnect()
 

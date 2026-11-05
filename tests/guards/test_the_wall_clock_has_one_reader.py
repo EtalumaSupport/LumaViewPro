@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The wall clock is read as a datetime in one place: ``modules/wall_time.py``.
+"""The wall clock is read as a datetime in one place: ``src/_lumascope/modules/wall_time.py``.
 
 Every time LVP saves or publishes states its UTC offset, so two saved times
 compare however many daylight-saving changes lie between them. A read of
@@ -8,7 +8,7 @@ the wall clock as a datetime anywhere else (``datetime.now()``,
 the call chose, most often naive local, and nothing stops it reaching a
 record beside times that state their offset. So production reads "now"
 through ``wall_time.now()``, a file's time through ``wall_time.local_time``,
-and the wall clock's integer through ``drivers/host_clock.py``, which reads
+and the wall clock's integer through ``src/_lumascope/drivers/host_clock.py``, which reads
 no datetime. A file-name label formats the time ``wall_time`` gives it; a
 driver, which imports no module, labels with ``time.strftime``.
 """
@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, Words, tracked_python_files
+from tests.ast_seams import REPO_ROOT, Packages, Words, tracked_files
 
 # The production trees, and the root's own modules.
-_PRODUCTION = ('modules/', 'drivers/', 'rest/', 'ui/')
-_THE_ONE_READER = 'modules/wall_time.py'
+_PRODUCTION = Packages(
+    {'src/_lumascope/modules', 'src/_lumascope/drivers', 'src/_lumascope/rest', 'ui'}
+)
+_THE_ONE_READER = 'src/_lumascope/modules/wall_time.py'
 
 # The datetime and date members that read the wall clock.
 _WALL_READS = Words({'now', 'utcnow', 'today', 'fromtimestamp', 'utcfromtimestamp'})
@@ -49,8 +51,8 @@ def offences(tree: ast.AST) -> list[int]:
 def _production_files() -> list[str]:
     return [
         path
-        for path in tracked_python_files()
-        if path != _THE_ONE_READER and (path.startswith(_PRODUCTION) or '/' not in path)
+        for path in tracked_files(_PRODUCTION) + tracked_files(pattern='*.py')
+        if path != _THE_ONE_READER
     ]
 
 
@@ -76,7 +78,7 @@ def test_the_wall_clock_is_read_as_a_datetime_only_through_wall_time():
         for lineno in offences(ast.parse(source, filename=path)):
             offenders.append(f'{path}:{lineno}')
     assert not offenders, (
-        'these read the wall clock as a datetime outside modules/wall_time.py; read '
+        'these read the wall clock as a datetime outside src/_lumascope/modules/wall_time.py; read '
         'wall_time.now() or wall_time.local_time(wall_ns), so the time states its '
         'offset: ' + ', '.join(offenders)
     )

@@ -11,14 +11,14 @@ and the frame it returned is judged by what the simulated sensor made it
 under (``scope.simulation.exposed_under``): never by the gate's own answer,
 never by pixels.
 
-The camera's clock decides: the simulated sensor shows a change only in
-exposures starting its apply delay after it, and a source whose delay the
-simulator's timing record holds is judged by when its frame began. The
-turret has no measured delay of its own on the simulator: the
-characterization tool's window ends before a six-second turret move comes
-into force. A turret move parks and restores Z inside its span, so its frame
-waits out Z's measured delay, which comes into force at the same instant.
-Conversion gain mode and line noise reduction have no case: the simulated
+Counted frames decide: the simulated sensor shows a change in the exposures
+starting after it, its pipeline still delivering the frame it had started,
+and each source waits its shipped count, the simulator's timing record
+measuring none, as the shipped cameras' measure none; a move's count runs
+from its stop. A turret move parks and restores Z inside its span, so its
+frame waits out the same stop. Each change of a camera setting, the LED and
+the stage is taken at a short exposure and a long one too, since how many
+frames are in flight at a change depends on the exposure. Conversion gain mode and line noise reduction have no case: the simulated
 camera is the dart's, which has neither, and they are not simulated (Eric,
 2026-10-11).
 """
@@ -31,16 +31,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from modules.exceptions import CaptureFailedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CaptureFailedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.settings_fixtures import complete_settings
 
-# Frames held between the camera and the host. The gate credits at most
-# its skip count (3, exposure's) of the frames arriving after a change;
-# the sensor's own pipeline and this backlog put more than that many
-# frames made before the change behind it, so the frame a capture takes
-# is one of them on every run.
+# Frames held between the camera and the host, more than any source's count
+# (3, exposure's): a capture that counted frames as they reached the host,
+# rather than as the driver was handed them, would take one made before the
+# change on every run.
 BACKLOG = 6
 # The frames the listener keeps, so the one a capture names is still held.
 FRAMES_KEPT = 64
@@ -217,13 +216,9 @@ def delivered(realistic_session):
     imaging.remove_frame_listener(frames.keep)
 
 
-@pytest.mark.slow
-# parametrize-justified: each member is its own change and its own session state.
-@pytest.mark.parametrize('case', CASES, ids=lambda case: case.member)
-def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
-    realistic_session, live_view, delivered, case
-):
-    scope = realistic_session.scope
+def _capture_after(scope, delivered, case):
+    """The change of ``case`` made behind a host backlog, a capture after it,
+    and what the frame it returned was made under, with what the change landed."""
     case.before(scope)
     scope.imaging.capture_still()
     scope.simulation.delay_delivery(BACKLOG)
@@ -240,11 +235,47 @@ def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
             if failed.reason != 'no_fresh_frame':
                 raise
             raise AssertionError(
-                f'the capture gave up on {failed.setting} ({failed.reason})'
+                f'the capture gave up on {failed.source} ({failed.reason})'
             ) from failed
-        frame_id = record.frame_id
-        made_under = scope.simulation.exposed_under(delivered[frame_id])
+        made_under = scope.simulation.exposed_under(delivered[record.frame_id])
     finally:
         scope.simulation.clear()
+    return made_under, landed
+
+
+@pytest.mark.slow
+# parametrize-justified: each member is its own change and its own session state.
+@pytest.mark.parametrize('case', CASES, ids=lambda case: case.member)
+def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
+    realistic_session, live_view, delivered, case
+):
+    made_under, landed = _capture_after(realistic_session.scope, delivered, case)
+
+    assert case.made_after(made_under, landed), (landed, made_under)
+
+
+# The camera's shortest exposure here and the LS850T's long one: one frame in
+# flight at a change at the delivery ceiling, and one exposing for 134 ms.
+EXPOSURES_MS = (1.0, 134.0)
+AT_EVERY_EXPOSURE = ('gain', 'led', 'xy_move', 'z_move')
+
+
+@pytest.mark.slow
+# parametrize-justified: each change at each exposure is its own frame timing.
+@pytest.mark.parametrize('exposure_ms', EXPOSURES_MS, ids=lambda ms: f'{ms:g}ms')
+@pytest.mark.parametrize(
+    'case',
+    [case for case in CASES if case.member in AT_EVERY_EXPOSURE],
+    ids=lambda case: case.member,
+)
+def test_a_capture_after_a_change_at_a_short_or_a_long_exposure_returns_a_frame_exposed_after_it(
+    realistic_session, live_view, delivered, case, exposure_ms
+):
+    scope = realistic_session.scope
+    scope.camera.set_exposure_ms(exposure_ms)
+    try:
+        made_under, landed = _capture_after(scope, delivered, case)
+    finally:
+        scope.camera.set_exposure_ms(10.0)
 
     assert case.made_after(made_under, landed), (landed, made_under)

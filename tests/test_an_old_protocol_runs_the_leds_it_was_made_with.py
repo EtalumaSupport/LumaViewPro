@@ -27,11 +27,11 @@ import types
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.path_utils import read_installation_file
-from modules.protocol import Protocol, ProtocolFormatError
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.path_utils import read_installation_file
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import SHIPPED_DATA, non_stock_block, write_installation
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

@@ -19,7 +19,7 @@ import pytest
 
 from tests.settings_fixtures import complete_settings
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope, swap_lanes
 from tests.test_scope_api import _RecordingExecutor
 

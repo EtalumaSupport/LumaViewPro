@@ -17,9 +17,13 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from drivers import tmcm6110
-from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
-from modules.exceptions import (
+from _lumascope.drivers import tmcm6110
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
@@ -27,11 +31,10 @@ from modules.exceptions import (
     MotorStopFailedError,
     MoveNotCompletedError,
 )
-from modules.caller import Caller, calling
-from modules.lumascope_api import _lumascope
-from modules.lumascope_api.simulation import InjectedFault
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.lumascope_api.simulation import InjectedFault
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
@@ -83,19 +86,21 @@ def test_a_dropped_position_read_refuses_the_z_move_that_needed_it(scope):
 
 
 def test_a_counted_drop_takes_that_many_replies_and_no_more(scope):
+    before = scope.motion.get_actual_position('Z')
     scope.simulation.drop_replies('motor', count=1, command='ACTUAL_RZ')
     with pytest.raises(HardwareError):
         scope.motion.get_actual_position('Z')
-    assert scope.motion.get_actual_position('Z') == pytest.approx(0.0, abs=0.1)
+    assert scope.motion.get_actual_position('Z') == pytest.approx(before, abs=0.1)
 
 
 def test_an_uncounted_drop_lasts_until_cleared(scope):
+    before = scope.motion.get_actual_position('Z')
     scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
     for _ in range(3):
         with pytest.raises(HardwareError):
             scope.motion.get_actual_position('Z')
     scope.simulation.clear()
-    assert scope.motion.get_actual_position('Z') == pytest.approx(0.0, abs=0.1)
+    assert scope.motion.get_actual_position('Z') == pytest.approx(before, abs=0.1)
 
 
 def test_a_stop_the_board_does_not_answer_raises(scope):
@@ -117,11 +122,12 @@ def test_an_unplugged_motor_board_refuses_a_z_move_then_reads_not_connected(scop
 
 
 def test_a_silenced_motor_board_answers_nothing_until_unsilenced(scope):
+    before = scope.motion.get_actual_position('X')
     scope.simulation.silence('motor')
     with pytest.raises(HardwareError):
         scope.motion.get_actual_position('X')
     scope.simulation.unsilence('motor')
-    assert scope.motion.get_actual_position('X') == pytest.approx(0.0, abs=0.1)
+    assert scope.motion.get_actual_position('X') == pytest.approx(before, abs=0.1)
 
 
 def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypatch):
@@ -129,11 +135,12 @@ def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypa
     is first, and both name it ``'stalled'``: a move that did not arrive."""
     # The settle bound is 120 s; the patch stays until it has a seam.
     monkeypatch.setattr(scope.motion, '_MOVE_STALL_WINDOW_S', 0.3)
+    start = scope.motion.get_actual_position('X')
     scope.simulation.hold_axis('X')
     with pytest.raises(MoveNotCompletedError) as not_completed:
         scope.motion.move_xy(x_um=20_000.0)
     assert not_completed.value.reason == 'stalled'
-    assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
+    assert 20_000.0 < scope.motion.get_actual_position('X') < start
 
 
 def test_a_removed_camera_refuses_the_next_write(scope):
@@ -256,18 +263,10 @@ def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, rea
     assert (refused.reason, refused.argument) == (reason, argument)
 
 
-def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards_it_has(
-    monkeypatch,
-):
+def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards_it_has():
     # The camera is a board the scope lacks, refused as a missing motor
     # board is: the boards it has are offered.
-    def _no_camera(*args, **kwargs):
-        raise RuntimeError('no camera found')
-
-    # a stand-in by design: the simulator has no member that fails the
-    # camera at bring-up, so its factory raises as a camera not found does.
-    monkeypatch.setattr(_lumascope.camera_registry, 'create', _no_camera)
-    scope = build_scope(simulate=True, register_atexit=False)
+    scope = build_scope(simulate=True, register_atexit=False, sim_camera_present=False)
 
     refused = _refused(scope.simulation.stall_stream, 0.0, 1.0)
 
@@ -280,6 +279,7 @@ def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards
 
 
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
+    before = scope.motion.get_actual_position('X')
     scope.simulation.silence('motor')
     scope.simulation.refuse_camera_write('gain', 'none')
     scope.simulation.refuse_camera_read('black_level', 'failed')
@@ -292,7 +292,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     )
     scope.simulation.clear()
     assert scope.simulation.injected() == ()
-    assert scope.motion.get_actual_position('X') == pytest.approx(0.0, abs=0.1)
+    assert scope.motion.get_actual_position('X') == pytest.approx(before, abs=0.1)
     scope.camera.set_gain_db(4.0)
     assert scope.imaging.frame_validity.target('gain') == 4.0
     assert scope.camera.read_black_level() is not None
@@ -324,10 +324,11 @@ def test_a_withheld_chunk_is_missing_from_that_many_frames_and_no_more(sim_scope
 
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
+    start = scope.motion.get_actual_position('X')
     halted = scope.simulation.hold_axis('X')
     handle = scope.motion.start_move_xy(x_um=20_000.0)
     assert halted.wait(10.0), 'the held move never halted'
-    assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
+    assert 20_000.0 < scope.motion.get_actual_position('X') < start
     scope.simulation.clear()
     handle.result()
     assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)

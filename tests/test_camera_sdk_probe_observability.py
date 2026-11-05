@@ -20,7 +20,7 @@ import re
 import sys
 import types
 
-from modules import app_environment, tech_support_report
+from _lumascope.modules import app_environment, tech_support_report
 
 
 def _stub_ids_peak(monkeypatch, version='9.9.9-stub'):
@@ -75,7 +75,7 @@ def test_environment_banner_consumes_the_import_probe():
     session's bring-up hands it the probe's output, and every probe line
     reaches the log, is driven in a real process by
     ``tests/test_every_session_host_logs_its_environment_once.py``."""
-    logger_src = pathlib.Path('lvp_logger.py').read_text(encoding='utf-8')
+    logger_src = pathlib.Path('src/_lumascope/lvp_logger.py').read_text(encoding='utf-8')
     assert 'camera_sdk_lines' in logger_src, (
         'the banner must take the camera-SDK lines as a required parameter'
     )
@@ -100,12 +100,12 @@ def test_driver_import_guards_log_their_reason():
     """Source-text pin: the FX2 driver-import guard in _lumascope surfaces the
     swallowed ImportError instead of silently degrading. The IDS guard is
     pinned by behaviour in test_ids_absence_on_macos_is_not_a_warning.py."""
-    import modules.lumascope_api._lumascope as lumascope_mod
+    import _lumascope.modules.lumascope_api._lumascope as lumascope_mod
 
     src = pathlib.Path(lumascope_mod.__file__).read_text(encoding='utf-8')
 
     fx2_guard = re.search(
-        r'try:\s*\n\s*import drivers\.fx2driver[^\n]*\n'
+        r'try:\s*\n\s*import _lumascope\.drivers\.fx2driver[^\n]*\n'
         r'except ImportError([^\n]*):\n(.*?)(?=\n(?:try:|from |import |#))',
         src,
         re.DOTALL,

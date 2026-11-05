@@ -36,7 +36,7 @@ def _named(node: ast.AST) -> str | None:
 def test_no_driver_defines_a_colour_table_or_an_led_state_cache():
     offenders = [
         f'{rel_path}:{node.lineno} {name}'
-        for rel_path, tree in iter_package_modules(('drivers',))
+        for rel_path, tree in iter_package_modules(('src/_lumascope/drivers',))
         for node in ast.walk(tree)
         if (name := _named(node)) is not None
     ]

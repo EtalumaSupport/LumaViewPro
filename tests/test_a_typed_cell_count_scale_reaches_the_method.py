@@ -16,9 +16,9 @@ from types import SimpleNamespace
 import pytest
 
 import ui.post_processing as panel_module
-from modules.exceptions import PostProcessingRefusedError
-from modules.cell_count_method import CellCountMethod
-from modules.post_processing import with_pixels_per_um
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.post_processing import with_pixels_per_um
 
 
 @pytest.fixture

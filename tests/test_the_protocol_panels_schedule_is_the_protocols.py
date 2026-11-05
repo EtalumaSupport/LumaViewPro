@@ -58,10 +58,10 @@ for _name, _attr in (
 
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
-from modules.notification_center import notifications
-from modules.acquire_mode import AcquireMode
-from modules.protocol import Protocol
-from tests.ast_seams import parse_module
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.protocol import Protocol
+from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import home_sim_scope
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -307,8 +307,7 @@ class TestTheStoredScheduleHasTwoWriters:
     def test_no_gui_or_module_writes_a_stored_period_or_duration(self):
         writers = []
         for path in [
-            *REPO.glob('ui/**/*.py'),
-            *REPO.glob('modules/**/*.py'),
+            *[REPO / rel for rel in tracked_files(('ui', 'src/_lumascope/modules'))],
             REPO / 'lumaviewpro.py',
         ]:
             for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
@@ -325,7 +324,7 @@ class TestTheStoredScheduleHasTwoWriters:
 
     def test_no_gui_code_reads_the_stored_period_or_duration(self):
         readers = []
-        for path in REPO.glob('ui/**/*.py'):
+        for path in [REPO / rel for rel in tracked_files(('ui',))]:
             for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
                 if self.READ.search(line):
                     readers.append(f'{path.relative_to(REPO)}:{number}: {line.strip()}')

@@ -16,11 +16,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.protocol_state_machine import ProtocolState
 from tests.ast_seams import parse_module
 from tests.protocol_drives import bare_capture_runner
 
-_RUN_PATHS = ('modules/protocol_run_loop.py', 'modules/protocol_step_runner.py')
+_RUN_PATHS = (
+    'src/_lumascope/modules/protocol_run_loop.py',
+    'src/_lumascope/modules/protocol_step_runner.py',
+)
 
 
 @pytest.mark.parametrize('rel_path', _RUN_PATHS)

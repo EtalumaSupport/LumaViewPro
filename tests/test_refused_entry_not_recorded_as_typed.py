@@ -26,12 +26,12 @@ from typing import ClassVar
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.microscope_settings as ms
 import ui.protocol_settings as ps
 from ui.zstack import ZStack
-from modules import gui_logger
-from modules.scope_session import ScopeSession
+from _lumascope.modules import gui_logger
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -91,8 +91,8 @@ def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
     prefix made of it is the protocol's (capture_prefix), not the field's."""
     from types import SimpleNamespace
 
-    import modules.app_context as _app_ctx
-    from modules.scope_session import ScopeSession
+    import _lumascope.modules.app_context as _app_ctx
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
     from ui.protocol_settings import ProtocolSettings
 

@@ -18,8 +18,8 @@ import math
 
 import pytest
 
-from drivers import fx2driver
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
 # The FX2 fixture lives beside the FX2 driver tests.
@@ -72,7 +72,7 @@ class TestPylonReadBack:
         return cam
 
     def test_a_failed_read_back_answers_applied_unconfirmed(self, cam):
-        from drivers.pyloncamera import genicam
+        from _lumascope.drivers.pyloncamera import genicam
 
         cam._read_back_error = genicam.TimeoutException('read-back timed out')
         assert cam.gain(12.5) is True
@@ -81,7 +81,7 @@ class TestPylonReadBack:
     def test_lost_comms_on_the_read_back_is_the_write_applied_unconfirmed(self, cam):
         """The node took the write; one RuntimeException reading it back is not
         the camera's removal, which only a definite signal decides."""
-        from drivers.pyloncamera import genicam
+        from _lumascope.drivers.pyloncamera import genicam
 
         del cam._mark_disconnected  # the real latch
         cam._device_removed = False

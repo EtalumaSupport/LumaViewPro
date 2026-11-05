@@ -5,14 +5,14 @@ from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.debounce import debounce
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.debounce import debounce
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.operation import Operation
-from modules.run_events import RunEvents
+    from _lumascope.modules.operation import Operation
+from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     go_to_bookmark,
     jog,
@@ -88,6 +88,22 @@ class VerticalControl(BoxLayout):
         if not scope.capabilities.has_focus:
             return
         self.show_z(scope.motion.axis_positions()['Z'].position_um)
+
+    def show_z_travel(self) -> None:
+        """Span the focus slider over the scope's Z travel.
+
+        The travel is ``MotionAPI.get_axis_limits('Z')``, the one owner of
+        it; the slider's kv range is a placeholder until this runs at
+        bring-up. The range is display: a move past travel is the API's
+        refusal, whatever the slider offers.
+        """
+        scope = _app_ctx.ctx.lumaview.scope
+        if not scope.capabilities.has_focus:
+            return
+        travel = scope.motion.get_axis_limits('Z')
+        slider = self.ids['obj_position']
+        slider.min = travel.min_um
+        slider.max = travel.max_um
 
     def show_z(self, polled):
         """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
@@ -450,7 +466,7 @@ class VerticalControl(BoxLayout):
         show_objective_selection_popup(
             title='Objective',
             message=message,
-            objectives=list(question.choices),
+            objectives=[_app_ctx.ctx.session.scope.objectives[o] for o in question.choices],
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
                 chosen, question.turret_slot, on_resolved=on_resolved

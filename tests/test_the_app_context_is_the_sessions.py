@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.app_context import AppContext
+from _lumascope.modules.app_context import AppContext
 
 # The session's handles no GUI code reads, which the context once copied.
 _SESSION_HANDLES_NO_GUI_CODE_READS = {
@@ -26,7 +26,7 @@ _SESSION_HANDLES_NO_GUI_CODE_READS = {
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     built = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

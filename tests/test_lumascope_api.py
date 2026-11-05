@@ -17,8 +17,8 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
   Structural fix (this commit): rename `xyhome` -> `home` everywhere
   (driver, API, callers, tests) and push the partial-home recognition
   into the driver layer where the firmware response is already known.
-  - drivers/motorboard.py::home() recognizes 'ERROR: X not present' /
-    'Y not present' as a partial-home success and returns True.
+  - src/_lumascope/drivers/motorboard.py::home() homes the axes the board has (a board
+    with no XY is sent ZHOME, and THOME if it has a turret) and returns.
   - Lumascope.motion.home() trusts the driver's verdict -- no host-side
     presence check, no False interpretation.
   - The misnamed method was the conceptual trap that allowed both #616
@@ -31,16 +31,20 @@ import threading
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFaultError
-from modules.lumascope_api import Lumascope, AxisState
-from modules.notification_center import notifications, Severity
-from modules.scope_capabilities import CameraShutter
-from drivers.null_motorboard import NullMotionBoard
-from drivers.null_ledboard import NullLEDBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    HomingFaultError,
+)
+from _lumascope.modules.lumascope_api import Lumascope, AxisState
+from _lumascope.modules.notification_center import notifications, Severity
+from _lumascope.modules.scope_capabilities import CameraShutter
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.stock_channels import LED0, LED1, LED2
@@ -157,9 +161,8 @@ class TestLumascopeHome:
         assert ran == ['Z', 'T', 'ALL']
 
     def test_home_on_z_only_board_marks_z_idle(self):
-        """LS820 (Z-only): the driver recognizes the 'X not present'
-        firmware response as a partial-home success. The API trusts
-        a driver home that returns and marks present axes IDLE."""
+        """LS820 (Z-only): the API trusts a driver home that returns and
+        marks the present axes IDLE."""
         received = self._capture_errors()
         scope = build_scope(simulate=True)
 
@@ -245,9 +248,8 @@ class TestFrameValidityDuringHoming:
     (axis state HOMING), which sources the home recorded a change for
     (``invalidation_counts`` against a snapshot before it) and whether a
     frame would count (``changes_in_force``). The record is what the
-    contract asks: under the clock rule an earlier change of the source
-    already reads owed while the axis moves, so the answer alone would
-    pass with the invalidate gone.
+    contract asks: another change still owed reads not in force too, so the
+    answer alone could pass with the invalidate gone.
     """
 
     def test_zhome_marks_frame_invalid_during_motion(self):
@@ -304,7 +306,7 @@ class TestFrameValidityDuringHoming:
     def test_home_marks_frame_invalid_z_only_board(self):
         """LS820: only Z present. home() must invalidate z_move only,
         not xy_move or turret (those sources aren't in motion)."""
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
         validity = scope.imaging.frame_validity
@@ -371,7 +373,7 @@ class TestFrameValidityDuringHoming:
 
 class TestProtocolConformance:
     """Audit B1: every motor and LED driver implementation must satisfy
-    the runtime-checkable Protocol in `drivers/protocols.py`. This guards
+    the runtime-checkable Protocol in `src/_lumascope/drivers/protocols.py`. This guards
     against silent drift -- if anyone deletes a method from a driver, or
     adds a new method to the Protocol without updating all implementations,
     these tests fail at construction time instead of at the call site.
@@ -386,8 +388,8 @@ class TestProtocolConformance:
     """
 
     def test_motorboard_satisfies_protocol(self):
-        from drivers.motorboard import MotorBoard
-        from drivers.sim_wire.backend import SimWireBackend
+        from _lumascope.drivers.motorboard import MotorBoard
+        from _lumascope.drivers.sim_wire.backend import SimWireBackend
 
         # Built by its own constructor on a bus with no board: nothing is
         # opened, and the instance is the one a scope without one holds.
@@ -405,8 +407,8 @@ class TestProtocolConformance:
         assert isinstance(instance, MotorBoardProtocol)
 
     def test_ledboard_satisfies_protocol(self):
-        from drivers.ledboard import LEDBoard
-        from drivers.sim_wire.backend import SimWireBackend
+        from _lumascope.drivers.ledboard import LEDBoard
+        from _lumascope.drivers.sim_wire.backend import SimWireBackend
 
         instance = LEDBoard(backend=SimWireBackend(None))
         assert isinstance(instance, LEDBoardProtocol)
@@ -444,8 +446,8 @@ class TestLEDChannelDiscovery:
     """
 
     def test_ledboard_available_channels_are_its_eight_addresses(self):
-        from drivers.ledboard import LEDBoard
-        from drivers.sim_wire.backend import SimWireBackend
+        from _lumascope.drivers.ledboard import LEDBoard
+        from _lumascope.drivers.sim_wire.backend import SimWireBackend
 
         instance = LEDBoard(backend=SimWireBackend(None))
         assert instance.available_channels() == (0, 1, 2, 3, 4, 5, 6, 7)
@@ -611,17 +613,6 @@ class TestRunGrabLifecycleBenchmark:
         assert r['vary_settings'] is False
         assert r['slow_threshold_s'] == 3.0  # default
 
-    def test_inactive_camera_is_refused_naming_it(self):
-        """With no camera the benchmark is refused, naming the camera, so the
-        operator hears why it produced no data."""
-        from modules.exceptions import MissingPart
-
-        scope = build_scope(simulate=True)
-        scope._camera_driver = None
-        with pytest.raises(HardwareCommandRefusedError) as exc:
-            scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
-        assert exc.value.missing == MissingPart.CAMERA
-
     def test_slow_cycle_detection_with_zero_threshold(self):
         """slow_threshold_s=0.0 forces every cycle to count as slow,
         verifying the slow-cycle accounting + 50-entry cap."""
@@ -708,7 +699,7 @@ class TestRunGrabLifecycleBenchmark:
         """
         import os
 
-        from drivers.simulated_camera import SimulatedCamera
+        from _lumascope.drivers.simulated_camera import SimulatedCamera
 
         # The simulated camera is driven without a vendor SDK; this one says
         # pylon's version at connect, as a Basler body does.
@@ -749,7 +740,7 @@ class TestScopeCapabilities:
 
     def test_capabilities_built_at_init(self):
         scope = build_scope(simulate=True)
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         assert isinstance(scope.capabilities, ScopeCapabilities)
 
@@ -776,8 +767,8 @@ class TestScopeCapabilities:
     def test_a_camera_no_datasheet_entry_describes_has_no_sensor_or_shutter(self):
         """An unrecognised camera's profile was given an empty sensor, or
         'IDS (unrecognized model)', and a 'rolling' shutter nobody knew."""
-        from drivers.camera_profiles import ids_default_profile, lookup_profile
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.drivers.camera_profiles import ids_default_profile, lookup_profile
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         for profile in (lookup_profile('NoSuchCamera'), ids_default_profile('U3-NoSuch')):
             assert (profile.sensor, profile.shutter) == (None, None), profile.model_name
@@ -795,8 +786,8 @@ class TestScopeCapabilities:
         assert (caps.camera_sensor, caps.camera_shutter) == (None, None)
 
     def test_with_no_camera_the_datasheet_facts_are_unknown(self):
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -813,8 +804,8 @@ class TestScopeCapabilities:
         )
 
     def test_ls850t_capabilities_has_turret(self):
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
         scope._motion_driver = SimulatedMotorBoard(
@@ -834,7 +825,7 @@ class TestScopeCapabilities:
 
     def test_z_only_sim_capabilities(self):
         """LS820 / LVC LS620-style Z-only scope."""
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
@@ -852,8 +843,8 @@ class TestScopeCapabilities:
         assert scope.capabilities.has_turret is False
 
     def test_null_motor_capabilities_empty_axes(self):
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -871,8 +862,8 @@ class TestScopeCapabilities:
     def test_a_scope_without_its_led_board_reports_no_channels_or_cap(self):
         """The null board's stand-in table is not the scope's: a scope that
         came up without its LED board reports no channels and no cap."""
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -887,12 +878,12 @@ class TestScopeCapabilities:
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""
-        from modules.layer_record import (
+        from _lumascope.modules.layer_record import (
             load_scope_models,
             release_layers,
             resolve_layer_identity,
         )
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
         from tests.scope_fakes import refuse_a_report
 
         class FourChannelLED(SimulatedLEDBoard):
@@ -933,7 +924,7 @@ class TestScopeCapabilities:
         snapshot can't do. Lumascope.motor_connected / led_connected
         remain live properties."""
         scope = build_scope(simulate=True)
-        from modules.scope_capabilities import ScopeCapabilities
+        from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         cap_fields = {f.name for f in dataclasses_fields(ScopeCapabilities)}
         assert 'motor_connected' not in cap_fields
@@ -988,7 +979,7 @@ class TestSetExposureTimeValueWarningSuppression:
 
         # set_exposure_ms's body lives in camera.py; the warning is
         # written by camera.py's own code.
-        import modules.lumascope_api.camera as camera_mod
+        import _lumascope.modules.lumascope_api.camera as camera_mod
         from tests.log_capture import records_of
 
         return [

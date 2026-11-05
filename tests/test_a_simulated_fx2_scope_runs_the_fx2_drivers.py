@@ -18,14 +18,14 @@ import time
 import numpy as np
 import pytest
 
-from drivers import fx2driver
-from drivers.fx2driver import FX2Camera, FX2LEDController
-from drivers.simulated_fx2 import (
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.fx2driver import FX2Camera, FX2LEDController
+from _lumascope.drivers.simulated_fx2 import (
     TRANSFER_S,
     SimulatedFX2Device,
     bytes_per_transfer,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 SCOPES = [
@@ -159,9 +159,11 @@ def test_blue_reaches_the_peripheral_as_c(session):
 
 
 def _running_device() -> SimulatedFX2Device:
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
-    return SimulatedFX2().device
+    sim = SimulatedFX2()
+    sim.connect()
+    return sim.device
 
 
 def test_a_0xff_brightness_is_a_new_preamble_and_the_command_is_lost():
@@ -298,7 +300,7 @@ def test_the_fx2_led_controller_reports_no_firmware_version(session):
 
 
 def test_the_support_report_says_the_led_diagnostics_are_not_supported(session):
-    from modules.tech_support_report import FirmwareDiagnostics
+    from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
     assert session.scope.diagnostics.get_led_info().command_set is None
     answer = FirmwareDiagnostics(scope=session.scope).get_led_info()

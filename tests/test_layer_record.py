@@ -15,8 +15,8 @@ import logging
 
 import pytest
 
-import modules.common_utils as common_utils
-from modules.layer_record import (
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.layer_record import (
     UNRESOLVED,
     ChannelIdentity,
     ChannelRecord,
@@ -34,9 +34,9 @@ from modules.layer_record import (
     resolve_layer_identity,
     shown_color,
 )
-from modules.exceptions import ArgumentRefusedError, InstallationFileError
-from modules.path_utils import read_installation_file, resolve_data_file
-from modules.layer_record import release_colors
+from _lumascope.modules.exceptions import ArgumentRefusedError, InstallationFileError
+from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
+from _lumascope.modules.layer_record import release_colors
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -671,7 +671,7 @@ class TestTheBoardsChannelBlock:
         assert [n.reason for n in REPORTED] == ['channel_block_superseded']
 
     def test_a_scope_whose_board_has_the_old_block_tells_its_outcome_listener(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(

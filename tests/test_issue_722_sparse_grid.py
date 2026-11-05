@@ -27,11 +27,11 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
-from modules import post_derivation
-from modules import image_utils
-from modules.stack_builder import StackBuilder
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules import post_derivation
+from _lumascope.modules import image_utils
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 
 
@@ -210,7 +210,7 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
             save_encoding='right_aligned',
             channel_colors=release_colors(),
         )
-        from modules import recording_frames
+        from _lumascope.modules import recording_frames
 
         is_video = recording_frames.is_video_frame(group.iloc[0]['Filepath'])
         outcomes['video' if is_video else 'stills'] = result.status

@@ -30,8 +30,8 @@ import pathlib
 
 import pytest
 
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.installation_fixtures import shipped_grids
 
 
@@ -79,7 +79,7 @@ def test_protocol_from_config_applies_previous_well_z(scale_capabilities):
     The carry-over is keyed by (well, channel) so each channel keeps its own
     tuned Z (a per-well key pasted one channel's Z onto every channel -- #681).
     This config has a single BF layer, so the key is (well, 'BF')."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 5.0, ('B2', 'BF'): 7.5})
     protocol = Protocol.from_config(
@@ -104,7 +104,7 @@ def test_protocol_from_config_applies_previous_well_z(scale_capabilities):
 
 def test_protocol_from_config_no_previous_well_z_falls_through(scale_capabilities):
     """No previous_well_z key -> every well uses layer_config focus."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     cfg = _build_input_config()  # no previous_well_z
     protocol = Protocol.from_config(
@@ -125,7 +125,7 @@ def test_protocol_from_config_no_previous_well_z_falls_through(scale_capabilitie
 
 def test_protocol_from_config_empty_previous_well_z_falls_through(scale_capabilities):
     """Empty dict treated the same as missing key."""
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     cfg = _build_input_config(previous_well_z={})
     protocol = Protocol.from_config(

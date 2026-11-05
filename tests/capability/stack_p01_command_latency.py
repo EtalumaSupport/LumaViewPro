@@ -17,8 +17,8 @@ import traceback
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report
-from lib import profile_trace
-from lvp_logger import git_revision
+from _lumascope.lib import profile_trace
+from _lumascope.lvp_logger import git_revision
 
 
 def _serial_rows():

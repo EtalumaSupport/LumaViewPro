@@ -21,8 +21,8 @@ import httpx
 import pytest
 import uvicorn
 
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 

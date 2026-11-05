@@ -21,8 +21,12 @@ choice instead of exercising it.
 
 import pytest
 
-from modules.exceptions import CatalogueNameRefusedError, ConfigError, ObjectiveUnknownError
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.exceptions import (
+    CatalogueNameRefusedError,
+    ConfigError,
+    ObjectiveUnknownError,
+)
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 
 
 @pytest.fixture

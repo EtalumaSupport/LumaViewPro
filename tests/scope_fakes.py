@@ -87,7 +87,7 @@ def build_scope(**kwargs):
     instance lock, which on the repo's folder would meet a LumaViewPro
     running beside the suite.
     """
-    from modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api import Lumascope
     from tests.settings_fixtures import complete_settings, installation_of_its_own
 
     if not kwargs.get('simulate') and kwargs.get('source_path') is None:
@@ -134,9 +134,9 @@ def real_executor_bundle(**members):
     """
     import dataclasses
 
-    from modules.executor_registry import create_default
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.executor_registry import create_default
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     io, camera = (
         SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO'),
@@ -196,7 +196,7 @@ def session_on_a_simulated_scope(*, settings=None, file_io_executor=None, **kwar
     and decides when they land; *kwargs* go to the constructor. The test's
     teardown shuts the session down.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     lanes = {} if file_io_executor is None else {'file_io_executor': file_io_executor}
     return ScopeSession(
@@ -215,8 +215,8 @@ def give_stub_lanes(scope):
     on a scope no session composes, which every guarded write reads. The
     test's teardown shuts the lanes. Returns the scope.
     """
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     scope._io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
     scope._camera_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='CAMERA')
@@ -235,10 +235,10 @@ def capabilities_of(camera=None, led=_NO_LED_BOARD):
     """The capabilities the production constructor builds for a scope with
     no motor board and no model: ``camera``'s facts, and ``led``'s when an
     LED driver is given (no LED board otherwise)."""
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
-    from modules.layer_record import UNRESOLVED
-    from modules.scope_capabilities import ScopeCapabilities
+    from _lumascope.drivers.null_ledboard import NullLEDBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
+    from _lumascope.modules.layer_record import UNRESOLVED
+    from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
     return ScopeCapabilities.from_drivers(
         motion=NullMotionBoard(),
@@ -296,11 +296,11 @@ def give_camera_and_imaging(scope):
     It is given the objective catalogue too, which a capture reads for the
     active objective's scale. Returns the camera.
     """
-    from modules.frame_validity import FrameValidity
-    from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.camera import CameraAPI
-    from modules.lumascope_api.imaging import ImagingAPI
-    from modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.frame_validity import FrameValidity
+    from _lumascope.modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api.camera import CameraAPI
+    from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     scope.objective_helper = ObjectiveLoader()
     scope.frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
@@ -362,7 +362,7 @@ def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
     and returns once the camera's rate is measured (two of the check's 1 s
     ticks). A scope whose rate is already measured is left as it is.
     """
-    from modules.scheduler import ThreadingTimerScheduler
+    from _lumascope.modules.scheduler import ThreadingTimerScheduler
 
     if scope.imaging.get_delivered_rate().frame_rate_fps > 0:
         return
@@ -571,8 +571,8 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     import functools
     import types
 
-    from modules.activity_claim import ActivityClaim
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.activity_claim import ActivityClaim
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     if scope in _BOUND_SETTINGS:
@@ -586,7 +586,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     )
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
-    from modules.scope_session import SettingsLock
+    from _lumascope.modules.scope_session import SettingsLock
 
     holder = types.SimpleNamespace(
         settings=settings,
@@ -650,7 +650,7 @@ def answer_auto_gain_like_the_api(camera, *, has_auto_gain: bool = True) -> None
     real member over a camera that does or does not have hardware auto-gain,
     so the fake gives the API's decision rather than one of its own.
     """
-    from modules.lumascope_api.camera import CameraAPI
+    from _lumascope.modules.lumascope_api.camera import CameraAPI
 
     camera._camera_has_auto_gain = lambda: has_auto_gain
     camera.applied_auto_gain_for = CameraAPI.applied_auto_gain_for.__get__(camera)
@@ -664,7 +664,7 @@ def identity_with_layers(keys, *, model=None, filterset=''):
     own block is, against the shipped release catalogue: every record
     carries the fields the production resolver fills.
     """
-    from modules import layer_record
+    from _lumascope.modules import layer_record
 
     shipped = {}
     for entry in layer_record.load_scope_models().values():
@@ -696,7 +696,7 @@ def stock_unit():
     the unit: each channel name the file holds is read as this unit's key
     for it (``Protocol.from_file``'s ``unit``).
     """
-    from modules import layer_record
+    from _lumascope.modules import layer_record
 
     return layer_record.resolve_layer_identity(
         board_block=None,
@@ -712,3 +712,22 @@ def stock_unit():
 def refuse_a_report(notice):
     """An identity reporter for a resolve that has nothing to report."""
     raise AssertionError(f'the identity resolve reported {notice!r}')
+
+
+def simulated_camera_on_a_real_scope(monkeypatch):
+    """Give a real scope's bring-up the simulated camera in place of a real one.
+
+    A real scope (``simulate=False``) asks the camera registry for a real
+    camera, and the suite opens none: the registry's ``create`` builds the
+    simulated one by name instead, the real boards' path otherwise
+    unchanged. A test that also answers the boards null builds a real scope
+    with nothing on the host's bus.
+    """
+    import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+
+    real_camera_create = lumascope_module.camera_registry.create
+    monkeypatch.setattr(
+        lumascope_module.camera_registry,
+        'create',
+        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
+    )

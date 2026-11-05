@@ -21,8 +21,8 @@ import time
 
 import pytest
 
-from modules.autofocus_thread import AutofocusThread
-from modules.exceptions import AutofocusAborted, AutofocusStopped
+from _lumascope.modules.autofocus_thread import AutofocusThread
+from _lumascope.modules.exceptions import AutofocusAborted, AutofocusStopped
 from tests.protocol_drives import run_identity
 
 
@@ -176,8 +176,8 @@ class TestExceptionPropagation:
         stops; the thread hands it to the future without a second log.
         A raise the runner never reported (here a RuntimeError, as from
         before the sweep began) is still logged by the thread."""
-        import modules.autofocus_thread as autofocus_thread
-        from modules.exceptions import AutofocusFailedError
+        import _lumascope.modules.autofocus_thread as autofocus_thread
+        from _lumascope.modules.exceptions import AutofocusFailedError
 
         logged = []
         monkeypatch.setattr(

@@ -19,8 +19,8 @@ import time
 
 import pytest
 
-from drivers import host_clock
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 
@@ -46,12 +46,11 @@ def _frames_through_a_change(cam, change):
     ``change()`` is made from the next frame's callback, on the camera's
     thread, so it lands at one place in the stream; the camera's clock is
     read either side of it. Collection ends at the first frame whose
-    exposure started ``SENSOR_APPLY_DELAY_US`` after the change returned.
+    exposure started after the change returned.
 
     Returns:
         The camera's clock before the change and after it, and the frames.
     """
-    delay_ticks = cam.SENSOR_APPLY_DELAY_US * cam.TIMESTAMP_TICK_HZ // 1_000_000
     frames = []
     clock = {}
     done = threading.Event()
@@ -63,7 +62,7 @@ def _frames_through_a_change(cam, change):
             clock['after'] = cam.camera_clock_ticks()
         elif not done.is_set():
             frames.append(frame)
-            if frame.chunks['Timestamp'] >= clock['after'] + delay_ticks:
+            if frame.chunks['Timestamp'] >= clock['after']:
                 done.set()
 
     cam.register_frame_callback(_collect)
@@ -86,16 +85,13 @@ def _mean(frame) -> float:
     ],
     ids=['exposure', 'gain', 'black_level'],
 )
-def test_a_frame_shows_a_setting_only_if_it_started_the_apply_delay_after_the_write(
-    change, setting, new
-):
-    """A frame started before a write, or less than ``SENSOR_APPLY_DELAY_US`` after it, is made under the old setting; one started that long after it, under the new.
+def test_a_frame_shows_a_setting_only_if_it_started_after_the_write(change, setting, new):
+    """A frame started before a write is made under the old setting; one started after it, under the new.
 
     The frames the sensor had started at the write are among the old ones.
     How many frames that is depends on how far the host has fallen behind
     the camera; which frames, by when each started, does not.
     """
-    delay_ticks = SimulatedCamera.SENSOR_APPLY_DELAY_US * SimulatedCamera.TIMESTAMP_TICK_HZ // 10**6
     cam = SimulatedCamera(width=48, height=24)
     # A test pattern's signal follows the settings exactly; the specimen's is floored.
     cam.set_test_pattern(enabled=True, pattern='noise')
@@ -115,13 +111,13 @@ def test_a_frame_shows_a_setting_only_if_it_started_the_apply_delay_after_the_wr
     too_soon = [
         (start - before, value)
         for start, value in zip(starts, made_under, strict=True)
-        if start < before + delay_ticks and value != old
+        if start < before and value != old
     ]
     assert not too_soon, f'frames started (ticks after the write, {setting}) {too_soon}'
     too_late = [
         (start - after, value)
         for start, value in zip(starts, made_under, strict=True)
-        if start >= after + delay_ticks and value != new
+        if start >= after and value != new
     ]
     assert not too_late, f'frames started (ticks after the write, {setting}) {too_late}'
     assert any(start < before for start in starts), (
@@ -187,14 +183,13 @@ def test_a_frame_is_numbered_as_it_leaves_the_pipeline_before_its_transfer():
     assert all(s >= transfer_s for s in carried_s), carried_s
 
 
-def test_a_frame_leaves_the_pipeline_its_own_period_and_one_ceiling_period_after_it_starts():
-    """A frame is handed over its own period after it starts, plus one period at the delivery ceiling.
+def test_a_frame_leaves_the_pipeline_its_own_period_after_it_starts():
+    """A frame is handed over its own period after it starts, plus the rest of the pipeline at the delivery ceiling's period.
 
-    The LS850T hands a frame over at its start, plus its own period, plus
-    one minimum period, at a short exposure and a long one alike. A
-    simulator that holds a frame for two of its own periods holds a long
-    exposure for a second exposure, and every capture after an exposure
-    change waits that much longer than on the camera.
+    At the pipeline's one frame there is no rest: a frame leaves as its
+    exposure ends. A simulator that holds a frame for two of its own
+    periods holds a long exposure for a second exposure, and every capture
+    after an exposure change waits that much longer than on a camera.
     """
     exposure_ms = 134.0  # S1's long exposure on the LS850T
     period_s = exposure_ms / 1000.0
@@ -219,12 +214,12 @@ def test_a_frame_leaves_the_pipeline_its_own_period_and_one_ceiling_period_after
     )
 
 
-def test_a_late_acquisition_thread_never_starts_two_exposures_less_than_a_period_apart():
+def test_a_late_sensor_thread_never_starts_two_exposures_less_than_a_period_apart():
     """However late the host reaches a frame's start, the exposures start a frame period apart.
 
     A sensor starts its exposures on its own clock; the host thread that
-    simulates it can be held past a start, by a slow callback or by the
-    other threads of a loaded process. A frame started when the thread got
+    simulates it can be held past a start, by a write holding the camera's
+    lock or by the other threads of a loaded process. A frame started when the thread got
     there, rather than when it was due, would start the next one at once to
     re-anchor, two exposures a fraction of a millisecond apart, which no
     camera makes and which puts frames before a change that a camera's would
@@ -239,9 +234,11 @@ def test_a_late_acquisition_thread_never_starts_two_exposures_less_than_a_period
     def on_frame(frame):
         stamps.append(frame.chunks['Timestamp'])
         if len(stamps) in (3, 8):
-            # The callback runs on the camera's thread: holding it here is a
-            # host that reaches the next start more than a period late.
-            time.sleep(2 * period_ns / 1e9)
+            # The sensor thread starts each frame under the camera's lock:
+            # holding the lock here is a host that reaches the next start
+            # more than a period late.
+            with cam._lock:
+                time.sleep(2 * period_ns / 1e9)
         if len(stamps) == 14:
             enough.set()
 
@@ -270,7 +267,9 @@ def test_each_frame_carries_its_counter_and_its_exposure_start_on_the_cameras_cl
 
     ids = [f.chunks['FrameID'] for f in frames]
     starts = [f.chunks['Timestamp'] for f in frames]
-    assert ids == list(range(ids[0], ids[0] + 4))
+    # Rising, not consecutive: a frame the host drops on its way to the
+    # store has taken its number, as on a camera.
+    assert ids == sorted(ids) and len(set(ids)) == 4
     assert starts == sorted(starts) and len(set(starts)) == 4
     # The first frame delivered after ``before`` was started ahead of it:
     # the sensor had it in its pipeline.

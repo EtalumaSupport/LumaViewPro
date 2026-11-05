@@ -52,9 +52,19 @@ import pathlib
 import time
 import weakref
 
+import numpy
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.image import Image as CoreImage
 from kivy.core.window import Window
+from kivy.graphics.texture import Texture
+from kivy.graphics.opengl import (
+    GL_PACK_ALIGNMENT,
+    GL_RGB,
+    GL_UNSIGNED_BYTE,
+    glPixelStorei,
+    glReadPixels,
+)
 from kivy.tests.common import UnitTestTouch
 from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.behaviors import ButtonBehavior
@@ -64,8 +74,8 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
-from modules import gui_logger
-from modules.exceptions import Refusal
+from _lumascope.modules import gui_logger
+from _lumascope.modules.exceptions import Refusal
 from ui import file_dialogs
 from ui.progress_popup import CustomPopup
 from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
@@ -97,7 +107,9 @@ class SimWalk:
     ``in_flight`` names what a gesture started that is still running (the
     app passes the session's ``in_flight_named``): a ``wait`` ends once it names nothing and
     no popup is open. ``simulation`` is the scope's ``SimulationAPI``, which
-    ``inject`` calls. ``shot_dir`` receives the window pictures. ``finished``,
+    ``inject`` calls. A ``shot``'s name is a path under ``shot_dir`` (the
+    walk file's folder); the picture of a stop goes to ``stop_dir`` (the
+    run's log folder), beside the log line that names it. ``finished``,
     ``outcome`` (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and
     ``shots`` are the result.
     """
@@ -111,6 +123,7 @@ class SimWalk:
         in_flight,
         simulation,
         shot_dir: pathlib.Path,
+        stop_dir: pathlib.Path,
     ):
         self._steps = steps
         self._source = source
@@ -119,6 +132,7 @@ class SimWalk:
         self._simulation = simulation
         self._bring_up_deadline = 0.0
         self._shot_dir = shot_dir
+        self._stop_dir = stop_dir
         self._number = 0
         self._action = None
         self._ends_in_quit = ends_in_quit(steps)
@@ -190,7 +204,7 @@ class SimWalk:
         # picture keeps what a stop looked like. Done, a walk that pressed
         # ``close`` leaves the app to close itself.
         if outcome != 'done':
-            if not self._picture(f'stopped_at_step_{self._number}_'):
+            if not self._picture(self._stop_dir / f'stopped_at_step_{self._number}.png'):
                 logger.warning('[SIM WALK  ] the picture of the stop was not written')
             _stop_the_app()
         elif self._ends_in_quit:
@@ -245,23 +259,34 @@ class SimWalk:
         )
         deadline = time.monotonic() + timeout
         while True:
+            # A person can touch only the popup on top; one under it is
+            # answered by a later step, once the top one has closed.
+            top = next(iter(open_popups()), None)
             buttons = [
                 w
-                for view in open_popups()
-                for w in view.walk(restrict=True)
+                for w in (top.walk(restrict=True) if top is not None else ())
                 if isinstance(w, ButtonBehavior) and getattr(w, 'text', None) == step['button']
             ]
             if buttons:
-                button = _one(buttons, repr(step['button']), 'the open popups')
+                button = _one(buttons, repr(step['button']), 'the popup on top')
                 yield from self._touch(button, f'popup button {step["button"]!r}')
                 return
             if time.monotonic() > deadline:
-                if optional:
-                    self._step_outcome = 'no popup asked; optional, nothing pressed'
-                    return
-                raise WalkStepError(
-                    f'no open popup has a {step["button"]!r} button after {timeout:g} s'
+                if top is None:
+                    if optional:
+                        self._step_outcome = 'no popup asked; optional, nothing pressed'
+                        return
+                    raise WalkStepError(
+                        f'no open popup has a {step["button"]!r} button after {timeout:g} s'
+                    )
+                missing = (
+                    f'the popup on top ({getattr(top, "title", "")!r}) has no '
+                    f'{step["button"]!r} button'
                 )
+                if optional:
+                    self._step_outcome = f'{missing}; optional, nothing pressed'
+                    return
+                raise WalkStepError(f'{missing} after {timeout:g} s')
             yield _POLL_S
 
     def _choose(self, step):
@@ -295,14 +320,53 @@ class SimWalk:
     def _shot(self, step):
         # A popup fading out is a picture of neither its open nor its closed state.
         yield from _until_no_popup_fades()
+        widget = None
+        if 'path' in step:
+            # A picture of a control the screen does not show is a picture of
+            # something else, so it is refused where a press would be.
+            widget = self._resolve(step['path'])
+            self._check_reachable(widget, step['path'])
+            yield from _until_drawers_settle(widget, step['path'])
         yield 0
-        if not self._picture(step['name']):
+        path = self._shot_dir / f'{step["name"]}.png'
+        if not path.parent.is_dir():
+            raise WalkStepError(f'the picture {step["name"]!r}: no folder {path.parent}')
+        if widget is not None:
+            for parent in _ancestors(widget):
+                if isinstance(parent, ScrollView) and not _wholly_in_view(parent, widget):
+                    raise WalkStepError(
+                        f'{step["path"]} is not wholly in view in its scroll view; scroll first'
+                    )
+            if not _wholly_in_window(widget):
+                raise WalkStepError(f'{step["path"]} is not wholly inside the window')
+        if not self._picture(path, widget):
             raise WalkStepError(f'the window picture {step["name"]!r} was not written')
 
-    def _picture(self, name: str) -> bool:
-        """Write the window to ``<shot_dir>/<name>NNNN.png``; whether it was written."""
-        path = Window.screenshot(name=str(self._shot_dir / f'{name}.png'))
-        if not path or not pathlib.Path(path).is_file():
+    def _picture(self, path: pathlib.Path, widget=None) -> bool:
+        """Write what the window shows, or only ``widget``'s part of it, to exactly ``path``.
+
+        Replaces a file already there; whether it was written. The whole
+        window is drawn and read, so the picture is the screen, not the
+        widget redrawn alone: a parent's background, a popup over the widget
+        and what a scroll view clips are all as shown.
+        """
+        width, height = Window.size
+        # Between frames the back buffer holds whatever the last swap left,
+        # which under load can be an empty frame; the window's own draw puts
+        # the frame it is about to show there, and the read follows at once.
+        Window.dispatch('on_draw')
+        glPixelStorei(GL_PACK_ALIGNMENT, 1)
+        # Rows from the bottom of the window up, as GL and a texture both hold them.
+        pixels = numpy.frombuffer(
+            glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE), dtype=numpy.uint8
+        ).reshape(height, width, 3)
+        if widget is not None:
+            left, bottom, right, top = _window_bounds(widget)
+            pixels = pixels[bottom:top, left:right]
+        rows, columns = pixels.shape[:2]
+        texture = Texture.create(size=(columns, rows), colorfmt='rgb')
+        texture.blit_buffer(pixels.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+        if not CoreImage(texture).save(str(path), flipped=True):
             return False
         self.shots.append(str(path))
         logger.info(f'[SIM WALK  ] step {self._number} picture {path}')
@@ -385,19 +449,7 @@ class SimWalk:
 
     def _touch(self, target, path: str):
         self._check_reachable(target, path)
-        # A drawer is where its state says it is only once its animation has
-        # run and the accordion has laid out again; a touch sent before that
-        # lands on whatever the stale layout put under it. Bring-up opens the
-        # BF drawer in the frame the walk starts, so the first press met this.
-        deadline = time.monotonic() + _WAIT_TIMEOUT_S
-        while _moving_drawers(target):
-            if time.monotonic() > deadline:
-                raise WalkStepError(
-                    f'{path}: a drawer around it was still moving after {_WAIT_TIMEOUT_S:g} s'
-                )
-            yield _POLL_S
-        # The accordion lays out on the frame after its last animation tick.
-        yield _POLL_S
+        yield from _until_drawers_settle(target, path)
         # A popup fading out after its dismiss still takes every touch until
         # the fade removes it, so a press sent before then lands on it.
         yield from _until_no_popup_fades()
@@ -533,6 +585,36 @@ def _moving_drawers(widget) -> list:
                 if isinstance(item, AccordionItem) and item.collapse_alpha != float(item.collapse)
             )
     return moving
+
+
+def _until_drawers_settle(target, path: str):
+    # A drawer is where its state says it is only once its animation has
+    # run and the accordion has laid out again; a touch sent before that
+    # lands on whatever the stale layout put under it, and a picture shows
+    # it half open. Bring-up opens the BF drawer in the frame the walk
+    # starts, so the first press met this.
+    deadline = time.monotonic() + _WAIT_TIMEOUT_S
+    while _moving_drawers(target):
+        if time.monotonic() > deadline:
+            raise WalkStepError(
+                f'{path}: a drawer around it was still moving after {_WAIT_TIMEOUT_S:g} s'
+            )
+        yield _POLL_S
+    # The accordion lays out on the frame after its last animation tick.
+    yield _POLL_S
+
+
+def _window_bounds(widget) -> tuple[int, int, int, int]:
+    """The widget's (left, bottom, right, top) in window pixels, origin at the bottom left."""
+    left, bottom = widget.to_window(*widget.pos)
+    right, top = widget.to_window(widget.right, widget.top)
+    return round(left), round(bottom), round(right), round(top)
+
+
+def _wholly_in_window(widget) -> bool:
+    left, bottom, right, top = _window_bounds(widget)
+    width, height = Window.size
+    return 0 <= left < right <= width and 0 <= bottom < top <= height
 
 
 def _wholly_in_view(view: ScrollView, widget) -> bool:

@@ -18,10 +18,10 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from modules.coord_transformations import StageOffset
-from modules.exceptions import ProtocolRunRefusedError, RefusalCause
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.exceptions import ProtocolRunRefusedError, RefusalCause
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.ast_seams import find_def
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
@@ -45,7 +45,7 @@ def _tile(proto, capabilities, tiling, *, frame_dimensions=None):
 def _refused(proto, capabilities, tiling):
     before = proto.steps().copy()
     with (
-        patch('modules.protocol.notifications.report_outcome') as report,
+        patch('_lumascope.modules.protocol.notifications.report_outcome') as report,
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         _tile(proto, capabilities, tiling)
@@ -79,7 +79,7 @@ def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(ses
     # the spinner was blank, and a script or REST caller as a bare KeyError.
     session.set_channel_acquire('BF', 'image')
     with (
-        patch('modules.protocol.notifications.report_outcome') as report,
+        patch('_lumascope.modules.protocol.notifications.report_outcome') as report,
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         session.new_protocol(tiling=tiling)

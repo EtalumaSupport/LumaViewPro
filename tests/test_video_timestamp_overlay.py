@@ -14,8 +14,8 @@ from typing import ClassVar
 
 import pytest
 
-import modules.protocol_recording as protocol_recording
-from modules.layer_record import GREY, release_color
+import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules.layer_record import GREY, release_color
 from tests.stock_channels import LED0
 from tests.video_step_drives import ElapsedClock, video_step_on
 
@@ -98,7 +98,7 @@ def test_the_timestamp_is_drawn_on_a_copy_of_a_read_only_frame():
     consumer: the timestamp is drawn on a copy, and the frame keeps its pixels."""
     import numpy as np
 
-    from modules.image_utils import add_timestamp
+    from _lumascope.modules.image_utils import add_timestamp
 
     image = np.zeros((100, 200), dtype=np.uint8)
     image.flags.writeable = False

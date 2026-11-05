@@ -16,7 +16,7 @@ import ast
 from tests.ast_seams import MemberNames, iter_package_modules, parse_module
 
 _OVERLAY_RENDERERS = MemberNames(
-    'modules/capture_overlays.py', {'transform_to_bullseye', 'add_crosshairs'}
+    'src/_lumascope/modules/capture_overlays.py', {'transform_to_bullseye', 'add_crosshairs'}
 )
 
 
@@ -34,7 +34,7 @@ def test_the_gui_does_not_import_the_save():
                 imported = {a.name for a in node.names}
             else:
                 continue
-            if 'modules.image_save' in imported:
+            if '_lumascope.modules.image_save' in imported:
                 offenders.append(f'{rel}:{node.lineno}')
     assert offenders == [], (
         'the GUI saves a still through session.manual_capture, never the save '
@@ -46,13 +46,15 @@ def test_the_save_module_does_not_capture():
     """A capture-and-save helper beside save_image was a second route for a
     still that skipped the camera lane, its run fence and the member's
     in-flight guard; the save module writes frames it is handed."""
-    tree = parse_module('modules/image_save.py')
+    tree = parse_module('src/_lumascope/modules/image_save.py')
     reaches = [
         node.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Attribute) and node.attr == '_capture_still_impl'
     ]
-    assert reaches == [], f'modules/image_save.py reaches the capture body at lines {reaches}'
+    assert reaches == [], (
+        f'src/_lumascope/modules/image_save.py reaches the capture body at lines {reaches}'
+    )
 
 
 def test_the_gui_defines_no_overlay_renderer():
@@ -64,6 +66,6 @@ def test_the_gui_defines_no_overlay_renderer():
         and node.name in _OVERLAY_RENDERERS
     ]
     assert offenders == [], (
-        'the overlay a saved file carries is drawn by modules/capture_overlays.py; '
+        'the overlay a saved file carries is drawn by src/_lumascope/modules/capture_overlays.py; '
         f'a second renderer in the GUI can draw a different one: {offenders}'
     )

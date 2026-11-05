@@ -34,7 +34,7 @@ def _child(body: str) -> subprocess.CompletedProcess:
 def test_an_uncaught_exception_prints_its_traceback_and_exits_1():
     result = _child(
         """
-        import lvp_logger
+        import _lumascope.lvp_logger
         raise ValueError('kettle boiled dry')
         """
     )
@@ -47,7 +47,7 @@ def test_a_threads_uncaught_exception_prints_its_traceback():
     result = _child(
         """
         import threading
-        import lvp_logger
+        import _lumascope.lvp_logger
 
         def boil():
             raise ValueError('kettle boiled dry')
@@ -69,10 +69,10 @@ def test_an_application_takes_the_crash_policy_by_installing_it():
     result = _child(
         """
         import sys, threading
-        import lvp_logger
-        lvp_logger.install_crash_hooks()
-        print(sys.excepthook is lvp_logger.custom_except_hook,
-              threading.excepthook is lvp_logger._thread_except_hook)
+        import _lumascope.lvp_logger
+        _lumascope.lvp_logger.install_crash_hooks()
+        print(sys.excepthook is _lumascope.lvp_logger.custom_except_hook,
+              threading.excepthook is _lumascope.lvp_logger._thread_except_hook)
         """
     )
 

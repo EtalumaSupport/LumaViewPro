@@ -19,10 +19,10 @@ import shutil
 
 import pytest
 
-import modules.settings_init as settings_init
-from modules import layer_record
-from modules.exceptions import InstallationFileError
-from modules.scope_session import ScopeSession
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.modules import layer_record
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import SHIPPED_DATA, copy_installation_files
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1, LED2

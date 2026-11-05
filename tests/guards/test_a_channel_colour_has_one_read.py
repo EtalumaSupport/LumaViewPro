@@ -16,15 +16,15 @@ import ast
 
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
-_CATALOGUE_MODULE = 'modules/layer_record.py'
-_OWNER_MODULE = 'modules/scope_session.py'
+_CATALOGUE_MODULE = 'src/_lumascope/modules/layer_record.py'
+_OWNER_MODULE = 'src/_lumascope/modules/scope_session.py'
 _OWNER_DEF = 'ScopeSession.channel_colors'
-_READS = MemberNames('modules/layer_record.py', {'release_color', 'release_colors'})
+_READS = MemberNames('src/_lumascope/modules/layer_record.py', {'release_color', 'release_colors'})
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'rest'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'src/_lumascope/rest'))
 
 
 def _read(node: ast.AST) -> str | None:

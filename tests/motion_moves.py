@@ -11,7 +11,7 @@ axis and reaches it here: X or Y alone through ``start_move_xy`` /
 
 from __future__ import annotations
 
-from modules.operation import Operation
+from _lumascope.modules.operation import Operation
 
 
 def start_axis_move(motion, axis: str, position: float, **kwargs) -> Operation:

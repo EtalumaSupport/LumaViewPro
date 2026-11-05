@@ -24,20 +24,20 @@ import pandas as pd
 import pytest
 import tifffile as tf
 
-from modules import image_utils
-from modules.exceptions import (
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import (
     InputFramesUnusableError,
     PostProcessingFailedError,
     PostProcessingRefusedError,
 )
-from modules.stack_builder import StackBuilder
-from modules.stitcher import Stitcher
-from modules.video_builder import VideoBuilder
-from modules.zprojector import ZProjector
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.video_builder import VideoBuilder
+from _lumascope.modules.zprojector import ZProjector
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
-from modules.zproject_method import ZProjectMethod
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
 
@@ -317,8 +317,8 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
 
 def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(tmp_path):
     """The folder is a simulator run's: two positions, BF and LED 1 at each."""
-    from modules.composite_generation import CompositeGeneration
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings

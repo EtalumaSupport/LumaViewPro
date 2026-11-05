@@ -15,9 +15,12 @@ import datetime
 
 import pandas as pd
 
-from modules.notification_center import Severity
-from modules.protocol import Protocol
-from modules.sequenced_capture_runner import SequencedCaptureRunMode, SequencedCaptureRunner
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.sequenced_capture_runner import (
+    SequencedCaptureRunMode,
+    SequencedCaptureRunner,
+)
 from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 

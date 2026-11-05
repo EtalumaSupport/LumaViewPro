@@ -19,7 +19,7 @@ consumers read it across that gap:
   ``settings[layer]['focus']``, which persists to ``current.json``. The
   bench trace on #816 shows the stored value equal to the in-transit
   coordinate to the last digit.
-* ``modules/protocol_step_runner.py`` gated "skip this channel's
+* ``src/_lumascope/modules/protocol_step_runner.py`` gated "skip this channel's
   autofocus and use the brightfield result" on the value being non-None,
   so a PRIOR RUN's value opened the gate and was written into the step Z.
   That reuse has since been removed (#324).
@@ -40,7 +40,7 @@ from unittest.mock import MagicMock
 import pytest
 
 
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 from tests.af_drives import af_runner_on, sweep
 from tests.ast_seams import parse_module
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
@@ -155,7 +155,7 @@ class TestClearResultIsUnconditional:
         """The narrow clear is not AFE.reset(): the scan parameters stay,
         because run() reads them on the AF thread -- a sweep cleared
         mid-flight still finds its focus."""
-        import modules.autofocus_functions as autofocus_functions
+        import _lumascope.modules.autofocus_functions as autofocus_functions
 
         from tests.af_drives import FOCAL_Z_UM
 
@@ -166,7 +166,9 @@ class TestClearResultIsUnconditional:
             af_runner.clear_result()
             return score(image)
 
-        monkeypatch.setattr('modules.autofocus_functions.autofocus_score', clear_mid_sweep)
+        monkeypatch.setattr(
+            '_lumascope.modules.autofocus_functions.autofocus_score', clear_mid_sweep
+        )
 
         assert sweep(af_runner, sim_scope) == pytest.approx(FOCAL_Z_UM, abs=10.0), (
             'clear_result() must touch only the result; wiping the scan '
@@ -282,9 +284,9 @@ class TestTheButtonSavesTheFocusItsRunChose:
     def test_a_refused_focus_is_reported_once_as_the_refusal(self, gui, monkeypatch):
         """The handler is a run_ended subscriber: a refusal of the Z is
         reported once by the run's delivery, as the refusal it is."""
-        from modules import run_events
-        from modules.exceptions import PositionOutOfRangeError
-        from modules.notification_center import notifications
+        from _lumascope.modules import run_events
+        from _lumascope.modules.exceptions import PositionOutOfRangeError
+        from _lumascope.modules.notification_center import notifications
 
         # A Z past the travel: the session refuses to save it.
         monkeypatch.setattr(run_events, 'schedule_ui', lambda fn: fn(0))

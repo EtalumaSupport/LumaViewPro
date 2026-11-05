@@ -22,11 +22,11 @@ from kivy.app import App
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.popup import Popup
 
-import modules.app_context as _app_ctx
-from lvp_logger import logger
-from modules import gui_logger
-from modules.config_helpers import get_manual_video_max_duration
-from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.lvp_logger import logger
+from _lumascope.modules import gui_logger
+from _lumascope.modules.config_helpers import get_manual_video_max_duration
+from _lumascope.modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
 from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 
@@ -406,8 +406,9 @@ class AdvancedSettings(Popup):
 
 kv = Builder.load_string(
     """
-#:import LIVE_VIEW_FPS_LIMIT modules.settings_paths.LIVE_VIEW_FPS_LIMIT
-#:import VIDEO_MAX_FPS_LIMIT modules.settings_paths.VIDEO_MAX_FPS_LIMIT
+#:import build_file _lumascope.lib.build_files.build_file
+#:import LIVE_VIEW_FPS_LIMIT _lumascope.modules.settings_paths.LIVE_VIEW_FPS_LIMIT
+#:import VIDEO_MAX_FPS_LIMIT _lumascope.modules.settings_paths.VIDEO_MAX_FPS_LIMIT
 
 <SectionHeader@Label>:
     font_size: '13sp'
@@ -461,7 +462,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Lumascope Model'
-                        tooltip_text: 'Lumi, LS820, LS850, and LS850T'
+                        tooltip_text: 'The model this installation runs as;\\na change takes effect at the next start'
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'
@@ -499,7 +500,7 @@ kv = Builder.load_string(
                         value: 100
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.acceleration_pct_slider()
@@ -543,8 +544,8 @@ kv = Builder.load_string(
                         height: '30dp' if root.stim_supported else 0
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_stimulation_settings()
                         state: 'normal'
 
@@ -632,7 +633,7 @@ kv = Builder.load_string(
                         value: VIDEO_MAX_FPS_LIMIT + 1
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.recording_max_fps_slider()
@@ -652,7 +653,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Video Time Limit (s)'
-                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged.'
+                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner).'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
@@ -689,7 +690,7 @@ kv = Builder.load_string(
                         value: LIVE_VIEW_FPS_LIMIT + 1
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.display_max_fps_slider()
@@ -750,8 +751,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_protocol_led_on()
 
                 BoxLayout:
@@ -773,8 +774,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_keep_led_between_steps()
 
                 BoxLayout:
@@ -852,8 +853,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_separate_folders_per_channel()
                         state: 'normal'
 

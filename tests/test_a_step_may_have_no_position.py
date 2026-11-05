@@ -20,11 +20,11 @@ import csv
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol import ProtocolFormatError
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
-from modules.protocol import StoredNames
+from _lumascope.modules.protocol import StoredNames
 from tests.stock_channels import LED0
 from tests.protocol_fixtures import protocol_from_file
 
@@ -302,7 +302,7 @@ def test_update_step_keeps_a_loaded_steps_x_and_y_without_a_stage(make_session, 
 
 
 def test_writes_for_an_axis_the_scope_lacks_are_refused(make_session):
-    from modules.exceptions import HardwareCommandRefusedError
+    from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
     no_stage = make_session('LS820', acquiring=('BF',))
     manual = make_session('LS620', acquiring=('BF',))
@@ -348,8 +348,8 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
 
 
 def test_a_plate_with_wells_is_refused_where_it_is_selected_without_a_stage(make_session):
-    from modules.exceptions import HardwareCommandRefusedError, MissingPart
-    from modules.labware_loader import CENTER_PLATE
+    from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+    from _lumascope.modules.labware_loader import CENTER_PLATE
 
     session = make_session('LS820')
 

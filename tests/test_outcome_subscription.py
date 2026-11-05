@@ -17,11 +17,11 @@ from typing import ClassVar
 
 import pytest
 
-from modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 
-from modules.exceptions import Notice, ProtocolRunRefusedError, RefusalCause
-from modules.notification_center import NotificationCenter, OutcomeKind, notifications
-from modules.scope_session import ScopeSession, _scheduler_callback_error
+from _lumascope.modules.exceptions import Notice, ProtocolRunRefusedError, RefusalCause
+from _lumascope.modules.notification_center import NotificationCenter, OutcomeKind, notifications
+from _lumascope.modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
 
@@ -54,7 +54,7 @@ class TestBringUpIsHeard:
     def test_a_listener_given_to_create_hears_what_the_scope_reports_while_it_is_built(
         self, tmp_path, monkeypatch
     ):
-        import modules.lumascope_api as lumascope_api
+        import _lumascope.modules.lumascope_api as lumascope_api
 
         real = lumascope_api.Lumascope
 
@@ -77,7 +77,7 @@ class TestBringUpIsHeard:
             s.shutdown()
 
     def test_a_factory_that_raises_gives_the_listener_back(self, tmp_path, monkeypatch):
-        import modules.lumascope_api as lumascope_api
+        import _lumascope.modules.lumascope_api as lumascope_api
 
         def _refuses(*args, **kwargs):
             raise RuntimeError('the scope could not be built')
@@ -167,7 +167,7 @@ class TestWhatASubscriberHears:
     def test_a_fault_whose_type_says_fatal_is_shown_through_the_mute_with_its_remedy(
         self, session, unattended_run
     ):
-        from modules.exceptions import Remedy
+        from _lumascope.modules.exceptions import Remedy
 
         remedy = Remedy('recover_file_writer', 'Discard and unlock', 'Keep waiting')
 

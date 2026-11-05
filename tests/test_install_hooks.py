@@ -134,9 +134,9 @@ def repo(tmp_path: Path) -> _Repo:
     r.ok('config', 'user.email', 't@t')
     r.ok('config', 'user.name', 't')
     r.write('version.txt', '1.0\n2000-01-01 00:00\n00000000\n')
-    r.write('modules/x.py', _CLEAN)
+    r.write('src/_lumascope/modules/x.py', _CLEAN)
     r.write('docs/a.md', 'a\n')
-    r.ok('add', 'version.txt', 'modules/x.py', 'docs/a.md')
+    r.ok('add', 'version.txt', 'src/_lumascope/modules/x.py', 'docs/a.md')
     r.ok('commit', '-q', '-m', 'seed', judged=False)
     hook = root / '.git' / 'hooks' / 'pre-commit'
     hook.write_text(_HOOK_SCRIPT)
@@ -146,24 +146,24 @@ def repo(tmp_path: Path) -> _Repo:
 
 def test_ih1_a_pathspec_commit_of_an_unstaged_bandaid_is_refused_and_version_txt_is_clean(repo):
     before = repo.version()
-    repo.write('modules/x.py', _BANDAID)
-    r = repo.git('commit', '-q', '-m', 'x', '--', 'modules/x.py')
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
+    r = repo.git('commit', '-q', '-m', 'x', '--', 'src/_lumascope/modules/x.py')
     assert r.returncode != 0
-    assert 'modules/x.py' in (repo.judged_diff() or '')
+    assert 'src/_lumascope/modules/x.py' in (repo.judged_diff() or '')
     assert repo.version() == before
 
 
 def test_ih2_a_staged_bandaid_is_refused(repo):
-    repo.write('modules/x.py', _BANDAID)
-    repo.ok('add', 'modules/x.py')
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
+    repo.ok('add', 'src/_lumascope/modules/x.py')
     assert repo.git('commit', '-q', '-m', 'x').returncode != 0
 
 
 def test_ih3_an_amend_with_a_staged_bandaid_is_refused(repo):
-    repo.write('modules/x.py', _CLEANER)
-    repo.ok('commit', '-q', '-m', 'clean', '--', 'modules/x.py')
-    repo.write('modules/x.py', _BANDAID)
-    repo.ok('add', 'modules/x.py')
+    repo.write('src/_lumascope/modules/x.py', _CLEANER)
+    repo.ok('commit', '-q', '-m', 'clean', '--', 'src/_lumascope/modules/x.py')
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
+    repo.ok('add', 'src/_lumascope/modules/x.py')
     assert repo.git('commit', '-q', '--amend', '--no-edit').returncode != 0
 
 
@@ -177,10 +177,18 @@ def test_ih3b_an_amend_is_judged_as_the_commit_it_produces(repo):
     swallowed ValueError on its removed lines. A delta read that way called
     a kept refusal a deleted guard (triage, 2026-10-14, LVP 5a52ed38).
     """
-    repo.write('modules/x.py', _BANDAID)
-    repo.ok('commit', '-q', '-m', 'carries a band-aid', '--', 'modules/x.py', judged=False)
-    repo.write('modules/x.py', _CLEANER)
-    repo.ok('add', 'modules/x.py')
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
+    repo.ok(
+        'commit',
+        '-q',
+        '-m',
+        'carries a band-aid',
+        '--',
+        'src/_lumascope/modules/x.py',
+        judged=False,
+    )
+    repo.write('src/_lumascope/modules/x.py', _CLEANER)
+    repo.ok('add', 'src/_lumascope/modules/x.py')
     r = repo.git('commit', '-q', '--amend', '--no-edit')
     assert r.returncode == 0, r.stderr
     judged = repo.judged_diff() or ''
@@ -191,18 +199,18 @@ def test_ih3b_an_amend_is_judged_as_the_commit_it_produces(repo):
 def test_ih4_a_pathspec_commit_beside_a_peers_staged_bandaid_lands_and_the_judge_saw_only_its_file(
     repo,
 ):
-    repo.write('modules/y.py', _BANDAID)
-    repo.ok('add', 'modules/y.py')
-    repo.write('modules/x.py', _CLEANER)
-    repo.ok('commit', '-q', '-m', 'x only', '--', 'modules/x.py')
+    repo.write('src/_lumascope/modules/y.py', _BANDAID)
+    repo.ok('add', 'src/_lumascope/modules/y.py')
+    repo.write('src/_lumascope/modules/x.py', _CLEANER)
+    repo.ok('commit', '-q', '-m', 'x only', '--', 'src/_lumascope/modules/x.py')
     seen = repo.judged_diff() or ''
-    assert 'modules/x.py' in seen
-    assert 'modules/y.py' not in seen
+    assert 'src/_lumascope/modules/x.py' in seen
+    assert 'src/_lumascope/modules/y.py' not in seen
 
 
 def test_ih5_without_the_variable_the_commit_lands_and_the_judge_is_not_called(repo):
-    repo.write('modules/x.py', _BANDAID)
-    repo.ok('commit', '-q', '-m', 'terminal', '--', 'modules/x.py', judged=False)
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
+    repo.ok('commit', '-q', '-m', 'terminal', '--', 'src/_lumascope/modules/x.py', judged=False)
     assert repo.judged_diff() is None
 
 
@@ -215,18 +223,25 @@ def test_ih6_a_docs_only_commit_hands_the_judge_no_hunk(repo):
 def test_ih7_a_worktree_commit_runs_the_shared_hook(repo, tmp_path):
     wt = tmp_path / 'wt'
     repo.ok('worktree', 'add', '-q', str(wt), '-b', 'w')
-    repo.write('modules/x.py', _BANDAID, root=wt)
-    r = repo.git('commit', '-q', '-m', 'x', '--', 'modules/x.py', cwd=wt)
+    repo.write('src/_lumascope/modules/x.py', _BANDAID, root=wt)
+    r = repo.git('commit', '-q', '-m', 'x', '--', 'src/_lumascope/modules/x.py', cwd=wt)
     assert r.returncode != 0
-    assert 'modules/x.py' in (repo.judged_diff() or '')
+    assert 'src/_lumascope/modules/x.py' in (repo.judged_diff() or '')
 
 
 def test_ih8_a_diff_attribute_cannot_hide_the_hunk(repo, tmp_path):
     attrs = tmp_path / 'attributes'
-    attrs.write_text('modules/x.py -diff\n')
-    repo.write('modules/x.py', _BANDAID)
+    attrs.write_text('src/_lumascope/modules/x.py -diff\n')
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
     r = repo.git(
-        '-c', f'core.attributesFile={attrs}', 'commit', '-q', '-m', 'x', '--', 'modules/x.py'
+        '-c',
+        f'core.attributesFile={attrs}',
+        'commit',
+        '-q',
+        '-m',
+        'x',
+        '--',
+        'src/_lumascope/modules/x.py',
     )
     assert r.returncode != 0
     assert 'except ValueError' in (repo.judged_diff() or ''), (
@@ -236,11 +251,11 @@ def test_ih8_a_diff_attribute_cannot_hide_the_hunk(repo, tmp_path):
 
 def test_ih9_a_merge_concluded_by_hand_is_not_judged_and_says_so(repo):
     repo.ok('checkout', '-q', '-b', 'side')
-    repo.write('modules/x.py', _CLEANER)
-    repo.ok('commit', '-q', '-m', 'side', '--', 'modules/x.py', judged=False)
+    repo.write('src/_lumascope/modules/x.py', _CLEANER)
+    repo.ok('commit', '-q', '-m', 'side', '--', 'src/_lumascope/modules/x.py', judged=False)
     repo.ok('checkout', '-q', 'main')
-    repo.write('modules/x.py', _CLEAN.replace('read', 'load'))
-    repo.ok('commit', '-q', '-m', 'main', '--', 'modules/x.py', judged=False)
+    repo.write('src/_lumascope/modules/x.py', _CLEAN.replace('read', 'load'))
+    repo.ok('commit', '-q', '-m', 'main', '--', 'src/_lumascope/modules/x.py', judged=False)
     # A pathspec commit stamps version.txt into the commit's temporary index
     # and leaves the real index behind; that dirt would make the merge refuse
     # before it conflicts, which is not the shape under test.
@@ -249,9 +264,9 @@ def test_ih9_a_merge_concluded_by_hand_is_not_judged_and_says_so(repo):
     assert (repo.root / '.git' / 'MERGE_HEAD').exists(), (
         'the merge must conflict for the hand-concluded shape'
     )
-    repo.write('modules/x.py', _BANDAID)
+    repo.write('src/_lumascope/modules/x.py', _BANDAID)
     repo.ok('checkout', '--ours', '--', 'version.txt')
-    repo.ok('add', 'modules/x.py', 'version.txt')
+    repo.ok('add', 'src/_lumascope/modules/x.py', 'version.txt')
     r = repo.git('commit', '-q', '-m', 'merge')
     assert r.returncode == 0, r.stderr
     assert repo.judged_diff() is None

@@ -18,17 +18,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import live_work
-from modules.exceptions import ArgumentRefusedError, PostProcessingOperation
-from modules.post_processing_api import BuildResult
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules import live_work
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingOperation
+from _lumascope.modules.post_processing_api import BuildResult
+from _lumascope.modules.sequential_io_executor import IOTask
 
 SETTLE_S = 10.0
 
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
@@ -101,7 +101,7 @@ def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
 
 
 def test_a_run_unwinding_after_its_claim_is_still_work(sim_session, monkeypatch):
-    from modules.protocol_state_machine import ProtocolState
+    from _lumascope.modules.protocol_state_machine import ProtocolState
 
     monkeypatch.setattr(sim_session.sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
     assert _kinds(sim_session) == [live_work.WorkKind.PROTOCOL]
@@ -159,7 +159,7 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
 
 
 def test_a_finished_runs_images_count_down(sim_session):
-    from modules.protocol_image_writer import RunWriteBatch
+    from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
     gate = threading.Event()
     batch = RunWriteBatch(sim_session.file_io_executor)
@@ -281,7 +281,7 @@ def test_a_protocols_processors_on_the_lane_are_named_without_progress(sim_sessi
 
 
 def test_a_scripts_logs_zip_is_seen_on_its_own_thread(sim_session, monkeypatch, tmp_path):
-    from modules.tech_support_report import TechSupportReport
+    from _lumascope.modules.tech_support_report import TechSupportReport
 
     started, gate = threading.Event(), threading.Event()
 

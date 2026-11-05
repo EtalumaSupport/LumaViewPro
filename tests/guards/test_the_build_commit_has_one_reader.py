@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Only ``lvp_logger.git_revision`` asks git which commit the running code is.
+"""Only ``_lumascope.lvp_logger.git_revision`` asks git which commit the running code is.
 
 The banner, the capability harness, a profile trace and every plugin record
 name the build through it, so they cannot disagree. A second reader drifted
@@ -13,8 +13,10 @@ import ast
 
 from tests.ast_seams import Packages, iter_package_modules, parse_module
 
-_PACKAGES = Packages({'modules', 'ui', 'drivers', 'lib'})
-_ROOT_MODULES = ('lumaviewpro.py', 'lvp_logger.py')
+_PACKAGES = Packages(
+    {'src/_lumascope/modules', 'ui', 'src/_lumascope/drivers', 'src/_lumascope/lib'}
+)
+_ROOT_MODULES = ('lumaviewpro.py', 'src/_lumascope/lvp_logger.py')
 
 
 def _rev_parse_sites():
@@ -36,9 +38,15 @@ def _rev_parse_sites():
 
 def test_the_sweep_sees_the_one_reader():
     """The instrument reports presence: the reader's own call is found."""
-    assert ('lvp_logger.py', 'git_revision') in {(p, f) for p, f, _ in _rev_parse_sites()}
+    assert ('src/_lumascope/lvp_logger.py', 'git_revision') in {
+        (p, f) for p, f, _ in _rev_parse_sites()
+    }
 
 
 def test_no_other_production_module_asks_git_for_the_build():
-    others = [s for s in _rev_parse_sites() if (s[0], s[1]) != ('lvp_logger.py', 'git_revision')]
-    assert others == [], f'ask lvp_logger.git_revision() instead: {others}'
+    others = [
+        s
+        for s in _rev_parse_sites()
+        if (s[0], s[1]) != ('src/_lumascope/lvp_logger.py', 'git_revision')
+    ]
+    assert others == [], f'ask _lumascope.lvp_logger.git_revision() instead: {others}'

@@ -20,12 +20,12 @@ stepped clock instead leaves out the first 500 ms of frames.
 import threading
 import time
 
-import modules.manual_recording as manual_recording_module
-from modules.activity_claim import ActivityClaim
-from modules.image_utils import read_file_record, stated_frame_time
-from modules.layer_record import release_colors
-from modules.manual_recording import ManualRecordingController
-from modules.run_events import RunEvents, VideoPhase
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_utils import read_file_record, stated_frame_time
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.run_events import RunEvents, VideoPhase
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import ManualFireScheduler

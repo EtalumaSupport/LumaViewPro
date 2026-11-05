@@ -20,15 +20,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import CaptureError
-from modules.lumascope_api.illumination import LedEndPolicy
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.operation import Operation
-from modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.exceptions import CaptureError
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.operation import Operation
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0
 
 
@@ -38,7 +38,7 @@ def _runner(acquiring=('BF', LED0)):
     Real config assembly, mocked engine: this pins what the composite
     surface RETURNS, not what the engine does with the plan.
     """
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     session = MagicMock()
     session.settings = _settings(acquiring=acquiring)
@@ -81,7 +81,7 @@ class TestCompositeRunsAsItsOwnKind:
     def test_the_scan_and_protocol_paths_still_force_leds_dark(self):
         # The end-state became a parameter for the composite's sake; the
         # two callers that had it hardcoded must be unchanged by that.
-        from modules.protocol import Protocol
+        from _lumascope.modules.protocol import Protocol
 
         runner = _runner()
         protocol = MagicMock(spec=Protocol)
@@ -194,7 +194,7 @@ class TestCompositeOutcomeIsObservable:
         # own outcome, or refuses. What the caller must never do is wait on
         # a run that does not exist, and that is still pinned here -- the
         # refusal has to arrive as a refusal rather than as a merge failure.
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         runner = _runner()
         runner._executor.start.side_effect = ProtocolRunRefusedError(

@@ -16,7 +16,7 @@ import datetime
 import importlib.util
 import pathlib
 
-from drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, store_packages
+from _lumascope.drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, store_packages
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED_INF = (

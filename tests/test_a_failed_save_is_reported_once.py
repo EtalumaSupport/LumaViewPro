@@ -14,13 +14,17 @@ import pathlib
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
-from modules import image_save, image_utils
-from modules.exceptions import CaptureError, ImageSaveError
-from modules.lumascope_api.runtime_state import RuntimeState
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
+from _lumascope.modules import image_save, image_utils
+from _lumascope.modules.exceptions import CaptureError, ImageSaveError
+from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
 from tests.test_jpg_export import _bright_mono, _scope_with_depth
 from tests.frame_records import frame_record, plate
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 def _save(tmp_path):
@@ -125,7 +129,7 @@ class _FailingCamera:
 def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(
     setter, method, args, centre_posts
 ):
-    from modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api import Lumascope
     from tests.scope_fakes import (
         give_camera_and_imaging,
         give_capabilities_of_a_camera_without_auto_modes,

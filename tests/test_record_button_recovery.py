@@ -38,11 +38,11 @@ def _real_base_module(name, **attrs):
 # not the uix submodules, and a bare MagicMock cannot be subclassed.
 _real_base_module('kivy.uix.floatlayout', FloatLayout=_StubWidget)
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.main_display as main_display
 import ui.ui_helpers as ui_helpers
-from modules.exceptions import RecordingRefusedError
-from modules.operation import Operation, join_callback_thread
+from _lumascope.modules.exceptions import RecordingRefusedError
+from _lumascope.modules.operation import Operation, join_callback_thread
 from tests.pool_fakes import run_task_now
 
 
@@ -98,7 +98,7 @@ class _ImmediateClock:
 
 
 def _make_display(monkeypatch, controller):
-    from modules.sequential_io_executor import ENQUEUED
+    from _lumascope.modules.sequential_io_executor import ENQUEUED
 
     display = main_display.MainDisplay.__new__(main_display.MainDisplay)
     toggle = _FakeToggle()
@@ -142,7 +142,7 @@ class TestRecordButtonRecovery:
         assert toggle.state == 'down'
 
     def test_a_refusal_is_one_warning_and_the_button_draws_idle(self, monkeypatch, centre_posts):
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         refusal = RecordingRefusedError(
             reason='recording_active',

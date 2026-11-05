@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.scope_capabilities import FrameSize
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import give_camera_capabilities
 
 

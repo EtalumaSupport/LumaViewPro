@@ -4,14 +4,14 @@
 The well lookup clamped the nearest well's index into the grid, so any
 position, however far off the plate, was named after an edge well: a
 still taken half a plate away was saved as "H12". Within the grid a
-position still names its nearest well. No shipped plate states a well
-size, so "inside a well" cannot be judged; a position more than half a
-pitch beyond the outer well centres is off the grid and names none.
+position still names its nearest well, judged by the spacing and not the
+well's diameter; a position more than half a pitch beyond the outer well
+centres is off the grid and names none.
 """
 
 import pytest
 
-from modules.labware_loader import WellPlateLoader
+from _lumascope.modules.labware_loader import WellPlateLoader
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 """The binning label is parsed, and a label that is not a factor REFUSES.
 
-``modules/binning.py`` used to hold a hardcoded ``{'1x1': 1, '2x2': 2,
+``src/_lumascope/modules/binning.py`` used to hold a hardcoded ``{'1x1': 1, '2x2': 2,
 '4x4': 4}`` whitelist and answer 1 for every label outside it. That was a
 second source of truth for which binning factors exist -- and the narrower
 one. The offered labels come from the camera: the selector renders
@@ -33,9 +33,9 @@ import ast
 
 import pytest
 
-import modules.binning as binning
+import _lumascope.modules.binning as binning
 import tests.ast_seams as ast_seams
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError
 
 
 class TestTheParseAcceptsWhatTheCameraCanOffer:

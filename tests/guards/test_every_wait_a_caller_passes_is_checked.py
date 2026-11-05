@@ -18,14 +18,16 @@ from tests.ast_seams import MemberNames, iter_package_modules
 
 # A parameter that names a time the member waits or holds for.
 _A_WAIT = re.compile(r'(^|_)timeout(_s)?$|_delay_s$|^seconds$|_for_s$')
-_THE_CHECK = MemberNames('modules/finite_number.py', {'refuse_unless_wait_s', 'WAIT_S'})
+_THE_CHECK = MemberNames(
+    'src/_lumascope/modules/finite_number.py', {'refuse_unless_wait_s', 'WAIT_S'}
+)
 # The handle every run and job gives back: not marked, but every caller's.
-_HANDLES = {('modules/operation.py', 'Operation')}
+_HANDLES = {('src/_lumascope/modules/operation.py', 'Operation')}
 # A member whose wait is refused against a narrower range of its own, by the
 # module constant holding that range; the range must end within WAIT_S.
 _NARROWER = {
-    'modules/lumascope_api/diagnostics.py::DiagnosticsAPI.run_grab_lifecycle_benchmark': (
-        'modules.lumascope_api.diagnostics',
+    'src/_lumascope/modules/lumascope_api/diagnostics.py::DiagnosticsAPI.run_grab_lifecycle_benchmark': (
+        '_lumascope.modules.lumascope_api.diagnostics',
         '_BENCHMARK_DELAY_S',
     ),
 }
@@ -45,7 +47,7 @@ def _checks(fn: ast.FunctionDef) -> bool:
 
 def _unchecked():
     found = []
-    for rel_path, tree in iter_package_modules(['modules']):
+    for rel_path, tree in iter_package_modules(['src/_lumascope/modules']):
         for cls in (node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)):
             methods = {f.name: f for f in cls.body if isinstance(f, ast.FunctionDef)}
             handle = (rel_path, cls.name) in _HANDLES
@@ -76,7 +78,7 @@ def test_every_wait_a_caller_passes_is_checked_where_it_enters():
 
 
 def test_a_narrower_range_ends_within_the_longest_wait():
-    from modules.finite_number import WAIT_S
+    from _lumascope.modules.finite_number import WAIT_S
 
     beyond = {
         where: getattr(importlib.import_module(module), constant)

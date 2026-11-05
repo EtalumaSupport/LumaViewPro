@@ -39,7 +39,7 @@ import ast
 import pathlib
 import re
 
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module, tracked_files
 
 
 # The UI code that kicks off a sequenced run: the protocol panel's one
@@ -176,7 +176,7 @@ def test_every_stop_goes_ahead_of_queued_work():
     down must say stop=True.
     """
     stops = []
-    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
+    for source_file in [REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')]:
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if not (
@@ -218,7 +218,7 @@ def test_no_starter_writes_running_state():
 
 # ---------------------------------------------------------------------------
 # Retired-API sweep: no production call site of the old bool-returning
-# run() remains anywhere under modules/ or ui/.
+# run() remains anywhere under src/_lumascope/modules/ or ui/.
 # ---------------------------------------------------------------------------
 
 _RUN_CALL = re.compile(r'\.run\(')
@@ -242,8 +242,8 @@ def test_no_retired_runner_run_call_sites_remain():
     sequenced-capture run() call (subprocess.run and thread run()
     calls carry neither)."""
     offenders = []
-    for sub in ('modules', 'ui'):
-        for path in sorted((REPO_ROOT / sub).rglob('*.py')):
+    for sub in ('src/_lumascope/modules', 'ui'):
+        for path in [REPO_ROOT / rel for rel in tracked_files((sub,))]:
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):
                 block = _balanced_block(src, m.end() - 1)
@@ -271,7 +271,7 @@ def _ui_run_stops():
 
     Yields (file, source).
     """
-    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
+    for source_file in [REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')]:
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr == 'stop':
@@ -312,7 +312,7 @@ def _teardown_iotasks():
     Derived for the same reason as the list above: a hand-kept roster of
     "the tasks that can be refused" is one more mirror to forget.
     """
-    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
+    for source_file in [REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')]:
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if not (

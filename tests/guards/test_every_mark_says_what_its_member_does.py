@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every read is marked a read, and every declared stop is a member that exists.
 
-A host decides how to carry a member from its marks (``modules/api_surface.py``):
+A host decides how to carry a member from its marks (``src/_lumascope/modules/api_surface.py``):
 a member marked ``reads`` changes nothing, so the REST server may answer it
 as a read; a member marked ``stop`` names what a cancel of its job calls.
 Before the marks, a host could only guess from a name: 53 reads were routed
@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import re
 
-from modules import wire_encoding
-from modules.api_surface import mark_of, reads_of, stop_of
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import mark_of, reads_of, stop_of
 
 _READ_NAME = re.compile(r'(get|is|has|read)_')
 

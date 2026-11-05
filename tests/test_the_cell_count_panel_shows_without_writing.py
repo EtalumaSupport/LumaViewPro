@@ -21,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 import ui.post_processing as panel_module
-from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 _RANGE_SLIDERS = (
@@ -41,7 +41,7 @@ def _slider(lo=0, hi=100):
 @pytest.fixture
 def size_scale(tmp_path):
     """The session's size scale with no preview image, as the panel starts with it."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

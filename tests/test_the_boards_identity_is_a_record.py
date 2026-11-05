@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api.diagnostics import (
+from _lumascope.modules.lumascope_api.diagnostics import (
     LedBoardInfo,
     LedCommandSet,
     MotorBoardInfo,
     MotorCommandSet,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

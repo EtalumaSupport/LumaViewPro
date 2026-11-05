@@ -16,17 +16,17 @@ from unittest.mock import patch
 
 import pytest
 
-from modules import sequential_io_executor
-from modules.activity_claim import acting
-from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules import sequential_io_executor
+from _lumascope.modules.activity_claim import acting
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from tests.protocol_drives import run_identity
 from tests.stock_channels import LED0
 
 
 @pytest.fixture
 def sim_session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(
@@ -235,7 +235,7 @@ class TestTheSupportReportDuringARun:
     def test_it_sends_no_board_command_and_still_records_identity_and_temperature(
         self, sim_session, tmp_path
     ):
-        from modules.tech_support_report import TechSupportReport
+        from _lumascope.modules.tech_support_report import TechSupportReport
 
         sc = sim_session.scope
         report = TechSupportReport(session=sim_session)

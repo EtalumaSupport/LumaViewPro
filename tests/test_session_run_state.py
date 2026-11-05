@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import live_work
+from _lumascope.modules import live_work
 from tests.scope_fakes import session_on_a_simulated_scope
 from tests.protocol_drives import run_identity
 
@@ -36,7 +36,7 @@ def _held_file_lane():
 
 def _draining_run(session, writes=1):
     """The runner's last run, ended with ``writes`` of its files still to land."""
-    from modules.protocol_image_writer import RunWriteBatch
+    from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
     batch = RunWriteBatch(session.file_io_executor)
     for _ in range(writes):
@@ -72,7 +72,7 @@ class TestDerivations:
     def test_a_live_runs_writes_are_not_counted_as_draining(self):
         """While the run is live its own state answers; its writes held on
         the lane are not a finished run's files still to land."""
-        from modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = RunWriteBatch(session.file_io_executor)
@@ -90,7 +90,7 @@ class TestDerivations:
     def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
         # One threshold for "stuck": the display of a stalled writer and
         # the refusal of a new run over it must not disagree.
-        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+        from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = _draining_run(session)
@@ -135,8 +135,8 @@ class TestTransitionNotification:
         # The drain's end is a run-state change: the run lockout drops with it,
         # so the Session must hear it -- once, when the run's last write
         # lands, not when the run closes its writes.
-        from modules.protocol_image_writer import RunWriteBatch
-        from modules.run_events import RunEvents
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.run_events import RunEvents
 
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         runner = session.sequenced_capture_runner

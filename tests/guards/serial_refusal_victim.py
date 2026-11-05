@@ -11,8 +11,8 @@ import serial.tools.list_ports as list_ports
 def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
     """Passes on its own terms: a real scope's board registries hand back null
     boards when the real constructors find no port. The guard must fail it anyway."""
-    from drivers.registry import DriverFallback, NoLiveDriverError
-    from modules.lumascope_api import Lumascope, _lumascope
+    from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
+    from _lumascope.modules.lumascope_api import Lumascope, _lumascope
     from tests.settings_fixtures import installation_of_its_own
 
     def no_camera(name='auto', **kwargs):
@@ -29,7 +29,7 @@ def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
 
 
 def test_a_bare_serialboard_given_a_port_touches_nothing():
-    from drivers.serialboard import SerialBoard
+    from _lumascope.drivers.serialboard import SerialBoard
 
     board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
     assert board.found is True

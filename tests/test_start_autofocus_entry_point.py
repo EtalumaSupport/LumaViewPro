@@ -17,14 +17,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.illumination import LedEndPolicy
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
 
@@ -35,7 +35,7 @@ def _runner(acquiring=('BF',)):
     Real config assembly, mocked engine: this pins what the autofocus
     surface HANDS the boundary, not what the engine does with it.
     """
-    from modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     session = MagicMock()
     session.settings = _settings(acquiring=acquiring)
@@ -197,7 +197,7 @@ class TestAStandaloneAutofocusWritesNoFocusIntoAProtocol:
     def test_the_method_offers_no_way_to_ask_for_it(self):
         import inspect
 
-        from modules.protocol_runner import ProtocolRunner
+        from _lumascope.modules.protocol_runner import ProtocolRunner
 
         params = inspect.signature(ProtocolRunner.start_autofocus).parameters
         assert 'write_focus_to' not in params
@@ -209,7 +209,7 @@ class TestTheExistingFamilyIsUnchanged:
     default drifting under a member that never asked for either."""
 
     def test_a_scan_still_saves_its_artifacts_and_asks_for_no_data(self):
-        from modules.protocol import Protocol
+        from _lumascope.modules.protocol import Protocol
 
         runner = _runner()
         protocol = MagicMock(spec=Protocol)
@@ -238,7 +238,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
     """
 
     def _selector_config(self, **overrides):
-        import modules.config_helpers as config_helpers
+        import _lumascope.modules.config_helpers as config_helpers
 
         kwargs = {
             'layer': 'BF',
@@ -322,8 +322,8 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
 
     def _protocol_from(self, **overrides):
 
-        import modules.config_helpers as config_helpers
-        from modules.protocol import Protocol
+        import _lumascope.modules.config_helpers as config_helpers
+        from _lumascope.modules.protocol import Protocol
 
         kwargs = {
             'layer': 'BF',

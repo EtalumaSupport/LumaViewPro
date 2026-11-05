@@ -9,7 +9,7 @@ shows that list and adds nothing of its own.
 
 import types
 
-import modules.app_context as app_context
+import _lumascope.modules.app_context as app_context
 
 
 def _panel_with(monkeypatch, binning_sizes):

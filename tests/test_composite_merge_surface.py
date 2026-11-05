@@ -20,8 +20,8 @@ import time
 
 import pytest
 
-from modules.exceptions import CaptureError, PostProcessingRefusedError
-from modules.notification_center import Severity, notifications
+from _lumascope.modules.exceptions import CaptureError, PostProcessingRefusedError
+from _lumascope.modules.notification_center import Severity, notifications
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_composite_run_failures import _fail_these_channels
 from tests.stock_channels import LED0
@@ -99,7 +99,7 @@ class TestAFailedMergeTellsTheUserOnce:
         )
 
     def test_a_refusal_from_the_merge_is_told_as_itself(self, tmp_path, monkeypatch):
-        from modules.composite_generation import CompositeGeneration
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         # a stand-in by design: the subject is how the merge's surface tells
         # a refusal; a composite run leaves its merge nothing to refuse (every
@@ -124,7 +124,7 @@ class TestAFailedMergeTellsTheUserOnce:
         assert told == [('Composite Not Possible', Severity.WARNING)], told
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
-        from modules.composite_generation import CompositeGeneration
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
@@ -142,7 +142,7 @@ class TestAFailedMergeTellsTheUserOnce:
 
     @staticmethod
     def _merge_answers(monkeypatch, artifact_paths):
-        from modules.composite_generation import CompositeGeneration
+        from _lumascope.modules.composite_generation import CompositeGeneration
 
         # a stand-in by design: a composite run's fresh folder holds no group
         # already built, so its merge always writes a file or fails; the
@@ -187,8 +187,8 @@ class TestAFailedMergeTellsTheUserOnce:
     def test_the_merge_raise_is_logged_once_with_its_traceback(self, tmp_path, monkeypatch, caplog):
         import logging
 
-        import modules.sequenced_capture_runner as scr
-        from modules.composite_generation import CompositeGeneration
+        import _lumascope.modules.sequenced_capture_runner as scr
+        from _lumascope.modules.composite_generation import CompositeGeneration
         from tests.log_capture import records_of
 
         def _explode(self, path, **kwargs):
@@ -213,8 +213,8 @@ class TestAFailedMergeTellsTheUserOnce:
         assert run_errors == [], [r.getMessage() for r in run_errors]
 
     def test_the_writes_never_drain(self, tmp_path, monkeypatch):
-        import modules.protocol_image_writer as piw
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.protocol_image_writer as piw
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         real_save = piw.save_image
 

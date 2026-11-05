@@ -13,15 +13,16 @@ GUI and the logger read the scratch folder's.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
 
 import pytest
 
-from modules import path_utils
-from modules.exceptions import InstallationFileError
-from modules.path_utils import INSTALLED_MARKER, AppRuntime
+from _lumascope.modules import path_utils
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.path_utils import INSTALLED_MARKER, AppRuntime
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -32,6 +33,9 @@ def exe_folder(tmp_path, monkeypatch):
     folder = tmp_path / 'LumaViewPro'
     folder.mkdir()
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    # The bundle's folder, which a frozen process has beside sys.frozen: this
+    # checkout's holds the build's files.
+    monkeypatch.setattr(sys, '_MEIPASS', str(REPO), raising=False)
     monkeypatch.setattr(sys, 'executable', str(folder / 'LumaViewPro.exe'))
     return folder
 
@@ -68,12 +72,12 @@ def test_an_installed_build_whose_version_txt_names_no_version_is_refused(exe_fo
     # Its data folder is named for its version; with none, there is no folder
     # to answer, and the install folder it once fell back to cannot be written.
     (exe_folder / INSTALLED_MARKER).write_text('')
-    monkeypatch.setattr(path_utils, 'read_version', lambda script_root=None: ('', ''))
+    monkeypatch.setattr(path_utils, 'read_version', lambda: ('', ''))
 
     with pytest.raises(InstallationFileError) as refused:
         path_utils.get_source_root()
 
-    assert refused.value.file_path == path_utils.get_script_root() / 'version.txt'
+    assert refused.value.file_path == path_utils.build_root() / 'version.txt'
 
 
 def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):
@@ -85,36 +89,117 @@ def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):
 
 
 _CHILD = """
-import json, sys
-sys.path.insert(0, sys.argv[1])
-from modules import path_utils
-import lvp_logger
-from modules.app_environment import init_environment
-env = init_environment(sys.argv[1] + '/lumaviewpro.py')
+import json, os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
+from _lumascope.modules import path_utils
+import _lumascope.lvp_logger
+from _lumascope.modules.app_environment import init_environment
+from _lumascope.drivers import camera_profiles
+from _lumascope.drivers.fx2driver import _FX2Connection
+from _lumascope.modules.settings_init import prepare_settings
+env = init_environment()
+settings, _rejected = prepare_settings(
+    _lumascope.lvp_logger.logger, str(path_utils.get_source_root()), fall_back_to_template=False
+)
 print(json.dumps({
-    'launch_root': str(path_utils.launch_root()),
-    'get_source_root': str(path_utils.get_source_root()),
-    'lvp_appdata': lvp_logger.lvp_appdata,
-    'init_environment': env.source_path,
+    'data_roots': {
+        'launch_root': str(path_utils.launch_root()),
+        'get_source_root': str(path_utils.get_source_root()),
+        'lvp_appdata': _lumascope.lvp_logger.lvp_appdata,
+        'init_environment': env.source_path,
+    },
+    'versions': {
+        'init_environment': env.version,
+        'read_version': path_utils.read_version()[0],
+        'lvp_logger': _lumascope.lvp_logger.version,
+    },
+    'build_files': {
+        'timing_record': str(
+            camera_profiles.timing_record_path(camera_profiles.simulated_profile()).parent
+        ),
+        'fx2_hex': _FX2Connection.find_firmware_path(),
+    },
+    'remembered_protocol': settings['protocol']['filepath'],
 }))
 """
 
 
-def test_a_folder_of_links_keeps_every_readers_data_in_that_folder(tmp_path):
+@pytest.fixture
+def farm(tmp_path):
+    """A folder of links into this checkout, with its own copy of version.txt
+    naming another version, and a working folder elsewhere holding decoys of
+    the build's files.
+
+    Its data folder links the shipped files one by one, leaving out a
+    checkout's own current.json, so its settings load from the template."""
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt', 'data'):
+    for item in ('src',):
         (folder / item).symlink_to(REPO / item)
+    (folder / 'data').mkdir()
+    for item in subprocess.run(
+        ['git', 'ls-tree', '--name-only', 'HEAD', 'data/'],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split():
+        (folder / item).symlink_to(REPO / item)
+    (folder / 'version.txt').write_text('9.9.9-farm\n2026-11-04 00:00\n', encoding='utf-8')
+    decoy = tmp_path / 'decoy'
+    for item in ('ui/lumaviewpro.kv', 'data/new_default_protocol.tsv', 'version.txt'):
+        (decoy / item).parent.mkdir(parents=True, exist_ok=True)
+        (decoy / item).write_text('decoy\n', encoding='utf-8')
+    return folder, decoy
 
-    roots = json.loads(
-        subprocess.run(
-            [sys.executable, '-c', _CHILD, str(folder)],
-            cwd=str(folder),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        ).stdout.splitlines()[-1]
+
+def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(farm):
+    folder, decoy = farm
+    checkout_version = (REPO / 'version.txt').read_text(encoding='utf-8-sig').splitlines()[0]
+
+    child = subprocess.run(
+        [sys.executable, '-c', _CHILD, str(folder)],
+        cwd=str(decoy),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    answers = json.loads(child.stdout.splitlines()[-1])
+
+    assert answers['data_roots'] == dict.fromkeys(answers['data_roots'], str(folder))
+    assert answers['versions'] == dict.fromkeys(answers['versions'], checkout_version)
+    assert answers['build_files'] == {
+        'timing_record': str(REPO / 'data' / 'camera_timing'),
+        'fx2_hex': str(REPO / 'firmware' / 'LumascopeClassic.hex'),
+    }
+    # The shipped default protocol, a relative path, is the farm's data's.
+    assert answers['remembered_protocol'] == str(folder / 'data' / 'new_default_protocol.tsv')
+
+
+_RESOLVE_IN_CHILD = """
+import sys
+from kivy.resources import resource_find
+print(resource_find(sys.argv[1]))
+"""
+
+
+def test_the_gui_runs_the_checkouts_kv_file_whatever_folder_it_starts_in(farm):
+    # The kv file as the app names it, resolved as Kivy resolves it, from a
+    # working folder holding a decoy at the same relative path. The entry is
+    # read here, where the conftest's Kivy stand-ins let it import: a child
+    # importing it would open a window.
+    _folder, decoy = farm
+    from lumaviewpro import LumaViewProApp
+
+    child = subprocess.run(
+        [sys.executable, '-c', _RESOLVE_IN_CHILD, LumaViewProApp.kv_file],
+        cwd=str(decoy),
+        env={**os.environ, 'KIVY_NO_ARGS': '1', 'KIVY_NO_CONSOLELOG': '1'},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
     )
 
-    assert roots == dict.fromkeys(roots, str(folder))
+    assert child.stdout.splitlines()[-1] == str(REPO / 'ui' / 'lumaviewpro.kv')

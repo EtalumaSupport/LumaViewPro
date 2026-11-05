@@ -10,7 +10,7 @@ Defense-in-depth, two layers:
    the in-app rename that is the remedy. The data-loss gate is
    ``validate_for_run`` at run start.
 
-2. Write-time defense in ``Lumascope.generate_image_save_path`` -- a
+2. Write-time defense in ``image_save.generate_image_save_path`` -- a
    ``tail_id_mode="if_collision"`` mode that uses the plain filename
    when no file exists and only adds a numeric suffix on actual
    collision. ``protocol_image_writer.py`` passes this mode so a
@@ -34,22 +34,19 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_outcome import EndingLatch
-from modules.layer_record import release_colors
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_outcome import EndingLatch
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.log_capture import records_of
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
     # Write-time defense against duplicate filenames (#636): the plain
     # name when free, a numeric suffix only on actual collision.
-    from types import SimpleNamespace
-
-    from modules import image_save
+    from _lumascope.modules import image_save
 
     kwargs = {
-        'scope': SimpleNamespace(),
         'save_folder': tmp_path,
         'file_root': 'step_',
         'append': 'BF',
@@ -73,9 +70,9 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
 
     import numpy as np
 
-    from modules.image_mode import ImageCaptureConfig
-    from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
-    from modules.run_events import RunEvents
+    from _lumascope.modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
+    from _lumascope.modules.run_events import RunEvents
 
     writer = ProtocolImageWriter(
         scope=MagicMock(),
@@ -102,7 +99,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     )
     recorded = []
     monkeypatch.setattr(
-        'modules.protocol_image_writer.save_image',
+        '_lumascope.modules.protocol_image_writer.save_image',
         lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
     )
     writer.write_capture(
@@ -308,17 +305,9 @@ def test_load_accepts_unique_steps(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-class _MinimalScope:
-    """Bare-bones scope stand-in for generate_image_save_path tests.
-
-    `generate_image_save_path` hands the scope through to the collision
-    helper, which does not read it either, so a bare object is enough.
-    """
-
-
 def _image_save_lines(caplog) -> list:
     """(level name, message) of each line ``image_save`` logged."""
-    from modules import image_save
+    from _lumascope.modules import image_save
 
     return [(r.levelname, r.getMessage()) for r in records_of(caplog, image_save)]
 
@@ -330,14 +319,13 @@ def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
     via the rename suffix; without the warning the user has no signal
     that their protocol Name format is producing collisions.
     """
-    from modules.image_save import generate_image_save_path
+    from _lumascope.modules.image_save import generate_image_save_path
 
     base = tmp_path / '_PC_TA1.tiff'
     base.write_bytes(b'')
 
     with caplog.at_level(logging.INFO):
         path = generate_image_save_path(
-            scope=_MinimalScope(),
             save_folder=tmp_path,
             file_root='_PC_TA1',
             append='',
@@ -363,11 +351,10 @@ def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
 
 def test_if_collision_no_warning_when_no_collision(tmp_path, caplog):
     """Happy path: no warning when the filename is fresh."""
-    from modules.image_save import generate_image_save_path
+    from _lumascope.modules.image_save import generate_image_save_path
 
     with caplog.at_level(logging.INFO):
         path = generate_image_save_path(
-            scope=_MinimalScope(),
             save_folder=tmp_path,
             file_root='_PC_TA1',
             append='',

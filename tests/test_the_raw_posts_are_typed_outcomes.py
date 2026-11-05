@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import pytest
 
-import modules.exceptions as exc
-from modules.notification_center import OutcomeKind, Severity, notifications
-from modules.scope_session import ScopeSession
+import _lumascope.modules.exceptions as exc
+from _lumascope.modules.notification_center import OutcomeKind, Severity, notifications
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -134,7 +134,7 @@ class TestTheAutoGainLimitsAreShown:
             s.shutdown()
 
     def _lock(self, state, *, resume_after_capture=True):
-        from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
+        from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
 
         # A FAILED lock reached no values, so it carries none.
         reached = state != AutoGainConvergence.FAILED
@@ -148,7 +148,7 @@ class TestTheAutoGainLimitsAreShown:
         )
 
     def test_a_live_view_lock_at_either_limit_is_a_shown_notice(self, session):
-        from modules.lumascope_api.camera import AutoGainConvergence
+        from _lumascope.modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)
@@ -165,7 +165,7 @@ class TestTheAutoGainLimitsAreShown:
         ]
 
     def test_a_protocol_steps_lock_tells_no_one(self, session):
-        from modules.lumascope_api.camera import AutoGainConvergence
+        from _lumascope.modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)

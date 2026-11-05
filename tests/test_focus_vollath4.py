@@ -10,8 +10,8 @@ accumulation must stay exact for integer pixels.
 import numpy as np
 import pytest
 
-import modules.autofocus_functions as af
-from modules.autofocus_functions import focus_vollath4_original
+import _lumascope.modules.autofocus_functions as af
+from _lumascope.modules.autofocus_functions import focus_vollath4_original
 
 
 def _reference_vollath4(image: np.ndarray) -> float:

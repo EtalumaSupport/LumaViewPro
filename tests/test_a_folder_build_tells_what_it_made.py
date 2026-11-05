@@ -7,7 +7,9 @@ an existing ``results.csv`` with only a header (#765); a failed write was
 logged and swallowed. Quick Enhance's folder pass said "complete" with
 images skipped. Each now returns only a complete result: nothing to work
 on is a refusal that leaves the previous results alone, and a partial
-pass is a failure that carries what it did save.
+pass is a failure that carries what it did save. A cell count writes the
+method it counted by beside its results, and a folder never holds a
+method beside results it did not make.
 """
 
 from __future__ import annotations
@@ -19,14 +21,15 @@ import os
 import numpy as np
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules import post_derivation
-from modules import image_utils
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.post_processing import PostProcessing
-from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules import post_derivation
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from _lumascope.modules import post_processing
+from _lumascope.modules.post_processing import PostProcessing
+from _lumascope.modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1
 from tests.installation_fixtures import shipped_grids
 
@@ -96,6 +99,123 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
     assert seen[-1] == 100
 
 
+# Not the default, so a file holding the default method cannot pass.
+COUNTED_BY = CellCountMethod(pixels_per_um=2.5, fluorescent_mode=False, threshold_pct=35)
+
+
+def _old_method(folder):
+    post_processing.save_cell_count_method(
+        CellCountMethod(threshold_pct=60), folder / 'results_method.json'
+    )
+    return (folder / 'results_method.json').read_bytes()
+
+
+def test_a_count_writes_the_method_it_counted_by_beside_its_results(counter, tmp_path):
+    _write_tiff(tmp_path / 'a.tif')
+
+    result = counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    method_path = os.path.join(str(tmp_path), 'results_method.json')
+    assert result['method_path'] == method_path
+    assert post_processing.load_cell_count_method(method_path) == COUNTED_BY
+    assert method_path in result['message']
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        'a.tif',
+        'results.csv',
+        'results_method.json',
+    ]
+
+
+# Each of the two writes fails before either file is replaced, by its own
+# branch, and each must name its own file.
+@pytest.mark.parametrize(
+    ('temp_suffix', 'named'), [('.tmp.csv', 'results.csv'), ('.tmp.json', 'results_method.json')]
+)
+def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
+    counter, tmp_path, monkeypatch, temp_suffix, named
+):
+    _old_results(tmp_path)
+    old_method = _old_method(tmp_path)
+    _write_tiff(tmp_path / 'a.tif')
+    real_open = open
+
+    # a stand-in by design: a disk that refuses one file, which no folder
+    # in a test produces portably (a read-only folder refuses both).
+    def refuse_one(file, *args, **kwargs):
+        if str(file).endswith(temp_suffix):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), file)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(post_processing, 'open', refuse_one, raising=False)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    assert f'could not be written to {tmp_path / named}' in str(raised.value)
+    assert raised.value.produced_paths == ()
+    assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
+    assert (tmp_path / 'results_method.json').read_bytes() == old_method
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        'a.tif',
+        'results.csv',
+        'results_method.json',
+    ]
+
+
+def test_a_method_that_cannot_take_its_place_leaves_no_method_beside_the_new_results(
+    counter, tmp_path, monkeypatch
+):
+    _old_results(tmp_path)
+    _old_method(tmp_path)
+    _write_tiff(tmp_path / 'a.tif')
+    real_replace = os.replace
+
+    # a stand-in by design: a rename that fails after the one before it
+    # succeeded, which no folder in a test produces.
+    def refuse_the_method(src, dst):
+        if str(dst).endswith('results_method.json'):
+            raise OSError(errno.EACCES, os.strerror(errno.EACCES), dst)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, 'replace', refuse_the_method)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    assert raised.value.reason == 'post_processing_incomplete'
+    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+    assert 'a.tif' in (tmp_path / 'results.csv').read_text()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
+
+
+def test_an_earlier_method_that_cannot_be_removed_is_named_as_not_the_results_method(
+    counter, tmp_path, monkeypatch
+):
+    _old_results(tmp_path)
+    _old_method(tmp_path)
+    _write_tiff(tmp_path / 'a.tif')
+    real_replace = os.replace
+    real_remove = os.remove
+
+    # a stand-in by design: a folder that takes a new file but will not
+    # give up an old one, which no folder in a test produces.
+    def refuse_the_method(src, dst):
+        if str(dst).endswith('results_method.json'):
+            raise OSError(errno.EACCES, os.strerror(errno.EACCES), dst)
+        real_replace(src, dst)
+
+    def keep_the_earlier_method(file):
+        if str(file).endswith(os.sep + 'results_method.json'):
+            raise OSError(errno.EACCES, os.strerror(errno.EACCES), file)
+        real_remove(file)
+
+    monkeypatch.setattr(os, 'replace', refuse_the_method)
+    monkeypatch.setattr(os, 'remove', keep_the_earlier_method)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    assert 'is not the method of these results' in str(raised.value)
+    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+
+
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):
     _old_results(tmp_path)
     with pytest.raises(PostProcessingRefusedError):
@@ -116,7 +236,10 @@ def test_some_unreadable_images_make_the_count_incomplete_with_its_results(count
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
         counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
-    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+    assert raised.value.produced_paths == (
+        os.path.join(str(tmp_path), 'results.csv'),
+        os.path.join(str(tmp_path), 'results_method.json'),
+    )
     assert 'good.tif' in (tmp_path / 'results.csv').read_text()
 
 
@@ -158,7 +281,7 @@ def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_pat
 
 
 def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tmp_path):
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     _write_tiff(tmp_path / 'one.tif')
     texts = []
@@ -180,7 +303,7 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
 def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     import cv2
 
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     source = tmp_path / 'image.tif'
     source.write_bytes(b'decoded by the stand-in below')
@@ -201,8 +324,8 @@ def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
 def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_refuses_it(
     tmp_path,
 ):
-    from modules.post_processing import read_cell_count_image
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing import read_cell_count_image
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     source = tmp_path / 'broken.tif'
     source.write_bytes(b'not a tiff')
@@ -223,9 +346,9 @@ class _ScriptedBuild:
     def make(name):
         import pandas as pd
 
-        from modules.common_utils import PostFunction
-        from modules.protocol_post_processing_result import PostProcResult
-        from modules.protocol_post_processor import ProtocolPostProcessor
+        from _lumascope.modules.common_utils import PostFunction
+        from _lumascope.modules.protocol_post_processing_result import PostProcResult
+        from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 
         def _groups(self, df):
             return [(key, group) for key, group in df.groupby('GroupKey')]
@@ -302,7 +425,7 @@ def test_a_stitchs_time_estimate_counts_the_group_now_starting(tmp_path, monkeyp
     import itertools
     from types import SimpleNamespace
 
-    import modules.protocol_post_processor as protocol_post_processor
+    import _lumascope.modules.protocol_post_processor as protocol_post_processor
 
     # Every group takes 10 s by the build's own clock: the module's own name
     # for time, so no other thread reads these ticks.
@@ -322,7 +445,7 @@ def test_a_stitchs_time_estimate_counts_the_group_now_starting(tmp_path, monkeyp
 def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatch):
     import pandas as pd
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     seen = {}
 

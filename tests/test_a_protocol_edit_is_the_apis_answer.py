@@ -17,10 +17,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.protocol_settings as ps
-from modules.acquire_mode import AcquireMode
-from modules.caller import Caller, calling
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.caller import Caller, calling
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 
@@ -50,14 +50,18 @@ class _Panel(ps.ProtocolSettings):
         self.redraws += 1
 
 
+# The protocol the context remembers, by the absolute path the Session stores.
+REMEMBERED = '/data/plate.tsv'
+
+
 @pytest.fixture
 def ctx(gui_ctx, monkeypatch):
-    """The GUI's context over an unhomed simulated session, remembering ``plate.tsv``.
+    """The GUI's context over an unhomed simulated session, remembering ``REMEMBERED``.
 
     The stage is the test's own widget: the Kivy tree never runs here.
     """
     gui_ctx.stage = MagicMock()
-    gui_ctx.set_protocol_filepath('plate.tsv')
+    gui_ctx.set_protocol_filepath(REMEMBERED)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
     return gui_ctx
@@ -162,7 +166,7 @@ class TestNewProtocol:
 
         assert len(centre_posts) == 1, _titles(centre_posts)
         assert panel._protocol is previous
-        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
+        assert ctx.settings['protocol']['filepath'] == REMEMBERED
 
 
 class TestSave:
@@ -200,7 +204,7 @@ class TestSave:
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
         assert _titles(centre_posts) == ['Protocol Not Saved']
-        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
+        assert ctx.settings['protocol']['filepath'] == REMEMBERED
         assert panel.ids['protocol_filename'].text == 'plate.tsv'
 
 
@@ -224,7 +228,7 @@ class TestLoad:
 
         assert loaded is False
         assert panel._protocol is previous
-        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
+        assert ctx.settings['protocol']['filepath'] == REMEMBERED
         assert panel.ids['protocol_filename'].text == 'plate.tsv'
         assert panel.moves == []
 
@@ -353,8 +357,8 @@ class TestCaptureRoot:
     @pytest.fixture
     def held(self, tmp_path, monkeypatch):
         """A simulated session whose control a REST client holds, as the GUI's session."""
-        from modules.caller import Caller, calling
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.caller import Caller, calling
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

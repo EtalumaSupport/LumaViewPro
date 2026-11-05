@@ -1,14 +1,15 @@
-"""What the Windows release build carries for the FX2 (LS560, LS620, LS720).
+"""What the Windows release build carries for the FX2 (LS460, LS560, LS620, LS720).
 
 Three kinds of file, each where the frozen app or the installer looks for it:
 
 - the firmware hex the driver uploads at every connect, under ``firmware/``
-  (``_FX2Connection.find_firmware_path`` reads ``<_MEIPASS>/firmware/``);
+  (``_FX2Connection.find_firmware_path`` reads ``<build root>/firmware/``, the
+  bundle's folder in the frozen build);
 - libusb-package's own library inside the ``libusb_package`` folder, since
   ``libusb_package.get_library_path()`` looks only inside its package, and
   the driver runs on that file and no other;
 - the driver step's executable at the root, which the installer runs to
-  bind the FX2's driver (``modules/fx2_driver_step.py``).
+  bind the FX2's driver (``src/_lumascope/modules/fx2_driver_step.py``).
 
 The release spec imports this module, so the build is refused, naming what
 is missing, before PyInstaller runs and again on the tree it produced.

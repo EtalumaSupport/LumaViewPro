@@ -2,7 +2,7 @@
 """The LS720's TMCM-6110 read at the wire, on the bench.
 
 The wire-level rows of Stage 4's bench run, driven through the production
-driver, ``drivers/tmcm6110.py``: what the board answers, how fast, what its
+driver, ``src/_lumascope/drivers/tmcm6110.py``: what the board answers, how fast, what its
 lid and supply inputs read, and how arrival and a stop look in its
 registers. Everything the API asks of the stage rests on these readings,
 and none of them can be taken from the simulator, which answers what it was
@@ -40,9 +40,9 @@ import time
 
 import pytest
 
-from drivers import tmcm6110
-from drivers.serial_backend import PYSERIAL
-from drivers.tmcm6110 import (
+from _lumascope.drivers import tmcm6110
+from _lumascope.drivers.serial_backend import PYSERIAL
+from _lumascope.drivers.tmcm6110 import (
     AP_ACTUAL_POSITION,
     AP_ACTUAL_VELOCITY,
     AP_TARGET_POSITION,

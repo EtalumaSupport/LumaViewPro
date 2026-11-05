@@ -18,8 +18,8 @@ import re
 import numpy as np
 import pytest
 
-from modules import image_utils
-from modules.layer_record import release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import release_color
 
 _METADATA = {
     'pixel_size_um': 0.5,

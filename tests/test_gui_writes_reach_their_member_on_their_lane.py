@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from tests.stock_channels import LED1
 
 
@@ -186,7 +186,7 @@ def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
     import ui.layer_control as layer_control
     import ui.ui_helpers as ui_helpers
 
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     moved = MagicMock()
     monkeypatch.setattr(ui_helpers, 'move_z', moved)
@@ -202,8 +202,8 @@ def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
 def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, monkeypatch):
     import ui.layer_control as layer_control
     import ui.ui_helpers as ui_helpers
-    from modules.notification_center import notifications
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.notification_center import notifications
+    from _lumascope.modules.scope_session import ScopeSession
 
     moved = MagicMock()
     reported = []
@@ -261,8 +261,8 @@ def test_the_fire_and_forget_led_and_motion_members_are_gone():
     """A GUI write reaches its lane through submit_reported and the blocking
     member, so a failure is reported once; the *_async members queued the
     work and reported it nowhere the caller could see (#792)."""
-    from modules.lumascope_api.illumination import IlluminationAPI
-    from modules.lumascope_api.motion import MotionAPI
+    from _lumascope.modules.lumascope_api.illumination import IlluminationAPI
+    from _lumascope.modules.lumascope_api.motion import MotionAPI
 
     survivors = [
         f'{api.__name__}.{name}'

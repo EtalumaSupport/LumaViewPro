@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 import tests.ast_seams as ast_seams
-from modules.exceptions import ArgumentRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import MemberNames
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
@@ -45,7 +45,7 @@ class TestNoHostCopyOfTheBringUp:
 # (its ImagingAPI call predates the frame_validity argument) and is rebuilt
 # on ScopeSession.create with #727; its entry goes then.
 _SCOPE_BUILDERS = {
-    'modules/scope_session.py': 'ScopeSession.create, the one bring-up',
+    'src/_lumascope/modules/scope_session.py': 'ScopeSession.create, the one bring-up',
     'tools/pylon_probe_sweep.py': '#727 rebuilds it on ScopeSession.create',
 }
 
@@ -95,7 +95,7 @@ class TestOnlyTheSessionBuildsAScope:
         # A second constructor drifts from the first: the support report's
         # hand-wired copy had no camera, no model and no settings.
         built_in = {}
-        for rel in ast_seams.tracked_python_files():
+        for rel in ast_seams.tracked_files():
             if rel.startswith('tests/'):
                 continue
             found = _lumascope_constructions(ast_seams.parse_module(rel))
@@ -137,7 +137,7 @@ class TestOnlyTheSessionBuildsAScope:
 # ===========================================================================
 
 HOST_INJECTIONS = MemberNames(
-    'modules/scope_session.py',
+    'src/_lumascope/modules/scope_session.py',
     {
         'simulate',
         'warn_pre_release',
@@ -151,7 +151,7 @@ HOST_INJECTIONS = MemberNames(
 def fresh_warning_latch():
     # The pre-release warning fires once per process; each test here needs
     # a not-yet-fired latch and must not poison the tests that follow.
-    import modules.lumascope_api._lumascope as lm_mod
+    import _lumascope.modules.lumascope_api._lumascope as lm_mod
 
     previous = lm_mod._PRE_RELEASE_WARNING_FIRED
     lm_mod._PRE_RELEASE_WARNING_FIRED = False
@@ -209,7 +209,8 @@ class TestCreateTakesTheHostInjections:
         # One keyword carries every part a simulated scope is built with, so
         # a real scope refuses the record whatever it holds -- an empty one
         # included, since only a simulated session is built from it.
-        from modules.lumascope_api.simulation import (
+        from _lumascope.drivers.simulated_specimen import Slide
+        from _lumascope.modules.lumascope_api.simulation import (
             SimulatedCameraWriteRefusal,
             SimulatedModelAnswer,
             SimulatedScope,
@@ -225,6 +226,8 @@ class TestCreateTakesTheHostInjections:
                     model_answer=SimulatedModelAnswer('LS850T'),
                     refused_stream_starts=1,
                     refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'false'),),
+                    camera_present=False,
+                    slide=Slide.RONCHI,
                 ),
             ),
         ):
@@ -350,15 +353,18 @@ class TestTheGuiTakesTheFactory:
         )
 
     def test_the_executor_registry_reaches_no_app_context(self):
-        tree = ast_seams.parse_module('modules/executor_registry.py')
+        tree = ast_seams.parse_module('src/_lumascope/modules/executor_registry.py')
         hits = [
             n.lineno
             for n in ast.walk(tree)
-            if (isinstance(n, ast.Import) and any(a.name == 'modules.app_context' for a in n.names))
-            or (isinstance(n, ast.ImportFrom) and n.module == 'modules.app_context')
+            if (
+                isinstance(n, ast.Import)
+                and any(a.name == '_lumascope.modules.app_context' for a in n.names)
+            )
+            or (isinstance(n, ast.ImportFrom) and n.module == '_lumascope.modules.app_context')
         ]
         assert hits == [], (
-            f'executor_registry imports modules.app_context at {hits}; the provider is handed in'
+            f'executor_registry imports _lumascope.modules.app_context at {hits}; the provider is handed in'
         )
 
     def test_main_display_takes_the_scope_before_its_own_init(self):
@@ -420,7 +426,7 @@ class TestTheGuiTakesTheFactory:
         assert len(built) == 1, 'build() builds its context through the one builder'
         assert [ast.unparse(a) for a in built[0].args] == ['scope_session']
         builder = ast_seams.find_def(
-            'modules/app_context.py', 'over_session', class_name='AppContext'
+            'src/_lumascope/modules/app_context.py', 'over_session', class_name='AppContext'
         )
         (returned,) = [n for n in ast.walk(builder) if isinstance(n, ast.Return)]
         from_the_session = {kw.arg for kw in returned.value.keywords if kw.arg}
@@ -428,7 +434,7 @@ class TestTheGuiTakesTheFactory:
         assert handed_in == [], f'build() hands in handles the session owns: {handed_in}'
 
     def test_the_context_has_no_field_only_the_dead_handler_read(self):
-        from modules.app_context import AppContext
+        from _lumascope.modules.app_context import AppContext
 
         fields = set(AppContext.__dataclass_fields__)
         assert 'simulate_mode' not in fields and 'disable_homing' not in fields
@@ -469,8 +475,8 @@ class TestOneSessionFactory:
     def test_load_user_settings_refuses_a_directory_that_is_not_an_installation(
         self, monkeypatch, tmp_path
     ):
-        import modules.settings_init as settings_init
-        from modules.exceptions import ArgumentRefusedError
+        import _lumascope.modules.settings_init as settings_init
+        from _lumascope.modules.exceptions import ArgumentRefusedError
 
         # No settings loaded in this process: the resolver, not the store,
         # answers.

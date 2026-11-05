@@ -13,9 +13,9 @@ import dataclasses
 
 import pytest
 
-from modules.exceptions import ConfigError
-from modules.lumascope_api import Lumascope
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ConfigError
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

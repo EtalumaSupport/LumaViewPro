@@ -15,10 +15,10 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.common_utils import PostFunction
-from modules.composite_generation import CompositeGeneration
-from modules.stitcher import Stitcher
-from modules.zprojector import ZProjector
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.zprojector import ZProjector
 
 
 def _mixed_df():

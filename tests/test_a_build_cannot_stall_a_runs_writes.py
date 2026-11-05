@@ -19,9 +19,9 @@ import time
 
 import pytest
 
-import modules.protocol_image_writer as piw
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+import _lumascope.modules.protocol_image_writer as piw
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 STALL_S = 0.5
 BOUND = 4
@@ -69,7 +69,7 @@ def test_a_long_task_sharing_the_file_lane_wedges_a_runs_paced_write(fast_pacing
 
 
 def test_a_build_on_the_post_processing_lane_leaves_a_runs_writes_free(fast_pacing):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(), simulate=True)

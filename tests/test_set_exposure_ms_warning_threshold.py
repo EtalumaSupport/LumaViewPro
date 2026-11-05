@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 
-import modules.lumascope_api.camera as camera_module
+import _lumascope.modules.lumascope_api.camera as camera_module
 from tests.log_capture import records_of
 from tests.scope_fakes import set_camera_limits
 

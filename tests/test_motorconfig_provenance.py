@@ -18,10 +18,10 @@ import pathlib
 
 import pytest
 
-from drivers.exceptions import ConfigReadError
-from drivers.motorboard import MotorBoard
-from drivers.motorconfig import MotorConfig
-from modules.path_utils import read_installation_file
+from _lumascope.drivers.exceptions import ConfigReadError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.motorconfig import MotorConfig
+from _lumascope.modules.path_utils import read_installation_file
 from tests.stock_channels import LED2
 from tests.wire_boards import motor_on_the_wire
 

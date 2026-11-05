@@ -11,7 +11,7 @@ always present.
 
 import pytest
 
-from modules.config_helpers import build_sequenced_capture_config
+from _lumascope.modules.config_helpers import build_sequenced_capture_config
 
 # Mirrors what Protocol.from_config consumes (see protocol.py).
 _CANONICAL_KEYS = {

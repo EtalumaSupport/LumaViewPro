@@ -20,7 +20,7 @@ import time
 
 from harness import HARDWARE, check, figure, hardware_session, report
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
@@ -40,7 +40,7 @@ def _ls620_simulator():
     Not the harness's headless session, which sets timing on a simulated
     serial LED board an FX2 scope does not have.
     """
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     from tests.settings_fixtures import complete_settings
 

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0

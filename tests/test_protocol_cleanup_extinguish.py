@@ -22,11 +22,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedState
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy, LedState
 
-import modules.sequenced_capture_runner as scr
+import _lumascope.modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
-from modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0
 
@@ -136,8 +136,8 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
     """Run run_cleanup with this RUN_END transition; what it logged at INFO."""
     import threading
 
-    import modules.protocol_cleanup as protocol_cleanup
-    from modules.protocol_state_machine import ProtocolState
+    import _lumascope.modules.protocol_cleanup as protocol_cleanup
+    from _lumascope.modules.protocol_state_machine import ProtocolState
 
     told = []
     monkeypatch.setattr(
@@ -171,7 +171,7 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
 def test_a_restore_that_did_not_apply_is_not_logged_as_complete(scope, monkeypatch):
     # A stand-in by design: the subject is the cleanup catching the run's LED
     # transition, and the transition is its interchangeable collaborator.
-    from modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 
     # The lane closing under the restore is the one drop that reaches it.
     for fault in (RuntimeError('LED board did not answer'), scope_lane_closed('apply')):

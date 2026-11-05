@@ -2,7 +2,7 @@
 """
 Tests for architecture audit fixes (2026-03-12, expanded 2026-05-02 LAYER-G).
 
-Covers (the layering of lib/ and drivers/ is
+Covers (the layering of src/_lumascope/lib/ and src/_lumascope/drivers/ is
 tests/guards/test_the_lower_layers_import_nothing_above_them.py's):
   2. config_getters retired (its successor, config_ui_getters, retired in turn)
   3. stitch_algorithms.py replaces image_stitcher.py
@@ -10,20 +10,19 @@ tests/guards/test_the_lower_layers_import_nothing_above_them.py's):
   5. Tiny file consolidation -- enums/classes merged into parent modules
 """
 
-import glob
 import os
+import sys
 from typing import ClassVar
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_python_files
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
 
 def _list_py_files(subdir):
-    """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
-    files like __init__.py.
-    """
-    pattern = os.path.join(REPO_ROOT, subdir, '*.py')
-    return sorted(p for p in glob.glob(pattern) if not os.path.basename(p).startswith('__'))
+    """Every tracked .py under <repo>/<subdir>/ at any depth, a package's
+    __init__.py included: a read added in a subpackage or an __init__ is a
+    read like any other, sorted."""
+    return [os.path.join(REPO_ROOT, rel) for rel in tracked_files((subdir,))]
 
 
 # ---------------------------------------------------------------------------
@@ -37,14 +36,14 @@ class TestConfigGettersRename:
     def test_old_file_does_not_exist(self):
         import os
 
-        old_path = os.path.join(REPO_ROOT, 'modules', 'config_getters.py')
+        old_path = os.path.join(REPO_ROOT, 'src/_lumascope/modules', 'config_getters.py')
         assert not os.path.exists(old_path), 'Old config_getters.py still exists'
 
     def test_no_imports_reference_old_name(self):
-        """Scan every tracked .py file for 'modules.config_getters' imports (should be zero)."""
-        old_module = 'modules.config_' + 'getters'  # avoid matching this test file
+        """Scan every tracked .py file for '_lumascope.modules.config_getters' imports (should be zero)."""
+        old_module = '_lumascope.modules.config_' + 'getters'  # avoid matching this test file
         violations = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             if 'test_architecture' in rel_path:
                 continue
             with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
@@ -65,7 +64,7 @@ class TestStitchAlgorithmsModule:
     def test_old_module_gone(self):
         import os
 
-        old_path = os.path.join(REPO_ROOT, 'modules', 'image_stitcher.py')
+        old_path = os.path.join(REPO_ROOT, 'src/_lumascope/modules', 'image_stitcher.py')
         assert not os.path.exists(old_path), 'Old image_stitcher.py still exists'
 
 
@@ -78,14 +77,14 @@ class TestStitcherDeadCodeRemoved:
     """Verify unused position_stitcher() was removed from stitcher.py."""
 
     def test_position_stitcher_not_in_stitcher(self):
-        from modules.stitcher import Stitcher
+        from _lumascope.modules.stitcher import Stitcher
 
         assert not hasattr(Stitcher, '_position_stitcher'), (
             'Unused _position_stitcher() should be removed from Stitcher'
         )
 
     def test_simple_position_stitcher_still_exists(self):
-        from modules.stitcher import Stitcher
+        from _lumascope.modules.stitcher import Stitcher
 
         assert hasattr(Stitcher, '_simple_position_stitcher'), (
             '_simple_position_stitcher() should still exist'
@@ -113,13 +112,13 @@ class TestTinyFileConsolidation:
     def test_deleted_files_are_gone(self):
         import os
 
-        modules_dir = os.path.join(REPO_ROOT, 'modules')
+        modules_dir = os.path.join(REPO_ROOT, 'src/_lumascope/modules')
         for filename in self.DELETED_FILES:
             path = os.path.join(modules_dir, filename)
             assert not os.path.exists(path), f'{filename} should be deleted'
 
     def test_post_function_in_common_utils(self):
-        from modules.common_utils import PostFunction
+        from _lumascope.modules.common_utils import PostFunction
 
         assert PostFunction.COMPOSITE.value == 'Composite'
         assert PostFunction.HYPERSTACK.value == 'Hyperstack'
@@ -127,7 +126,7 @@ class TestTinyFileConsolidation:
 
     def test_sequenced_capture_run_mode_importable_from_executor(self):
         """Verify SequencedCaptureRunMode is importable from sequenced_capture_runner."""
-        from modules.sequenced_capture_runner import SequencedCaptureRunMode
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 
         assert SequencedCaptureRunMode.FULL_PROTOCOL.value == 'full_protocol'
         assert SequencedCaptureRunMode.SINGLE_SCAN.value == 'single_scan'
@@ -135,17 +134,17 @@ class TestTinyFileConsolidation:
     def test_no_imports_reference_old_modules(self):
         """Scan every tracked .py file for imports of deleted modules (should be zero)."""
         old_modules = [
-            'modules.color_' + 'channels',
-            'modules.json_' + 'helper',
-            'modules.protocol_post_processing_' + 'functions',
-            'modules.sequenced_capture_run_' + 'modes',
-            'modules.stitcher_' + 'helper',
-            'modules.processing_' + 'utils',
+            '_lumascope.modules.color_' + 'channels',
+            '_lumascope.modules.json_' + 'helper',
+            '_lumascope.modules.protocol_post_processing_' + 'functions',
+            '_lumascope.modules.sequenced_capture_run_' + 'modes',
+            '_lumascope.modules.stitcher_' + 'helper',
+            '_lumascope.modules.processing_' + 'utils',
         ]
         # Deleted module that must not be confused with protocol_step_runner
-        old_protocol_step = 'modules.protocol_' + 'step'
+        old_protocol_step = '_lumascope.modules.protocol_' + 'step'
         violations = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             if 'test_architecture' in rel_path:
                 continue
             with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
@@ -155,12 +154,12 @@ class TestTinyFileConsolidation:
                     for old_mod in old_modules:
                         if old_mod in line:
                             violations.append(f'{rel_path}:{i} ({old_mod})')
-                    # Check for deleted modules.protocol_step but not protocol_step_runner
+                    # Check for deleted _lumascope.modules.protocol_step but not protocol_step_runner
                     if old_protocol_step in line:
                         # Only flag if it's not followed by '_' (which would be protocol_step_runner)
                         import re
 
-                        if re.search(r'modules\.protocol_step(?!_)', line):
+                        if re.search(r'_lumascope\.modules\.protocol_step(?!_)', line):
                             violations.append(f'{rel_path}:{i} ({old_protocol_step})')
         assert not violations, f'Files still importing deleted modules: {violations}'
 
@@ -169,7 +168,7 @@ class TestTinyFileConsolidation:
         import py_compile
 
         errors = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             try:
                 py_compile.compile(str(REPO_ROOT / rel_path), doraise=True)
             except py_compile.PyCompileError as e:
@@ -242,7 +241,7 @@ def _relpath(path):
 # ui/ is a question the GUI answers below the API, and retiring one is the
 # unit of migration work -- route the caller at its `ScopeSession` member
 # and the call site goes away.
-_ANSWERER_MODULES = Packages({'config_helpers'}, under='modules')
+_ANSWERER_MODULES = Packages({'config_helpers'}, under='src/_lumascope/modules')
 
 
 def _ui_answerer_call_counts():
@@ -251,7 +250,7 @@ def _ui_answerer_call_counts():
     BOTH forms are counted together because counting either alone inverts
     the trend. Between 2026-06-22 and 2026-09-21 the attribute form
     (`config_helpers.get_x(...)`) rose 6 -> 24 while the imported-name form
-    (`from modules.config_ui_getters import get_x` then `get_x()`) fell
+    (`from _lumascope.modules.config_ui_getters import get_x` then `get_x()`) fell
     97 -> 70: a census of attribute calls alone would report a fourfold
     regression where the total in fact fell 103 -> 94.
     """
@@ -468,19 +467,19 @@ _UI_EXCEPT_PIN = {
 # with ui/.
 _ORCHESTRATION_MEMBERS = MemberNames(
     (
-        'modules/lumascope_api/_lumascope.py',
-        'modules/lumascope_api/imaging.py',
-        'modules/lumascope_api/motion.py',
+        'src/_lumascope/modules/lumascope_api/_lumascope.py',
+        'src/_lumascope/modules/lumascope_api/imaging.py',
+        'src/_lumascope/modules/lumascope_api/motion.py',
     ),
     {'initialize', 'enable_streaming', 'disable_streaming', 'disconnect', 'set_acceleration_limit'},
 )
 _ORCHESTRATION_CONSTRUCTORS = MemberNames(
     (
-        'modules/lumascope_api/_lumascope.py',
-        'modules/scope_session.py',
-        'modules/autofocus_runner.py',
-        'modules/autofocus_thread.py',
-        'modules/executor_registry.py',
+        'src/_lumascope/modules/lumascope_api/_lumascope.py',
+        'src/_lumascope/modules/scope_session.py',
+        'src/_lumascope/modules/autofocus_runner.py',
+        'src/_lumascope/modules/autofocus_thread.py',
+        'src/_lumascope/modules/executor_registry.py',
     ),
     {
         'Lumascope',
@@ -544,16 +543,16 @@ def _gui_orchestration_counts():
     return counts
 
 
-# Proxy 4: the lower layer reaching UP into the GUI's context. A `modules/`
+# Proxy 4: the lower layer reaching UP into the GUI's context. A `src/_lumascope/modules/`
 # file that reads `_app_ctx.ctx` is orchestration code that only works when
 # a Kivy app has been built around it -- the mirror of proxy 3, and the
 # other half of what a headless caller trips over. Counted per file.
 
 
 def _modules_context_read_counts():
-    """{'modules/<file>.py': number of `_app_ctx.ctx` attribute reads}."""
+    """{'src/_lumascope/modules/<file>.py': number of `_app_ctx.ctx` attribute reads}."""
     counts = {}
-    for path in _list_py_files('modules'):
+    for path in _list_py_files('src/_lumascope/modules'):
         with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         n = 0
@@ -586,13 +585,13 @@ _GUI_ORCHESTRATION_PIN = {
 }
 
 _MODULES_CONTEXT_READ_PIN = {
-    'modules/executor_registry.py': 0,
-    'modules/metrics_logger.py': 0,
-    'modules/scope_session.py': 0,
+    'src/_lumascope/modules/executor_registry.py': 0,
+    'src/_lumascope/modules/metrics_logger.py': 0,
+    'src/_lumascope/modules/scope_session.py': 0,
 }
 
 
-# Proxy 5: the lower layer reading WIDGETS. A `modules/` file that subscripts
+# Proxy 5: the lower layer reading WIDGETS. A `src/_lumascope/modules/` file that subscripts
 # `.ids[...]` is answering a question about the instrument by looking at a
 # Kivy widget -- the API reading its settings off the GUI. Pin 4 counts the
 # context reads that open the door; this counts every widget read behind
@@ -600,9 +599,9 @@ _MODULES_CONTEXT_READ_PIN = {
 
 
 def _modules_widget_read_counts():
-    """{'modules/<file>.py': number of `<expr>.ids[...]` subscripts}."""
+    """{'src/_lumascope/modules/<file>.py': number of `<expr>.ids[...]` subscripts}."""
     counts = {}
-    for path in _list_py_files('modules'):
+    for path in _list_py_files('src/_lumascope/modules'):
         with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         n = sum(
@@ -700,7 +699,7 @@ class TestGuiIsDisplayOnly:
 
     def test_modules_context_reads_match_the_pin(self):
         report = _ratchet_report(
-            'GUI: _app_ctx.ctx reads in modules/',
+            'GUI: _app_ctx.ctx reads in src/_lumascope/modules/',
             _MODULES_CONTEXT_READ_PIN,
             _modules_context_read_counts(),
             '_app_ctx.ctx reads',
@@ -710,13 +709,36 @@ class TestGuiIsDisplayOnly:
 
     def test_modules_widget_reads_match_the_pin(self):
         report = _ratchet_report(
-            'GUI: widget .ids[ reads in modules/',
+            'GUI: widget .ids[ reads in src/_lumascope/modules/',
             _MODULES_WIDGET_READ_PIN,
             _modules_widget_read_counts(),
             '.ids[ reads',
             _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
+
+
+def test_the_modules_guards_read_every_file_at_every_depth(monkeypatch, tmp_path):
+    """A context read or a widget read in a subpackage, or in a package's
+    __init__.py, is counted: the lower layer reaching up is the same defect
+    one folder down."""
+    import subprocess
+
+    from tests import ast_seams
+
+    reads = 'def f(_app_ctx):\n    return _app_ctx.ctx.ids["w"]\n'
+    (tmp_path / 'src/_lumascope/modules' / 'pkg').mkdir(parents=True)
+    (tmp_path / 'src/_lumascope/modules' / 'pkg' / 'x.py').write_text(reads)
+    (tmp_path / 'src/_lumascope/modules' / 'pkg' / '__init__.py').write_text(reads)
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    # pointed at the tree as tools/ratchet_history points a sampled one
+    monkeypatch.setattr(ast_seams, 'REPO_ROOT', tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], 'REPO_ROOT', str(tmp_path))
+
+    expected = {'src/_lumascope/modules/pkg/__init__.py': 1, 'src/_lumascope/modules/pkg/x.py': 1}
+    assert _modules_context_read_counts() == expected
+    assert _modules_widget_read_counts() == expected
 
 
 class TestThePrivateReachCensusCountsReachesNotSpellings:

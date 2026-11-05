@@ -3,13 +3,13 @@
 
 ``api_fields`` gives each record it marks the method, so a record added
 later has it with no line to remember. This walks every record under
-``modules/`` that ``api_fields`` marks and names each one without it.
+``src/_lumascope/modules/`` that ``api_fields`` marks and names each one without it.
 """
 
 from __future__ import annotations
 
-from modules import wire_encoding
-from modules.api_surface import FIELDS_ATTRIBUTE, is_record
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import FIELDS_ATTRIBUTE, is_record
 
 
 def test_every_published_record_answers_to_dict():

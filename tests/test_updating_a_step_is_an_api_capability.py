@@ -18,11 +18,11 @@ import logging
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
-from modules.lumascope_api import AxisState
-from modules.protocol import StepNotFoundError
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
+from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.protocol import StepNotFoundError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pytest fixture
@@ -32,7 +32,7 @@ from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pyt
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1
 
 ADDED_AT = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)

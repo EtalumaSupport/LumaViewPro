@@ -28,12 +28,12 @@ import threading
 import pandas as pd
 import pytest
 
-import modules.autofocus_functions as autofocus_functions
-from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import AutofocusAborted
-from modules.protocol_image_writer import RunWriteBatch
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+import _lumascope.modules.autofocus_functions as autofocus_functions
+from _lumascope.modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.exceptions import AutofocusAborted
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.af_drives import af_runner_on, raises_the_failure_from, sweep
 
 
@@ -65,7 +65,7 @@ def _scored_then(monkeypatch, then):
             then()
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
+    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', scoring)
 
 
 class TestSaveLandsOnEveryExitPath:
@@ -118,7 +118,9 @@ class TestSaveLandsOnEveryExitPath:
             abort_event.set()
             return score(image)
 
-        monkeypatch.setattr('modules.autofocus_functions.autofocus_score', score_then_abort)
+        monkeypatch.setattr(
+            '_lumascope.modules.autofocus_functions.autofocus_score', score_then_abort
+        )
         with pytest.raises(AutofocusAborted):
             sweep(
                 runner,

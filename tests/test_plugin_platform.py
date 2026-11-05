@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for the plugin platform itself (modules/plugins/__init__.py).
+"""Tests for the plugin platform itself (src/_lumascope/modules/plugins/__init__.py).
 
 Covers:
     - PluginSpec construction + immutability
@@ -21,15 +21,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.api_surface import IN_PROCESS, mark_of
-from modules.exceptions import (
+from _lumascope.modules.api_surface import IN_PROCESS, mark_of
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     ArgumentTypeRefusedError,
     PluginNotLoadedError,
     RefusalCause,
 )
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.plugins import (
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.plugins import (
     PluginRegistrationError,
     PluginRegistry,
     PluginSpec,
@@ -37,13 +37,13 @@ from modules.plugins import (
     UIMountPoint,
     is_version_compatible,
 )
-from modules.plugins import (
+from _lumascope.modules.plugins import (
     LiveProcessingRegistry,
     PostProcessingRegistry,
     RESTRegistry,
     UIRegistry,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 
@@ -519,7 +519,7 @@ def test_all_health_returns_four_namespaces(harness_ctx):
 def test_all_health_initial_state_empty(harness_ctx):
     for ns in harness_ctx.plugins.all_health():
         assert ns.loaded == ()
-        assert ns.last_runtime_errors == ()
+        assert ns.last_runtime_failures == ()
     assert harness_ctx.plugins.not_loaded() == ()
 
 
@@ -636,9 +636,11 @@ def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx,
     mod = _make_plugin_module('etaluma_engineering', version=version)
     eps = [_FakeEntryPoint('etaluma_engineering', mod)]
     with (
-        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch.dict(
+            '_lumascope.modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}
+        ),
         patch('importlib.metadata.entry_points', return_value=eps),
-        patch('modules.plugins.notifications.report_outcome') as report,
+        patch('_lumascope.modules.plugins.notifications.report_outcome') as report,
     ):
         harness_ctx.plugins.load(harness_ctx, '4.0.0')
     assert mod._register_calls == []
@@ -655,7 +657,9 @@ def test_load_plugins_loads_a_plugin_at_or_above_the_hosts_minimum(harness_ctx, 
     mod = _make_plugin_module('etaluma_engineering', version=version)
     eps = [_FakeEntryPoint('etaluma_engineering', mod)]
     with (
-        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch.dict(
+            '_lumascope.modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}
+        ),
         patch('importlib.metadata.entry_points', return_value=eps),
     ):
         harness_ctx.plugins.load(harness_ctx, '4.0.0')
@@ -818,7 +822,7 @@ class TestAttributeException:
     def test_names_plugin_for_plugin_frame(self, tmp_path):
         import sys
 
-        from modules.plugins import PluginRegistry
+        from _lumascope.modules.plugins import PluginRegistry
 
         module = self._make_plugin_module(tmp_path, 'fake_bench_plugin')
         registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
@@ -833,7 +837,7 @@ class TestAttributeException:
     def test_none_for_non_plugin_frame(self):
         import sys
 
-        from modules.plugins import PluginRegistry
+        from _lumascope.modules.plugins import PluginRegistry
 
         registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
         try:
@@ -845,7 +849,7 @@ class TestAttributeException:
     def test_none_when_no_plugins_loaded(self, tmp_path):
         import sys
 
-        from modules.plugins import PluginRegistry
+        from _lumascope.modules.plugins import PluginRegistry
 
         module = self._make_plugin_module(tmp_path, 'fake_unloaded_plugin')
         # nothing tracked; a stand-in scope by design: no scope member is reached

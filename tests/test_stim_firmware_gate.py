@@ -16,10 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from modules.scope_capabilities import ScopeCapabilities
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.scope_fakes import build_scope
 from ui.microscope_settings import MicroscopeSettings
 

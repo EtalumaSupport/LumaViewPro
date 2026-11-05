@@ -27,10 +27,10 @@ import logging
 
 import pytest
 
-from modules.caller import Caller, calling
-from modules.lumascope_api.illumination import LedEndPolicy
-from modules.notification_center import NotificationCenter, Severity, notifications
-from modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy
+from _lumascope.modules.notification_center import NotificationCenter, Severity, notifications
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.case_walk import failing_cases
 
 

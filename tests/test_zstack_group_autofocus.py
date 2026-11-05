@@ -33,13 +33,13 @@ import pathlib
 
 import pytest
 
-from modules.coord_transformations import AxisLimits
-from modules.image_utils import read_file_record
-from modules.lumascope_api.illumination import LedState
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import StepEditRefusedError
-from modules.protocol_time_estimator import ProtocolTimeEstimator
-from modules.scope_session import ScopeSession
+from _lumascope.modules.coord_transformations import AxisLimits
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import StepEditRefusedError
+from _lumascope.modules.protocol_time_estimator import ProtocolTimeEstimator
+from _lumascope.modules.scope_session import ScopeSession
 from tests.protocol_fixtures import protocol_from_file
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

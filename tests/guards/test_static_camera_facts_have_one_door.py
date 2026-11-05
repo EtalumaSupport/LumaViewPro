@@ -19,11 +19,11 @@ import ast
 
 from tests.ast_seams import MemberNames, production_modules
 
-_THE_DOOR = 'modules/scope_capabilities.py'
+_THE_DOOR = 'src/_lumascope/modules/scope_capabilities.py'
 
 # Names whose read off a camera driver is a static camera fact.
 _DRIVER_FACTS = MemberNames(
-    ('drivers/camera.py', 'drivers/camera_profiles.py'),
+    ('src/_lumascope/drivers/camera.py', 'src/_lumascope/drivers/camera_profiles.py'),
     {
         'model_name',
         'get_model_name',
@@ -40,7 +40,7 @@ _DRIVER_FACTS = MemberNames(
 
 # A camera profile's static facts.
 _PROFILE_FACTS = MemberNames(
-    'drivers/camera_profiles.py',
+    'src/_lumascope/drivers/camera_profiles.py',
     {
         'pixel_formats',
         'binning_sizes',
@@ -98,8 +98,8 @@ def test_no_module_reads_a_static_camera_fact_off_the_camera():
 
 
 def test_the_deleted_doors_stay_deleted():
-    from modules.lumascope_api.diagnostics import DiagnosticsAPI
-    from modules.lumascope_api.imaging import ImagingAPI
+    from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
+    from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
     owners = {'ImagingAPI': ImagingAPI, 'DiagnosticsAPI': DiagnosticsAPI}
     back = [

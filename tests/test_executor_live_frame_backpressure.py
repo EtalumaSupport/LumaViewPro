@@ -21,8 +21,8 @@ producer was the memmap record path the engine replaced.
 
 import threading
 
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import (
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import (
     ENQUEUED,
     LIVE_FRAME_DROPPED,
     _LIVE_FRAME_MAXSIZE,

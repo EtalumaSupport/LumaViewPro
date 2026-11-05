@@ -86,20 +86,20 @@ class TestRule35dExempts:
 
     def test_lumascope_api_module_exempt(self):
         src = 'def forwarder(scope):\n    return scope.move_absolute("Z", 0)\n'
-        assert _violations(src, 'modules/lumascope_api/_lumascope.py') == []
+        assert _violations(src, 'src/_lumascope/modules/lumascope_api/_lumascope.py') == []
 
 
 class TestRule35dDoesNotMisfire:
     def test_unrelated_attr_passes(self):
         src = 'def fn(scope):\n    return scope.capabilities.axes\n'
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []
 
     def test_non_scope_object_with_same_method_name_passes(self):
         # `motor.move_absolute(...)` -- not a scope attribute, no fire.
         src = 'def fn(motor):\n    motor.move_absolute("Z", 0)\n'
-        assert _violations(src, 'drivers/motorboard.py') == []
+        assert _violations(src, 'src/_lumascope/drivers/motorboard.py') == []
 
     def test_string_literal_passes(self):
         # Mentioning the method name in a string is not a call.
         src = 'def fn():\n    return "scope.set_pixel_format is deprecated"\n'
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []

@@ -21,9 +21,12 @@ import ast
 from tests.ast_seams import production_modules, walk_defs
 
 THE_OWNERS = {
-    ('modules/protocol_run_loop.py', 'ProtocolRunLoop.run_loop'),
-    ('modules/sequenced_capture_runner.py', 'SequencedCaptureRunner._unwind_run_not_begun'),
-    ('modules/sequenced_capture_runner.py', 'SequencedCaptureRunner.force_reset'),
+    ('src/_lumascope/modules/protocol_run_loop.py', 'ProtocolRunLoop.run_loop'),
+    (
+        'src/_lumascope/modules/sequenced_capture_runner.py',
+        'SequencedCaptureRunner._unwind_run_not_begun',
+    ),
+    ('src/_lumascope/modules/sequenced_capture_runner.py', 'SequencedCaptureRunner.force_reset'),
 }
 
 

@@ -3,7 +3,7 @@
 ``CameraAPI._camera_write`` is the one path a camera setter writes through,
 so a write and the frame-validity invalidation it requires are declared
 together and a new setter cannot write a camera node and forget to
-invalidate. Frame validity (``modules/frame_validity.py``) is the owner of
+invalidate. Frame validity (``src/_lumascope/modules/frame_validity.py``) is the owner of
 capture readiness: tracked state only, the changer invalidates its source and
 the capture path drains until the count is met.
 
@@ -25,17 +25,17 @@ import ast
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from drivers.exceptions import CameraWriteFailedError
-from modules.exceptions import (
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
 )
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api import _lumascope
-from modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api import _lumascope
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from tests.ast_seams import parse_module
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
@@ -59,7 +59,7 @@ CAMERA_WRITE_METHODS = frozenset(
     }
 )
 
-_CAMERA_REL = 'modules/lumascope_api/camera.py'
+_CAMERA_REL = 'src/_lumascope/modules/lumascope_api/camera.py'
 
 _AUTO_GAIN_SETTINGS = {
     'target_brightness': 0.5,
@@ -645,11 +645,11 @@ class TestAuthorityIsSingleWritePath:
 # member that swallows a rejection and falls off the end reports the refusal as
 # a success, and the requested value is cached and stamped as the chunk target.
 _CAMERA_DRIVER_RELS = (
-    'drivers/camera.py',
-    'drivers/pyloncamera.py',
-    'drivers/simulated_camera.py',
-    'drivers/fx2driver.py',
-    'drivers/idscamera.py',
+    'src/_lumascope/drivers/camera.py',
+    'src/_lumascope/drivers/pyloncamera.py',
+    'src/_lumascope/drivers/simulated_camera.py',
+    'src/_lumascope/drivers/fx2driver.py',
+    'src/_lumascope/drivers/idscamera.py',
 )
 
 

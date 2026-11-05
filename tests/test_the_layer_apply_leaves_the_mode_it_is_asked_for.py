@@ -10,8 +10,8 @@ None (the default) leaves it and writes none.
 
 import pytest
 
-from modules.lumascope_api.camera import CameraAutoMode
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.exceptions import ArgumentRefusedError
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 

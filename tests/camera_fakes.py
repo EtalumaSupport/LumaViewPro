@@ -17,8 +17,8 @@ import time
 from types import MappingProxyType
 from unittest.mock import MagicMock
 
-from drivers import host_clock
-from drivers.camera import Camera, Frame, ImageHandlerBase
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera import Camera, Frame, ImageHandlerBase
 
 
 def _base_state(cam):
@@ -47,7 +47,7 @@ def bare_pylon_camera():
     no-op while not grabbing, which lets tests count genuine restart
     churn instead of mocking the bounce away.
     """
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     cam = _base_state(pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera))
     cam.active = MagicMock()
@@ -343,7 +343,7 @@ def bare_ids_camera():
     ``update_camera_config()`` runs its no-op bounce. ``data_stream`` is
     required because ``is_grabbing()`` reads it.
     """
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     cam = _base_state(idscamera.IDSCamera.__new__(idscamera.IDSCamera))
     cam.active = True
@@ -377,11 +377,11 @@ def bare_fx2_camera():
     it is not grabbing until ``open_and_start()``. Disconnected when the test
     ends.
     """
-    from drivers import fx2driver
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers import fx2driver
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
     from tests.scope_fakes import disconnect_when_the_test_ends
 
-    cam = fx2driver.FX2Camera(connection=SimulatedFX2().connection)
+    cam = fx2driver.FX2Camera(connection=SimulatedFX2().connect())
     disconnect_when_the_test_ends(cam)
     return cam
 
@@ -393,7 +393,7 @@ def bare_image_handler():
     with controllable fake grab results; handler._worker is a MagicMock
     so enqueue decisions are observable and Stage B stays out of scope.
     """
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     parent = bare_pylon_camera()
     parent._schedule_async_teardown = MagicMock()
@@ -405,8 +405,8 @@ def bare_image_handler():
 def bare_grab_worker():
     """_PylonImageGrabWorker with a bare parent and a spied failure
     counter, for driving Stage B classification directly."""
-    from drivers import pyloncamera
-    from drivers.camera import ImageHandlerBase
+    from _lumascope.drivers import pyloncamera
+    from _lumascope.drivers.camera import ImageHandlerBase
 
     parent = bare_pylon_camera()
     base = ImageHandlerBase()
@@ -418,20 +418,17 @@ def bare_grab_worker():
 def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
     """Read a frame a free-running simulated camera exposed under every change made before this call.
 
-    The simulated sensor shows a change only in exposures starting
-    ``SENSOR_APPLY_DELAY_US`` after it, and frames already started come out
-    after the call under the state they started with. So a frame shows what
-    was set before the call exactly when its exposure started that long
-    after the call, which its ``Timestamp`` chunk says on the camera's
-    clock. Returns the first stored frame that did.
+    The simulated sensor shows a change in the exposures starting after
+    it, and frames already started come out after the call under the state
+    they started with. So a frame shows what was set before the call exactly
+    when its exposure started after the call, which its ``Timestamp`` chunk
+    says on the camera's clock. Returns the first stored frame that did.
     """
-    applied_from = cam.camera_clock_ticks() + (
-        cam.SENSOR_APPLY_DELAY_US * cam.TIMESTAMP_TICK_HZ // 1_000_000
-    )
+    applied_from = cam.camera_clock_ticks()
     handler = cam.cam_image_handler
     deadline = time.monotonic() + timeout_s
     while True:
-        seen = handler.frames_delivered
+        seen = handler.delivered_counts[0]
         remaining = deadline - time.monotonic()
         assert remaining > 0 and handler.wait_for_frame_after(seen, remaining), (
             f'the camera stored no frame exposed after the change within {timeout_s} s'
@@ -479,7 +476,7 @@ def fx2_stream(handler: ImageHandlerBase | None = None):
     frame it ends is numbered by that handler's ``hand_over``: the transport
     feeds only a started stream.
     """
-    from drivers import fx2driver
+    from _lumascope.drivers import fx2driver
 
     stream = fx2driver._ByteStream()
     stream.restart((handler if handler is not None else ImageHandlerBase()).hand_over)

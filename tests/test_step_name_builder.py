@@ -25,12 +25,12 @@ import dataclasses
 
 import pytest
 
-from modules.common_utils import (
+from _lumascope.modules.common_utils import (
     StepNameComponents,
     build_step_name,
     parse_legacy_step_name,
 )
-from modules.layer_record import release_catalogue
+from _lumascope.modules.layer_record import release_catalogue
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED1, LED2
 

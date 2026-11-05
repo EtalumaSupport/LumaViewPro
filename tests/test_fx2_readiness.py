@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The FX2 readiness report the installers print is the driver's own gate.
 
-``scripts/install_mac.sh`` tells the user whether an LS560/LS620/LS720
+``scripts/install_mac.sh`` tells the user whether an LS460/LS560/LS620/LS720
 will connect, from
 ``fx2driver.fx2_readiness()`` and ``fx2_readiness_line()``. The gate is
 decided at import, so each case sets the module's gate record, with the
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 
 
 def _set_gate(monkeypatch, platform: str, refusal: str | None = None, **terms: bool) -> None:
@@ -41,7 +41,7 @@ def test_all_present_on_macos_reads_ready(monkeypatch):
 
     assert fx2driver.fx2_readiness() == {'pyusb': True, 'libusb-package': True, 'libusb1': True}
     assert fx2driver.fx2_readiness_line() == (
-        'FX2 (LS560/LS620/LS720) support: ready -- '
+        'FX2 (LS460/LS560/LS620/LS720) support: ready -- '
         'pyusb present, libusb-package present, libusb1 present'
     )
 
@@ -57,7 +57,7 @@ def test_each_missing_term_is_named_and_not_ready_on_macos(monkeypatch, term, ke
     assert readiness[key] is False
     assert all(present for name, present in readiness.items() if name != key)
     line = fx2driver.fx2_readiness_line()
-    assert line.startswith('FX2 (LS560/LS620/LS720) support: NOT ready -- ')
+    assert line.startswith('FX2 (LS460/LS560/LS620/LS720) support: NOT ready -- ')
     assert f'{key} missing' in line
 
 
@@ -66,7 +66,7 @@ def test_libusb1_is_not_needed_on_windows(monkeypatch):
 
     assert fx2driver.fx2_readiness()['libusb1'] is None
     assert fx2driver.fx2_readiness_line() == (
-        'FX2 (LS560/LS620/LS720) support: ready -- '
+        'FX2 (LS460/LS560/LS620/LS720) support: ready -- '
         'pyusb present, libusb-package present, libusb1 not needed'
     )
 
@@ -89,9 +89,7 @@ def test_requirements_pin_the_bundled_libusb_on_exactly_the_hosts_it_has_wheels_
     # packaging is pytest's own dependency, so it is present wherever this runs.
     from packaging.requirements import Requirement
 
-    lines = (
-        Path(fx2driver.__file__).resolve().parent.parent.joinpath('requirements.txt').read_text()
-    )
+    lines = Path(fx2driver.__file__).resolve().parents[3].joinpath('requirements.txt').read_text()
     (line,) = [raw for raw in lines.splitlines() if raw.startswith('libusb-package')]
     requirement = Requirement(line)
     assert str(requirement.specifier) == '==1.0.30.0'

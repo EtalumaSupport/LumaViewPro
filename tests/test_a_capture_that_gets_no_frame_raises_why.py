@@ -18,10 +18,10 @@ import re
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
-from modules.lumascope_api import imaging
-from modules.notification_center import Severity, notifications
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api import imaging
+from _lumascope.modules.notification_center import Severity, notifications
 from tests.log_capture import records_of
 
 # The facts a give-up line appends: the wait, the feed's two counts across

@@ -26,8 +26,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 
-from lib import profile_trace
-from modules.frame_validity import Counter, FrameValidity
+from _lumascope.lib import profile_trace
+from _lumascope.modules.frame_validity import Counter, FrameValidity
 
 
 @pytest.fixture(autouse=True)

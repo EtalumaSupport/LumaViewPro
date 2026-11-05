@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import MotorStopFailedError, ScopeDisconnectError
-from modules.lumascope_api.motion import AxisState
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import MotorStopFailedError, ScopeDisconnectError
+from _lumascope.modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope
 
 

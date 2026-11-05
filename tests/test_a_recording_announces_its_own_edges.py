@@ -14,11 +14,11 @@ import threading
 
 import pytest
 
-from drivers import host_clock
-from modules.activity_claim import ActivityClaim
-import modules.manual_recording as manual_recording_module
-from modules.manual_recording import ManualRecordingController
-from modules.video_recording import VideoRecordingEngine
+from _lumascope.drivers import host_clock
+from _lumascope.modules.activity_claim import ActivityClaim
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.video_recording import VideoRecordingEngine
 from tests.test_manual_recording_controller import (
     _capture_engine_and_writer,
     _FakeScope,
@@ -30,7 +30,7 @@ from tests.test_manual_recording_controller import (
 from tests.test_video_recording_contract import make_config
 from tests.video_engine_harness import FakeClock, FrameFeed, ManualFireScheduler, WriterStub
 from tests.protocol_drives import run_identity
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
@@ -160,7 +160,7 @@ class TestTheController:
 
 def test_at_the_live_edge_the_session_reads_the_recording_live(tmp_path):
     """The live edge is announced from inside the engine's start; the Session reads it live there."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
     from tests.test_a_run_needs_every_axis_position import _settings
 

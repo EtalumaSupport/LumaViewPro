@@ -21,15 +21,15 @@ import threading
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import (
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     SettingRefusedError,
     StoredSettingReplacedNotice,
 )
-from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
-from modules.scope_session import ScopeSession
-from modules.settings_paths import _leaf_paths
+from _lumascope.modules.lumascope_api._constants import ACCELERATION_PCT_MAX
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.settings_paths import _leaf_paths
 from tests.settings_fixtures import complete_settings, shipped_template
 
 TEMPLATE = pathlib.Path(__file__).resolve().parents[1] / 'data' / 'settings.json'
@@ -52,6 +52,12 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         for path, shipped in _leaf_paths(template):
             if path in given or path.startswith('turret_objectives.'):
                 continue
+            if path == 'protocol.filepath':
+                # The shipped relative path is the data root's, made absolute.
+                assert shipped == './data/new_default_protocol.tsv'
+                shipped = str(
+                    pathlib.Path(session.scope.source_path, 'data', 'new_default_protocol.tsv')
+                )
             assert _value_at(session.settings, path) == shipped, path
         for path, value in given.items():
             assert session.settings[path] == value

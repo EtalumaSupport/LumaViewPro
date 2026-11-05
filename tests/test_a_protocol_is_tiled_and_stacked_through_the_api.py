@@ -18,10 +18,10 @@ import logging
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
-from modules.notification_center import notifications
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
@@ -327,8 +327,8 @@ def test_the_motion_api_has_one_read_of_the_travel():
     """The limits are get_axis_limits'. Two retired doors answered them too:
     the motion API's, as the driver's microstep config, and the composition
     root's, as the motor config's own number."""
-    from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.motion import MotionAPI
+    from _lumascope.modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api.motion import MotionAPI
 
     assert not hasattr(MotionAPI, 'get_axes_config')
     assert not hasattr(Lumascope, 'travel_limit_um')

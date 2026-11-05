@@ -11,8 +11,8 @@ settings writers refuse an unknown plate.
 
 import pytest
 
-from modules.exceptions import SettingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

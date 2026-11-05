@@ -25,9 +25,7 @@ from pathlib import Path
 
 import ui.mod_slider
 import ui.shader
-from tests.ast_seams import REPO_ROOT
-
-UI = REPO_ROOT / 'ui'
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 
 def _method(module, class_name, method_name):
@@ -122,7 +120,7 @@ def test_no_ui_touch_handler_redelivers_a_touch():
     needs no Kivy window.
     """
     offenders = []
-    for path in sorted(UI.glob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):

@@ -24,11 +24,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import FocusNotWrittenError, Refusal
-from modules.run_outcome import PendingRunOutcome, RunEnding
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import EngineRun
+from _lumascope.modules.exceptions import FocusNotWrittenError, Refusal
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import EngineRun
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -58,7 +58,7 @@ def _focusing_session(tmp_path):
 @contextlib.contextmanager
 def _reports_of(outcome_type):
     """Every outcome of *outcome_type* reported while the block runs."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     report = notifications.report_outcome
@@ -276,6 +276,34 @@ class TestTheProtocolsOneFocusWriter:
         assert isinstance(refused.value, Refusal)
         assert refused.value.title == 'Focus Not Saved'
         assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM]
+
+    def test_the_refusal_names_the_first_step_and_its_first_identity_that_differ(self):
+        """Step 1's position and objective and step 2's position differ: step 1's position is named."""
+        protocol = _two_steps()
+        scanned = self._scanned(protocol)
+        # Behind the writers: the protocol has no one-cell writer for these.
+        protocol._config['steps'].at[0, 'Objective'] = '4x Oly'
+        protocol._config['steps'].at[0, 'Y'] = 40.0
+        protocol._config['steps'].at[1, 'X'] = 40.0
+
+        with pytest.raises(FocusNotWrittenError) as refused:
+            protocol.adopt_focus_from(scanned)
+
+        assert "step 1's position changed" in str(refused.value), refused.value
+
+    def test_a_step_with_no_position_matches_one_with_none_and_not_one_with_a_position(self):
+        protocol = _two_steps()
+        # Behind the writers: step 1 is made a step with no stage position.
+        protocol._config['steps'].loc[0, ['X', 'Y']] = float('nan')
+        scanned = self._scanned(protocol)
+
+        protocol.adopt_focus_from(scanned)
+        assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
+
+        protocol._config['steps'].at[0, 'X'] = 20.0
+        with pytest.raises(FocusNotWrittenError) as refused:
+            protocol.adopt_focus_from(scanned)
+        assert "step 1's position changed" in str(refused.value), refused.value
 
     def test_a_different_number_of_steps_refuses_and_changes_nothing(self):
         protocol = _two_steps()

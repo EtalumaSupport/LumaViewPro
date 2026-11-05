@@ -10,18 +10,15 @@ folders.
 
 import pathlib
 
-from modules.path_utils import get_log_dir
+from _lumascope.modules.path_utils import get_log_dir
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # What a pytest run, a probe or the real logger needs from a checkout.
 _CHECKOUT_ITEMS = (
-    'lvp_logger.py',
+    'src',
     'version.txt',
     'pyproject.toml',
-    'modules',
-    'drivers',
-    'lib',
     'tests',
     'data',
 )

@@ -19,10 +19,10 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
-import modules.image_utils as image_utils
-from modules.lumascope_api.frame_record import FrameTime, TimestampSource
-from modules.video_builder import VideoBuilder
-from modules.layer_record import release_colors
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
+from _lumascope.modules.video_builder import VideoBuilder
+from _lumascope.modules.layer_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
@@ -171,7 +171,7 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(sim_scope, 
 def test_build_from_folder_empty_is_refused(tmp_path):
     import pytest
 
-    from modules.exceptions import PostProcessingRefusedError
+    from _lumascope.modules.exceptions import PostProcessingRefusedError
 
     folder = tmp_path / 'empty'
     folder.mkdir()

@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.registry import DriverFallback
-from modules.exceptions import (
+from _lumascope.drivers.registry import DriverFallback
+from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MotorBoardUnavailableError,
     NoHardwareDetectedNotice,
 )
-from modules.lumascope_api.motion import HomeTarget
-from modules.notification_center import OutcomeKind
+from _lumascope.modules.lumascope_api.motion import HomeTarget
+from _lumascope.modules.notification_center import OutcomeKind
 from tests.test_bring_up_is_a_record import _bring_up
 
 

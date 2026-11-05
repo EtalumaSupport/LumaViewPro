@@ -19,13 +19,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from drivers import host_clock
-from modules.coord_transformations import PlatePosition, StageOffset
-from modules import wall_time
-from modules.lumascope_api import AxisPosition, AxisState
-from modules.lumascope_api.runtime_state import RuntimeState
-from modules.common_utils import Light
-from modules.lumascope_api.frame_record import (
+from _lumascope.drivers import host_clock
+from _lumascope.modules.coord_transformations import PlatePosition, StageOffset
+from _lumascope.modules import wall_time
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
+from _lumascope.modules.common_utils import Light
+from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
     FrameTime,
     LightTiming,
@@ -34,19 +34,19 @@ from modules.lumascope_api.frame_record import (
     arrival_time,
     camera_frame_time,
 )
-from modules.image_utils import read_file_record
-from modules.recording_frames import (
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.recording_frames import (
     FrameFact,
     RecordingCamera,
     arrival,
     frame_fact,
     write_frame,
 )
-from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.camera_fakes import delivered_frame
 from tests.frame_records import frame_record, plate
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1
 
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)
@@ -416,7 +416,7 @@ class TestTheBoundPlateTransform:
 
 
 def _engine(writer, clock):
-    from modules.activity_claim import ActivityClaim
+    from _lumascope.modules.activity_claim import ActivityClaim
 
     return VideoRecordingEngine(
         write_frame=writer, claim=ActivityClaim(), clock=clock, steady_clock=host_clock.steady_ns
@@ -448,8 +448,8 @@ class TestARecordingOnTheSimulator:
     def test_each_frame_states_its_record_and_the_hyperstack_its_rounded_position(self, tmp_path):
         import threading
 
-        from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
@@ -520,8 +520,8 @@ class TestARecordingStatesEachFramesStart:
         time just before the recording was asked to start."""
         import threading
 
-        from drivers import host_clock
-        from modules.scope_session import ScopeSession
+        from _lumascope.drivers import host_clock
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         settings = complete_settings(live_folder=str(tmp_path), video_as_frames=video_as_frames)
@@ -593,7 +593,7 @@ def _video_step(name):
 
 def _record_a_video_step(tmp_path, *, sequenced_format, image_mode='8bit'):
     """Run one frames-leg video step headless on the simulator; its frames' paths, sorted."""
-    from modules.recording_frames import frame_number
+    from _lumascope.modules.recording_frames import frame_number
     from tests.test_a_late_write_records_its_frame import _protocol
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -661,7 +661,7 @@ class TestARecordingTakesItsCapturesContainer:
     def test_an_ome_tiff_runs_frames_are_ome_and_state_what_an_imagej_frame_states(
         self, tmp_path, monkeypatch
     ):
-        import modules.image_save as image_save
+        import _lumascope.modules.image_save as image_save
         import tifffile
 
         twins = tmp_path / 'twins'
@@ -690,7 +690,7 @@ class TestARecordingTakesItsCapturesContainer:
         np.testing.assert_array_equal(tifffile.imread(frames[0]), tifffile.imread(twin))
 
     def test_a_jpg_runs_frames_are_twelve_bit_imagej_tiffs(self, tmp_path):
-        import modules.image_utils as image_utils
+        import _lumascope.modules.image_utils as image_utils
         import tifffile
 
         frames = _record_a_video_step(

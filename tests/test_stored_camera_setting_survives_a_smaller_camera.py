@@ -22,14 +22,14 @@ import pathlib
 
 import pytest
 
-from modules.lumascope_api.camera import AppliedGain, cap_stored_value
+from _lumascope.modules.lumascope_api.camera import AppliedGain, cap_stored_value
 from tests.scope_fakes import set_camera_limits
 from tests.stock_channels import LED0
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
-SCOPE_SESSION_PATH = REPO_ROOT / 'modules' / 'scope_session.py'
+SCOPE_SESSION_PATH = REPO_ROOT / 'src/_lumascope/modules' / 'scope_session.py'
 
 
 def _func(path: pathlib.Path, name: str) -> ast.FunctionDef:
@@ -135,7 +135,7 @@ class TestTheGuiNeverNarrowsTheStore:
         )
 
     def test_the_auto_gain_write_back_stores_the_apis_own_answer(self):
-        # stored_exposure_after_lock (modules/lumascope_api/camera.py) decides this value so that a
+        # stored_exposure_after_lock (src/_lumascope/modules/lumascope_api/camera.py) decides this value so that a
         # GUI and a REST caller store the same thing; narrowing it again to a
         # slider's range makes the widget a second answerer over the API.
         fn = _func(SCOPE_SESSION_PATH, 'set_channel_auto_gain')

@@ -12,8 +12,8 @@ reporter asks about first.
 The umbrellas (each class that names ``_Umbrella`` among its bases, such as
 ``ConfigError``) name a subject, not a kind: each child states its own.
 
-Discovered, not listed: every class in ``modules/``, ``drivers/`` and
-``rest/`` whose bases reach a built-in exception. The simulator walker's two
+Discovered, not listed: every class in ``src/_lumascope/modules/``, ``src/_lumascope/drivers/`` and
+``src/_lumascope/rest/`` whose bases reach a built-in exception. The simulator walker's two
 (``ui/``) never reach an API caller and are not read.
 """
 
@@ -27,8 +27,8 @@ import textwrap
 
 import pytest
 
-from lib.lumascope_error import Fault, LumascopeError
-from modules.exceptions import (
+from _lumascope.lib.lumascope_error import Fault, LumascopeError
+from _lumascope.modules.exceptions import (
     CaptureError,
     ConfigError,
     InstallationFileError,
@@ -37,7 +37,7 @@ from modules.exceptions import (
     Refusal,
     _Umbrella,
 )
-from tests.ast_seams import REPO_ROOT, MemberNames, module_name
+from tests.ast_seams import REPO_ROOT, MemberNames, module_name, tracked_files
 
 KINDS = (Refusal, Notice, Quiet, Fault)
 _BUILTIN_EXCEPTIONS = {
@@ -50,8 +50,8 @@ _BUILTIN_EXCEPTIONS = {
 def _exception_classes():
     """(module name, class name) for every exception class the API's layers define."""
     found = []
-    for layer in ('modules', 'drivers', 'rest'):
-        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+    for layer in ('src/_lumascope/modules', 'src/_lumascope/drivers', 'src/_lumascope/rest'):
+        for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
             tree = ast.parse(path.read_text(encoding='utf-8'))
             classes = {
                 node.name: [ast.unparse(base).split('.')[-1] for base in node.bases]
@@ -163,8 +163,15 @@ def test_no_umbrella_can_be_raised():
 def _constructions(names):
     """``path:line`` of every call in production code to a class in ``names``, by its name."""
     paths = [REPO_ROOT / 'lumaviewpro.py']
-    for layer in ('modules', 'drivers', 'rest', 'ui', 'lib', 'tools'):
-        paths.extend(sorted((REPO_ROOT / layer).rglob('*.py')))
+    for layer in (
+        'src/_lumascope/modules',
+        'src/_lumascope/drivers',
+        'src/_lumascope/rest',
+        'ui',
+        'src/_lumascope/lib',
+        'tools',
+    ):
+        paths.extend([REPO_ROOT / rel for rel in tracked_files((layer,))])
     found = []
     for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
@@ -182,29 +189,29 @@ def test_no_production_code_builds_an_umbrella():
 
 
 def test_an_umbrella_s_children_are_still_caught_by_it():
-    from modules.exceptions import CaptureFailedError, ConfigurationDefectError
+    from _lumascope.modules.exceptions import CaptureFailedError, ConfigurationDefectError
 
     assert isinstance(ConfigurationDefectError('settings_not_prepared', 'x'), ConfigError)
     assert isinstance(CaptureFailedError('no_frame'), CaptureError)
 
 
 def test_a_configuration_defect_outside_its_vocabulary_fails_where_it_is_raised():
-    from modules.exceptions import ConfigurationDefectError
+    from _lumascope.modules.exceptions import ConfigurationDefectError
 
     with pytest.raises(TypeError, match='nope'):
         ConfigurationDefectError('nope', 'x')
 
 
 def test_a_capture_failure_outside_its_vocabulary_fails_where_it_is_raised():
-    from modules.exceptions import CaptureFailedError
+    from _lumascope.modules.exceptions import CaptureFailedError
 
     with pytest.raises(TypeError, match='nope'):
         CaptureFailedError('nope')
 
 
 def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person():
-    from modules.exceptions import CaptureFailedError, ConfigurationDefectError
-    from modules.notification_center import outcome_of
+    from _lumascope.modules.exceptions import CaptureFailedError, ConfigurationDefectError
+    from _lumascope.modules.notification_center import outcome_of
 
     assert outcome_of(ConfigurationDefectError('settings_not_prepared', 'x')).for_person is False
     assert outcome_of(ConfigurationDefectError('layers_unresolved', 'x')).for_person is True
@@ -221,8 +228,8 @@ def test_no_kind_is_itself_an_exception():
 
 def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     """Whose words a fault's are is its class's, not a list kept beside the reporter."""
-    from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
-    from modules.notification_center import outcome_of
+    from _lumascope.drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
+    from _lumascope.modules.notification_center import outcome_of
 
     # Written for the person, and now shown as written: the file and what is
     # wrong with it, where a generic sentence stood before.
@@ -248,9 +255,12 @@ RAISABLE = tuple(
 )
 
 
+_OURS = ('_lumascope.modules.', '_lumascope.drivers.', '_lumascope.rest.')
+
+
 def _ours(cls):
     """The classes in ``cls``'s chain that this codebase defines."""
-    return [k for k in cls.__mro__ if k.__module__.split('.')[0] in ('modules', 'drivers', 'rest')]
+    return [k for k in cls.__mro__ if k.__module__.startswith(_OURS)]
 
 
 def _init_sets_reason(cls):
@@ -295,7 +305,7 @@ def test_every_raisable_outcome_has_a_title_on_its_type():
 def test_a_class_with_several_reasons_sets_its_reason_where_it_is_built():
     """A class with one reason answers it; one with several cannot know which
     was meant, so the reason is set where the outcome is built, and the root
-    refuses one the class does not declare (``lib.lumascope_error``)."""
+    refuses one the class does not declare (``_lumascope.lib.lumascope_error``)."""
     unset = [cls for cls in RAISABLE if len(cls.causes) > 1 and not _init_sets_reason(cls)]
     assert unset == [], f'set self.reason in __init__, or pass reason up: {_named(unset)}'
 
@@ -354,8 +364,8 @@ def test_no_outcome_sets_a_title_per_instance():
 def test_no_production_call_passes_a_title_to_an_outcome():
     names = {cls.__name__ for cls in (*RAISABLE, *UMBRELLAS)}
     passing = []
-    for layer in ('modules', 'drivers', 'rest', 'ui'):
-        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+    for layer in ('src/_lumascope/modules', 'src/_lumascope/drivers', 'src/_lumascope/rest', 'ui'):
+        for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
             for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
                 if (
                     isinstance(node, ast.Call)
@@ -367,7 +377,7 @@ def test_no_production_call_passes_a_title_to_an_outcome():
 
 
 _REASON_TABLES = MemberNames(
-    ('modules/exceptions.py', 'drivers/exceptions.py'),
+    ('src/_lumascope/modules/exceptions.py', 'src/_lumascope/drivers/exceptions.py'),
     {'_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
 )
 

@@ -12,11 +12,11 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.coord_transformations import AxisLimits, StageOffset
-from modules.labware_loader import WellPlateLoader
-from modules.layer_record import release_catalogue
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
 from tests.stock_channels import LED0
 from tests.protocol_fixtures import protocol_of
 
@@ -297,8 +297,8 @@ _STAGE_OFFSET = StageOffset(x_um=0.0, y_um=0.0)
 
 def _outside(position, limits=_DEFAULT_AXIS_LIMITS, labware_id='96 well microplate'):
     """The axes the one travel judgment finds outside, on a real plate."""
-    from modules import labware_loader
-    from modules.protocol import axes_outside_travel
+    from _lumascope.modules import labware_loader
+    from _lumascope.modules.protocol import axes_outside_travel
 
     lw = labware_loader.WellPlateLoader().get_plate(labware_id=labware_id)
     return axes_outside_travel(position, limits, labware=lw, stage_offset=_STAGE_OFFSET)

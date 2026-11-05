@@ -23,11 +23,11 @@ import pandas as pd
 import pytest
 from matplotlib.dates import ConciseDateFormatter
 
-from modules import graph_analysis
-from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from modules.graph_analysis import Trendline
-from modules.post_processing import RESULTS_TIME_FORMAT
-from modules.scope_session import ScopeSession
+from _lumascope.modules import graph_analysis
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from _lumascope.modules.graph_analysis import Trendline
+from _lumascope.modules.post_processing import RESULTS_TIME_FORMAT
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

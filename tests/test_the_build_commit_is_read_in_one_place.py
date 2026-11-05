@@ -3,7 +3,7 @@
 
 The startup banner's ``Git:`` line, the bench harness's verdict file, a
 profile trace and every plugin record name the build through
-``lvp_logger.git_revision``, so they cannot disagree. A GitHub ZIP carries
+``_lumascope.lvp_logger.git_revision``, so they cannot disagree. A GitHub ZIP carries
 the commit in ``.git_archival.txt``, which is read first. The simulator is
 launched from a folder of links into a clone; the commit is the clone's,
 where the folder has no ``.git``.
@@ -33,9 +33,9 @@ def _revision(code: str, cwd: pathlib.Path) -> str:
 def test_the_archival_file_names_the_commit(tmp_path):
     (tmp_path / '.git_archival.txt').write_text('node: 0123456789abcdef0123456789abcdef01234567\n')
     code = (
-        'import pathlib, lvp_logger; '
-        f'lvp_logger.get_script_root = lambda: pathlib.Path({str(tmp_path)!r}); '
-        'print(lvp_logger.git_revision())'
+        'import pathlib, _lumascope.lvp_logger; '
+        f'_lumascope.lvp_logger.build_root = lambda: pathlib.Path({str(tmp_path)!r}); '
+        'print(_lumascope.lvp_logger.git_revision())'
     )
 
     assert _revision(code, REPO) == '0123456789ab'
@@ -44,7 +44,12 @@ def test_the_archival_file_names_the_commit(tmp_path):
 def test_a_launch_from_a_folder_of_links_names_the_clones_commit(tmp_path):
     # The simulator recipe's shape: the launch folder holds links into the
     # clone and no .git of its own.
-    for entry in ('lvp_logger.py', 'version.txt', 'modules', 'lib', 'drivers', 'ui', 'data'):
+    for entry in (
+        'src',
+        'version.txt',
+        'ui',
+        'data',
+    ):
         os.symlink(REPO / entry, tmp_path / entry)
     head = subprocess.run(
         ['git', 'rev-parse', '--short', 'HEAD'],
@@ -54,13 +59,21 @@ def test_a_launch_from_a_folder_of_links_names_the_clones_commit(tmp_path):
         check=True,
     ).stdout.strip()
 
-    assert _revision('import lvp_logger; print(lvp_logger.git_revision())', tmp_path) == head
+    assert (
+        _revision(
+            'import _lumascope.lvp_logger; print(_lumascope.lvp_logger.git_revision())', tmp_path
+        )
+        == head
+    )
 
 
 def test_a_frozen_build_asks_git_nothing():
     # A clone's archival file holds the unsubstituted placeholder, so only git
     # could answer here; a frozen build must not ask it.
-    code = 'import sys, lvp_logger; sys.frozen = True; print(lvp_logger.git_revision())'
+    code = (
+        'import sys, _lumascope.lvp_logger; sys.frozen = True; '
+        f'sys._MEIPASS = {str(REPO)!r}; print(_lumascope.lvp_logger.git_revision())'
+    )
 
     assert _revision(code, REPO) == 'None'
 
@@ -68,10 +81,10 @@ def test_a_frozen_build_asks_git_nothing():
 def test_the_banner_reads_the_commit_guid_from_line_3_and_names_no_branch(tmp_path):
     (tmp_path / 'version.txt').write_text('4.0.0-x\n2026-10-09 00:00\nabcd1234\n')
     code = (
-        'import json, logging, lvp_logger; lines = []; '
+        'import json, logging, _lumascope.lvp_logger; lines = []; '
         'handler = logging.Handler(); handler.emit = lambda r: lines.append(r.getMessage()); '
-        'lvp_logger.logger.addHandler(handler); '
-        f'lvp_logger.log_environment_banner({str(tmp_path)!r}, "4.0.0-x", []); '
+        '_lumascope.lvp_logger.logger.addHandler(handler); '
+        f'_lumascope.lvp_logger.log_environment_banner({str(tmp_path)!r}, "4.0.0-x", []); '
         'print(json.dumps(lines))'
     )
 

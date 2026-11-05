@@ -28,7 +28,7 @@ import traceback
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report, void
-from modules.image_utils import read_file_record
+from _lumascope.modules.image_utils import read_file_record
 from tests.stock_channels import LED0
 
 # A camera writes exposure in its own steps and reads gain back in its own;

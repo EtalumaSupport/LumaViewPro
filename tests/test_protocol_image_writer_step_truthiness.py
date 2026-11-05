@@ -17,7 +17,11 @@ from __future__ import annotations
 import ast
 import pathlib
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
+SRC = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / 'src/_lumascope/modules'
+    / 'protocol_image_writer.py'
+)
 
 
 def test_write_capture_guards_step_with_is_not_none():

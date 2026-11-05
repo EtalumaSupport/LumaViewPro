@@ -19,8 +19,8 @@ import json
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -219,7 +219,7 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         import os
         import shutil
 
-        import modules.settings_init as si
+        import _lumascope.modules.settings_init as si
 
         payload = {**_REQUIRED_KEYS, **on_disk}
         data = tmp_path / 'data'
@@ -253,8 +253,8 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         import os
         import shutil
 
-        import modules.settings_init as si
-        from modules.scope_session import ScopeSession
+        import _lumascope.modules.settings_init as si
+        from _lumascope.modules.scope_session import ScopeSession
 
         shipped = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
         data = tmp_path / 'data'

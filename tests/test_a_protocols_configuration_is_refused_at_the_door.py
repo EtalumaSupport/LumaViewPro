@@ -18,8 +18,12 @@ import copy
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, RefusalCause
-from modules.tiling_config import TilingGrids
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    ProtocolRunRefusedError,
+    RefusalCause,
+)
+from _lumascope.modules.tiling_config import TilingGrids
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

@@ -16,12 +16,12 @@ import pathlib
 
 import pytest
 
-from modules import settings_init
+from _lumascope.modules import settings_init
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

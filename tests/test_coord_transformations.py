@@ -3,8 +3,8 @@
 
 import pytest
 
-from modules.coord_transformations import StageOffset
-from modules.scope_session import ScopeSession
+from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 STAGE = (50_000.0, 30_000.0)

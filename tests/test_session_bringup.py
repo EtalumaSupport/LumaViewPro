@@ -17,13 +17,13 @@ import threading
 import numpy as np
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ class TestAFactorySessionIsConfigured:
         assert session.scope.imaging.is_streaming()
 
     def test_a_bare_session_captures_and_saves(self, session, tmp_path):
-        from modules.image_save import save_image
+        from _lumascope.modules.image_save import save_image
 
         frame = session.scope.imaging.capture_still().image
         assert isinstance(frame, np.ndarray)

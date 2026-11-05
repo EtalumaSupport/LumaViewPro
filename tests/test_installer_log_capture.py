@@ -25,8 +25,8 @@ import tempfile
 
 import pytest
 
-from modules.app_environment import capture_installer_logs
-from modules.path_utils import INSTALLED_MARKER
+from _lumascope.modules.app_environment import capture_installer_logs
+from _lumascope.modules.path_utils import INSTALLED_MARKER
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +36,11 @@ def installed(tmp_path, monkeypatch):
     install.mkdir()
     (install / INSTALLED_MARKER).write_text('')
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    # The bundle's folder, which a frozen process has beside sys.frozen: this
+    # checkout's holds the build's files.
+    monkeypatch.setattr(
+        sys, '_MEIPASS', str(pathlib.Path(__file__).resolve().parents[1]), raising=False
+    )
     monkeypatch.setattr(sys, 'executable', str(install / 'LumaViewPro.exe'))
 
 
@@ -247,7 +252,7 @@ def test_only_the_newest_logs_are_copied(tmp_path):
 def test_startup_captures_installer_logs_after_logging_is_available():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'lumaviewpro.py').read_text()
     call = source.find('capture_installer_logs(')
-    logger_import = source.find('from lvp_logger import')
+    logger_import = source.find('from _lumascope.lvp_logger import')
     assert call != -1, 'lumaviewpro.py must capture installer logs at startup'
     assert logger_import != -1
     assert logger_import < call, (
@@ -345,15 +350,15 @@ def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
 def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkeypatch):
     # Every installed host captures. The server is stopped right after, at
     # its instance lock, held here on a port this test's settings name.
-    from modules import path_utils
-    from modules.lvp_lock import LvpLock
-    from rest.__main__ import main
+    from _lumascope.modules import path_utils
+    from _lumascope.modules.lvp_lock import LvpLock
+    from _lumascope.rest.headless import main
 
     documents = tmp_path / 'Documents'
     # platformdirs and lvp_logger are conftest stand-ins.
     monkeypatch.setattr(sys.modules['platformdirs'], 'user_documents_dir', lambda: str(documents))
     log_dir = tmp_path / 'logs'
-    monkeypatch.setattr(sys.modules['lvp_logger'], 'log_dir', str(log_dir))
+    monkeypatch.setattr(sys.modules['_lumascope.lvp_logger'], 'log_dir', str(log_dir))
     temp_dir = tmp_path / 'temp'
     source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
     monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))

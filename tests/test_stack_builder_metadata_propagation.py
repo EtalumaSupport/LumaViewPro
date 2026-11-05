@@ -31,10 +31,10 @@ import pandas as pd
 import pytest
 import tifffile as tf
 
-from modules import image_utils
-from modules.stack_builder import StackBuilder
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules import image_utils
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -720,7 +720,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     promotes is uint8 beside uint16 (a sum beside an unsummed channel);
     anything else -- here a float32 frame beside a uint8 one -- is refused,
     and leaves no file behind (#722)."""
-    from modules.exceptions import CaptureError
+    from _lumascope.modules.exceptions import CaptureError
 
     plate_pos = {'x': 1.0, 'y': 2.0}
     _write_structured_input(

@@ -60,9 +60,9 @@ _real_base_module('kivy.uix.boxlayout', BoxLayout=_StubWidget)
 _real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
-import modules.app_context as _app_ctx
-from modules.live_work import LiveWork
-from modules.scope_session import ControlsLock
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.live_work import LiveWork
+from _lumascope.modules.scope_session import ControlsLock
 import ui.protocol_settings as ps_module
 import ui.ui_helpers as ui_helpers
 from ui.listener_bridge import UIListenerBridge

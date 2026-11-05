@@ -13,15 +13,15 @@ import time
 
 import pytest
 
-from drivers import tmcm6110
-from drivers.exceptions import HardwareError, MotionInterlockError
-from drivers.registry import DriverRegistry
-from drivers.simulated_tmcm6110 import (
+from _lumascope.drivers import tmcm6110
+from _lumascope.drivers.exceptions import HardwareError, MotionInterlockError
+from _lumascope.drivers.registry import DriverRegistry
+from _lumascope.drivers.simulated_tmcm6110 import (
     SimulatedTmcm6110,
     SimulatedTmcm6110Backend,
     SimulatedTmcm6110Port,
 )
-from drivers.tmcm6110 import (
+from _lumascope.drivers.tmcm6110 import (
     AP_ACTUAL_VELOCITY,
     AP_TARGET_POSITION,
     FIRMWARE_VERSION,
@@ -717,7 +717,7 @@ def test_an_axis_driven_into_its_switch_stops_there(sim):
 
 @pytest.mark.parametrize('tier', ['fast', 'firmware'])
 def test_a_simulated_row_naming_the_6110_gets_the_driver_on_the_simulated_board(tier):
-    from modules.lumascope_api._lumascope import Lumascope
+    from _lumascope.modules.lumascope_api._lumascope import Lumascope
 
     board, simulated = Lumascope._build_simulated_motor_board(
         'LS720', frozenset('XYZ'), 'TMCM-6110', tier, SHIPPED_MOTOR_DEFAULTS
@@ -870,7 +870,7 @@ def test_a_home_reads_no_homing_value_the_config_does_not_check():
     load check never saw and a home can fail in the middle again."""
     import copy
 
-    from drivers.tmcm6110_config import SECTION, Tmcm6110Config
+    from _lumascope.drivers.tmcm6110_config import SECTION, Tmcm6110Config
 
     defaults = copy.deepcopy(SHIPPED_MOTOR_DEFAULTS)
     section = defaults[SECTION]
@@ -1001,7 +1001,7 @@ def test_a_phase_that_never_completes_fails_the_home_naming_it(
 
 
 def test_the_driver_is_a_motor_board():
-    from drivers.protocols import MotorBoardProtocol
+    from _lumascope.drivers.protocols import MotorBoardProtocol
 
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,

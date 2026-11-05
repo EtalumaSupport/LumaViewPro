@@ -25,11 +25,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.microscope_settings as ms
 import ui.protocol_settings as ps
-from modules.exceptions import ProtocolRunRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 _GUI_LOG = 'LVP.gui_interactions'
@@ -87,7 +87,7 @@ def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, c
     """A binning this camera does not offer is refused by the Session's
     preview, reported once, and no apply is sent; the pick that asked for it
     is in the record all the same."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     submitted = []
@@ -146,7 +146,7 @@ def test_change_on_an_empty_protocol_is_recorded_and_refused_by_the_session(
     """Change on an empty protocol returned in the panel before its record,
     so the press left no line and no reason, where Delete was refused "No Such
     Step" by the Session."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc))
@@ -187,7 +187,7 @@ def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_ba
     test_a_typed_non_number_puts_its_box_back.py; here every one reaches the
     same branch."""
     import ui.motion_settings as motion
-    from modules import gui_logger
+    from _lumascope.modules import gui_logger
 
     typed = '-'
 

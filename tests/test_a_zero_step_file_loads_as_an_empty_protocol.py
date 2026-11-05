@@ -25,9 +25,9 @@ import pathlib
 
 import pandas as pd
 
-import modules.protocol as protocol_module
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
+import _lumascope.modules.protocol as protocol_module
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol
 from tests.log_capture import records_of
 from tests.protocol_fixtures import protocol_from_file
 

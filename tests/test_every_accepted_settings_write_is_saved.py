@@ -20,9 +20,9 @@ import time
 
 import pytest
 
-import modules.settings_init as settings_init
-from modules.scope_session import ScopeSession
-from modules.settings_saver import SettingsSaver
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.settings_saver import SettingsSaver
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
 

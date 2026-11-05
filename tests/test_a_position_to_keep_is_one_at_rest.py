@@ -24,15 +24,15 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     AxisMovingError,
     AxisStateUnknownError,
     HardwareCommandRefusedError,
 )
-from modules.lumascope_api.motion import AxisState
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

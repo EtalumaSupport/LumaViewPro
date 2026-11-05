@@ -13,7 +13,7 @@ the AccessStatus -> symbolic-name mapping used in the probe + free-run log.
 
 from unittest.mock import MagicMock
 
-import drivers.idscamera as idscamera
+import _lumascope.drivers.idscamera as idscamera
 from tests.camera_fakes import bare_ids_camera
 
 

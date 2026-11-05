@@ -18,10 +18,10 @@ a step naming an unknown objective is refused before any run starts.
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-from modules.protocol_post_processor import ProtocolPostProcessor
-from modules.common_utils import PostFunction
-from modules.objectives_loader import objective_short_name
+from _lumascope.modules import post_derivation
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.objectives_loader import objective_short_name
 
 UNRESOLVABLE = 'ZZZ_not_a_prefix'
 

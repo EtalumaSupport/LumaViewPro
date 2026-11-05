@@ -24,8 +24,8 @@ import pytest
 # mock so the real SDK loads here. When the flag is NOT set, this import
 # succeeds against the conftest mock and the marker below skips the
 # tests at collection time.
-from drivers import host_clock
-from drivers.pyloncamera import PylonCamera
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.pyloncamera import PylonCamera
 
 
 @pytest.mark.pylon_hardware
@@ -107,7 +107,7 @@ class TestPylon(unittest.TestCase):
         """Sweep gain and exposure across the supported range, observe the
         max delta between requested value and ChunkGain / ChunkExposureTime
         in steady-state grabs. Output drives the DEFAULT_CHUNK_TOLERANCE
-        constants in modules/frame_validity.py.
+        constants in src/_lumascope/modules/frame_validity.py.
 
         Methodology notes:
           - Off-grid values (5.3 dB, 7.123 ms) expose any internal SDK
@@ -178,7 +178,7 @@ class TestPylon(unittest.TestCase):
 
         overall_gain_max = max(gain_deltas) if gain_deltas else float('nan')
         overall_exp_max = max(exp_deltas) if exp_deltas else float('nan')
-        from modules.frame_validity import FrameValidity
+        from _lumascope.modules.frame_validity import FrameValidity
 
         cur_gain_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['gain']
         cur_exp_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['exposure']
@@ -354,7 +354,7 @@ def pylon_scope():
     """A real scope over a connected Basler body, and the body's driver."""
     from tests.scope_fakes import build_scope
 
-    scope = build_scope(camera_type='pylon')
+    scope = build_scope()
     return scope, scope._camera_driver
 
 
@@ -362,7 +362,7 @@ def pylon_scope():
 def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_scope):
     """The range the public setters refuse against is the one the body
     declares, and a refused value never reaches the camera."""
-    from modules.exceptions import CameraSettingOutOfRangeError
+    from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 
     scope, cam = pylon_scope
     camera = scope.camera

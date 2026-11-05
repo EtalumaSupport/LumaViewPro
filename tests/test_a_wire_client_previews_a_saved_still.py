@@ -16,9 +16,9 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import modules.image_mode as image_mode
-from modules import image_utils
-from rest.app import build_app
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules import image_utils
+from _lumascope.rest.app import build_app
 from tests.test_manual_capture_member import _capture, _open_session, _settings
 from tests.stock_channels import LED0
 

@@ -10,7 +10,7 @@ does; a list the camera cannot report keeps the documented one.
 
 from __future__ import annotations
 
-from drivers.camera_profiles import lookup_profile
+from _lumascope.drivers.camera_profiles import lookup_profile
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import capabilities_of
 

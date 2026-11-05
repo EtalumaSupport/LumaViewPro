@@ -19,14 +19,14 @@ import shutil
 
 import pytest
 
-from drivers.fx2driver import FX2LEDController
-from drivers.null_motorboard import NullMotionBoard
-from drivers.simulated_camera import SimulatedStall
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from drivers.tmcm6110 import Tmcm6110Board
-from modules import layer_record
-from modules.exceptions import ArgumentRefusedError, InstallationFileError
+from _lumascope.drivers.fx2driver import FX2LEDController
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.simulated_camera import SimulatedStall
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.tmcm6110 import Tmcm6110Board
+from _lumascope.modules import layer_record
+from _lumascope.modules.exceptions import ArgumentRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope
 from tests.case_walk import failing_cases
 

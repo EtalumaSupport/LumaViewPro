@@ -17,9 +17,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.layer_record as layer_record
-from modules.scope_session import ShownChannel
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.scope_session import ShownChannel
 from ui.layer_control import LayerControl
 from ui.microscope_settings import MicroscopeSettings
 from ui.shader import ShaderViewer
@@ -34,7 +34,7 @@ def _view():
 
 def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
     shown = []
-    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+    with caplog.at_level(logging.DEBUG, logger='LVP.gui_interactions'):
         for color in (
             layer_record.parse_display_color('#0000ff'),
             layer_record.GREY,

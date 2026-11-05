@@ -17,23 +17,23 @@ from __future__ import annotations
 
 import pytest
 
-from modules import image_mode, sequential_io_executor
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import (
+from _lumascope.modules import image_mode, sequential_io_executor
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import (
     CameraSettingRejected,
     ConfigurationDefectError,
     HardwareCommandRefusedError,
     SettingRefusedError,
 )
-from modules.lumascope_api.camera import CameraAPI
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.scope_init_config import ScopeInitConfig
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.scope_init_config import ScopeInitConfig
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -276,7 +276,7 @@ def test_an_older_settings_file_without_the_region_takes_the_shipped_one(tmp_pat
     import logging
     import shutil
 
-    from modules import settings_init
+    from _lumascope.modules import settings_init
     from tests.ast_seams import REPO_ROOT
 
     template = REPO_ROOT / 'data' / 'settings.json'
@@ -300,10 +300,10 @@ def test_an_older_settings_file_without_the_region_takes_the_shipped_one(tmp_pat
 
 def test_over_rest_the_cameras_routes_are_under_scope_camera_and_nowhere_else():
     """One wire path, ``/api/v1/scope/camera/...``; ``session.scope.camera`` is an in-process alias."""
-    from modules import wire_encoding
-    from modules.api_surface import mark_of
-    from modules.scope_session import ScopeSession
-    from rest import routes as rest_routes
+    from _lumascope.modules import wire_encoding
+    from _lumascope.modules.api_surface import mark_of
+    from _lumascope.modules.scope_session import ScopeSession
+    from _lumascope.rest import routes as rest_routes
 
     handed_out = wire_encoding.handed_out(
         ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()

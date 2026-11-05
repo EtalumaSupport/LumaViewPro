@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from modules.lumascope_api.camera import CameraAPI
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.sequential_io_executor import IOTask
 
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run

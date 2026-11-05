@@ -15,7 +15,7 @@ import ast
 import json
 import shutil
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, iter_package_modules
 from tests.settings_fixtures import complete_settings
 

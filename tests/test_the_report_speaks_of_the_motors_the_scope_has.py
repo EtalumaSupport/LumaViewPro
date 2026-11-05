@@ -15,8 +15,8 @@ this model -- and homes and reports only the axes the scope has.
 
 import pytest
 
-from modules.scope_session import ScopeSession
-from modules.tech_support_report import TechSupportReport
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.tech_support_report import TechSupportReport
 from tests.settings_fixtures import complete_settings
 
 MOTOR_FILES = (

@@ -15,7 +15,7 @@ import math
 
 import pytest
 
-from drivers.pyloncamera import _accepted_range
+from _lumascope.drivers.pyloncamera import _accepted_range
 
 
 class _Node:

@@ -27,12 +27,12 @@ import time
 import pandas as pd
 import pytest
 
-import modules.protocol_image_writer as protocol_image_writer
-from modules.image_utils import read_file_record
-from modules.run_events import RunEvents
-from modules.protocol import Protocol
-from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.recording_frames import FrameFact
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+from _lumascope.modules.recording_frames import FrameFact
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_manual_capture_member import (

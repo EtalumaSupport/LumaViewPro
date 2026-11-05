@@ -70,7 +70,7 @@
 
   "6 well microplate": {
     "standard" : "",
-    "diameter" : -1,
+    "diameter" : 35,
     "columns" : 3,
     "rows" : 2,
     "dimensions" : {
@@ -89,7 +89,7 @@
   },
   "12 well microplate": {
     "standard" : "",
-    "diameter" : -1,
+    "diameter" : 22,
     "columns" : 4,
     "rows" : 3,
     "dimensions" : {
@@ -108,7 +108,7 @@
   },
   "24 well microplate": {
     "standard" : "",
-    "diameter" : -1,
+    "diameter" : 16,
     "columns" : 6,
     "rows" : 4,
     "dimensions" : {
@@ -127,7 +127,7 @@
   },
   "48 well microplate": {
     "standard" : "",
-    "diameter" : -1,
+    "diameter" : 11,
     "columns" : 8,
     "rows" : 6,
     "dimensions" : {
@@ -146,7 +146,7 @@
   },
   "96 well microplate": {
     "standard" : "ANSI SLAS 2004",
-    "diameter" : -1,
+    "diameter" : 7,
     "columns" : 12,
     "rows" : 8,
     "dimensions" : {
@@ -165,7 +165,7 @@
   },
   "384 well microplate": {
     "standard" : "ANSI SLAS 2004",
-    "diameter" : -1,
+    "diameter" : 3.5,
     "columns" : 24,
     "rows" : 16,
     "dimensions" : {
@@ -184,7 +184,7 @@
   },
   "1536 well microplate": {
     "standard" : "ANSI SLAS 2004",
-    "diameter" : -1,
+    "diameter" : 1.5,
     "columns" : 48,
     "rows" : 32,
     "dimensions" : {

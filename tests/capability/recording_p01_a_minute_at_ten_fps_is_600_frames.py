@@ -105,8 +105,8 @@ def _manual(session, layer, live):
 
 
 def _video_step(session, runner, layer, live):
-    import modules.common_utils as common_utils
-    from modules.acquire_mode import AcquireMode
+    import _lumascope.modules.common_utils as common_utils
+    from _lumascope.modules.acquire_mode import AcquireMode
 
     # The run's one step is this layer's video: every other layer the
     # installation acquires is set to nothing, on the session alone.

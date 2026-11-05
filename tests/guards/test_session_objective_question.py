@@ -20,11 +20,15 @@ import time
 
 import pytest
 
-from modules import settings_init
-from modules.exceptions import CatalogueNameRefusedError, ConfigError, PositionOutOfRangeError
-from modules.lumascope_api.motion import AxisState
-from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init
+from _lumascope.modules.exceptions import (
+    CatalogueNameRefusedError,
+    ConfigError,
+    PositionOutOfRangeError,
+)
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
     Words,
@@ -160,7 +164,7 @@ class TestT8ObjectiveQuestion:
 
     def test_an_owed_question_with_the_slot_unknown_says_home_the_scope(self, sessions):
         # Bring-up alone leaves the slot unknown: there is no slot to ask about.
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         session = sessions(**_turret_settings())
         with pytest.raises(ObjectiveUnknownError) as excinfo:
@@ -173,7 +177,7 @@ class TestT8ObjectiveQuestion:
         # confirmed install with every slot assigned that is not a question:
         # asking would put the popup up while the turret is still turning,
         # on every queued move. The objective is unknown meanwhile, and says so.
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         session = _at_slot(
             sessions(
@@ -459,7 +463,7 @@ class TestT10SelectObjective:
     def test_a_pick_before_the_turret_is_homed_is_refused_by_the_move(self, sessions):
         # Bring-up alone leaves the turret unhomed: the move refuses, and no
         # slot is written.
-        from modules.exceptions import AxisStateUnknownError
+        from _lumascope.modules.exceptions import AxisStateUnknownError
 
         session = sessions(
             **_turret_settings(
@@ -546,7 +550,7 @@ class TestT14OpticsRecord:
     def test_an_objective_change_records_the_optics_without_asking_the_camera(self, caplog):
         # The record made a fresh camera read inside a swallow on each
         # objective change; it reads the binning the camera last reported.
-        from drivers.exceptions import CameraReadFailedError
+        from _lumascope.drivers.exceptions import CameraReadFailedError
 
         session = ScopeSession.create(
             complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
@@ -624,25 +628,31 @@ _OBJECTIVE_FACTS = Words(
 # Each writer is the one home of its fact for every host; a write anywhere
 # else is a second store the API cannot see.
 _ALLOWED_WRITERS = {
-    ('modules/scope_session.py', 'ScopeSession.select_objective'),
-    ('modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
-    ('modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
-    ('modules/scope_session.py', 'ScopeSession.confirm_objective'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_objective'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.confirm_objective'),
     # Bring-up's replacement of a stored id the catalogue lacks, before the
     # scope is initialized: there is no runtime state yet to write beside
     # the store, and initialize reads the stored id.
-    ('modules/scope_session.py', 'ScopeSession._replace_an_unknown_stored_objective'),
+    (
+        'src/_lumascope/modules/scope_session.py',
+        'ScopeSession._replace_an_unknown_stored_objective',
+    ),
     # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
-    ('modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
-    ('modules/scope_session.py', 'ScopeSession.get_settings_snapshot'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.get_settings_snapshot'),
     # A confirmation stored before it recorded its light path, dated at
     # bring-up, the one place the light path is known.
-    ('modules/scope_session.py', 'ScopeSession._date_an_undated_objective_confirmation'),
+    (
+        'src/_lumascope/modules/scope_session.py',
+        'ScopeSession._date_an_undated_objective_confirmation',
+    ),
     # A stored unconfirmed flag from before the light path was recorded,
     # folded to the unconfirmed value at load.
-    ('modules/settings_init.py', 'normalize_loaded_settings'),
-    ('modules/settings_init.py', '_normalize_turret_slot_keys'),
+    ('src/_lumascope/modules/settings_init.py', 'normalize_loaded_settings'),
+    ('src/_lumascope/modules/settings_init.py', '_normalize_turret_slot_keys'),
 }
 
 

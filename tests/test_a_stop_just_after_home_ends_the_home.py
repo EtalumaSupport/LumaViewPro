@@ -23,9 +23,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, HomingStoppedError
-from modules.notification_center import OutcomeKind, outcome_of
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, HomingStoppedError
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import (
     bind_settings_like_a_session,
     build_scope,

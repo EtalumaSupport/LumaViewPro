@@ -16,9 +16,13 @@ LED outside the extinguish machinery.
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
-from modules.layer_record import UNRESOLVED
-from modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from _lumascope.modules.layer_record import UNRESOLVED
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from tests.scope_fakes import build_scope, channel_reading, led_reading
 from tests.stock_channels import LED1
 

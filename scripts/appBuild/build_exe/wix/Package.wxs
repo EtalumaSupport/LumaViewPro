@@ -104,15 +104,15 @@
 	  </Component>
 
 	  <!--
-	    The FX2 WinUSB driver package for the Lumascope Classic (LS560/LS620/
-	    LS720), installed to drivers\fx2\, in a signed build only: build.ps1
+	    The FX2 WinUSB driver package for the Lumascope Classic (LS460/LS560/
+	    LS620/LS720), installed to drivers\fx2\, in a signed build only: build.ps1
 	    defines Fx2InfPath (the INF it stamped, fx2_driver_package.py) and
 	    Fx2CatPath (its signed catalog) only when a signing certificate is
 	    configured, since Windows accepts a driver package only with a signed
 	    catalog.
 
 	    The installer does not bind it. LumaViewPro's Repair runs the driver
-	    step (lvp_fx2_driver_step.exe, modules/fx2_driver_step.py) on the
+	    step (lvp_fx2_driver_step.exe, src/_lumascope/modules/fx2_driver_step.py) on the
 	    person's desktop, where Windows asks whether to install software from
 	    Etaluma; an installer action runs as SYSTEM with no desktop to ask on.
 	    Uninstall runs the step deferred and as SYSTEM, which removing a

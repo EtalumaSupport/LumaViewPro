@@ -17,8 +17,8 @@ one reporter and carry on at the value the camera holds.
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
-from modules.notification_center import Severity
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.notification_center import Severity
 
 
 def _rejected(setting='gain_db', requested=7.0):
@@ -34,7 +34,7 @@ def _posted(centre_posts):
 def reported(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        'modules.notification_center.notifications.report_outcome',
+        '_lumascope.modules.notification_center.notifications.report_outcome',
         lambda exc, **kw: calls.append((exc, kw)),
     )
     return calls
@@ -106,8 +106,8 @@ class TestTheLayerApply:
 
 class TestTheRunReportsAndCarriesOn:
     def test_the_autofocus_sweep_reports_a_refused_target_once(self, sim_scope, reported):
-        from modules.autofocus_runner import AutofocusRunner
-        from modules.lumascope_api.camera import AutoGainLock
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
         held_gain = sim_scope.camera.gain_db
         sim_scope.simulation.refuse_camera_write('gain', 'false')

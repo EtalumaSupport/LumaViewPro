@@ -22,13 +22,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     ArgumentTypeRefusedError,
     HardwareCommandRefusedError,
 )
-from modules.lumascope_api.camera import AutoGainConvergence, CameraAutoMode
-from modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, CameraAutoMode
+from _lumascope.modules.scope_session import ScopeSession
 from tests.stock_channels import LED0, LED1
 
 # The values a layer is left at, so a store the member made is told apart.
@@ -236,7 +236,7 @@ def client(tmp_path):
     """A REST client over a simulated LS850, homed, showing BF."""
     from fastapi.testclient import TestClient
 
-    from rest.app import build_app
+    from _lumascope.rest.app import build_app
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 

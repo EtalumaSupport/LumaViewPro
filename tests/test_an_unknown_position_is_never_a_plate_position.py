@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
+from _lumascope.modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

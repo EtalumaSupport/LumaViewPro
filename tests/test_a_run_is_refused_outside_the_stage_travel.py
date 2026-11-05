@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api.bring_up import Part
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol import ProtocolFormatError
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol import ProtocolFormatError
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
     NOT_CARRIED,

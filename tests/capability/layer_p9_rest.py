@@ -32,7 +32,7 @@ try:
     show('acquire', lc['acquire'])
     show('video duration', lc['video_config']['duration'])
     show('stim params', lc['stim_config'])
-    from modules import config_helpers
+    from _lumascope.modules import config_helpers
 
     show(
         'composite blend thresholds', config_helpers.get_composite_blend_thresholds(s.settings)[lay]

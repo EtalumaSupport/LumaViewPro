@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 
-from modules.app_environment import (
+from _lumascope.modules.app_environment import (
     C_RUNTIME_DLL_FAMILIES,
     crt_dll_pattern,
 )
@@ -91,7 +91,7 @@ class TestLoadedModuleCensusPattern:
     reports in one bundle cannot disagree about what counts."""
 
     def test_shares_the_runtime_families(self):
-        from modules import app_environment
+        from _lumascope.modules import app_environment
 
         interesting = re.compile(
             '|'.join(app_environment._CAMERA_STACK_FAMILIES + C_RUNTIME_DLL_FAMILIES),
@@ -104,7 +104,7 @@ class TestLoadedModuleCensusPattern:
             )
 
     def test_camera_stack_still_covered(self):
-        from modules import app_environment
+        from _lumascope.modules import app_environment
 
         interesting = re.compile(
             '|'.join(app_environment._CAMERA_STACK_FAMILIES + C_RUNTIME_DLL_FAMILIES),

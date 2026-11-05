@@ -18,7 +18,7 @@ from unittest.mock import PropertyMock
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_pylon_camera
 
 _GETTERS = (('get_auto_gain_mode', 'GainAuto'), ('get_auto_exposure_mode', 'ExposureAuto'))

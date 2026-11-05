@@ -3,7 +3,7 @@
 
 Two send paths bypassed the logged serial wrapper and went dark:
   - raw_repl.py (firmware flash / bootloader / config backup) used a bare
-    `getLogger(__name__)` ('drivers.raw_repl'), outside the LVP tree, so it
+    `getLogger(__name__)` ('_lumascope.drivers.raw_repl'), outside the LVP tree, so it
     had no handler -- a board-bricking-capable transport logging into the
     void.
   - the LED STIM capability probe scans multiple reply lines and so cannot
@@ -18,7 +18,7 @@ import pytest
 def test_raw_repl_logger_under_lvp_tree():
     """raw_repl's module logger must parent under 'LVP.' so its records
     propagate to the main + error handlers (bare __name__ has none)."""
-    import drivers.raw_repl as raw_repl
+    import _lumascope.drivers.raw_repl as raw_repl
 
     assert raw_repl.logger.name.startswith('LVP.'), (
         f'raw_repl logger is {raw_repl.logger.name!r}; it must be under the '
@@ -62,7 +62,7 @@ def test_the_lines_drained_after_a_reply_reach_the_serial_log(caplog):
     import threading
     from unittest.mock import MagicMock, PropertyMock
 
-    from drivers.motorboard import MotorBoard
+    from _lumascope.drivers.motorboard import MotorBoard
 
     rest = b'  File "main.py", line 512, in home\r\nOSError: [Errno 5] EIO\r\n'
     # No simulated board answers with a firmware traceback (the sim port's

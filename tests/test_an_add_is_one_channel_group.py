@@ -21,16 +21,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-import modules.config_helpers as config_helpers
-from modules import image_utils
-from modules.composite_generation import CompositeGeneration
-from modules.exceptions import PostProcessingFailedError, ProtocolRunRefusedError
-from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.stack_builder import StackBuilder
-from modules.stitcher import Stitcher
-from modules.video_builder import VideoBuilder
-from modules.zprojector import ZProjector
+from _lumascope.modules import post_derivation
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules import image_utils
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.exceptions import PostProcessingFailedError, ProtocolRunRefusedError
+from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.video_builder import VideoBuilder
+from _lumascope.modules.zprojector import ZProjector
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pytest fixture
     session,
@@ -38,9 +38,9 @@ from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pyt
 )
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
 

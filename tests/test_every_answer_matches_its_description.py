@@ -25,10 +25,10 @@ import jsonschema
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import wire_encoding
-from modules.scope_session import ScopeSession
-from rest import routes as rest_routes
-from rest.app import build_app
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest import routes as rest_routes
+from _lumascope.rest.app import build_app
 from tests.installation_fixtures import SHIPPED_DATA
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -137,7 +137,7 @@ def _check_every_answer(session, model: str, mismatched: list[str]) -> int:
             method = 'get' if get else 'post'
             check(response.json(), _answer(described, path, method), path)
 
-        from modules.protocol import Protocol
+        from _lumascope.modules.protocol import Protocol
 
         protocol = client.post('/api/v1/create_empty_protocol', json={}).json()['handle']
         for route in rest_routes.routes(Protocol, handed_out=handed_out):
@@ -153,7 +153,7 @@ def _check_every_answer(session, model: str, mismatched: list[str]) -> int:
 
 @pytest.mark.slow
 def test_every_event_of_a_home_and_a_run_matches_its_component(session):
-    from rest import events as event_stream
+    from _lumascope.rest import events as event_stream
 
     app = build_app(session)
     described = app.openapi()

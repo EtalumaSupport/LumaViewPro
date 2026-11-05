@@ -26,7 +26,7 @@ def _read(rel: str) -> str:
 
 
 def test_preload_exists_and_stages_are_ipl_first():
-    source = _read('modules/app_environment.py')
+    source = _read('src/_lumascope/modules/app_environment.py')
     tree = ast.parse(source)
     preload = next(
         (
@@ -59,7 +59,7 @@ def test_startup_preloads_before_any_heavy_import():
 
 
 def test_ids_driver_imports_ipl_package_first():
-    source = _read('drivers/idscamera.py')
+    source = _read('src/_lumascope/drivers/idscamera.py')
     bare_ipl = re.search(r'^import ids_peak_ipl$', source, re.MULTILINE)
     core = re.search(r'^from ids_peak import ids_peak$', source, re.MULTILINE)
     assert bare_ipl is not None and core is not None

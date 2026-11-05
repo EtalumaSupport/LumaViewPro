@@ -15,11 +15,11 @@ import shutil
 
 import pytest
 
-import modules.common_utils as common_utils
-import modules.settings_init as settings_init
-from modules.exceptions import InstallationFileError
-from modules.layer_record import release_old_names
-from modules.zstack_config import ZStackReference
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.settings_init as settings_init
+from _lumascope.modules.exceptions import InstallationFileError
+from _lumascope.modules.layer_record import release_old_names
+from _lumascope.modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
 from tests.locale_fixtures import a_latin1_locale
 from tests.stock_channels import LED1, STOCK_FLUORESCENCE
@@ -134,7 +134,7 @@ def test_a_stored_zstack_label_loads_as_its_reference_with_nothing_replaced(
 
 
 def test_a_handed_zstack_label_is_read_as_its_reference(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -151,7 +151,7 @@ def test_a_handed_zstack_label_is_read_as_its_reference(tmp_path):
 
 @pytest.mark.slow
 def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     data_dir = _data_dir(tmp_path)
     _legacy_current(data_dir)
@@ -271,6 +271,28 @@ def test_a_stored_object_sampler_interval_is_dropped():
     assert 'handle_trace_obj_sample_every' not in stored['profiling']
 
 
+def test_a_stored_tracemalloc_switch_is_dropped():
+    # The second tracemalloc profiler was retired; a file that still carries
+    # its switch loads without it.
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
+        stored = json.load(f)
+    stored['tracemalloc_enabled'] = True
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'tracemalloc_enabled' not in stored
+
+
+def test_a_stored_deep_view_switch_is_dropped():
+    # The third tracemalloc profiler, the deep view, was retired; a file that
+    # still carries its switch loads without it.
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
+        stored = json.load(f)
+    stored['profiling']['enabled'] = True
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'enabled' not in stored['profiling']
+
+
 def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     # Eight shipped keys had no reader; a file that still carries them loads
     # without them, and the autofocus and stage blocks they filled go whole.
@@ -320,7 +342,7 @@ def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
 
 def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
     """A dict a script hands in is prepared as the file is; the session saves what it holds."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     settings = complete_settings(live_folder=str(tmp_path))

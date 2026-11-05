@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Unit tests for ``drivers/fx2driver.py`` -- Lumascope Classic FX2 port.
+"""Unit tests for ``src/_lumascope/drivers/fx2driver.py`` -- Lumascope Classic FX2 port.
 
 No hardware required. All USB access is mocked via ``_FX2Connection.get``
 being monkeypatched to return a ``MagicMock``. Tests cover:
@@ -14,7 +14,7 @@ being monkeypatched to return a ``MagicMock``. Tests cover:
 - LEDBoardProtocol duck-type conformance
 - **Thin-translator regression**: FX2LEDController must return sentinels
   from state queries even after ``led_on``, proving no client-side state
-- ``CameraProfile`` lookup for MT9P031 / LS620 / LS560 / LS720
+- ``CameraProfile`` lookup for MT9P031 / LS620 / LS560 / LS460 / LS720
 - ``scopes.json`` shape for the two Classic models added in Stage 3
 
 The test file mocks heavy dependencies (kivy, lvp_logger, pyusb, libusb1)
@@ -38,11 +38,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import CameraWriteFailedError
-from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
-from drivers.protocols import LEDBoardProtocol
-from drivers.camera_profiles import lookup_profile
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.drivers.registry import (
+    DeclinedDriver,
+    DriverRegistry,
+    NoLiveDriverError,
+    camera_registry,
+    led_registry,
+)
+from _lumascope.drivers.protocols import LEDBoardProtocol
+from _lumascope.drivers.camera_profiles import lookup_profile
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -147,7 +153,7 @@ class TestRegistryGatedOnPrereqs:
         assert registry.registered_names() == []
         with pytest.raises(NoLiveDriverError) as caught:
             registry.create('auto')
-        assert caught.value.fallback.declined == ('fx2: pyusb is not installed',)
+        assert caught.value.fallback.declined == (DeclinedDriver('fx2', 'pyusb is not installed'),)
 
 
 # ---------------------------------------------------------------------------
@@ -296,8 +302,6 @@ class TestIntelHexParser:
 
     def test_parses_real_firmware(self):
         hex_path = REPO_ROOT / 'firmware' / 'LumascopeClassic.hex'
-        if not hex_path.exists():
-            pytest.skip(f'firmware hex not present at {hex_path}')
         data, end_addr = fx2driver.parse_intel_hex(str(hex_path))
         assert len(data) == 0x4000  # 16 KB 8051 program space
         assert end_addr > 0  # something was parsed
@@ -306,8 +310,6 @@ class TestIntelHexParser:
 
     def test_parses_fallback_firmware(self):
         hex_path = REPO_ROOT / 'firmware' / 'Lumascope600.hex'
-        if not hex_path.exists():
-            pytest.skip(f'fallback firmware hex not present at {hex_path}')
         _, end_addr = fx2driver.parse_intel_hex(str(hex_path))
         assert end_addr > 0
 
@@ -324,7 +326,7 @@ class TestFX2CameraABCConformance:
         assert fx2driver.FX2Camera.__abstractmethods__ == frozenset()
 
     def test_inherits_from_camera(self):
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         assert issubclass(fx2driver.FX2Camera, Camera)
 
@@ -757,7 +759,7 @@ class TestFX2ConnectionSingleton:
 # a safety check silently disabling itself.
 #
 # These drive the seam the consumers use rather than the ctypes wrapper:
-# `drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
+# `src/_lumascope/drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
 # cannot be imported off-Windows at all. `control_transfer_out` reaches the
 # WinUSB transport, which routes through its streaming reader's plain `device`
 # attribute, so a stub reader substitutes for it on any platform.
@@ -810,7 +812,7 @@ def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(libra
     """Every vendor write funnels through one place, and a timeout from any of
     the three libraries is the writer not answering: the camera's for a
     sensor write, the LED board's for an LED write."""
-    from drivers.exceptions import BoardNoReplyError, CameraNoAnswerError
+    from _lumascope.drivers.exceptions import BoardNoReplyError, CameraNoAnswerError
 
     error = _usb_timeouts()[library]
 
@@ -890,17 +892,17 @@ def _usb_timeouts():
     return {
         'pyusb': fx2driver.usb.core.USBTimeoutError('[Errno 60] Operation timed out'),
         'libusb1': fx2driver.usb1.USBErrorTimeout('LIBUSB_ERROR_TIMEOUT [-7]'),
-        # WinUSB's ERROR_SEM_TIMEOUT, as drivers/winusb_iso.py raises it.
+        # WinUSB's ERROR_SEM_TIMEOUT, as src/_lumascope/drivers/winusb_iso.py raises it.
         'WinUSB': TimeoutError('ControlTransfer OUT (request=0xB3) timed out: 121'),
     }
 
 
 @pytest.fixture
 def simulated_fx2_camera():
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
-    cam = fx2driver.FX2Camera(connection=sim.connection)
+    cam = fx2driver.FX2Camera(connection=sim.connect())
     yield sim, cam
     cam.disconnect()
 
@@ -916,7 +918,7 @@ def _every_transfer_times_out(monkeypatch, sim, error, reached):
 def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
     simulated_fx2_camera, monkeypatch
 ):
-    from drivers.exceptions import CameraNoAnswerError
+    from _lumascope.drivers.exceptions import CameraNoAnswerError
 
     sim, cam = simulated_fx2_camera
     # The twelve setting writers the API reaches, with a value each accepts.
@@ -968,7 +970,7 @@ def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
 def test_a_gain_write_the_fx2_does_not_answer_leaves_the_gain_it_had(
     simulated_fx2_camera, monkeypatch
 ):
-    from drivers.exceptions import CameraNoAnswerError
+    from _lumascope.drivers.exceptions import CameraNoAnswerError
 
     sim, cam = simulated_fx2_camera
     before = cam.gain(6.0)
@@ -985,7 +987,7 @@ def test_a_frame_size_the_fx2_does_not_answer_stores_frames_as_they_arrive(
 ):
     """Whether the window was applied is not known: the size reported is the
     one the camera last took, and no crop to the new one is promised."""
-    from drivers.exceptions import CameraNoAnswerError
+    from _lumascope.drivers.exceptions import CameraNoAnswerError
 
     sim, cam = simulated_fx2_camera
     cam.set_frame_size(1000, 996)

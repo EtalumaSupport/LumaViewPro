@@ -5,7 +5,7 @@ The protocol panel's Run and Scan start through these two members, the same
 calls a script makes. The engineering mode is the session's, read at the
 start, so a plugin that flipped it after the session was built is obeyed.
 Who started the run is not the member's to say: ``prepare`` reads it from
-the host's stamp on the calling thread (``modules.caller``).
+the host's stamp on the calling thread (``_lumascope.modules.caller``).
 """
 
 import logging

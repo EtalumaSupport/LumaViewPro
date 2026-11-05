@@ -17,11 +17,12 @@ import ast
 from tests.ast_seams import MemberNames, iter_package_modules
 
 _XY_MOVES = MemberNames(
-    'modules/lumascope_api/motion.py',
+    'src/_lumascope/modules/lumascope_api/motion.py',
     {'move_xy', 'move_xy_by', 'start_move_xy', 'start_move_xy_by'},
 )
 _Z_MOVES = MemberNames(
-    'modules/lumascope_api/motion.py', {'move_z', 'move_z_by', 'start_move_z', 'start_move_z_by'}
+    'src/_lumascope/modules/lumascope_api/motion.py',
+    {'move_z', 'move_z_by', 'start_move_z', 'start_move_z_by'},
 )
 
 

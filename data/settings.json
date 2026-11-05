@@ -143,7 +143,7 @@
     },
     "logging": {
         "default": {
-            "level": "INFO"
+            "level": "VERBOSE"
         },
         "autofocus": false
     },
@@ -153,13 +153,11 @@
     "focus_score_enabled": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,
-    "tracemalloc_enabled": false,
     "memory_profile_enabled": false,
     "memory_profile_interval_s": 5.0,
     "preview_host_downscale": false,
     "fx2_debug_wire_enabled": false,
     "profiling": {
-        "enabled": false,
         "handle_trace_enabled": false,
         "open_files_enabled": false,
         "metrics_interval_s": null

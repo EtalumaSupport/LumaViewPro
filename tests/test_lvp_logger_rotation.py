@@ -31,11 +31,11 @@ def test_a_log_under_a_folder_named_with_log_keeps_its_backups_and_its_newest_re
     log_dir = tmp_path / 'j.logan' / 'logs' / 'LVP_Log'
     log_dir.mkdir(parents=True)
     code = (
-        'import json, logging, pathlib, lvp_logger\n'
+        'import json, logging, pathlib, _lumascope.lvp_logger\n'
         'from logging.handlers import RotatingFileHandler\n'
         f'log_dir = pathlib.Path({str(log_dir)!r})\n'
         "handler = RotatingFileHandler(log_dir / 'lumaviewpro.log', maxBytes=2000, backupCount=5)\n"
-        'handler.namer = lvp_logger.file_handler.namer\n'
+        'handler.namer = _lumascope.lvp_logger.file_handler.namer\n'
         "log = logging.getLogger('rotation_probe')\n"
         'log.propagate = False\n'
         'log.addHandler(handler)\n'
@@ -54,10 +54,10 @@ def test_a_log_under_a_folder_named_with_log_keeps_its_backups_and_its_newest_re
 
 def test_every_shipped_log_names_its_backups_by_the_one_namer():
     code = (
-        'import json, lvp_logger\n'
+        'import json, _lumascope.lvp_logger\n'
         'from logging.handlers import RotatingFileHandler\n'
-        'handlers = [v for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
-        "namer = getattr(lvp_logger, 'rotated_log_name', None)\n"
+        'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
+        "namer = getattr(_lumascope.lvp_logger, 'rotated_log_name', None)\n"
         'print(json.dumps([len(handlers), all(h.namer is namer for h in handlers)]))\n'
     )
 
@@ -79,18 +79,23 @@ def _run_with_data_root(data_root: pathlib.Path, code: str):
     (data_root / 'data').mkdir(exist_ok=True)
     shutil.copy(REPO / 'data' / 'settings.json', data_root / 'data' / 'settings.json')
     exe = data_root / 'LumaViewPro.exe'
-    prefix = f'import sys\nsys.frozen = True\nsys.executable = {str(exe)!r}\n'
+    # A frozen process has the bundle's folder beside sys.frozen; this
+    # checkout's holds the build's files.
+    prefix = (
+        f'import sys\nsys.frozen = True\nsys._MEIPASS = {str(REPO)!r}\n'
+        f'sys.executable = {str(exe)!r}\n'
+    )
     return _run(prefix + code)
 
 
 def test_every_log_rotates_at_its_row_of_the_one_cap_table(tmp_path):
     code = (
-        'import json, os, lvp_logger\n'
+        'import json, os, _lumascope.lvp_logger\n'
         'from logging.handlers import RotatingFileHandler\n'
-        'handlers = [v for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
+        'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         'print(json.dumps([\n'
         '    {os.path.basename(h.baseFilename): [h.maxBytes, h.backupCount] for h in handlers},\n'
-        '    {name: list(cap) for name, cap in lvp_logger.LOG_CAPS.items()},\n'
+        '    {name: list(cap) for name, cap in _lumascope.lvp_logger.LOG_CAPS.items()},\n'
         ']))\n'
     )
 
@@ -104,12 +109,12 @@ def test_every_log_is_written_as_utf8_whatever_the_platform(tmp_path):
     Windows machine, so a log from the field would read differently from one
     written here."""
     code = (
-        'import json, os, lvp_logger\n'
+        'import json, os, _lumascope.lvp_logger\n'
         'from logging.handlers import RotatingFileHandler\n'
-        'handlers = [v for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
+        'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         'print(json.dumps([\n'
         '    {os.path.basename(h.baseFilename): h.encoding for h in handlers},\n'
-        '    list(lvp_logger.LOG_CAPS),\n'
+        '    list(_lumascope.lvp_logger.LOG_CAPS),\n'
         ']))\n'
     )
 
@@ -120,9 +125,9 @@ def test_every_log_is_written_as_utf8_whatever_the_platform(tmp_path):
 
 def test_every_log_at_its_cap_fits_the_bundle_budget(tmp_path):
     code = (
-        'import json, lvp_logger\n'
-        'whole = sum(size * (1 + backups) for size, backups in lvp_logger.LOG_CAPS.values())\n'
-        'print(json.dumps([whole, lvp_logger.LOG_BUDGET_BYTES]))\n'
+        'import json, _lumascope.lvp_logger\n'
+        'whole = sum(size * (1 + backups) for size, backups in _lumascope.lvp_logger.LOG_CAPS.values())\n'
+        'print(json.dumps([whole, _lumascope.lvp_logger.LOG_BUDGET_BYTES]))\n'
     )
 
     whole, budget = _run_with_data_root(tmp_path, code)
@@ -137,11 +142,11 @@ def test_a_backup_past_its_logs_count_is_removed_when_the_logger_loads(tmp_path)
     for name in [*planted, 'notes.9.log', 'lumaviewpro.old.log']:
         (log_dir / name).write_text('x')
     code = (
-        'import json, os, lvp_logger\n'
+        'import json, os, _lumascope.lvp_logger\n'
         'from logging.handlers import RotatingFileHandler\n'
         'counts = {\n'
         '    os.path.basename(v.baseFilename): v.backupCount\n'
-        '    for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)\n'
+        '    for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)\n'
         '}\n'
         "print(json.dumps([counts['lumaviewpro.log'], counts['autofocus.log']]))\n"
     )

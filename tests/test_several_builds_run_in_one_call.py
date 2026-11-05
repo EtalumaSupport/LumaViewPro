@@ -21,14 +21,14 @@ import pathlib
 import numpy as np
 import pytest
 
-from modules import image_utils
-from modules.exceptions import (
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
-from modules.layer_record import release_color
-from modules.post_processing_api import Stitch, Video, ZProject
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.post_processing_api import Stitch, Video, ZProject
 from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- fixtures
     run_folder,
     session,

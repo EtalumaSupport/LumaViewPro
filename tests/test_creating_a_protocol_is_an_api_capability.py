@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol import Protocol
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol import Protocol
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
 

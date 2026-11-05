@@ -28,12 +28,12 @@ from tests.ast_seams import (
 )
 from tests.scope_fakes import build_scope
 
-_LUMASCOPE_SRC = 'modules/lumascope_api/_lumascope.py'
-_PROTOCOLS_SRC = 'modules/lumascope_api/protocols.py'
+_LUMASCOPE_SRC = 'src/_lumascope/modules/lumascope_api/_lumascope.py'
+_PROTOCOLS_SRC = 'src/_lumascope/modules/lumascope_api/protocols.py'
 
 # Every sub-API both constructor paths must wire.
 _SUB_APIS = MemberNames(
-    'modules/lumascope_api/_lumascope.py',
+    'src/_lumascope/modules/lumascope_api/_lumascope.py',
     {
         'motion',
         'illumination',
@@ -87,7 +87,7 @@ def _legacy_call_sites():
     `<widget>.load_protocol` -- ProtocolSettings has a same-named UI
     method that is not this API.
     """
-    sources = list(iter_package_modules(('modules', 'ui')))
+    sources = list(iter_package_modules(('src/_lumascope/modules', 'ui')))
     sources.append(('lumaviewpro.py', parse_module('lumaviewpro.py')))
 
     for rel_path, tree in sources:

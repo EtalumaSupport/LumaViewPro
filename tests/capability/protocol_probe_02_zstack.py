@@ -20,10 +20,10 @@ session, live = make_session('zstack', home=True, zstack=dict(ZS))
 try:
     import pathlib as _pl
 
-    import modules.config_helpers as config_helpers
-    from modules.protocol_runner import ProtocolRunner
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
-    from modules.zstack_config import ZStackConfig
+    import _lumascope.modules.config_helpers as config_helpers
+    from _lumascope.modules.protocol_runner import ProtocolRunner
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from _lumascope.modules.zstack_config import ZStackConfig
 
     runner = ProtocolRunner(session)
     settings = session.settings

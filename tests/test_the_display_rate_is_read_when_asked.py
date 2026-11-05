@@ -49,7 +49,7 @@ _real_base_module('kivy.uix.image', Image=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import ui.scope_display as scope_display_module
-from modules import app_context
+from _lumascope.modules import app_context
 from ui.scope_display import ScopeDisplay
 
 

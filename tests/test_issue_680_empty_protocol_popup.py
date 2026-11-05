@@ -60,9 +60,9 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     every layer is disabled yields an empty (0-step) Protocol -- the
     precondition the #680 UI guard catches. A layer set to 'image' still
     produces steps."""
-    from modules.labware_loader import WellPlateLoader
-    from modules.objectives_loader import ObjectiveLoader
-    from modules.protocol import Protocol
+    from _lumascope.modules.labware_loader import WellPlateLoader
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.protocol import Protocol
 
     all_disabled = Protocol.from_config(
         input_config=_from_config_input({'BF': 'none', LED0: 'none'}),

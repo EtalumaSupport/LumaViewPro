@@ -21,11 +21,11 @@ import threading
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
-from modules.exceptions import MoveNotCompletedError
-from modules.lumascope_api.motion import AxisState
-from modules.notification_center import Severity, notifications
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.modules.exceptions import MoveNotCompletedError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

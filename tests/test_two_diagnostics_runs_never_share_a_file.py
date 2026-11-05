@@ -16,12 +16,12 @@ import types
 
 import pytest
 
-import modules.lumascope_api.diagnostics as diag
-from modules import wall_time
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api.camera import CameraAPI
-from modules.lumascope_api.diagnostics import DiagnosticsAPI
-from modules.lumascope_api.runtime_state import RuntimeState
+import _lumascope.modules.lumascope_api.diagnostics as diag
+from _lumascope.modules import wall_time
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
+from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
 from tests.scope_fakes import build_scope, give_stub_lanes
 
 # One instant for every run: the benchmark names its file in local time, the

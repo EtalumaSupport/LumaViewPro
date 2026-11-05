@@ -10,9 +10,9 @@ gives way to the poll only where no target was reached.
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError, PositionOutOfRangeError
-from modules.lumascope_api.motion import AxisState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import MoveNotCompletedError, PositionOutOfRangeError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.motion_moves import axis_move

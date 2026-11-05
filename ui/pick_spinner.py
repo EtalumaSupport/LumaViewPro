@@ -4,7 +4,7 @@
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.spinner import Spinner
 
-from modules import gui_logger
+from _lumascope.modules import gui_logger
 
 
 class PickSpinner(Spinner):

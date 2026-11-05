@@ -20,6 +20,7 @@ import pathlib
 import subprocess
 import sys
 
+import cv2
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -196,6 +197,12 @@ Builder.load_string('''
         size: 100, 40
         pos: 500, 300
     Button:
+        id: twobtn
+        text: 'two'
+        size_hint: None, None
+        size: 100, 40
+        pos: 260, 200
+    Button:
         id: spinpopbtn
         text: 'spinpop'
         size_hint: None, None
@@ -207,6 +214,13 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 740, 300
+    Button:
+        id: edgebtn
+        text: 'edge'
+        size_hint: None, None
+        size: 100, 40
+        # Half past the window's right edge, whatever its pixel scale.
+        pos: root.width - 50, 100
     Button:
         id: longbtn
         text: 'long'
@@ -288,6 +302,16 @@ def open_stacked(*_):
     Popup(title='Outer', content=inner, size_hint=(0.6, 0.6), auto_dismiss=False).open()
 ids.stackbtn.bind(on_release=open_stacked)
 
+def open_two_notices(*_):
+    # Two notices, each with its OK, opened together, as a launch with the
+    # camera and the LED board missing opens one for each.
+    for title in ('Camera', 'LED'):
+        ok = Button(text='OK')
+        p = Popup(title=title, content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
+        ok.bind(on_release=lambda *_, p=p, title=title: (hits.append('ok ' + title), p.dismiss()))
+        p.open()
+ids.twobtn.bind(on_release=open_two_notices)
+
 def open_spinner_popup(*_):
     # A spinner inside a popup, as Advanced Settings holds Tiling Overlap: its
     # option list opens on the window, outside the popup.
@@ -299,8 +323,8 @@ ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
 # A gesture that waits on a lane, standing in for a turret pick or a build:
 # a real lane, one sleeping task per press, its end recorded in wall time.
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
 lane.start()
 def busy(seconds):
@@ -350,7 +374,7 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
 # The scope's simulator, standing in. A stand-in by design: the subject is
 # the driver's call of a fault and its stop at a refusal; the faults
 # themselves are tests/test_scope_simulation.py's, on the simulated scope.
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError
 class _Simulation:
     def unplug(self, board):
         if board == 'camera':
@@ -365,6 +389,7 @@ ticks = []
 Clock.schedule_interval(lambda dt: ticks.append(time.time()), 0)
 
 def run(steps, shot_dir, bring_up):
+    (pathlib.Path(shot_dir) / 'logs').mkdir(exist_ok=True)
     hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear(); ticks.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
@@ -383,7 +408,7 @@ def run(steps, shot_dir, bring_up):
         drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
                    bring_up_owes=bring_up_owes, in_flight=in_flight, simulation=_Simulation(),
-                   shot_dir=pathlib.Path(shot_dir))
+                   shot_dir=pathlib.Path(shot_dir), stop_dir=pathlib.Path(shot_dir) / 'logs')
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
@@ -400,7 +425,7 @@ def run(steps, shot_dir, bring_up):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
             'records': list(records), 'walk_lines': list(walk_lines), 'walk_times': dict(walk_times),
-            'reads': walk.reads, 'shots': walk.shots,
+            'reads': walk.reads, 'shots': walk.shots, 'window_size': list(Window.size),
             'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
             'polls': len(polls),
             'longest_tick_gap': max((b - a for a, b in zip(ticks, ticks[1:])), default=0.0)}
@@ -472,7 +497,8 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
     assert result['reads'] == [
         {'step': 13, 'path': 'Panel/field', 'text': '12.5', 'disabled': False}
     ]
-    assert len(result['shots']) == 1 and pathlib.Path(result['shots'][0]).is_file()
+    assert result['shots'] == [str(tmp_path / 'after.png')], result
+    assert (tmp_path / 'after.png').is_file()
 
 
 def test_a_press_inside_a_view_it_is_already_in_scrolls_nothing(tmp_path):
@@ -544,6 +570,33 @@ def test_the_popup_on_top_is_the_one_answered(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+
+
+def test_two_popups_with_the_same_button_are_answered_top_first(tmp_path):
+    """A person can touch only the popup on top, so an answer is that one's,
+    and the next answer is the one under it."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/twobtn'},
+            {'do': 'answer', 'button': 'OK'},
+            {'do': 'answer', 'button': 'OK'},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok LED', 'ok Camera'], result
+
+
+def test_an_answer_the_popup_on_top_lacks_stops_naming_that_popup(tmp_path):
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/stackbtn'},
+            {'do': 'answer', 'button': 'OK', 'timeout_s': 0.5},
+        ],
+    )
+    assert result['outcome'].startswith('stopped at step 2'), result
+    assert "the popup on top ('Outer') has no 'OK' button" in result['outcome'], result
 
 
 def test_a_popup_closing_as_another_opens_is_not_answered(tmp_path):
@@ -673,6 +726,13 @@ def test_the_walk_file_parser_names_each_defect():
             "unknown argument 'extra' for 'remove_camera'",
         ),
         ('[{"do": "inject", "fault": "unplug"}]', "'unplug' needs board"),
+        # A shot replaces what is at its name, so a second of the same file
+        # would silently take the first one's place.
+        (
+            '[{"do": "shot", "name": "a"}, {"do": "shot", "name": "figs/../a"}]',
+            "step 2: shot 'figs/../a' writes the file step 1 writes",
+        ),
+        ('[{"do": "shot", "name": "a", "path": 3}]', 'path is text'),
     ]:
         with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
             parse_walk(text, source='w.json')
@@ -716,9 +776,10 @@ def test_a_walk_ending_in_quit_stops_the_app_when_it_stops_early(tmp_path):
     result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'quit'}])
     assert result['outcome'].startswith('stopped at step 1'), result
     assert (result['stops'], result['closes']) == (1, 0), result
-    assert len(result['shots']) == 1, result
-    shot = pathlib.Path(result['shots'][0])
-    assert shot.name.startswith('stopped_at_step_1_') and shot.is_file(), result
+    # Beside the log that names it, not beside the walk, whose folder may be
+    # the repo's manual.
+    assert result['shots'] == [str(tmp_path / 'logs' / 'stopped_at_step_1.png')], result
+    assert (tmp_path / 'logs' / 'stopped_at_step_1.png').is_file()
 
 
 def test_a_walk_not_ending_in_quit_leaves_the_app_open_when_it_stops(tmp_path):
@@ -844,6 +905,70 @@ def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
     assert result['hits'] == ['ok'], result
     waited = next(t for line, t in result['walk_times'].items() if ' step 3 ' in line)
     assert waited >= result['frames']['notice_gone'], 'the wait ended while the popup faded'
+
+
+def test_a_shot_writes_exactly_its_name_replacing_what_is_there(tmp_path):
+    """A re-run re-takes a manual's figure in place: the name is the file, never a counted copy."""
+    figures = tmp_path / 'figs'
+    figures.mkdir()
+    (figures / 'after.png').write_bytes(b'the figure from an earlier run')
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'figs/after'}])
+
+    assert result['outcome'] == 'done', result
+    assert result['shots'] == [str(figures / 'after.png')], result
+    assert [f.name for f in figures.iterdir()] == ['after.png']
+    width, height = result['window_size']
+    assert cv2.imread(str(figures / 'after.png')).shape == (height, width, 3)
+
+
+def test_a_shot_into_a_folder_that_is_not_there_stops_naming_it(tmp_path):
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'nosuch/after'}])
+
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert f'no folder {tmp_path / "nosuch"}' in result['outcome'], result
+    assert result['shots'] == [], result
+
+
+def test_a_shot_of_a_control_is_the_screen_inside_its_bounds(tmp_path):
+    """The crop is what the window showed there, not a redraw of the control alone."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'read', 'path': 'Panel/btn', 'props': ['x', 'y', 'width', 'height']},
+            {'do': 'shot', 'name': 'window'},
+            {'do': 'shot', 'name': 'btn', 'path': 'Panel/btn'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    bounds = result['reads'][0]
+    # The fragment's Panel fills the window, so the button's coordinates are the window's.
+    left, bottom = round(bounds['x']), round(bounds['y'])
+    right, top = left + round(bounds['width']), bottom + round(bounds['height'])
+    height = result['window_size'][1]
+    window = cv2.imread(str(tmp_path / 'window.png'))
+    crop = cv2.imread(str(tmp_path / 'btn.png'))
+    assert crop.shape == (top - bottom, right - left, 3)
+    assert (crop == window[height - top : height - bottom, left:right]).all()
+
+
+@pytest.mark.parametrize(
+    ('path', 'says'),
+    [
+        ('Drawers/hidden', "inside the collapsed drawer 'two'"),
+        ('Panel/edgebtn', 'not wholly inside the window'),
+        ('Panel/deep', 'not wholly in view in its scroll view'),
+    ],
+)
+def test_a_shot_of_a_control_the_screen_does_not_wholly_show_stops_and_writes_nothing(
+    tmp_path, path, says
+):
+    # parametrize-justified: three refusals, each its own check in the step.
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'part', 'path': path}])
+
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert says in result['outcome'], result
+    assert not (tmp_path / 'part.png').exists()
 
 
 def test_a_picture_waits_for_a_closing_popup_to_leave(tmp_path):

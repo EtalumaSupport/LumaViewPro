@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Contract tests for the video recording engine (modules/video_recording.py).
+Contract tests for the video recording engine (src/_lumascope/modules/video_recording.py).
 
 These are the engine's specification, written against the signatures-only
 skeleton: they run RED until the engine implementation lands, and the
@@ -16,15 +16,15 @@ import threading
 
 import pytest
 
-from drivers import host_clock
+from _lumascope.drivers import host_clock
 from tests.settings_fixtures import complete_settings
 
-from modules.activity_claim import ActivityClaim
-from modules.caller import Caller
-import modules.video_recording as video_recording_module
-from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
-from modules.lumascope_api.frame_record import TimestampSource
-from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.caller import Caller
+import _lumascope.modules.video_recording as video_recording_module
+from _lumascope.modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
+from _lumascope.modules.lumascope_api.frame_record import TimestampSource
+from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
     FakeClock,
     FrameFeed,
@@ -715,7 +715,7 @@ class TestSessionActivityClaim:
 
     @pytest.fixture
     def headless_session(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         settings = {
             'stage_offset': {'x': 0.0, 'y': 0.0},

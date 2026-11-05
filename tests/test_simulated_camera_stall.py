@@ -11,14 +11,15 @@ reaches the camera through the session and the scope's construction.
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera, SimulatedStall
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.simulation import SimulatedScope
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.simulated_camera import SimulatedCamera, SimulatedStall
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
@@ -50,6 +51,31 @@ class TestAStallIsRefusedWhereItCannotHappen:
         assert (refused.value.reason, refused.value.argument) == (
             'needs_simulated_camera',
             'sim_camera_stall',
+        )
+
+    def test_a_scope_simulated_without_its_camera_refuses_a_stall_and_a_focal_spread(self):
+        # Both are the simulated camera's; refused before anything starts.
+        before = set(threading.enumerate())
+        refused = {}
+        for argument, value in (
+            ('sim_camera_stall', SimulatedStall(0.0, 1.0)),
+            ('sim_focal_spread_um', 25.0),
+        ):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                build_scope(simulate=True, sim_camera_present=False, **{argument: value})
+            refused[argument] = (raised.value.reason, raised.value.argument)
+        assert refused == {
+            'sim_camera_stall': ('needs_simulated_camera', 'sim_camera_stall'),
+            'sim_focal_spread_um': ('needs_simulated_camera', 'sim_focal_spread_um'),
+        }
+        assert [t for t in threading.enumerate() if t not in before] == []
+
+    def test_a_real_scope_refuses_a_camera_left_off_the_bus(self):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            build_scope(simulate=False, sim_camera_present=False)
+        assert (refused.value.reason, refused.value.argument) == (
+            'needs_simulated_scope',
+            'sim_camera_present',
         )
 
 

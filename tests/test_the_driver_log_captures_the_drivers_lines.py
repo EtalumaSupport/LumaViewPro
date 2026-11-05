@@ -2,7 +2,7 @@
 """``--driver-log`` writes the drivers' own lines, at DEBUG, to its file.
 
 The IDS and FX2 bench procedures read that file. The drivers take their
-loggers from lib/log_helpers by name, so the capture is on those named
+loggers from src/_lumascope/lib/log_helpers by name, so the capture is on those named
 loggers; a capture on anything the drivers do not write to keeps an empty
 file through a whole bench run.
 """
@@ -10,7 +10,7 @@ file through a whole bench run.
 import logging
 from types import SimpleNamespace
 
-from lib.log_helpers import camera_logger, logger
+from _lumascope.lib.log_helpers import camera_logger, logger
 from tests import conftest
 
 

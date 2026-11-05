@@ -13,9 +13,9 @@ import logging
 import pytest
 from serial import SerialBase
 
-from drivers.ledboard import LEDBoard
-from drivers.sim_wire.backend import LedBoardSpec, SimWireBackend
-from drivers.sim_wire.port import EmulatedPort
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.sim_wire.backend import LedBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.port import EmulatedPort
 from tests.wire_boards import led_on_the_wire
 
 pytestmark = pytest.mark.firmware_tier

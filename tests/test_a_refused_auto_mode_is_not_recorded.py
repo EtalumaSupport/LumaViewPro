@@ -11,8 +11,8 @@ the lock's disarm reports a refusal it would otherwise drop.
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
@@ -21,7 +21,7 @@ AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0
 def reported(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        'modules.notification_center.notifications.report_outcome',
+        '_lumascope.modules.notification_center.notifications.report_outcome',
         lambda exc, **kw: calls.append((exc, kw)),
     )
     return calls
@@ -83,7 +83,7 @@ def _refusal(setting='auto_gain'):
 def test_the_runs_arm_take_reports_a_refused_disarm(reported):
     from types import SimpleNamespace
 
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
     from tests.protocol_drives import bare_capture_runner
 
     runner = bare_capture_runner()

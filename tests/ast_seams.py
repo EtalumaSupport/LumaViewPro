@@ -32,16 +32,17 @@ def iter_package_modules(packages):
     """Yield ``(rel_path, ast.Module)`` for every ``.py`` under ``packages``.
 
     The one walker for whole-package AST scans, so guards that sweep
-    `modules/` + `ui/` share it instead of each hand-rolling a
+    `src/_lumascope/modules/` + `ui/` share it instead of each hand-rolling a
     `rglob` + `ast.parse` loop. Paths are POSIX-relative to the repo
     root and sorted, so failure messages are stable across platforms.
+    A package git tracks nothing under is refused (``tracked_files``).
     """
-    for package in packages:
-        for path in sorted((REPO_ROOT / package).rglob('*.py')):
-            yield (
-                path.relative_to(REPO_ROOT).as_posix(),
-                ast.parse(path.read_text(encoding='utf-8'), filename=str(path)),
-            )
+    for rel_path in tracked_files(packages):
+        path = REPO_ROOT / rel_path
+        yield (
+            rel_path,
+            ast.parse(path.read_text(encoding='utf-8'), filename=str(path)),
+        )
 
 
 def imported_names(tree: ast.Module):
@@ -76,26 +77,49 @@ def _names_a_dynamic_import(func: ast.AST) -> bool:
     return isinstance(func, ast.Attribute) and func.attr == 'import_module'
 
 
-def tracked_python_files() -> list[str]:
-    """Every ``.py`` the repository tracks, repo-relative POSIX paths, sorted.
+def tracked_files(folders=None, pattern='**/*.py', root=None) -> list[str]:
+    """The files the repository tracks, repo-relative POSIX paths, sorted.
 
-    The one lister for a whole-repository sweep. The disk under the
-    root holds more than the tree: ignored census scripts under
-    ``build/``, ``.hypothesis/``, a clone dropped beside the code. A
-    sweep that walks the disk reads them, so its outcome moves with
-    files outside the tree a suite run is recorded against (a
-    MicroPython clone under ``build/`` failed the compile guard on the
-    clone's own tests, 2026-09-23). Tracked means what ``git ls-files``
-    answers at the root, nothing a hand-kept list of folders to skip
-    has to mirror.
+    The one lister of the repository's files: every scan of a source
+    folder reads through it. ``pattern`` is read as ``pathlib`` reads a
+    glob, relative to each folder (git's ``:(glob)`` pathspec: ``*``
+    stays inside one folder, ``**`` crosses any number of them). With
+    ``folders``, each folder's matching files; a folder git tracks no
+    file of any kind under raises ``FileNotFoundError`` naming it, so a
+    scan of a folder that moved or was never there fails instead of
+    passing over nothing, while a folder holding files, none matching,
+    answers no files. With no folders, the files matching ``pattern``
+    from the root: the default is every ``.py`` in the tree.
+
+    Tracked only. The disk under the root holds more than the tree:
+    ignored census scripts under ``build/``, ``.hypothesis/``, a clone
+    dropped beside the code, an untracked scratch file. A scan that
+    reads them moves with files outside the tree a suite run is
+    recorded against (a MicroPython clone under ``build/`` failed the
+    compile guard on the clone's own tests, 2026-09-23); a new file is
+    read once it is staged. ``root`` is the git tree answered for, read
+    at the call so a redirected ``REPO_ROOT`` (``tools/ratchet_history``)
+    is the tree listed.
     """
+    root = REPO_ROOT if root is None else root
+    if folders is None:
+        return _git_ls_files(root, [f':(glob){pattern}'])
+    folders = [str(folder).strip('/') for folder in folders]
+    holding = _git_ls_files(root, [f':(literal){folder}/' for folder in folders])
+    for folder in folders:
+        if not any(path.startswith(f'{folder}/') for path in holding):
+            raise FileNotFoundError(f'git tracks no file under {folder!r} in {root}')
+    return _git_ls_files(root, [f':(glob){folder}/{pattern}' for folder in folders])
+
+
+def _git_ls_files(root, pathspecs) -> list[str]:
     listed = subprocess.run(
-        ['git', 'ls-files', '-z', '--', '*.py'],
-        cwd=REPO_ROOT,
+        ['git', 'ls-files', '-z', '--', *pathspecs],
+        cwd=root,
         capture_output=True,
         check=True,
     )
-    return sorted(path for path in listed.stdout.decode().split('\0') if path)
+    return sorted({path for path in listed.stdout.decode().split('\0') if path})
 
 
 def module_name(rel_path: str) -> str:
@@ -103,9 +127,13 @@ def module_name(rel_path: str) -> str:
 
     A package is imported by its own name: as ``<package>.__init__`` it
     would load a second time and define every class in it twice, which a
-    guard reading classes by name then sees as two classes.
+    guard reading classes by name then sees as two classes. A file under
+    ``src/`` is imported from there, so ``src`` is no part of its name, for
+    the same reason.
     """
     parts = Path(rel_path).with_suffix('').parts
+    if parts[0] == 'src':
+        parts = parts[1:]
     return '.'.join(parts[:-1] if parts[-1] == '__init__' else parts)
 
 
@@ -116,7 +144,7 @@ def production_modules():
     lives in the top-level ``lumaviewpro.py`` -- the one module a
     package-only sweep would miss.
     """
-    yield from iter_package_modules(('modules', 'ui'))
+    yield from iter_package_modules(('src/_lumascope/modules', 'ui'))
     yield 'lumaviewpro.py', parse_module('lumaviewpro.py')
 
 
@@ -357,14 +385,8 @@ def defined_names(rel_path: str) -> set[str]:
 
     Defs, classes, parameters, assignments and ``self`` attributes.
     """
-    path = REPO_ROOT / rel_path
-    if path.is_dir():
-        return set().union(
-            *(
-                defined_names(p.relative_to(REPO_ROOT).as_posix())
-                for p in sorted(path.rglob('*.py'))
-            )
-        )
+    if (REPO_ROOT / rel_path).is_dir():
+        return set().union(*(defined_names(path) for path in tracked_files((rel_path,))))
     names: set[str] = set()
     for node in ast.walk(parse_module(rel_path)):
         if isinstance(node, (*_DEF_TYPES, ast.ClassDef)):

@@ -51,7 +51,7 @@ class _FakeMotorBoard:
     """
 
     def __init__(self, response_map):
-        from drivers.motorboard import MotorBoard
+        from _lumascope.drivers.motorboard import MotorBoard
 
         self._response_map = response_map
         self._real_methods = MotorBoard
@@ -63,7 +63,7 @@ class _FakeMotorBoard:
 def _make_motor_with_responses(response_map):
     """Build an object that has the real diagnostic methods bound, but
     a stubbed exchange_command."""
-    from drivers.motorboard import MotorBoard
+    from _lumascope.drivers.motorboard import MotorBoard
 
     fake = _FakeMotorBoard(response_map)
     # Bind the diagnostic methods we care about
@@ -112,7 +112,7 @@ class TestMotorDriverDiagnosticGating:
     def test_set_fan_duty_error_raises(self):
         # Support was supports_fan's answer, asked first: an ERROR to the
         # write itself is a fault.
-        from drivers.exceptions import HardwareError
+        from _lumascope.drivers.exceptions import HardwareError
 
         motor = _make_motor_with_responses(
             {
@@ -137,7 +137,7 @@ class TestMotorAndLedConnectionProbes:
     fix uses scope.motor_connected / scope.led_connected live properties."""
 
     def test_a_connected_motor_board_via_live_property(self):
-        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
         scope = MagicMock()
         scope.motor_connected = True
@@ -145,7 +145,7 @@ class TestMotorAndLedConnectionProbes:
         assert diag.motor_board_presence() is MotorBoardPresence.CONNECTED
 
     def test_a_missing_motor_board_via_live_property(self):
-        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
         scope = MagicMock()
         scope.motor_connected = False
@@ -156,7 +156,7 @@ class TestMotorAndLedConnectionProbes:
     def test_no_motor_board_on_a_model_built_without_one(self):
         # An LS620 and an LS850T with its board unplugged both run on the
         # null board; only the scope's motion_expected tells them apart.
-        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
         scope = MagicMock()
         scope.motor_connected = False
@@ -165,7 +165,7 @@ class TestMotorAndLedConnectionProbes:
         assert diag.motor_board_presence() is MotorBoardPresence.NOT_ON_THIS_MODEL
 
     def test_led_ok_uses_post_wave7_illumination_or_live(self):
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         scope = MagicMock()
         scope.led_connected = True
@@ -177,7 +177,7 @@ class TestMotorAndLedConnectionProbes:
         # not `scope.led`. _target_str must resolve a board object to its
         # canonical 'led'/'motor' string via the renamed namespace so
         # _cmd(self.led_board, ...) routes correctly.
-        from modules.tech_support_report import FirmwareDiagnostics
+        from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         illum = object()
         motion = object()
@@ -208,13 +208,13 @@ class TestTsrUsesDriverMethods:
     sends. The raw paths violated Rule 22 (use production code paths)."""
 
     def test_no_raw_drvstat_command_send(self):
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
+        src = (REPO_ROOT / 'src/_lumascope/modules' / 'tech_support_report.py').read_text()
         assert "self._cmd(self.motor_board, f'DRVSTAT_" not in src
 
     def test_no_raw_fanspeed_command_send(self):
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
+        src = (REPO_ROOT / 'src/_lumascope/modules' / 'tech_support_report.py').read_text()
         assert "self._cmd(self.motor_board, 'FANSPEED')" not in src
 
     def test_no_raw_fan_duty_command_send(self):
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
+        src = (REPO_ROOT / 'src/_lumascope/modules' / 'tech_support_report.py').read_text()
         assert "self._cmd(self.motor_board, 'FAN:" not in src

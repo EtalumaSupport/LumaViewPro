@@ -27,10 +27,10 @@ import numpy as np
 import pytest
 import tifffile
 
-from modules import image_utils
-from modules.common_utils import recover_step_label
-from modules.exceptions import InstallationFileError, PostProcessingOperation
-from modules.layer_record import (
+from _lumascope.modules import image_utils
+from _lumascope.modules.common_utils import recover_step_label
+from _lumascope.modules.exceptions import InstallationFileError, PostProcessingOperation
+from _lumascope.modules.layer_record import (
     GREY,
     load_layer_catalogue,
     load_old_channel_names,
@@ -38,8 +38,8 @@ from modules.layer_record import (
     resolve_layer_identity,
     stored_key,
 )
-from modules.post_processing_api import Stitch, ZProject
-from modules.path_utils import read_installation_file
+from _lumascope.modules.post_processing_api import Stitch, ZProject
+from _lumascope.modules.path_utils import read_installation_file
 from tests.case_walk import failing_cases
 from tests.installation_fixtures import non_stock_block, write_installation
 from tests.test_a_derived_image_says_how_it_was_made import write_run_folder
@@ -176,7 +176,7 @@ def test_an_old_step_name_is_a_machine_name_before_and_after_its_rename(installa
 def old_session(run_folder, installation, tmp_path):
     """A simulated session on the excitation-key release, beside ``run_folder``:
     a BF and ``Blue`` run, written before the keys changed."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(

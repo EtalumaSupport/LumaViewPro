@@ -37,12 +37,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.ast_seams import find_def, parse_module
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _run_manual_nav,
     stepnav_env,
 )
 from tests.stock_channels import LED1
+from _lumascope.modules.common_utils import get_luminescence_layers
+
+(LUMI,) = get_luminescence_layers()
 
 
 GREEN_LAYER_SETTINGS = {
@@ -106,7 +109,7 @@ def _go_to_step(step, *, include_move=True):
     )
     # The panel shows this protocol: a completed move lands only on the
     # protocol and step list it was sent for.
-    import modules.app_context as _app_ctx
+    import _lumascope.modules.app_context as _app_ctx
 
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
@@ -259,7 +262,7 @@ class TestSetStepStateIsAPureWidgetSetter:
     def test_set_step_state_is_a_pure_widget_setter(self, monkeypatch):
         from ui.layer_control import LayerControl
 
-        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx())
+        monkeypatch.setattr('_lumascope.modules.app_context.ctx', _NoSettingsCtx())
         stand = _LayerStand(LED1, _STEP_WIDGETS)
         step = _make_step()
 
@@ -306,7 +309,9 @@ class TestSetStepStateIsAPureWidgetSetter:
         with the control hidden there would be no way to un-grey them."""
         from ui.layer_control import LayerControl
 
-        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False))
+        monkeypatch.setattr(
+            '_lumascope.modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False)
+        )
         stand = _LayerStand(LED1, _STEP_WIDGETS)
 
         LayerControl.set_step_state(stand, {'Auto_Gain': True})
@@ -345,7 +350,7 @@ def _layer_settings(**overrides):
 
 class TestRunEndResyncsEveryLayerOnceFromSettings:
     def test_run_end_callback_syncs_every_layer_once(self, monkeypatch):
-        import modules.common_utils as common_utils
+        import _lumascope.modules.common_utils as common_utils
         import ui.layer_control as layer_control
         from ui.ui_helpers import sync_layer_widgets_from_settings
 
@@ -353,7 +358,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         ctx = SimpleNamespace(
             image_settings=SimpleNamespace(layer_lookup=lambda layer: layers[layer]),
         )
-        monkeypatch.setattr('modules.app_context.ctx', ctx)
+        monkeypatch.setattr('_lumascope.modules.app_context.ctx', ctx)
 
         sync_layer_widgets_from_settings()
 
@@ -363,11 +368,14 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         for retired in ('init_autofocus', 'init_acquire', 'sync_camera_widgets_from_settings'):
             assert not hasattr(layer_control.LayerControl, retired), retired
 
-    @pytest.mark.parametrize('layer', ['BF', LED1])
+    @pytest.mark.parametrize('layer', ['BF', LED1, LUMI])
     def test_sync_widgets_from_settings_sets_every_widget(self, monkeypatch, layer):
-        """BF ships with a None stim_config; LED 1 carries one. Both sync
-        without raising, every widget carries the settings value, the
-        auto_gain box carries the effective auto-gain, and the settings
+        """Each layer in its shipped shape: BF with a None stim_config and no
+        composite threshold, LED 1 with both, Lumi with a threshold and no
+        stim_config. Each syncs without raising, every widget carries the
+        settings value -- the CBT slider the stored threshold of every layer
+        that stores one, so Lumi's drawer shows what its composite uses --
+        the auto_gain box carries the effective auto-gain, and the settings
         were read once under the settings lock."""
         from ui.layer_control import LayerControl
 
@@ -384,10 +392,15 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
             LED1: _layer_settings(
                 auto_gain=False, acquire=None, stim_config=stim, video_config={'duration': 12}
             ),
+            LUMI: _layer_settings(auto_gain=False, acquire=None, sum=4),
         }
+        # Shipped settings store no composite threshold on a transmitted
+        # layer and no stim_config on Lumi.
+        del settings['BF']['composite_brightness_threshold']
+        del settings[LUMI]['stim_config']
         lock = _CountingLock()
         monkeypatch.setattr(
-            'modules.app_context.ctx',
+            '_lumascope.modules.app_context.ctx',
             SimpleNamespace(
                 settings=settings, settings_lock=lock, scope=_scope_with_auto_gain(True)
             ),
@@ -413,6 +426,11 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         if layer == 'BF':
             assert ids['acquire_image'].active is True
             assert ids['composite_threshold_slider'].value is None, 'BF has no composite threshold'
+            assert ids['stim_enable_btn'].active is None, 'no stim_config: stim widgets untouched'
+            assert stand.visibility_calls == 0
+        elif layer == LUMI:
+            assert ids['acquire_none'].active is True
+            assert ids['composite_threshold_slider'].value == 60
             assert ids['stim_enable_btn'].active is None, 'no stim_config: stim widgets untouched'
             assert stand.visibility_calls == 0
         else:
@@ -457,7 +475,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
 
     def test_the_engine_names_no_layer_widget_sync(self):
         """The sync is display work: the run's cleanup names no GUI chore."""
-        tree = parse_module('modules/protocol_cleanup.py')
+        tree = parse_module('src/_lumascope/modules/protocol_cleanup.py')
         names = {
             node.attr if isinstance(node, ast.Attribute) else node.id
             for node in ast.walk(tree)

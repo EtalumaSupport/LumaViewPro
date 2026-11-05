@@ -15,10 +15,10 @@ import logging
 
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolError, Refusal
-from modules.notification_center import notifications
-from modules.protocol import StepEditRefusedError, StepNotFoundError
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.exceptions import ProtocolError, Refusal
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.protocol import StepEditRefusedError, StepNotFoundError
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
 

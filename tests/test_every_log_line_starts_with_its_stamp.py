@@ -28,7 +28,7 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
-# Spelled here, not read from modules.log_stamp, so a wrong date format there
+# Spelled here, not read from _lumascope.modules.log_stamp, so a wrong date format there
 # fails this test instead of agreeing with itself.
 _STAMP = re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) ')
 
@@ -37,11 +37,12 @@ _TRACE_LOGS = {'serial.log', 'camera.log', 'api.log'}
 _CHILD = """
 import json, logging, os, sys, threading
 sys.frozen = True
+sys._MEIPASS = {repo!r}
 sys.executable = {exe!r}
-import lvp_logger
+import _lumascope.lvp_logger
 from logging.handlers import RotatingFileHandler
 
-handlers = [v for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)]
+handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]
 
 def write():
     for handler in handlers:
@@ -69,7 +70,7 @@ def probe_lines(tmp_path_factory):
     # settings.json an installation does: the logger reads debug_mode from it.
     (data_root / 'data').mkdir()
     shutil.copy(REPO / 'data' / 'settings.json', data_root / 'data' / 'settings.json')
-    code = _CHILD.format(exe=str(data_root / 'LumaViewPro.exe'))
+    code = _CHILD.format(exe=str(data_root / 'LumaViewPro.exe'), repo=str(REPO))
     done = subprocess.run(
         [sys.executable, '-c', code], capture_output=True, text=True, timeout=60, cwd=str(REPO)
     )

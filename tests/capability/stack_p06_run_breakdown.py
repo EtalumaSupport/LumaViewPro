@@ -19,8 +19,8 @@ import time
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
-from lib import profile_trace
-from lvp_logger import git_revision
+from _lumascope.lib import profile_trace
+from _lumascope.lvp_logger import git_revision
 from tests.stock_channels import LED0
 
 

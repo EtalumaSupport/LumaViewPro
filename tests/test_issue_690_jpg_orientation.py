@@ -29,13 +29,13 @@ import pathlib
 
 import numpy as np
 
-from modules.image_save import _apply_save_orientation
+from _lumascope.modules.image_save import _apply_save_orientation
 from tests.frame_records import frame_record, plate
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-IMAGE_SAVE_SRC = REPO / 'modules' / 'image_save.py'
+IMAGE_SAVE_SRC = REPO / 'src/_lumascope/modules' / 'image_save.py'
 
 
 def test_apply_save_orientation_is_vertical_flip():
@@ -54,7 +54,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     import cv2
     import tifffile
 
-    from modules import image_save
+    from _lumascope.modules import image_save
 
     arr = np.zeros((8, 8), dtype=np.uint8)
     arr[0, :] = 255  # bright TOP edge in camera orientation

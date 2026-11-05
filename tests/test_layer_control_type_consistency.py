@@ -1,8 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for P2 bug fix -- stim slider writes must match text-path type.
-
-Audit source: /Users/ericweiner/Documents/Firmware/docs/NUMBER_INPUT_AUDIT_2026-04-21.md
-              sec.P2 Pulse Count + Pulse Width type-mismatch.
+"""A stim slider's write stores the same type as its text field's: an int.
 
 Bug
 ---

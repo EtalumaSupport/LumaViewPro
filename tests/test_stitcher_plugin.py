@@ -24,12 +24,12 @@ import types
 
 import pytest
 
-from modules.plugins import PluginSpec, ProcessorResult
+from _lumascope.modules.plugins import PluginSpec, ProcessorResult
 from unittest.mock import patch
 
-from modules.plugins.builtin import stitcher_plugin
+from _lumascope.modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -83,7 +83,7 @@ def test_register_marks_namespace_loaded(harness_ctx):
 
 
 def test_register_twice_raises(harness_ctx):
-    from modules.plugins import PluginRegistrationError
+    from _lumascope.modules.plugins import PluginRegistrationError
 
     stitcher_plugin.register(harness_ctx)
     with pytest.raises(PluginRegistrationError):
@@ -118,9 +118,9 @@ def test_processor_returns_processor_result_on_missing_folder(
 ):
     # A path that exists but has no protocol files -> the stitch refuses,
     # and the shim must wrap that in ProcessorResult, NOT propagate it.
-    from modules.post_processing_api import PostProcessingAPI
-    from modules.executor_registry import session_lane_closed
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.executor_registry import session_lane_closed
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
     lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='POSTPROC_TEST')
     lane.start()
@@ -182,7 +182,7 @@ def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):
     np = pytest.importorskip('numpy')
     pd = pytest.importorskip('pandas')
 
-    from modules.stitcher import Stitcher
+    from _lumascope.modules.stitcher import Stitcher
 
     tiles = {
         'tile_0_0.tiff': np.full((40, 40), 50, dtype=np.uint8),

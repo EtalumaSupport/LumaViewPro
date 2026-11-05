@@ -1,4 +1,4 @@
-"""Tests for ``modules.image_utils.decimate_for_preview``.
+"""Tests for ``_lumascope.modules.image_utils.decimate_for_preview``.
 
 The live-view FPS ceiling was the full-resolution Kivy ``blit_buffer`` on the
 main thread, serialized against capture/convert on the GIL. The preview now
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from modules.image_utils import (
+from _lumascope.modules.image_utils import (
     click_offset_to_um,
     decimate_for_preview,
     scaled_preview_target,

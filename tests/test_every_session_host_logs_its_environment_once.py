@@ -25,15 +25,15 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 
 _TWO_SESSIONS = """
 import json, logging, sys
-import lvp_logger
-from modules.app_environment import camera_sdk_probe
-from modules.scope_session import ScopeSession
+import _lumascope.lvp_logger
+from _lumascope.modules.app_environment import camera_sdk_probe
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 lines = []
 handler = logging.Handler()
 handler.emit = lambda record: lines.append(record.getMessage())
-lvp_logger.logger.addHandler(handler)
+_lumascope.lvp_logger.logger.addHandler(handler)
 for _ in range(2):
     session = ScopeSession.create(complete_settings(), source_path=sys.argv[1], simulate=True)
     session.shutdown()

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.app_environment import take_sim_launch_value
+from _lumascope.modules.app_environment import take_sim_launch_value
 
 
 def test_the_value_is_given_and_the_flag_leaves_argv():

@@ -17,11 +17,11 @@ import json
 
 import pytest
 
-import modules.common_utils as common_utils
-import modules.layer_record as layer_record
-from modules.image_save import generate_image_metadata
-from modules.path_utils import read_installation_file, resolve_data_file
-from modules.protocol import Protocol
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.image_save import generate_image_metadata
+from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
+from _lumascope.modules.protocol import Protocol
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 

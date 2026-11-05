@@ -25,8 +25,8 @@ import time
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0}

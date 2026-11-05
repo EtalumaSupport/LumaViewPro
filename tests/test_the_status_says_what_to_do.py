@@ -14,7 +14,7 @@ the same ``DELETE`` once it has ended.
 
 from __future__ import annotations
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     CameraDriverRepairRefusedError,
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
@@ -22,8 +22,8 @@ from modules.exceptions import (
     ServerRefusedError,
     SessionClosingError,
 )
-from rest import problems
-from rest.problems import answered_by_member, refused_by_server
+from _lumascope.rest import problems
+from _lumascope.rest.problems import answered_by_member, refused_by_server
 
 _ID = '00000000-0000-0000-0000-000000000000'
 

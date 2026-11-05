@@ -9,7 +9,7 @@ missing step only by parsing the sentence.
 Every outcome class -- a refusal, a notice, a quiet outcome or a fault --
 declares its reasons as ``causes`` in its own class body, and the root
 checks each declaration where the class is defined
-(``lib.lumascope_error``). Reasons inherited from a parent do not count
+(``_lumascope.lib.lumascope_error``). Reasons inherited from a parent do not count
 here: a subclass is a different outcome, and one that took its parent's
 codes would be indistinguishable from it. An umbrella names a subject and
 is never raised, so it declares none.
@@ -24,7 +24,7 @@ explained by its docstring; a reason several classes carry as one fact
 import ast
 import re
 
-from modules.api_surface import own_doc
+from _lumascope.modules.api_surface import own_doc
 from tests.api_reference import outcome_classes
 from tests.ast_seams import iter_package_modules, production_modules
 
@@ -51,11 +51,18 @@ def _outcome_classes():
     """Every class below a kind in the layers that raise, umbrellas aside.
 
     The layers of ``tests/guards/test_every_outcome_joins_the_root.py``, with
-    ``lib/``, where the fault kind lives: a driver's fault is an outcome a
+    ``src/_lumascope/lib/``, where the fault kind lives: a driver's fault is an outcome a
     caller branches on as much as a module's.
     """
     classes = {}
-    for rel, tree in iter_package_modules(('lib', 'drivers', 'modules', 'rest')):
+    for rel, tree in iter_package_modules(
+        (
+            'src/_lumascope/lib',
+            'src/_lumascope/drivers',
+            'src/_lumascope/modules',
+            'src/_lumascope/rest',
+        )
+    ):
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 classes[node.name] = (rel, node)

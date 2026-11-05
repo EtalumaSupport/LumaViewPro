@@ -4,7 +4,7 @@
 Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_state_machine
   - run_events
-  - kivy_utils
+  - ui_queue
   - protocol_cleanup
   - protocol_image_writer
 """
@@ -18,19 +18,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
+from _lumascope.modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
-from modules.protocol_image_writer import RunWriteBatch
-from modules.sequential_io_executor import ENQUEUED
-from modules.protocol_state_machine import (
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
     PROTOCOL_STATE_TRANSITIONS,
     validate_transition,
 )
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 
 
 # ===========================================================================
@@ -38,10 +38,10 @@ from modules.run_events import RunEvents
 # ===========================================================================
 
 
-from modules.run_outcome import EndingLatch, RunEnding
+from _lumascope.modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
-from modules.layer_record import release_colors
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 class TestSequencedCaptureRunMode:
@@ -198,7 +198,7 @@ class TestRunEventsHaveNoAutofocusRestore:
 
 
 # ===========================================================================
-# kivy_utils.py
+# ui_queue.py
 # ===========================================================================
 
 
@@ -206,7 +206,7 @@ class TestScheduleUI:
     """Test schedule_ui falls back to direct call when no Kivy event loop."""
 
     def test_schedule_ui_calls_directly_without_kivy(self):
-        from modules.kivy_utils import schedule_ui
+        from _lumascope.modules.ui_queue import schedule_ui
 
         called_with = []
         schedule_ui(lambda dt: called_with.append(dt))
@@ -214,7 +214,7 @@ class TestScheduleUI:
 
     def test_schedule_ui_passes_dt_zero(self):
         """schedule_ui passes dt=0 to the function (matching Clock convention)."""
-        from modules.kivy_utils import schedule_ui
+        from _lumascope.modules.ui_queue import schedule_ui
 
         received_dt = []
         schedule_ui(lambda dt: received_dt.append(dt))
@@ -222,7 +222,7 @@ class TestScheduleUI:
 
     def test_schedule_ui_multiple_calls(self):
         """schedule_ui can be called multiple times."""
-        from modules.kivy_utils import schedule_ui
+        from _lumascope.modules.ui_queue import schedule_ui
 
         count = []
         for _ in range(5):
@@ -246,7 +246,9 @@ def test_cleanup_never_reaches_a_settings_module_global():
     import pathlib as _pathlib
 
     source = (
-        _pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
+        _pathlib.Path(__file__).resolve().parent.parent
+        / 'src/_lumascope/modules'
+        / 'protocol_cleanup.py'
     ).read_text()
     offenders = [
         f'{i}: {line.strip()}'
@@ -370,7 +372,7 @@ class TestRunCleanup:
         function is what used to admit the next run onto resources the
         teardown was still handing back.
         """
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         args, state = self._make_cleanup_args()
         run_cleanup(**args)
@@ -381,7 +383,7 @@ class TestRunCleanup:
         own dispatch puts it on the camera lane under the run's taking --
         cleanup submits nothing to the camera executor itself, so there is
         no inline branch for a closed lane to route it onto."""
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
         from unittest.mock import MagicMock
 
         camera = MagicMock()
@@ -407,8 +409,8 @@ class TestRunCleanup:
         """
         from types import SimpleNamespace
 
-        from modules.protocol_cleanup import run_cleanup
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from _lumascope.modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         fired = []
         events = RunEvents(
@@ -420,7 +422,7 @@ class TestRunCleanup:
         assert fired == [], "cleanup must leave both events to the run's end"
 
         # The runner's close, on a runner that saves no record.
-        from modules.run_outcome import EndingLatch
+        from _lumascope.modules.run_outcome import EndingLatch
 
         runner = SimpleNamespace(
             _disable_saving_artifacts=True,
@@ -443,7 +445,7 @@ class TestRunCleanup:
         assert fired == ['files_written']
 
     def test_cleanup_ends_all_executors(self):
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         args, _ = self._make_cleanup_args()
         run_cleanup(**args)
@@ -453,7 +455,7 @@ class TestRunCleanup:
         assert args['scope'].camera_lane().protocol_pending_cleared
 
     def test_cleanup_clears_scan_in_progress(self):
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         args, _ = self._make_cleanup_args()
         args['scan_in_progress'].set()
@@ -461,7 +463,7 @@ class TestRunCleanup:
         assert not args['scan_in_progress'].is_set()
 
     def test_cleanup_returns_to_position(self):
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         moved_to = []
         pos = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
@@ -479,7 +481,7 @@ class TestRunCleanup:
         run still holds the scope while it unwinds. The caller's finally is what returns it
         to IDLE, once everything has been handed back.
         """
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         state = [ProtocolState.ERROR]
         args, _ = self._make_cleanup_args()
@@ -499,7 +501,7 @@ class TestRunCleanup:
         user Stop does. Cleanup ends no write; the held write is still the
         batch's after cleanup, and lands when the lane reaches it.
         """
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         # ERROR abort (hardware fault): the pending write is kept.
         err_state = [ProtocolState.ERROR]
@@ -553,8 +555,8 @@ class TestProtocolImageWriterWriteCapture:
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
-        from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_image_writer import ProtocolImageWriter
+        from _lumascope.modules.image_mode import ImageCaptureConfig
+        from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
 
         writer = ProtocolImageWriter(
             scope=MagicMock(),
@@ -634,8 +636,8 @@ class TestRunCleanupWhenTheLaneCloses:
         return [n for n in centre_posts if n.title == 'Protocol cleanup issues']
 
     def test_an_led_restore_left_unrun_is_a_cleanup_failure(self, centre_posts):
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         def closed_apply(transition, ctx):
             raise scope_lane_closed('apply')
@@ -646,8 +648,8 @@ class TestRunCleanupWhenTheLaneCloses:
         assert 'Restore LED states: HardwareCommandRefusedError' in report.message
 
     def test_a_return_move_left_unrun_is_a_cleanup_failure(self, centre_posts):
-        from modules.lumascope_api._lumascope import scope_lane_closed
-        from modules.protocol_cleanup import run_cleanup
+        from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+        from _lumascope.modules.protocol_cleanup import run_cleanup
 
         def closed_move(**kw):
             raise scope_lane_closed('move')
@@ -680,7 +682,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
         held lit)."""
         from unittest.mock import MagicMock
 
-        from modules.lumascope_api.illumination import LedLease, LedTransition
+        from _lumascope.modules.lumascope_api.illumination import LedLease, LedTransition
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         runner = scan_ready_runner(
@@ -745,7 +747,7 @@ class TestProtocolRecordReconciliation:
     failed, and the user is warned once."""
 
     def _make_record(self, tmp_path):
-        from modules.protocol_execution_record import ProtocolExecutionRecord
+        from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 
         return ProtocolExecutionRecord(
             protocol_file_loc=tmp_path / 'protocol.tsv',
@@ -767,7 +769,7 @@ class TestProtocolRecordReconciliation:
         return []
 
     def _complete(self, rec, fired):
-        from modules.exceptions import RecordIncompleteError
+        from _lumascope.modules.exceptions import RecordIncompleteError
 
         try:
             rec.complete()

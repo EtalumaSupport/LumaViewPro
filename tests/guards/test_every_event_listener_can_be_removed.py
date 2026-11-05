@@ -15,9 +15,9 @@ import inspect
 
 import pytest
 
-from modules import api_surface
-from modules.scope_session import ScopeSession
-from rest.events import _owners
+from _lumascope.modules import api_surface
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.events import _owners
 from tests.settings_fixtures import complete_settings
 
 

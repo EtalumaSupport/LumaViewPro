@@ -31,26 +31,26 @@ def _violations(content: str, path: str) -> list:
 class TestRule28BlocksExceptionRepr:
     def test_bare_exception_name_blocks(self):
         src = "def f(e):\n    notifications.error('Cat', 'Title', f'Failed: {e}')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
     def test_type_name_blocks(self):
         src = (
             'def f(ex):\n'
             "    notifications.warning('Cat', 'Title', f'Failed: {type(ex).__name__}')\n"
         )
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
     def test_bare_type_call_blocks(self):
         src = "def f(exc):\n    notifications.error('Cat', 'Title', f'Failed: {type(exc)}')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
     def test_repr_of_exception_blocks(self):
         src = "def f(e):\n    notifications.error('Cat', 'Title', f'Failed: {repr(e)}')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
     def test_conversion_flag_on_exception_name_blocks(self):
         src = "def f(exc):\n    notifications.error('Cat', 'Title', f'Failed: {exc!r}')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
     def test_multiline_concatenated_fstring_blocks(self):
         # The whole reported shape: exception repr several lines below the call.
@@ -64,37 +64,37 @@ class TestRule28BlocksExceptionRepr:
             '    )\n'
         )
         # Two replacement fields carry the exception: type(ex).__name__ and ex.
-        assert len(_violations(src, 'modules/foo.py')) == 2
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 2
 
     def test_keyword_message_arg_blocks(self):
         src = "def f(e):\n    notifications.error('Cat', 'Title', message=f'Failed: {e}')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1
 
 
 class TestRule28AllowsBenignInterpolation:
     def test_plain_string_passes(self):
         src = "def f():\n    notifications.error('Cat', 'Title', 'Check the USB cable.')\n"
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []
 
     def test_non_exception_value_passes(self):
         src = (
             'def f(port, value):\n'
             "    notifications.warning('Cat', 'Title', f'Set port {port} to {value}.')\n"
         )
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []
 
     def test_mode_repr_passes(self):
         # `{mode!r}` is the user's requested value, not an exception.
         src = "def f(mode):\n    notifications.error('Cat', 'Title', f'Could not set {mode!r}.')\n"
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []
 
     def test_logger_call_with_exception_passes(self):
         # rule_28 governs notifications only; the exception belongs in the log.
         src = "def f(e):\n    logger.error(f'Failed: {type(e).__name__}: {e}')\n"
-        assert _violations(src, 'modules/foo.py') == []
+        assert _violations(src, 'src/_lumascope/modules/foo.py') == []
 
 
 class TestRule28InternalIdStillCaught:
     def test_rule_tag_in_notification_blocks(self):
         src = "def f():\n    notifications.error('Cat', 'Title', 'See Rule 28 for details.')\n"
-        assert len(_violations(src, 'modules/foo.py')) == 1
+        assert len(_violations(src, 'src/_lumascope/modules/foo.py')) == 1

@@ -48,12 +48,12 @@ SELF = 'tests/guards/test_a_scope_is_the_simulator_not_a_stand_in.py'
 
 NOUNS = Words({'scope', 'camera', 'session', 'board', 'driver'})
 SUB_APIS = MemberNames(
-    'modules/lumascope_api/_lumascope.py',
+    'src/_lumascope/modules/lumascope_api/_lumascope.py',
     {'imaging', 'motion', 'illumination', 'diagnostics', 'protocols'},
 )
 CLASS_TAILS = Words({'scope', 'session', 'board', 'camera', 'driver', 'api'})
 NAMESPACE_KEYWORDS = MemberNames(
-    'modules/lumascope_api/_lumascope.py',
+    'src/_lumascope/modules/lumascope_api/_lumascope.py',
     {'imaging', 'motion', 'illumination', 'camera_connected', 'objective_helper'},
 )
 

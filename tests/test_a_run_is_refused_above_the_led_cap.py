@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_composite_run_e2e import headless_settings, open_composite_session

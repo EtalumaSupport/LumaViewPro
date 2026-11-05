@@ -10,14 +10,14 @@ import logging
 from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
-import modules.app_context as _app_ctx
-from modules import gui_logger
-from modules.kivy_utils import schedule_ui
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules import gui_logger
+from _lumascope.modules.ui_queue import schedule_ui
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.operation import Operation
-from modules.run_events import RunEvents
+    from _lumascope.modules.operation import Operation
+from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
     set_last_save_folder,

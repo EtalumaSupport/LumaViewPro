@@ -19,15 +19,15 @@ import numpy as np
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
-from modules.protocol_image_writer import RunWriteBatch
-from modules.image_mode import ImageCaptureConfig
-from modules.protocol_image_writer import ProtocolImageWriter
-from modules.run_events import RunEvents
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
+from _lumascope.modules.run_events import RunEvents
 
 
-from modules.run_outcome import EndingLatch
-from modules.layer_record import release_colors
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.run_outcome import EndingLatch
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 def _drive_capture(monkeypatch, debug_enabled):
@@ -71,9 +71,10 @@ def _drive_capture(monkeypatch, debug_enabled):
         return None
 
     monkeypatch.setattr(
-        'modules.protocol_image_writer.logger',
+        '_lumascope.modules.protocol_image_writer.logger',
         SimpleNamespace(
             isEnabledFor=lambda level: debug_enabled,
+            log=quiet,
             debug=quiet,
             info=quiet,
             warning=quiet,

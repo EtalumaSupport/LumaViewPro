@@ -8,7 +8,7 @@ states. One description here, so a field added to the record is added once.
 
 import dataclasses
 
-from modules.objectives_loader import Objective, ObjectiveLoader
+from _lumascope.modules.objectives_loader import Objective, ObjectiveLoader
 from tests.installation_fixtures import SHIPPED_DATA
 
 SHIPPED_OBJECTIVES = ObjectiveLoader(source_path=SHIPPED_DATA.parent).objectives

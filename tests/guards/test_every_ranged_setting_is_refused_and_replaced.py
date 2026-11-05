@@ -18,9 +18,9 @@ import shutil
 
 import pytest
 
-from modules import settings_init, settings_paths
-from modules.exceptions import SettingRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import settings_init, settings_paths
+from _lumascope.modules.exceptions import SettingRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings, shipped_template
 from tests.case_walk import failing_cases
@@ -55,6 +55,7 @@ _OUT_OF_RANGE = {
     'protocol.autogain.min_gain_db': -1.0,
     'protocol.autogain.max_gain_db': -2,
     'profiling.metrics_interval_s': 0,
+    'memory_profile_interval_s': 0,
     'ag_ae_max_exposure_ms.transmitted': 0.0,
     'ag_ae_max_exposure_ms.fluorescence': -5.0,
     'ag_ae_max_exposure_ms.luminescence': -1,

@@ -26,7 +26,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SESSION_SRC = REPO / 'modules' / 'scope_session.py'
+SESSION_SRC = REPO / 'src/_lumascope/modules' / 'scope_session.py'
 
 
 def _result_try_nodes(tree: ast.AST):

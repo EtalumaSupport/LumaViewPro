@@ -14,9 +14,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers import fx2driver
-from drivers.exceptions import CameraUsbNotFoundError, CameraUsbOpenFailedError
-from drivers.registry import DriverFallback, DriverRegistry
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import CameraUsbNotFoundError, CameraUsbOpenFailedError
+from _lumascope.drivers.registry import DriverFallback, DriverRegistry
 
 
 @pytest.fixture

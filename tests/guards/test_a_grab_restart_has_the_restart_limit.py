@@ -8,9 +8,9 @@ behind its caller. Pylon's conversion-gain and line-noise setters restart
 the grab under the 5 s value limit the same way.
 
 The limit is chosen by hand at each call site, so this guard derives both
-sides instead of listing them: from ``drivers/``, every driver method that
+sides instead of listing them: from ``src/_lumascope/drivers/``, every driver method that
 enters ``update_camera_config()`` or calls ``stop_grabbing()``, directly or
-through its own class's methods; from ``modules/lumascope_api/``, every
+through its own class's methods; from ``src/_lumascope/modules/lumascope_api/``, every
 ``_dispatch_camera`` and the restarts its body may reach. A command that may
 restart the grab N times must wait at least N geometry limits.
 """
@@ -21,13 +21,15 @@ import ast
 import types
 from pathlib import Path
 
-from modules.lumascope_api.diagnostics import DiagnosticsAPI
-from modules.lumascope_api.camera import CameraAPI
-from modules.lumascope_api.imaging import ImagingAPI
-from tests.ast_seams import REPO_ROOT as _ROOT
+from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from tests.ast_seams import REPO_ROOT as _ROOT, tracked_files
 from tests.ast_seams import MemberNames
 
-_RESTART_PRIMITIVES = MemberNames('drivers/camera.py', {'update_camera_config', 'stop_grabbing'})
+_RESTART_PRIMITIVES = MemberNames(
+    'src/_lumascope/drivers/camera.py', {'update_camera_config', 'stop_grabbing'}
+)
 
 
 def _receiver(value: ast.expr) -> tuple[str, ...] | None:
@@ -79,7 +81,7 @@ def _restarting_driver_methods() -> frozenset[str]:
     hooks (``_set_hardware_window``) that each driver implements.
     """
     classes = {}
-    for path in sorted((_ROOT / 'drivers').glob('*.py')):
+    for path in [_ROOT / rel for rel in tracked_files(('src/_lumascope/drivers',), '*.py')]:
         for cls in (
             n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.ClassDef)
         ):
@@ -179,7 +181,9 @@ def _census():
     restarting = _restarting_driver_methods()
     owners = {'CameraAPI': CameraAPI, 'ImagingAPI': ImagingAPI, 'DiagnosticsAPI': DiagnosticsAPI}
     rows = []
-    for path in sorted((_ROOT / 'modules' / 'lumascope_api').glob('*.py')):
+    for path in [
+        _ROOT / rel for rel in tracked_files(('src/_lumascope/modules/lumascope_api',), '*.py')
+    ]:
         classes = _methods(ast.parse(path.read_text()))
         for cls_name, fn, impl, timeout in _dispatches(path):
             for name in _impl_names(classes[cls_name], fn, impl):

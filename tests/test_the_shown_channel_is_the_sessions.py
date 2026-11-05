@@ -10,9 +10,9 @@ refused light leaves the LEDs as they were.
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
-from modules.scope_session import ScopeSession, ShownChannel
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
+from _lumascope.modules.scope_session import ScopeSession, ShownChannel
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
 from tests.scope_fakes import channel_reading
@@ -195,7 +195,7 @@ def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_afte
 
 
 def test_showing_another_layer_during_a_recording_is_refused_and_changes_nothing(session):
-    from modules.exceptions import HardwareCommandRefusedError
+    from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
     session.light_shown_channel(True)
     recording = session.manual_recording.start(false_color_on=False)
@@ -294,8 +294,8 @@ class TestALayerWithNoLedIsShownDark:
 def test_putting_a_layer_on_the_camera_is_not_a_rest_route():
     """``show_channel`` is the one public way a layer's settings reach the
     camera; the Session's own apply is in-process."""
-    from modules import wire_encoding
-    from rest import routes as rest_routes
+    from _lumascope.modules import wire_encoding
+    from _lumascope.rest import routes as rest_routes
 
     handed_out = wire_encoding.handed_out(
         ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()

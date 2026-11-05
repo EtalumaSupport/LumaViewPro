@@ -22,13 +22,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.image_mode import OutputFormat
+from _lumascope.modules.image_mode import OutputFormat
 
-import modules.config_helpers as config_helpers
-from modules.layer_record import release_catalogue
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.layer_record import release_catalogue
 from tests.settings_fixtures import complete_settings
 from tests.objective_records import objective
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 
 # The plate position a composite starts from; every channel step shares
@@ -101,7 +101,7 @@ def _assemble(settings):
 
 def _warnings_and_errors(centre_posts):
     """The warnings and errors the centre has posted."""
-    from modules.notification_center import Severity
+    from _lumascope.modules.notification_center import Severity
 
     return [n for n in centre_posts if n.severity in (Severity.ERROR, Severity.WARNING)]
 

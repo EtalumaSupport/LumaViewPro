@@ -20,8 +20,8 @@ import logging
 
 import pytest
 
-import modules.manual_recording as manual_recording_module
-import modules.video_writer as video_writer_module
+import _lumascope.modules.manual_recording as manual_recording_module
+import _lumascope.modules.video_writer as video_writer_module
 from tests.test_manual_recording_controller import (
     feed_frames,
     finish,

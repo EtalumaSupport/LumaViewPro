@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The live view shows the camera's newest frame, to every client watching (``rest.live``).
+"""The live view shows the camera's newest frame, to every client watching (``_lumascope.rest.live``).
 
 ``GET /api/v1/live`` is MJPEG and ``GET /api/v1/live.jpg`` one JPEG, each
 half the frame's width unless ``max_width`` says otherwise; each frame
@@ -28,9 +28,9 @@ import pytest
 import uvicorn
 from starlette.requests import ClientDisconnect
 
-from modules.scope_session import ScopeSession
-from rest.app import build_app
-from rest.live import LiveView, Watching
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
+from _lumascope.rest.live import LiveView, Watching
 from tests.settings_fixtures import complete_settings
 from tests.test_a_camera_command_with_no_camera_is_refused import _camera_less
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
@@ -219,7 +219,7 @@ def _ordinal(part: bytes) -> int:
 
 
 def test_a_camera_that_is_not_connected_is_refused_before_any_frame(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
     with _serving(session) as (app, _server, client):
         watched = client.get('/api/v1/live')
         shot = client.get('/api/v1/live.jpg')

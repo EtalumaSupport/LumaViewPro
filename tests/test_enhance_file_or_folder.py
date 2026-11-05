@@ -3,8 +3,8 @@
 import datetime
 import ast
 from pathlib import Path
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -25,7 +25,7 @@ def _class_method_source(path, class_name, method_name):
 def _write_source(path):
     import numpy as np
 
-    from modules import image_utils
+    from _lumascope.modules import image_utils
 
     image_utils.write_tiff(
         data=np.full((8, 8), 100, dtype=np.uint8),
@@ -55,9 +55,9 @@ def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path, monkeypatch
 
     import pytest
 
-    import modules.path_utils as path_utils
-    from modules.exceptions import LiveFolderPathRefusedError
-    from modules.scope_session import ScopeSession
+    import _lumascope.modules.path_utils as path_utils
+    from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -85,7 +85,7 @@ def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path, monkeypatch
 
 
 def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewer(tmp_path):
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     _write_source(tmp_path / 'a.tif')
     _write_source(tmp_path / 'b.tif')
@@ -111,7 +111,7 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
 
 
 def test_enhance_completion_hides_the_derived_output_path(tmp_path):
-    from modules.post_processing_api import PostProcessingAPI
+    from _lumascope.modules.post_processing_api import PostProcessingAPI
 
     source = tmp_path / 'source.tif'
     _write_source(source)
@@ -126,7 +126,7 @@ def test_the_mode_router_keeps_a_stitcher_for_every_mode():
     # Previously also asserted docs/STITCHING.md described these modes. That
     # doc is not published in this repo, so the prose half of the check cannot
     # live here; what remains is that the router still routes to each stitcher.
-    router = (REPO / 'modules' / 'stitching_core.py').read_text(encoding='utf-8')
+    router = (REPO / 'src/_lumascope/modules' / 'stitching_core.py').read_text(encoding='utf-8')
 
     assert 'mode == StitchMode.FAST_PREVIEW' in router
     assert 'fft_phase_stitcher' in router

@@ -2,17 +2,17 @@
 """Regression test: camera-driver warning/error/exception sites route to
 the camera log (not the parent lvp_logger).
 
-Background -- `drivers/pyloncamera.py`, `drivers/camera.py`, and
-`drivers/idscamera.py` all `from lib.log_helpers import logger`. That bare
+Background -- `src/_lumascope/drivers/pyloncamera.py`, `src/_lumascope/drivers/camera.py`, and
+`src/_lumascope/drivers/idscamera.py` all `from _lumascope.lib.log_helpers import logger`. That bare
 `logger` is the main logger (name `lvp_logger`), whose handlers
 include the main log + errors log but NOT `camera_file_handler`. The
-dedicated `_cam_log` alias (`lib.log_helpers.camera_logger`, name
+dedicated `_cam_log` alias (`_lumascope.lib.log_helpers.camera_logger`, name
 `LVP.camera`) propagates to camera.log + errors.log.
 
 Before this fix, ~180 `logger.warning/error/exception` call sites in
 the three driver files routed camera failures away from camera.log,
 defeating the dedicated log's purpose. The canonical exemplar is
-`modules/autofocus_runner.py:24` which uses
+`src/_lumascope/modules/autofocus_runner.py:24` which uses
 `_af_log = logging.getLogger('LVP.autofocus')`.
 
 This test is AST-based against the source files so it survives
@@ -21,7 +21,7 @@ any future reintroduction of bare `logger.warning|error|exception(`
 in the three driver files.
 
 `logger.info(` and `logger.debug(` are intentionally NOT covered --
-state transitions belong in the main log per the lvp_logger.py
+state transitions belong in the main log per the src/_lumascope/lvp_logger.py
 docstring + Rule 5.
 """
 
@@ -35,9 +35,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DRIVER_FILES = (
-    REPO_ROOT / 'drivers' / 'pyloncamera.py',
-    REPO_ROOT / 'drivers' / 'camera.py',
-    REPO_ROOT / 'drivers' / 'idscamera.py',
+    REPO_ROOT / 'src/_lumascope/drivers' / 'pyloncamera.py',
+    REPO_ROOT / 'src/_lumascope/drivers' / 'camera.py',
+    REPO_ROOT / 'src/_lumascope/drivers' / 'idscamera.py',
 )
 BANNED_LEVELS = ('warning', 'error', 'exception')
 
@@ -48,7 +48,7 @@ def _find_banned_logger_calls(source: str) -> list[tuple[int, str]]:
 
     Bare means the receiver identifier is exactly `logger` (not
     `self.logger`, not `something_logger`). Matches the actual
-    `from lib.log_helpers import logger` import shape.
+    `from _lumascope.lib.log_helpers import logger` import shape.
     """
     tree = ast.parse(source)
     hits: list[tuple[int, str]] = []
@@ -87,7 +87,11 @@ def test_camera_driver_modules_define_cam_log_alias():
     removing the alias without removing its users."""
     import importlib
 
-    for module_name in ('drivers.pyloncamera', 'drivers.camera', 'drivers.idscamera'):
+    for module_name in (
+        '_lumascope.drivers.pyloncamera',
+        '_lumascope.drivers.camera',
+        '_lumascope.drivers.idscamera',
+    ):
         module = importlib.import_module(module_name)
         assert getattr(module, '_cam_log', None) is not None, (
             f'{module_name} is missing the _cam_log alias but contains '

@@ -9,7 +9,7 @@ members are the declared API's (``tests.marked_set``): a module's marked
 function among them, whose door takes every parameter as an argument.
 """
 
-from modules import api_arguments, api_surface
+from _lumascope.modules import api_arguments, api_surface
 from tests.marked_set import marked_set
 
 
@@ -32,7 +32,9 @@ MEMBERS = _members_with_a_door()
 
 def test_the_members_with_an_argument_are_found():
     assert len(MEMBERS) > 150
-    assert 'rest.app.build_app' in {label for label, _, _ in MEMBERS}, 'the walk lost the functions'
+    assert '_lumascope.rest.app.build_app' in {label for label, _, _ in MEMBERS}, (
+        'the walk lost the functions'
+    )
 
 
 def test_every_door_builds():

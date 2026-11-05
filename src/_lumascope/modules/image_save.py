@@ -1,0 +1,843 @@
+#!/usr/bin/python3
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Image-save free functions extracted from `Lumascope`.
+
+These were instance methods on `Lumascope` whose work is file-I/O,
+path generation, and metadata-construction -- transformation steps
+that take a `scope` (or its discrete settings) and produce a saved
+image. They don't belong on the API root, which is the
+hardware-composition root. The Lumascope wrappers have been retired;
+callers import directly from this module:
+
+    from _lumascope.modules.image_save import save_image
+    save_image(scope, array=img, save_folder='./out', ...)
+
+The 5 `*_static` duplicates that previously lived on Lumascope were
+retired as dead code -- they had zero external callers; the static
+chain existed only because it existed.
+"""
+
+from __future__ import annotations
+
+import os
+import pathlib
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.image_mode as image_mode
+import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.lib.handle_trace import tick as _h_tick
+from _lumascope.lvp_logger import logger
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    CaptureFailedError,
+    ConfigurationDefectError,
+    ImageSaveError,
+)
+
+if TYPE_CHECKING:
+    from _lumascope.modules.labware import Labware
+    from _lumascope.modules.lumascope_api._lumascope import Lumascope
+    from _lumascope.modules.lumascope_api.frame_record import FrameRecord
+
+
+_NUM_SEQ_DIGITS = 6
+
+
+def write_recorded_frame(
+    scope: Lumascope,
+    frame: np.ndarray,
+    file_loc: pathlib.Path,
+    *,
+    channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    stage_moving: bool,
+    frame_number: int,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware,
+    well_label: str | None,
+    fallback_focus: str | None,
+    false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
+    save_encoding: str,
+) -> None:
+    """Save one recorded frame with the still's builder and writer, in the container its name states.
+
+    The file states what a still's states, from the frame's own record
+    (``generate_image_metadata``), and two facts only a recorded frame has:
+    its number in the recording and whether the stage was moving when it
+    arrived. It is written as a still is (``image_utils.write_tiff``): as
+    OME-TIFF when its name is one (``image_utils.is_ome_tiff``), else as
+    plain TIFF, a 12-bit frame in the ImageJ container; an 8-bit
+    fluorescence frame carries its colour as a palette, never baked into
+    its pixels.
+
+    Args:
+        scope: As for ``generate_image_metadata``.
+        frame: The frame, oriented and fitted: mono uint8 or uint16.
+        file_loc: Output path, ``.ome.tiff`` or ``.tiff``
+            (``image_utils.derived_file_suffix``): the name is the container.
+        channel: The channel the frame is named for: the LED that lit it,
+            read as it arrived.
+        plate_x_mm: Plate X in mm where it arrived, or None.
+        plate_y_mm: Plate Y in mm, or None.
+        stage_z_um: Stage Z in um, or None.
+        stage_moving: Whether an axis was moving or homing as it arrived.
+        frame_number: Its ordinal within the recording.
+        objective_id: The objective the recording started with; it cannot
+            change while one runs.
+        frame_record: The frame's record (``delivered_frame_record``).
+        labware: The plate the recording's positions are stated on.
+        well_label: The well it arrived over, or None.
+        fallback_focus: As for ``generate_image_metadata``: why the step's
+            autofocus did not focus, for a video step recorded at its
+            fallback focus.
+        false_color_on: Whether the channel's false-color toggle was on --
+            how the frame is shown, never what it is.
+        channel_colors: Every layer's colour as the recording began.
+        save_encoding: The resolved image-mode save encoding.
+
+    Raises:
+        CaptureFailedError: ``'unknown_save_encoding'``, if save_encoding is
+            not a recognized image-mode encoding (a typo would otherwise
+            fall through to a plain mono write).
+    """
+    if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
+        raise CaptureFailedError('unknown_save_encoding', encoding=save_encoding)
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+        objective_id=objective_id,
+        frame_record=frame_record,
+        labware=labware,
+        well_label=well_label,
+        fallback_focus=fallback_focus,
+    )
+    metadata['recording_frame'] = frame_number
+    metadata['stage_moving'] = stage_moving
+    image_utils.write_tiff(
+        data=frame,
+        file_loc=file_loc,
+        metadata=metadata,
+        ome=image_utils.is_ome_tiff(file_loc),
+        # Rendering only: grey whenever false colour is off. The channel above
+        # is what the frame is.
+        color=layer_record.shown_color(channel, false_color_on, channel_colors),
+        # The frame's own depth: 8 for a frame rendered to 8 bits, else the
+        # depth it was delivered at.
+        significant_bits=8 if frame.dtype == np.uint8 else frame_record.frame_significant_bits,
+        save_encoding=save_encoding,
+        # A recorded frame is one frame, never a sum: white is its depth.
+        white_bits=None,
+    )
+
+
+def get_next_save_path(path: pathlib.Path | str) -> pathlib.Path:
+    """Get the next save path given an existing save path.
+
+    Increments the trailing numeric ID component on the filename and
+    returns the new path string.
+
+    Args:
+        path: Path of the format
+            ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
+
+    Returns:
+        pathlib.Path: Next save path with ``file_id`` incremented -- a Path,
+        as ``generate_image_save_path`` promises its callers after a
+        collision as well as before one.
+    """
+    # Handle both .tiff and .ome.tiff by detecting multiple extensions
+    # if present -- pathlib doesn't handle multi-extension stems
+    # natively.
+    path2 = pathlib.Path(path)
+    extension = ''.join(path2.suffixes)
+    stem = path2.name[: len(path2.name) - len(extension)]
+    seq_separator_idx = stem.rfind('_')
+    stem_base = stem[:seq_separator_idx]
+    seq_num_str = stem[seq_separator_idx + 1 :]
+    seq_num = int(seq_num_str)
+
+    next_seq_num = seq_num + 1
+    next_seq_num_str = f'{next_seq_num:0>{_NUM_SEQ_DIGITS}}'
+
+    return path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
+
+
+def generate_image_save_path(
+    save_folder: pathlib.Path | str,
+    file_root: str | None,
+    append: str,
+    tail_id_mode: str | None,
+    output_format: image_mode.OutputFormat,
+) -> pathlib.Path:
+    """Generate a unique save path for an image given the naming inputs.
+
+    Resolves collisions per ``tail_id_mode`` ("increment" auto-numbers
+    until free, "if_collision" only adds a suffix on actual collision,
+    ``None`` returns the bare path).
+
+    Args:
+        save_folder: Directory to save into (str or Path).
+        file_root: Filename prefix.
+        append: String appended to filename (e.g. color label).
+        tail_id_mode: One of ``"increment"``, ``"if_collision"``, or
+            ``None``.
+        output_format: ``"TIFF"`` or ``"OME-TIFF"``.
+
+    Returns:
+        pathlib.Path: Full save path with appropriate extension and
+            disambiguation suffix.
+
+    Raises:
+        ConfigError: If ``tail_id_mode`` is not implemented.
+    """
+    if isinstance(save_folder, str):
+        save_folder = pathlib.Path(save_folder)
+
+    if file_root is None:
+        file_root = ''
+
+    if output_format == image_mode.OutputFormat.OME_TIFF:
+        file_extension = '.ome.tiff'
+    elif output_format == image_mode.OutputFormat.JPG:
+        file_extension = '.jpg'
+    else:
+        file_extension = '.tiff'
+
+    if tail_id_mode == 'increment':
+        initial_id = '_000001'
+        filename = f'{file_root}{append}{initial_id}{file_extension}'
+        path = save_folder / filename
+
+        # Obtain next save path if current path already exists
+        while os.path.exists(path):
+            path = get_next_save_path(path)
+
+    elif tail_id_mode == 'if_collision':
+        # Write-time defense for duplicate step Names (#636). Use the
+        # plain filename when no file exists; only add a numeric
+        # suffix on actual collision. Keeps happy-path filenames
+        # unchanged for well-formed protocols.
+        base_path = save_folder / f'{file_root}{append}{file_extension}'
+        if not os.path.exists(base_path):
+            path = base_path
+        else:
+            n = 1
+            while True:
+                path = save_folder / f'{file_root}{append}_{n:06d}{file_extension}'
+                if not os.path.exists(path):
+                    break
+                n += 1
+            logger.warning(
+                f'Protocol filename collision: {base_path.name} already '
+                f'exists; saving as {path.name} instead. This usually means '
+                f'the output folder already holds files from a previous run '
+                f'-- capture into a fresh folder, or rename the protocol '
+                f'steps so each produces a unique filename.'
+            )
+
+    elif tail_id_mode is None:
+        filename = f'{file_root}{append}{file_extension}'
+        path = save_folder / filename
+
+    else:
+        raise ConfigurationDefectError(
+            'tail_id_mode_unknown', f'tail_id_mode: {tail_id_mode} not implemented'
+        )
+
+    return path
+
+
+def position_metadata_fields(
+    plate_x_mm: float | None, plate_y_mm: float | None, stage_z_um: float | None
+) -> dict:
+    """The position keys a captured file carries, for the position it has.
+
+    A capture that has no position states none, the same way the metadata
+    builders decline to state a pixel size they cannot compute, a gain or
+    exposure whose read failed, and a well label on labware that has no
+    wells. A missing value used to be defaulted to zero and written, so
+    files carried a real point on the plate in a key whose siblings are
+    all measurements.
+
+    X and Y travel as a pair because half a plate coordinate is not one.
+    Z is independent: a focus-only capture knows its depth and not its
+    place. One builder for the still and for a recording's frames, so the
+    two can never spell a position differently.
+
+    Args:
+        plate_x_mm: Plate X in mm, or None when unknown.
+        plate_y_mm: Plate Y in mm, or None when unknown.
+        stage_z_um: Stage Z in um, or None when unknown.
+
+    Returns:
+        dict: ``plate_pos_mm`` when X and Y are both known, ``z_pos_um``
+            when Z is; empty otherwise.
+    """
+    fields: dict = {}
+    if plate_x_mm is not None and plate_y_mm is not None:
+        px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
+        py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
+        fields['plate_pos_mm'] = {'x': px, 'y': py}
+    if stage_z_um is not None:
+        fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
+    return fields
+
+
+def generate_image_metadata(
+    scope: Lumascope,
+    channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    *,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware | None,
+    well_label: str | None,
+    fallback_focus: str | None,
+) -> dict:
+    """Build TIFF metadata dict for the current capture settings and position.
+
+    The XY position arrives in the frame the file records -- plate millimetres
+    -- and is written through unconverted. The parameters carry their frame in
+    their names because the alternative was tried: they were `x` and `y`,
+    documented as stage micrometres, and the protocol writer filled them with
+    plate millimetres. This function converted a second time, so steps nine
+    millimetres apart were recorded nine microns apart and inverted, in numbers
+    that still looked like plate coordinates. A position whose frame is stated
+    only in prose is a position that will arrive in the wrong one.
+
+    Z is unconverted in either direction: the file declares it in micrometres
+    and every producer already holds it that way.
+
+    Args:
+        scope: Read only for what does not change while a frame waits to be
+            written: the objective catalogue, the scope's identity and its
+            pixel-size capabilities, and the motor board's serial and
+            firmware.
+        channel (str): Channel the frame was acquired on (e.g. "Ex405", "BF").
+        plate_x_mm (float): Plate X position in mm (or None).
+        plate_y_mm (float): Plate Y position in mm (or None).
+        stage_z_um (float): Stage Z position in um (or None).
+        objective_id: The objective in the light path when the frame was
+            taken. Required: the save runs later, on the file writer, when a
+            turret move for the next step may already have changed the live
+            objective -- read then, the file would claim the wrong scale or
+            none. The caller reads it when it takes the frame.
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``CapturedStill.record``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
+
+    Returns:
+        dict: Metadata including channel, positions, exposure, gain, pixel size.
+
+    Raises:
+        CatalogueNameRefusedError: ``objective_id`` is not a catalogue key
+            (``'objective_not_in_catalogue'``).
+        ObjectiveUnknownError: ``objective_id`` is None (``'none_selected'``).
+        ConfigError: ``labware`` is None.
+        ValueError: If channel is not a known layer or 'Composite'.
+    """
+    # This is the last point that can tell a real channel from a placeholder,
+    # an index, or a rendering value: past here it is written verbatim and read
+    # back forever as a claim about what was imaged. The caller set stops being
+    # enumerable the moment this ships, so the vocabulary is checked, not assumed.
+    if channel not in common_utils.get_layers() and channel != 'Composite':
+        raise ValueError(
+            f'unknown channel {channel!r} for image metadata; expected one of '
+            f"{common_utils.get_layers()} or 'Composite'"
+        )
+
+    objective = scope.objective_helper.get_objective_info(objective_id=objective_id)
+
+    if labware is None:
+        raise ConfigurationDefectError('labware_not_given', '[SCOPE API ] Labware not set')
+
+    _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
+
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective.focal_length_mm,
+        binning_size=frame_record.binning_size,
+        capabilities=scope.capabilities,
+    )
+    # A scope with no known pixel size writes no scale rather than an invented
+    # one -- the writer omits PhysicalSizeX and the resolution tag when this is
+    # None. A wrong scale is measured off the file forever and cannot be told
+    # from a real one.
+    if pixel_size_um is not None:
+        pixel_size_um = round(
+            pixel_size_um,
+            common_utils.max_decimal_precision('pixel_size'),
+        )
+
+    captured_at = frame_record.captured_at.at
+    # The model this scope runs as, from its identity -- the one the layers
+    # and capabilities carry. The board's own report is None on a scope
+    # with no motor board (every FX2 model), so it cannot name the scope.
+    microscope_model = scope.channel_identity.model
+
+    # Instrument + Plate metadata for OME-XML compatibility (#491). The
+    # board's identity is what it reported at connect: no serial traffic.
+    motor_info = scope.diagnostics.get_motor_info()
+    # The frame's own exposure and gain, from its record: the capture took
+    # them from the frame's chunks, or beside the grab on a camera without
+    # chunks, and left out a value it could not read -- so an absent key
+    # here is an unknown setting, never a stand-in.
+    _frame_settings = {}
+    if frame_record.exposure_ms is not None:
+        _frame_settings['exposure_time_ms'] = round(
+            frame_record.exposure_ms, common_utils.max_decimal_precision('exposure')
+        )
+    if frame_record.gain_db is not None:
+        _frame_settings['gain_db'] = round(
+            frame_record.gain_db, common_utils.max_decimal_precision('gain')
+        )
+    if frame_record.black_level is not None:
+        _frame_settings['black_level'] = frame_record.black_level
+
+    # Spectral identity from the resolved layer record. Written whatever
+    # rung identity resolved from, and a null value is ABSENT: broadband
+    # layers have no excitation, 'Composite' has no record, an unresolved
+    # identity has no filterset -- a null or stand-in written here would
+    # read downstream as a measured property of the capture. The board
+    # address (led_addresses) deliberately stays out of metadata: it changes
+    # with a rewire, board swap, or motorconfig regeneration, so recording
+    # it would version the files to the wiring.
+    identity = scope.channel_identity
+    record = identity.find(channel)
+    # Every LED lit for the grab, by the layer it lights, in address order,
+    # so a frame two LEDs lit says both. A lit address no layer names is
+    # left out, as every board address is.
+    illumination_by_channel_ma = {
+        key: round(ma, common_utils.max_decimal_precision('illumination'))
+        for address, ma in sorted(frame_record.illumination_ma.items())
+        if (key := identity.key_at(address)) is not None
+    }
+
+    metadata = {
+        'channel': channel,
+        # What the channel is called wherever it is shown: a fluorescence
+        # layer's excitation, any other layer's name on this unit.
+        **({'channel_display': record.label} if record is not None else {}),
+        **(
+            {'excitation_nm': record.excitation_nm}
+            if record is not None and record.excitation_nm is not None
+            else {}
+        ),
+        **({'filterset': identity.filterset} if identity.filterset else {}),
+        'datetime': captured_at,
+        # The objective under its own field names, each naming its unit; a
+        # measurement the catalogue does not hold is absent.
+        'objective': {
+            field: value for field, value in objective.to_dict().items() if value is not None
+        },
+        **_position_fields,
+        **_frame_settings,
+        # An LED that was off for the grab, or on an absent board, has no
+        # drive current -- a normal state for dark and luminescence
+        # captures, so the key is simply absent (no warning, unlike the
+        # exposure/gain omissions, which indicate a failed read). The
+        # frame records currents by address; the channel's record names its address.
+        **(
+            {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
+            if record is not None
+            and record.led_addresses
+            and (_ma := frame_record.illumination_ma.get(record.led_addresses[0])) is not None
+            else {}
+        ),
+        **(
+            {'illumination_by_channel_ma': illumination_by_channel_ma}
+            if illumination_by_channel_ma
+            else {}
+        ),
+        # When the currents were read: before a still's grab, or as a
+        # recorded frame arrived, after its exposure.
+        'illumination_timing': frame_record.illumination_timing.value,
+        'frames_summed': frame_record.frames_summed,
+        'binning_size': frame_record.binning_size,
+        'pixel_size_um': pixel_size_um,
+        'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
+        'timestamp_source': frame_record.captured_at.source.value,
+        # A value the scope or the catalogue did not give is absent from the
+        # record itself, so every container reads back the same record.
+        'instrument': image_utils.stated_fields(
+            manufacturer='Etaluma',
+            model=microscope_model,
+            serial_number=motor_info.serial_number,
+            camera_model=frame_record.camera_model,
+        ),
+        # Labware with no wells (Blank) is no plate. A well is a place on
+        # the plate, so it is stated inside it, and only when there is one:
+        # an empty or fabricated label is measured off the file forever.
+        **(
+            {
+                'plate': image_utils.stated_fields(
+                    name=labware.name,
+                    rows=labware.rows,
+                    columns=labware.columns,
+                    standard=labware.standard,
+                    well_label=well_label,
+                )
+            }
+            if labware.rows and labware.columns
+            else {}
+        ),
+    }
+
+    # Camera-side timestamp and frame id, where the camera stamps them
+    # (Pylon ace 2 / dart; IDS carries no chunk timestamp).
+    if frame_record.camera_timestamp_ticks is not None:
+        metadata['timestamp_camera_ticks'] = frame_record.camera_timestamp_ticks
+    if frame_record.camera_tick_hz is not None:
+        metadata['timestamp_camera_tick_hz'] = frame_record.camera_tick_hz
+    if frame_record.frame_id is not None:
+        metadata['frame_id'] = frame_record.frame_id
+    # Whether the frame counts for each change, and how long after it came.
+    if frame_record.judgments:
+        metadata['frame_validity'] = [j.fields() for j in frame_record.judgments]
+    # What the capture found the frame to be, where it judged: a dark file
+    # otherwise reads as any other black image, a blown one as a bright field.
+    if frame_record.saturated_fraction is not None:
+        metadata['saturated_fraction'] = frame_record.saturated_fraction
+    if frame_record.dark is not None:
+        metadata['dark'] = frame_record.dark
+    # Whether the camera held a layer's stored settings for the frame, and
+    # which: a frame taken after a script's raw gain or exposure write says
+    # it held none, rather than leaving the reader to guess.
+    metadata['camera_held_a_channel'] = frame_record.held_channel is not None
+    # A frame taken where a failed autofocus left the stage says so: the
+    # run's outcome names the step, but the file travels without it.
+    if fallback_focus is not None:
+        metadata['fallback_focus'] = fallback_focus
+    if frame_record.held_channel is not None:
+        metadata['camera_held_channel'] = frame_record.held_channel
+
+    return metadata
+
+
+def _apply_save_orientation(array):
+    """Flip the camera array to the canonical save orientation.
+
+    Single source of the save-time orientation convention, applied
+    identically to every output format (TIFF, OME-TIFF, JPG) so they
+    can never diverge. The camera delivers rows top-to-bottom; the
+    saved image -- and the stitching / tiling pipeline that reads it
+    back -- expects the vertically-flipped view.
+    """
+    return np.flip(array, 0)
+
+
+def prepare_image_for_saving(
+    scope: Lumascope,
+    array: np.ndarray,
+    save_folder: str,
+    file_root: str,
+    append: str,
+    tail_id_mode: str,
+    output_format: image_mode.OutputFormat,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    *,
+    channel: str,
+    significant_bits: int,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware | None,
+    well_label: str | None,
+    fallback_focus: str | None,
+) -> dict:
+    """Prepare an image array and metadata for saving to disk.
+
+    Flips the image vertically, records the payload bit depth, and generates
+    the save path and metadata. Pixel values are stored raw (right-aligned) --
+    a 12-bit frame is saved as 0..4095, not left-justified to 0..65520 -- with
+    the true depth carried in the SignificantBits tag instead.
+
+    Args:
+        scope: Passed to generate_image_metadata.
+        array: Raw image array from drivers.
+        save_folder: Directory to save into.
+        file_root: Filename prefix.
+        append: String appended to filename (e.g. channel label).
+        tail_id_mode: "increment" for auto-numbered files, or None.
+        output_format: "TIFF" or "OME-TIFF".
+        plate_x_mm: Plate X position in mm -- the frame the file records.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
+        channel: Channel the frame was acquired on. Required and keyword-only:
+            it is the sole durable carrier of channel identity, so a save that
+            never states its channel must not be constructible. It is
+            independent of how the frame is displayed.
+        significant_bits: Payload depth ``array`` was captured at, recorded in
+            the SignificantBits tag. Required: the caller passes the depth it
+            captured the frame at (8 for a uint8 frame, the native depth for a
+            single wider frame, 16 for a summed 16-bit container) -- a save
+            cannot re-derive it from the camera's live state, which may already
+            describe a newer format.
+        objective_id: The objective in the light path when the frame was
+            taken, for the same reason (see ``generate_image_metadata``).
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``CapturedStill.record``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
+
+    Returns:
+        dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
+    """
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+        objective_id=objective_id,
+        frame_record=frame_record,
+        labware=labware,
+        well_label=well_label,
+        fallback_focus=fallback_focus,
+    )
+
+    metadata['significant_bits'] = significant_bits
+
+    array = _apply_save_orientation(array)
+
+    path = generate_image_save_path(
+        save_folder=save_folder,
+        file_root=file_root,
+        append=append,
+        tail_id_mode=tail_id_mode,
+        output_format=output_format,
+    )
+
+    metadata['file_loc'] = path
+
+    return {
+        'image': array,
+        'metadata': metadata,
+    }
+
+
+def save_image(
+    scope: Lumascope,
+    array: np.ndarray,
+    save_folder: pathlib.Path | str = './capture',
+    file_root: str = 'img_',
+    append: str = 'ms',
+    tail_id_mode: str | None = 'increment',
+    *,
+    channel: str,
+    false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
+    save_encoding: str,
+    output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
+    plate_x_mm: float | None = None,
+    plate_y_mm: float | None = None,
+    stage_z_um: float | None = None,
+    jpeg_quality: int = 90,
+    significant_bits: int,
+    white_bits: int | None,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware | None,
+    well_label: str | None,
+    fallback_focus: str | None,
+) -> pathlib.Path:
+    """Save an image array to a TIFF file with metadata.
+
+    Args:
+        scope: Passed to prepare_image_for_saving for metadata.
+        array: Image array to save.
+        save_folder: Directory to save into.
+        file_root: Filename prefix.
+        append: String appended to filename.
+        tail_id_mode: "increment" for auto-numbered files, or None.
+        channel: Channel the frame was acquired on -- what the image IS.
+            Required and keyword-only; recorded as the file's identity and
+            never altered by a display setting.
+        false_color_on: Whether the channel's false-color toggle was on --
+            how the image is DISPLAYED. Required and keyword-only; drives the
+            colormap and the JPG bake, and reaches no identity field.
+        channel_colors: Every layer's colour, from the Session's one read
+            of it; the channel's is the one it is shown in.
+        output_format: "TIFF", "OME-TIFF", or "JPG".
+        plate_x_mm: Plate X position in mm -- the frame the file records, and
+            the frame the caller must supply. Named for its frame because the
+            defect this replaces was a plate value passed into a parameter
+            documented as stage micrometres.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
+        save_encoding: The derived on-disk encoding from the image_mode
+            config layer (rgb / msb_aligned / right_aligned / 8bit). Required
+            and keyword-only: it is the single value that drives the save
+            shape, so no call site can omit the image mode and silently store
+            a scaled payload right-aligned (dark).
+        jpeg_quality: JPEG quality 1-100, used only when output_format
+            is "JPG".
+        significant_bits: Payload depth the frame was captured at.
+        white_bits: The depth whose full scale is white in ``array``: one
+            frame's depth for a capture, below ``significant_bits`` for a sum.
+            None for an array already rendered for display (an overlay), shown
+            at its depth. Required, from the caller: the frame record
+            describes the frame, and an overlay saved beside it is not that
+            frame.
+        objective_id: The objective in the light path when the frame was
+            taken; recorded as the file's scale. Required: read by the
+            caller when it takes the frame, never at save time.
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``CapturedStill.record``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
+
+    Returns:
+        pathlib.Path: Path to the saved file.
+
+    Raises:
+        ArgumentRefusedError: ``'wrong_kind'``, if ``array`` is None. A capture
+            that got no frame raises rather than answering None, so None here
+            is a caller's defect, refused before anything is written.
+        ImageSaveError: The file could not be written (a missing or
+            read-only folder, a full disk), chained from the ``OSError``.
+            Any other failure propagates as itself.
+    """
+    if array is None:
+        raise ArgumentRefusedError(
+            'wrong_kind', argument='array', value=None, takes='an image array'
+        )
+
+    # The one place the two facts meet, and they meet on the rendering side
+    # only. A channel with false color off is drawn grey; it is still that
+    # channel, and the metadata below says so.
+    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
+
+    if output_format == image_mode.OutputFormat.JPG:
+        # JPG is a convenience / sharing export: the pixels come from the
+        # raw array (to match the live preview) and the file has no place
+        # for the metadata a TIFF carries, so skip prepare_image_for_saving.
+        # A manual still states what the file cannot in the record its
+        # capture returns (manual_capture.SavedStill). Only the save path
+        # is required.
+        image = None
+        metadata = None
+        file_loc = generate_image_save_path(
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+        )
+    else:
+        image_data = prepare_image_for_saving(
+            scope,
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            channel=channel,
+            plate_x_mm=plate_x_mm,
+            plate_y_mm=plate_y_mm,
+            stage_z_um=stage_z_um,
+            significant_bits=significant_bits,
+            objective_id=objective_id,
+            frame_record=frame_record,
+            labware=labware,
+            well_label=well_label,
+            fallback_focus=fallback_focus,
+        )
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
+    ome = output_format == image_mode.OutputFormat.OME_TIFF
+
+    try:
+        if output_format == image_mode.OutputFormat.JPG:
+            # Convenience / sharing export: bake the displayed channel
+            # color into 8-bit pixels and write a JPEG. Shares the
+            # orientation convention with the TIFF path via
+            # _apply_save_orientation (the only step both formats have in
+            # common); without it the JPG saved upside-down relative to the
+            # TIFFs and the tiling pipeline that reads them. Bit depth,
+            # color baking, and metadata are format-specific: JPG is an
+            # 8-bit rendered display image, TIFF / OME-TIFF carry the
+            # 16-bit data + metadata.
+            # Rendered as it is shown: a sum against one frame's white.
+            jpg_bytes = image_utils.encode_display_jpg(
+                _apply_save_orientation(array),
+                render_color,
+                significant_bits=significant_bits,
+                white_bits=white_bits,
+                jpeg_quality=jpeg_quality,
+            )
+            pathlib.Path(file_loc).write_bytes(jpg_bytes)
+        else:
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+                color=render_color,
+                significant_bits=metadata['significant_bits'],
+                save_encoding=save_encoding,
+                white_bits=white_bits,
+            )
+
+        logger.debug(f'[SCOPE API ] Saving Image to {file_loc}')
+    except OSError as ex:
+        # Only the write's own failure is the disk's; an encoding or metadata
+        # error before it propagates as itself, in its own words. Reported
+        # once, by whoever ends the flight.
+        raise ImageSaveError(file_loc) from ex
+
+    # Handle-leak tracking; zero overhead when disabled. Enable via the
+    # profiling.handle_trace_enabled setting.
+    _h_tick('save_image')
+
+    return file_loc

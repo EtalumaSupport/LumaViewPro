@@ -23,13 +23,13 @@ import logging
 
 import pytest
 
-from drivers.null_ledboard import NullLEDBoard
-from modules.exceptions import (
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api.illumination import (
+from _lumascope.modules.lumascope_api.illumination import (
     LedReading,
     LedState,
     LedTransition,
@@ -245,7 +245,7 @@ def test_a_shutdown_after_disconnect_logs_nothing_for_the_led(make_session, capl
 
 
 def test_a_scope_that_came_up_without_its_board_has_no_led_cap_or_channels(make_session):
-    from modules.scope_capabilities import ScopeCapabilities
+    from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
     scope = make_session('LS620').scope
 
@@ -310,7 +310,7 @@ def test_go_to_step_without_the_board_moves_only_when_its_preview_is_dark(
 def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
     make_session, monkeypatch, tmp_path, caplog
 ):
-    import modules.sequenced_capture_runner as runner_module
+    import _lumascope.modules.sequenced_capture_runner as runner_module
 
     caplog.set_level(logging.DEBUG)
     session = make_session('LS850')

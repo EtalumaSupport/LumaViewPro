@@ -37,7 +37,7 @@ def main() -> int:
             return 2
         print('tiffs:', sorted(p.name for p in folder.rglob('*.tif*')))
 
-        from modules.exceptions import CaptureError
+        from _lumascope.modules.exceptions import CaptureError
 
         try:
             result = session.post_processing.stitch(folder, mode='quality')

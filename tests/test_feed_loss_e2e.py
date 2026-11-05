@@ -17,11 +17,11 @@ import time
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-import modules.manual_recording as manual_recording_module
-from modules.layer_record import release_colors
-from modules.manual_recording import ManualRecordingController
-from modules.scheduler import ThreadingTimerScheduler
+from _lumascope.modules.activity_claim import ActivityClaim
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.manual_recording import ManualRecordingController
+from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 

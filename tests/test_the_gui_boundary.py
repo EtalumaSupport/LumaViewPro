@@ -17,12 +17,12 @@ import types
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
-from modules.notification_center import Severity
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_outcome
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_outcome
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
 from tests.protocol_drives import run_identity
@@ -195,7 +195,7 @@ class TestTheLaneForm:
 
     @pytest.fixture
     def claim(self, lane):
-        from modules.activity_claim import ActivityClaim
+        from _lumascope.modules.activity_claim import ActivityClaim
 
         c = ActivityClaim()
         lane.ask_claim(c)
@@ -299,7 +299,7 @@ class TestALongMemberCarriesItsBudget:
     """A member that declares how long it may run is not a slow task when it runs that long."""
 
     def test_the_task_carries_the_members_declared_budget(self, monkeypatch):
-        from modules.scope_session import SUPPORT_REPORT_SLOW_TASK_S, ScopeSession
+        from _lumascope.modules.scope_session import SUPPORT_REPORT_SLOW_TASK_S, ScopeSession
 
         queued = []
         executor = types.SimpleNamespace(put=lambda task: queued.append(task) or task)

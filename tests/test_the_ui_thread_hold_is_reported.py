@@ -12,14 +12,16 @@ thread runs again.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
+import types
 
 import pytest
 
-import modules.metrics_logger as metrics_logger_module
-from modules.kivy_utils import UiDispatcher, ui_backlog
-from modules.scope_session import ScopeSession
+import _lumascope.modules.metrics_logger as metrics_logger_module
+from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
+from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import messages, records_of
 
 
@@ -118,18 +120,63 @@ def test_a_failing_queue_snapshot_reaches_the_scheduler(sim_session, monkeypatch
         sim_session.metrics_logger.tick_executor_watchdog()
 
 
-def test_a_hold_shorter_than_the_watch_sees_is_said_by_the_clock_once_it_runs(caplog):
+@pytest.fixture
+def frame_started_before_the_line(monkeypatch):
+    """The reporter's module, under a Clock whose frame started 0.3 s before the line is written."""
+    import ui.ui_helpers as ui_helpers
+
+    # a stand-in by design: Kivy never runs in the test process
+    # (conftest install_mock_deps); the reporter reads only the Clock's now
+    # and its frame's start, and this one puts them 0.3 s apart.
+    monkeypatch.setattr(
+        ui_helpers, 'Clock', types.SimpleNamespace(time=lambda: 100.0, get_time=lambda: 99.7)
+    )
+    return ui_helpers
+
+
+def test_a_hold_shorter_than_the_watch_sees_is_said_by_the_clock_once_it_runs(
+    frame_started_before_the_line, caplog
+):
     """The Clock's gap past a second is said once; a gap within its tick says nothing.
 
     The probe above needs a hold of a tick or more (a minute) to see one; a
     field bundle's 9-10 s protocol loads froze the GUI and no line said so.
     """
-    import ui.ui_helpers as ui_helpers
-
+    ui_helpers = frame_started_before_the_line
     caplog.set_level(logging.WARNING)
     ui_helpers.report_ui_thread_hold(ui_helpers.UI_HOLD_TICK_S)
     assert messages(records_of(caplog, ui_helpers)) == []
 
     ui_helpers.report_ui_thread_hold(9.04)
 
-    assert messages(records_of(caplog, ui_helpers)) == ['[UI        ] The UI thread was held 9.0 s']
+    said = messages(records_of(caplog, ui_helpers))
+    assert len(said) == 1 and said[0].startswith('[UI        ] The UI thread was held 9.0 s, '), (
+        said
+    )
+
+
+def test_a_hold_names_its_window_ending_when_its_frame_started_not_at_the_line(
+    frame_started_before_the_line, caplog
+):
+    """A hold ends at its frame's start, which can be well before the line is written.
+
+    A field bundle's two held windows, read back from their lines' stamps,
+    seemed to overlap: the frame between them ran 1.65 s of other callbacks
+    before the reporter wrote its line. The line states its window, so a
+    reader never derives it from the stamp.
+    """
+    ui_helpers = frame_started_before_the_line
+    caplog.set_level(logging.WARNING)
+
+    ui_helpers.report_ui_thread_hold(9.04)
+
+    (record,) = records_of(caplog, ui_helpers)
+    began, ended = (
+        datetime.datetime.combine(
+            datetime.date.fromtimestamp(record.created), datetime.time.fromisoformat(clock_time)
+        )
+        for clock_time in record.getMessage().rsplit(', ', 1)[1].split(' - ')
+    )
+    stamped = datetime.datetime.fromtimestamp(record.created)
+    assert 0.29 <= (stamped - ended).total_seconds() < 0.35, (ended, stamped)
+    assert abs((ended - began).total_seconds() - 9.04) < 0.002, (began, ended)

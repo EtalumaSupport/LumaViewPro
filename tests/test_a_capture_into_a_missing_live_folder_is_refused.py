@@ -1,6 +1,6 @@
 """A capture into a live folder that is not there is refused, naming the folder.
 
-The capture-location owner (`modules/path_utils.py`) treats a missing live
+The capture-location owner (`src/_lumascope/modules/path_utils.py`) treats a missing live
 folder as an unplugged drive or a stale path: it refuses rather than building
 a fresh tree on whatever is mounted there. Two writers did not ask it. A
 manual still created the whole tree itself, so a drive that was gone became a
@@ -13,15 +13,19 @@ import pathlib
 
 import pytest
 
-from modules import path_utils
-from modules.exceptions import LiveFolderPathRefusedError, RecordingRefusedError, RefusalCause
-from modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules import path_utils
+from _lumascope.modules.exceptions import (
+    LiveFolderPathRefusedError,
+    RecordingRefusedError,
+    RefusalCause,
+)
+from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixture is used by name
     LAYER,
     capture_ctx,
 )
 from tests.test_manual_recording_controller import make_controller
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 class TestTheLocationOwnerAnswers:
@@ -48,7 +52,7 @@ class TestTheLocationOwnerAnswers:
 
 
 def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture_ctx):
-    from modules.manual_capture import ManualCaptureController
+    from _lumascope.modules.manual_capture import ManualCaptureController
     from tests.settings_fixtures import complete_settings
 
     gone = pathlib.Path(capture_ctx.tmp_path) / 'unplugged' / 'capture'

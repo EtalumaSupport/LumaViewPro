@@ -21,9 +21,9 @@ import pathlib
 
 import pytest
 
-from modules.config_helpers import get_sequenced_capture_config_from_settings
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.config_helpers import get_sequenced_capture_config_from_settings
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.settings_fixtures import shipped_template
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -81,7 +81,7 @@ def test_an_unknown_labware_is_refused_before_the_config_is_built():
     catalogue does not have, naming it; neither substitutes another plate,
     whose geometry would put every well position in the wrong place.
     """
-    from modules.exceptions import CatalogueNameRefusedError
+    from _lumascope.modules.exceptions import CatalogueNameRefusedError
 
     with pytest.raises(
         CatalogueNameRefusedError,

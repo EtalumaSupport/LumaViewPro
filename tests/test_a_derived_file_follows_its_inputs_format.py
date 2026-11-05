@@ -23,16 +23,16 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-import modules.image_utils as image_utils
-from modules.image_mode import OutputFormat
-from modules.post_processing_api import Stitch, ZProject
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.post_processing_api import Stitch, ZProject
 from tests.stock_channels import LED0
 from tests.test_a_derived_image_says_how_it_was_made import write_run_folder
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(

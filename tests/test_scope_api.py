@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Tests for the GUI-independent scope API modules:
-- modules/config_helpers.py
-- modules/lumascope_api.py executor-backed command API
+- src/_lumascope/modules/config_helpers.py
+- src/_lumascope/modules/lumascope_api.py executor-backed command API
   (scope.illumination.led_on, scope.motion.move_xy, etc.)
-- modules/scope_session.py
+- src/_lumascope/modules/scope_session.py
 
 Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
@@ -17,11 +17,11 @@ from tests.settings_fixtures import complete_settings
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-import modules.config_helpers as config_helpers
-from modules.lumascope_api.illumination import LedState
-from modules.scope_session import ScopeSession
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
     build_scope,
     led_reading,
@@ -56,7 +56,7 @@ def _make_layer_settings(**overrides):
 
 def _make_settings(layers=None, with_stim=False):
     """Build a minimal settings dict with the standard layers."""
-    from modules.common_utils import get_layers
+    from _lumascope.modules.common_utils import get_layers
 
     if layers is None:
         layers = get_layers()
@@ -120,11 +120,11 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
 
     scope = build_scope(simulate=True)
     if not led:
-        from drivers.null_ledboard import NullLEDBoard
+        from _lumascope.drivers.null_ledboard import NullLEDBoard
 
         scope._led_driver = NullLEDBoard()
     if not motor:
-        from drivers.null_motorboard import NullMotionBoard
+        from _lumascope.drivers.null_motorboard import NullMotionBoard
 
         scope._motion_driver = NullMotionBoard()
     io_ex = _RecordingExecutor(name='TEST_IO')
@@ -160,7 +160,7 @@ class TestGetLayerConfigs:
     def test_returns_all_layers(self):
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
-        from modules.common_utils import get_layers
+        from _lumascope.modules.common_utils import get_layers
 
         assert set(configs.keys()) == set(get_layers())
 
@@ -172,7 +172,7 @@ class TestGetLayerConfigs:
     def test_illumination_rounded(self):
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
-        from modules.common_utils import max_decimal_precision
+        from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('illumination')
         for cfg in configs.values():
@@ -182,7 +182,7 @@ class TestGetLayerConfigs:
     def test_gain_rounded(self):
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
-        from modules.common_utils import max_decimal_precision
+        from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('gain')
         for cfg in configs.values():
@@ -191,7 +191,7 @@ class TestGetLayerConfigs:
     def test_exposure_rounded(self):
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
-        from modules.common_utils import max_decimal_precision
+        from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('exposure')
         for cfg in configs.values():
@@ -307,13 +307,13 @@ class TestGetCurrentPlatePosition:
     def test_an_expected_motor_board_that_is_absent_is_refused(self):
         # The model has a motor controller and none answers: there is no
         # position, and the origin would be recorded as if it were one.
-        from modules.exceptions import HardwareCommandRefusedError
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
         scope = MagicMock()
         type(scope).motor_connected = PropertyMock(return_value=False)
         type(scope).motion_expected = PropertyMock(return_value=True)
         # The real presence question, asked of this scope.
-        from modules.lumascope_api.motion import MotionAPI
+        from _lumascope.modules.lumascope_api.motion import MotionAPI
 
         scope.motion = MotionAPI.__new__(MotionAPI)
         scope.motion._scope = scope
@@ -324,7 +324,7 @@ class TestGetCurrentPlatePosition:
         assert refused.value.reason == 'not_connected'
 
     def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
-        from modules.exceptions import CatalogueNameRefusedError
+        from _lumascope.modules.exceptions import CatalogueNameRefusedError
         from tests.test_manual_capture_member import _open_session, _settings
 
         with (
@@ -353,9 +353,9 @@ class TestLogSystemMetrics:
     def test_calls_system_metrics(self, sim_scope):
         settings = complete_settings(live_folder='/tmp')
         with (
-            patch('modules.common_utils.system_metrics') as mock_metrics,
-            patch('modules.common_utils.check_disk_space') as mock_disk,
-            patch('modules.common_utils.get_extra_disks_info') as mock_extra,
+            patch('_lumascope.modules.common_utils.system_metrics') as mock_metrics,
+            patch('_lumascope.modules.common_utils.check_disk_space') as mock_disk,
+            patch('_lumascope.modules.common_utils.get_extra_disks_info') as mock_extra,
         ):
             mock_metrics.return_value = {
                 'cpu_percent_total': 25.0,
@@ -400,7 +400,7 @@ class TestLumascopeLedAPI:
         # is truthy, so a body that only asked the driver's truthiness would
         # no-op at the driver while the state cache went on claiming the
         # channel was on.
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -500,7 +500,7 @@ class TestScopeSession:
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
         configs = session.get_layer_configs()
-        from modules.common_utils import get_layers
+        from _lumascope.modules.common_utils import get_layers
 
         assert set(configs.keys()) == set(get_layers())
 
@@ -525,7 +525,7 @@ class TestScopeSession:
         assert obj is session.scope.objectives['10x Oly']
 
     def test_the_current_objective_raises_when_nothing_is_known(self):
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         session = self._make_session()
         with pytest.raises(ObjectiveUnknownError):

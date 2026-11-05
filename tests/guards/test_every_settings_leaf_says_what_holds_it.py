@@ -13,7 +13,7 @@ leaf that has none. Each entry of those tables names a setting the template
 holds, so a rule outliving its setting fails too.
 """
 
-from modules import settings_paths
+from _lumascope.modules import settings_paths
 from tests.settings_fixtures import shipped_template
 
 

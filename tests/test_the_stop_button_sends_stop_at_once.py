@@ -16,9 +16,9 @@ import types
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from ui import ui_helpers

@@ -36,12 +36,12 @@ from __future__ import annotations
 
 import ast
 import pathlib
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.protocol_fixtures import protocol_of
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-MOTION_SRC = REPO / 'modules' / 'lumascope_api' / 'motion.py'
+MOTION_SRC = REPO / 'src/_lumascope/modules' / 'lumascope_api' / 'motion.py'
 VERTCTRL_SRC = REPO / 'ui' / 'vertical_control.py'
 UIHELPERS_SRC = REPO / 'ui' / 'ui_helpers.py'
 STEPNAV_SRC = REPO / 'ui' / 'step_navigation.py'
@@ -145,7 +145,7 @@ def _empty_protocol_for_add():
 
     import pandas as pd
 
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     config = {
         'version': Protocol.CURRENT_VERSION,

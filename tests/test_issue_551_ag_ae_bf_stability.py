@@ -6,7 +6,7 @@ Bug
 Customer reported AutoGain/Exposure instability in BF -- the camera
 controller was bouncing between gain and exposure values, producing
 flickering brightness in the live preview. Two contributing factors
-in drivers/pyloncamera.py::init_auto_gain_focus:
+in src/_lumascope/drivers/pyloncamera.py::init_auto_gain_focus:
 
 1. AutoFunction ROI was set to (Width.Max - 2*offsetX, Height.Max -
    2*offsetY) -- effectively full-frame. The controller sampled plate

@@ -26,22 +26,24 @@ _FILES = ('scopes.json', 'motorconfig_defaults.json', 'labware.json', 'objective
 
 # (module, qualname) -> the files that def may name.
 _OWNERS = {
-    ('modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues'): {
+    ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues'): {
         'scopes.json',
         'motorconfig_defaults.json',
     },
-    ('modules/labware_loader.py', 'WellPlateLoader.__init__'): {'labware.json'},
-    ('modules/objectives_loader.py', 'ObjectiveLoader.__init__'): {'objectives.json'},
-    ('modules/layer_record.py', 'release_layers'): {'scopes.json'},
-    ('modules/layer_record.py', 'release_old_names'): {'scopes.json'},
-    ('modules/layer_record.py', 'load_scope_models'): {'scopes.json'},
+    ('src/_lumascope/modules/labware_loader.py', 'WellPlateLoader.__init__'): {'labware.json'},
+    ('src/_lumascope/modules/objectives_loader.py', 'ObjectiveLoader.__init__'): {
+        'objectives.json'
+    },
+    ('src/_lumascope/modules/layer_record.py', 'release_layers'): {'scopes.json'},
+    ('src/_lumascope/modules/layer_record.py', 'release_old_names'): {'scopes.json'},
+    ('src/_lumascope/modules/layer_record.py', 'load_scope_models'): {'scopes.json'},
     ('tools/firmware_tools.py', '_connect_motor_board'): {'motorconfig_defaults.json'},
 }
 
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools'))
 
 
 def _named_in_calls(tree: ast.Module):
@@ -93,7 +95,7 @@ def test_only_the_scope_reads_the_model_catalogue():
         for rel_path, tree in _all_production_modules()
         for qualname, lineno in _load_scope_models_calls(tree)
         if (rel_path, qualname)
-        != ('modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues')
+        != ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues')
     ]
     assert found == [], f'read scope.scope_models instead of the file: {found}'
 

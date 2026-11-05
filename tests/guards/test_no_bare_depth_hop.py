@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
-SCAN_DIRS = Packages({'modules', 'drivers', 'ui'})
+SCAN_DIRS = Packages({'src/_lumascope/modules', 'src/_lumascope/drivers', 'ui'})
 
-DEPTH_PARAMS = MemberNames(('modules', 'drivers', 'ui'), {'significant_bits'})
+DEPTH_PARAMS = MemberNames(
+    ('src/_lumascope/modules', 'src/_lumascope/drivers', 'ui'), {'significant_bits'}
+)
 COLOR_PARAMS = MemberNames(
-    ('modules', 'drivers', 'ui'), {'color', 'is_color', 'save_encoding', 'channel'}
+    ('src/_lumascope/modules', 'src/_lumascope/drivers', 'ui'),
+    {'color', 'is_color', 'save_encoding', 'channel'},
 )
 
 # Terminal serializer / renderer sinks where the depth and the color/encoding
@@ -34,22 +37,22 @@ COLOR_PARAMS = MemberNames(
 # instead of silently protecting an unrelated function.
 ALLOWLISTED_SINKS = frozenset(
     {
-        ('modules/image_save.py', 'prepare_image_for_saving'),
-        ('modules/image_save.py', 'save_image'),
-        ('modules/image_utils.py', 'encode_display_jpg'),
-        ('modules/image_utils.py', 'write_tiff'),
-        ('modules/image_utils.py', '_compute_scale_bar_overlay'),
+        ('src/_lumascope/modules/image_save.py', 'prepare_image_for_saving'),
+        ('src/_lumascope/modules/image_save.py', 'save_image'),
+        ('src/_lumascope/modules/image_utils.py', 'encode_display_jpg'),
+        ('src/_lumascope/modules/image_utils.py', 'write_tiff'),
+        ('src/_lumascope/modules/image_utils.py', '_compute_scale_bar_overlay'),
         # Resolves the on-disk depth FROM the encoding + acquired depth so a
         # caller can report what the file actually carries; the encoding and
         # depth genuinely arrive together here, like the write sinks above.
-        ('modules/image_utils.py', 'written_significant_bits'),
+        ('src/_lumascope/modules/image_utils.py', 'written_significant_bits'),
         # Terminal serializer for stitched output: forwards depth+color
         # straight into the allowlisted write_tiff to write the TIFF.
-        ('modules/stitching_core.py', '_write_output'),
+        ('src/_lumascope/modules/stitching_core.py', '_write_output'),
         # Terminal metadata builder for post-processing outputs: the channel
         # and the depth of the pixels it was handed arrive together to describe
         # one derived file, and both are already required arguments.
-        ('modules/image_utils.py', 'build_postproc_output_metadata'),
+        ('src/_lumascope/modules/image_utils.py', 'build_postproc_output_metadata'),
     }
 )
 
@@ -74,7 +77,7 @@ def _scan_production():
     """Every depth+color co-occurring def across the scanned source dirs."""
     hops = []
     for d in SCAN_DIRS:
-        for path in sorted((REPO_ROOT / d).rglob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files((d,))]:
             tree = ast.parse(path.read_text())
             rel = path.relative_to(REPO_ROOT).as_posix()
             hops.extend(_find_depth_color_hops(tree, rel))

@@ -17,7 +17,7 @@ slot is the same width class whatever the value.
 
 import pytest
 
-from modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlatePosition
 from ui.shader import cursor_title, frame_rate_title
 from ui.ui_helpers import FIGURE_SPACE, MINUS, fixed_number
 

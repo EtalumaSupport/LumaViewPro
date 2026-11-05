@@ -23,8 +23,8 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
 
 
 def test_disconnect_mid_move_faults_axis_and_notifies(centre_posts):
-    from modules.lumascope_api import AxisState
-    from modules.notification_center import Severity
+    from _lumascope.modules.lumascope_api import AxisState
+    from _lumascope.modules.notification_center import Severity
 
     scope = build_scope(simulate=True)
     motion = scope.motion

@@ -11,7 +11,7 @@ degrades gracefully instead of dying.
 
 import numpy as np
 
-from modules.image_utils import fit_frame_to_shape
+from _lumascope.modules.image_utils import fit_frame_to_shape
 
 
 def test_crops_larger_mono_frame():

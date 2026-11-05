@@ -19,11 +19,11 @@ from unittest.mock import patch
 
 import pytest
 
-import modules.protocol as protocol_module
-from modules.coord_transformations import AxisLimits, StageOffset
-from modules.exceptions import ProtocolRunRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+import _lumascope.modules.protocol as protocol_module
+from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.test_protocol_execution import _make_multi_step_protocol, scope  # noqa: F401
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
@@ -35,14 +35,14 @@ _STACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}  # 4950..5
 
 
 def test_a_short_list_is_named_whole():
-    from modules.common_utils import first_few
+    from _lumascope.modules.common_utils import first_few
 
     assert first_few(['a', 'b', 'c'], separator=', ') == 'a, b, c'
     assert first_few(['a', 'b', 'c', 'd', 'e'], separator=', ') == 'a, b, c, d, e'
 
 
 def test_a_long_list_names_five_in_the_given_order_then_the_rest():
-    from modules.common_utils import first_few
+    from _lumascope.modules.common_utils import first_few
 
     items = [f'item{n}' for n in (9, 3, 7, 1, 5, 8, 2)]
     assert first_few(items, separator=', ') == 'item9, item3, item7, item1, item5, and 2 more'
@@ -51,7 +51,7 @@ def test_a_long_list_names_five_in_the_given_order_then_the_rest():
 
 def _stack_refusal(proto):
     with (
-        patch('modules.protocol.notifications.report_outcome'),
+        patch('_lumascope.modules.protocol.notifications.report_outcome'),
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         proto.apply_zstacking(

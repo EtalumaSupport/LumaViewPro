@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 from tests.camera_fakes import fx2_stream
 
 COMPLETED = fx2driver.usb1.TRANSFER_COMPLETED

@@ -1,0 +1,9 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"shot","name":"../images/tour-left-panel-ls850","path":"MotionSettings/motionsettings_accordion_id"},
+  {"do":"shot","name":"../images/tour-toolbar-ls850","path":"MainDisplay/toolbar_id","note":"a motorised scope: STOP ends the row"},
+  {"do":"press","path":"ChannelDrawer[layer=BF]/control/enable_led_btn","settle_s":3,"note":"lit, so the histogram is drawn"},
+  {"do":"shot","name":"../images/tour-right-panel-ls850","path":"ImageSettings/accordion_id"},
+  {"do":"quit"}
+]

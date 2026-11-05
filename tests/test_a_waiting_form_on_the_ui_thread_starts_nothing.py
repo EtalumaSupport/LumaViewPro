@@ -3,7 +3,7 @@
 
 A waiting form is its start followed by the started operation's
 ``result()``, and a ``result()`` on the UI thread for an operation not yet
-done is refused ``wait_on_ui_thread`` (``modules/operation.py``). Asked
+done is refused ``wait_on_ui_thread`` (``src/_lumascope/modules/operation.py``). Asked
 only at the wait, that refusal reached the caller after the start: the
 caller was told "refused" while the stage drove on or the run went on. So
 each waiting form refuses first, by the same reason, and the scope is left
@@ -14,9 +14,9 @@ reason: it would hold the UI thread for up to its whole timeout.
 
 import pytest
 
-from modules import kivy_utils
-from modules.exceptions import BlockingCallRefusedError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.exceptions import BlockingCallRefusedError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_wait_returns_after_its_own_callbacks import _DeferringDispatcher
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _protocol, _step
@@ -26,7 +26,7 @@ from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _protocol, _
 def ui():
     stand_in = _DeferringDispatcher()
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
+        ui_queue.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
     )
     yield stand_in
     ScopeSession.set_ui_dispatcher(None)

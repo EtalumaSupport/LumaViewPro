@@ -16,10 +16,10 @@ import time
 import numpy as np
 import pytest
 
-from drivers import host_clock
-from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import ArgumentRefusedError
-from modules.frame_validity import FrameValiditySource
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.frame_validity import FrameValiditySource
 from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import build_scope
 

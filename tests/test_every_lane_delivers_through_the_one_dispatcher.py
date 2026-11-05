@@ -14,9 +14,9 @@ import threading
 
 import pytest
 
-from modules.kivy_utils import UiDispatcher
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.ui_queue import UiDispatcher
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 

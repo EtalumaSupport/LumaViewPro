@@ -19,10 +19,10 @@ import time
 
 import pytest
 
-from modules import live_work
-from modules.exceptions import PostProcessingRefusedError, RefusalCause
-from modules.sequential_io_executor import IOTask
-from modules.scope_session import ScopeSession
+from _lumascope.modules import live_work
+from _lumascope.modules.exceptions import PostProcessingRefusedError, RefusalCause
+from _lumascope.modules.sequential_io_executor import IOTask
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import _a_closed_batch_still_writing
 

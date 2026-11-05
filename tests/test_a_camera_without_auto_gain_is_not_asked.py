@@ -19,10 +19,11 @@ import logging
 
 import pytest
 
-import drivers.camera_profiles as camera_profiles
-from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CameraSettingUnsupportedError
-from modules.lumascope_api.camera import CameraAutoMode
+import _lumascope.drivers.camera_profiles as camera_profiles
+from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.modules.exceptions import CameraSettingUnsupportedError
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -67,7 +68,7 @@ def asked(monkeypatch):
 def reported(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        'modules.notification_center.notifications.report_outcome',
+        '_lumascope.modules.notification_center.notifications.report_outcome',
         lambda exc, **kw: calls.append((exc, kw)),
     )
     return calls
@@ -205,7 +206,7 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
     api_log = logging.getLogger('LVP.api')
     # It inherits root's WARNING, which drops the INFO line before any handler.
     previous_level = api_log.level
-    api_log.setLevel(logging.INFO)
+    api_log.setLevel(VERBOSE)
     api_log.addHandler(collector)
     try:
         ag_less_camera.apply(

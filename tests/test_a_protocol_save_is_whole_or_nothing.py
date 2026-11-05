@@ -15,7 +15,7 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.exceptions import ProtocolNotSavedError
+from _lumascope.modules.exceptions import ProtocolNotSavedError
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.protocol_fixtures import protocol_from_file
 

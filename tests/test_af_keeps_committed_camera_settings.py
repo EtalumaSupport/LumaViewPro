@@ -20,7 +20,7 @@ explicitly set still fall back to the snapshot.
 
 from __future__ import annotations
 
-from modules.autofocus_runner import AutofocusRunner
+from _lumascope.modules.autofocus_runner import AutofocusRunner
 
 
 def _runner(saved, gain, exposure) -> AutofocusRunner:

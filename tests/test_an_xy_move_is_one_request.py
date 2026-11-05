@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.tmcm6110 import Tmcm6110Board
-from modules.exceptions import (
+from _lumascope.drivers.tmcm6110 import Tmcm6110Board
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     MoveFaultError,
     PositionOutOfRangeError,
 )
-from modules.lumascope_api import AxisState
+from _lumascope.modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
 _START = {'X': 60_000.0, 'Y': 40_000.0}
@@ -182,8 +182,8 @@ class TestOverRest:
     def client(self, tmp_path):
         from fastapi.testclient import TestClient
 
-        from modules.scope_session import ScopeSession
-        from rest.app import build_app
+        from _lumascope.modules.scope_session import ScopeSession
+        from _lumascope.rest.app import build_app
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

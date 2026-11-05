@@ -13,10 +13,10 @@ fault door; the Windows read is stood in where SetupAPI is absent.
 
 import pytest
 
-from drivers import fx2driver
-from drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, DeviceBinding
-from modules.lumascope_api.diagnostics import UsbDeviceBinding, UsbIdentityBindings
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, DeviceBinding
+from _lumascope.modules.lumascope_api.diagnostics import UsbDeviceBinding, UsbIdentityBindings
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -80,7 +80,7 @@ def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch)
         problem_code=None,
     )
     # a stand-in by design: SetupAPI, absent off Windows.
-    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [seen])
+    monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [seen])
 
     assert fx2driver._WinUsbTransport.bindings(FX2_BOOTLOADER) == [seen]
     # The published record carries every field the driver's does.

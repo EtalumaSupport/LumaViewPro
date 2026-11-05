@@ -29,9 +29,9 @@ import threading
 
 import pytest
 
-import modules.protocol_image_writer as protocol_image_writer
-from modules.config_helpers import get_composite_channels
-from modules.run_events import RunEvents
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.config_helpers import get_composite_channels
+from _lumascope.modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,

@@ -43,28 +43,28 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
 
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import HardwareCommandRefusedError
-from modules.image_mode import ImageCaptureConfig
-from modules import common_utils
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules import common_utils
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import (
+from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.objective_records import objective
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
@@ -124,7 +124,7 @@ def _build_protocol(step_specs):
     """
     import pandas as pd
 
-    pytest.importorskip('modules.tiling_config')
+    pytest.importorskip('_lumascope.modules.tiling_config')
 
     rows = []
     for idx, (well, color, kwargs) in enumerate(step_specs):
@@ -260,7 +260,7 @@ def _make_executors():
     (autofocus_thread / autofocus_runner below), so a real AF worker would be
     dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
     """
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO'),
@@ -627,7 +627,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 
 
 def _af_runner(scope):
-    from modules.autofocus_runner import AutofocusRunner
+    from _lumascope.modules.autofocus_runner import AutofocusRunner
 
     park_z(scope, 5000.0)
     r = AutofocusRunner(
@@ -826,9 +826,9 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
     one makes the full backlog reachable with one filler instead of 32
     in-flight writes. The stall budget is shrunk so the wedge declares in
     test time."""
-    import modules.protocol_image_writer as piw
-    from modules.notification_center import Severity, notifications
-    from modules.sequential_io_executor import ENQUEUED, IOTask
+    import _lumascope.modules.protocol_image_writer as piw
+    from _lumascope.modules.notification_center import Severity, notifications
+    from _lumascope.modules.sequential_io_executor import ENQUEUED, IOTask
 
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.5)
     monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)

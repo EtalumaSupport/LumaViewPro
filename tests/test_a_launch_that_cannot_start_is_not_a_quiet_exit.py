@@ -26,7 +26,12 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 def test_a_settings_file_that_cannot_be_used_escapes_and_is_logged_once_as_a_crash(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'version.txt', 'modules', 'drivers', 'ui', 'lib', 'plugins'):
+    for item in (
+        'src',
+        'version.txt',
+        'ui',
+        'plugins',
+    ):
         if (REPO / item).exists():
             (folder / item).symlink_to(REPO / item)
     # Copied, not linked: a linked main script would run against the clone's data.

@@ -13,7 +13,7 @@ The L2 surface converged on one word per fact:
 
 Drivers deliberately keep the old vocabulary -- `mA` mirrors the board
 command format and `thome` / `has_thomed` are the motor board's own
-names -- so `drivers/` is NOT swept. The translation happens at the
+names -- so `src/_lumascope/drivers/` is NOT swept. The translation happens at the
 facade, whose call into the driver is positional. The camera's
 get_binning_size, get_black_level, get_resulting_frame_rate and
 set_binning_size are the drivers' own names, which the API calls, so
@@ -36,7 +36,7 @@ import ast
 
 from tests.ast_seams import Packages, iter_package_modules
 
-PROD_PACKAGES = Packages({'modules', 'ui'})
+PROD_PACKAGES = Packages({'src/_lumascope/modules', 'ui'})
 
 RETIRED = {
     'mA': 'illumination_ma',
@@ -124,8 +124,8 @@ def test_a_retired_type_is_caught_where_it_is_defined_or_imported():
     tree = ast.parse(
         'class LayerIdentity:\n'
         '    pass\n'
-        'from modules.layer_record import LayerRecord\n'
-        'from modules.layer_record import ChannelRecord as LayerRecord\n'
+        'from _lumascope.modules.layer_record import LayerRecord\n'
+        'from _lumascope.modules.layer_record import ChannelRecord as LayerRecord\n'
     )
     assert _retired_identifier_hits(tree) == [
         (1, 'LayerIdentity'),
@@ -142,7 +142,7 @@ def test_no_retired_l2_spelling_in_production():
     ]
     assert not hits, '\n'.join(
         f'{rel_path}:{line} uses retired `{name}` -- the L2 surface spells this '
-        f'`{RETIRED[name]}`. If this is driver vocabulary it belongs in drivers/, '
+        f'`{RETIRED[name]}`. If this is driver vocabulary it belongs in src/_lumascope/drivers/, '
         f'not here.'
         for rel_path, line, name in hits
     )
@@ -160,8 +160,8 @@ def test_the_unit_string_is_untouched():
 
     import numpy as np
 
-    from modules import image_utils
-    from modules.layer_record import GREY
+    from _lumascope.modules import image_utils
+    from _lumascope.modules.layer_record import GREY
 
     plane = image_utils.generate_tiff_data(
         data=np.zeros((4, 4), dtype=np.uint8),

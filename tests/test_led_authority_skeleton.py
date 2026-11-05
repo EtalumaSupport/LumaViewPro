@@ -21,11 +21,11 @@ import threading
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
-from modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
-from modules.lumascope_api.illumination import (
+from _lumascope.modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedReading,
     LedTransition,
@@ -136,7 +136,7 @@ SNAPSHOT = frozenset({(BLUE_CH, BLUE_MA)})
 
 def _td(transition, **ctx_kwargs) -> frozenset:
     """Call the pure decision function (a staticmethod -- no instance needed)."""
-    from modules.lumascope_api.illumination import LedLease
+    from _lumascope.modules.lumascope_api.illumination import LedLease
 
     return LedLease.target_leds(transition, LedTransitionCtx(**ctx_kwargs))
 
@@ -296,7 +296,7 @@ UNNAMED_CH = 7
 
 
 def test_resolve_end_state_shared_builder():
-    from modules.lumascope_api.illumination import resolve_end_state
+    from _lumascope.modules.lumascope_api.illumination import resolve_end_state
 
     # OFF policy: no snapshot walk, empty target.
     lit_green = (_lit(GREEN_CH, LED1, GREEN_MA),)
@@ -319,7 +319,7 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
     # count as lit" from one place, so a tightened criterion cannot leave the
     # restore re-lighting an address the snapshot treated as dark. Both route
     # through _lit_channel_pairs; only the drop-nonpositive filter differs.
-    from modules.lumascope_api.illumination import (
+    from _lumascope.modules.lumascope_api.illumination import (
         _lit_channel_pairs,
         resolve_end_state,
         snapshot_lit_pairs,
@@ -369,7 +369,7 @@ def test_target_manual_step_preview_gate():
 
 
 def test_target_unknown_transition_raises():
-    from modules.lumascope_api.illumination import LedLease
+    from _lumascope.modules.lumascope_api.illumination import LedLease
 
     with pytest.raises((ValueError, TypeError)):
         LedLease.target_leds('not-a-transition', LedTransitionCtx())

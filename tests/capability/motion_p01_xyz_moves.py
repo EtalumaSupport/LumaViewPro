@@ -9,8 +9,12 @@ XY coarse/fine jog (motion_settings.py:452-480).
 
 from harness import check, run
 
-from modules.exceptions import HomingFailedError, PositionOutOfRangeError, AxisStateUnknownError
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.exceptions import (
+    HomingFailedError,
+    PositionOutOfRangeError,
+    AxisStateUnknownError,
+)
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.motion_moves import axis_move
 
 

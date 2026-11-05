@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import CaptureFailedError
+from _lumascope.modules.exceptions import CaptureFailedError
 from tests.test_auto_gain_lock import _build
 
 

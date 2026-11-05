@@ -16,12 +16,13 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
-from modules.exceptions import ConfigurationDefectError
-from modules.scope_session import ObjectiveQuestion
+from _lumascope.modules.exceptions import ConfigurationDefectError
+from _lumascope.modules.scope_session import ObjectiveQuestion
 from tests.ast_seams import parse_module
+from tests.objective_records import SHIPPED_OBJECTIVES
 from ui.vertical_control import VerticalControl
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ class _ScriptedSession:
         self.provisional = provisional
         self.confirmed = []
         self.cleared = []
+        self.scope = SimpleNamespace(objectives=SHIPPED_OBJECTIVES)
 
     def objective_question(self):
         if isinstance(self.question, Exception):
@@ -143,7 +145,7 @@ class TestTheQuestionIsRendered:
         h.prompt()
         assert len(h.popups) == 1
         popup = h.popups[0]
-        assert popup['objectives'] == list(CHOICES)
+        assert [o.id for o in popup['objectives']] == list(CHOICES)
         assert popup['current_objective_id'] == '10x Oly'
         assert 'turret position 2' in popup['message']
 
@@ -154,7 +156,7 @@ class TestTheQuestionIsRendered:
         assert 'turret position' not in h.popups[0]['message']
 
     def test_a_failed_query_is_one_notification_and_no_question(self, monkeypatch, centre_posts):
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         h = _Harness(
             monkeypatch,
@@ -186,7 +188,7 @@ class TestTheContinuationFollowsTheQuestion:
     def test_a_refusal_is_shown_in_its_own_words_and_the_continuation_runs_once(
         self, monkeypatch, centre_posts
     ):
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         h = _Harness(monkeypatch, _ScriptedSession(ObjectiveUnknownError('slot_unknown')))
         runs = self._prompt(h)
@@ -289,8 +291,8 @@ class TestTheAnswerReachesTheSession:
         assert h.stand.shown == [True]
 
     def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch, centre_posts):
-        from modules.exceptions import CatalogueNameRefusedError
-        from modules.notification_center import Severity
+        from _lumascope.modules.exceptions import CatalogueNameRefusedError
+        from _lumascope.modules.notification_center import Severity
 
         # The refusal the Session's owner raises for a name the catalogue lacks.
         refused = CatalogueNameRefusedError(
@@ -401,7 +403,7 @@ class TestResetLeavesTheSlotCleared:
     def test_a_refused_reset_is_shown_and_the_display_still_follows(
         self, monkeypatch, centre_posts
     ):
-        from modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
 
         session = _ScriptedSession(None)
 
@@ -454,8 +456,8 @@ class TestAnUnknownSlotSaysWhatHappensNext:
     def test_the_popup_names_the_reason_and_the_refusal_is_real(
         self, monkeypatch, tmp_path, centre_posts
     ):
-        from modules.exceptions import ObjectiveUnknownError
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.exceptions import ObjectiveUnknownError
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(

@@ -8,12 +8,12 @@ from kivy.clock import Clock
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-import modules.layer_record as layer_record
-import modules.image_mode as image_mode
-from modules import gui_logger
-from modules.acquire_mode import AcquireMode
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules import gui_logger
+from _lumascope.modules.acquire_mode import AcquireMode
 from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -37,8 +37,8 @@ _LAYER_VALUE_WIDGETS = (
 # (2026-04-16). Logs type + value at the slider vs text entry points
 # so the bench trace can show whether the two code paths diverge
 # here (int vs float) or further downstream. Companion gates live
-# in drivers/fx2driver.py (byte-level wire trace) and
-# modules/lumascope_api/illumination.py (cache-equality check).
+# in src/_lumascope/drivers/fx2driver.py (byte-level wire trace) and
+# src/_lumascope/modules/lumascope_api/illumination.py (cache-equality check).
 # Toggle by either:
 #   * set fx2_debug_wire_enabled: true in the settings
 #   * flip _FX2_DEBUG_WIRE = True  below
@@ -842,7 +842,7 @@ class LayerControl(BoxLayout):
         gui_logger.display(f'LAYER_PANEL_{self.layer}', 'settings')
         self._initializing = True
         try:
-            if self.layer in common_utils.get_fluorescence_layers():
+            if 'composite_brightness_threshold' in layer_settings:
                 show_on_slider(
                     self.ids['composite_threshold_slider'],
                     layer_settings['composite_brightness_threshold'],

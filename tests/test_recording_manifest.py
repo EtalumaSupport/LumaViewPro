@@ -5,7 +5,7 @@ Both recording legs write ``gather_host_provenance()`` into the manifest's
 ``provenance.host``, so a recording can be told apart by machine.
 """
 
-from modules.recording_manifest import gather_host_provenance
+from _lumascope.modules.recording_manifest import gather_host_provenance
 
 
 def test_gather_host_provenance_keys():

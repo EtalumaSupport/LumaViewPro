@@ -3,7 +3,7 @@
 """Firmware management tools -- config backup, INI push, homing validation.
 
 All tools use the production driver stack (SerialBoard/MotorBoard/LEDBoard).
-For firmware flashing (UF2), use drivers/firmware_updater.py directly.
+For firmware flashing (UF2), use src/_lumascope/drivers/firmware_updater.py directly.
 
 Usage:
     python -m tools.firmware_tools backup              # backup all config files
@@ -19,14 +19,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Add LumaViewPro root to path so imports work when run as script
+# This checkout's own API, whatever lumascope.pth the interpreter holds.
 _LVP_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_LVP_ROOT))
+sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
-from drivers.exceptions import HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.serialboard import SerialBoard
-from modules.path_utils import read_installation_file, resolve_data_file
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.serialboard import SerialBoard
+from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
 
 
 # ---------------------------------------------------------------------------

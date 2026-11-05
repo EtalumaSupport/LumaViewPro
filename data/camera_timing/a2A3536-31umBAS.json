@@ -1,7 +1,7 @@
 {
   "schema": 3,
   "camera_model": "a2A3536-31umBAS",
-  "measured_date": "2026-05-08",
+  "date": "2026-05-08",
   "validity": {},
   "frame_intervals_ms": {
     "1": 36.1,

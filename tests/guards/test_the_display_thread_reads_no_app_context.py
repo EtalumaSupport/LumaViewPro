@@ -15,7 +15,7 @@ import ast
 
 from tests.ast_seams import parse_module
 
-_MODULE = 'modules/scope_display_thread.py'
+_MODULE = 'src/_lumascope/modules/scope_display_thread.py'
 
 
 def _names(tree: ast.Module):

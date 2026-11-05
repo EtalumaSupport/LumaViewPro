@@ -18,12 +18,12 @@ import datetime
 import threading
 from types import SimpleNamespace
 
-from modules.image_save import generate_image_metadata
-from modules.lumascope_api.camera import CameraAPI
-from modules.lumascope_api.frame_record import SettingSource
-from modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.image_save import generate_image_metadata
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.lumascope_api.frame_record import SettingSource
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from tests.frame_records import frame_record, plate
-from modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_color
 
 
 LIVE_EXPOSURE_MS = 33.0
@@ -128,7 +128,7 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
     one unreadable value must never become a lost frame."""
     import numpy as np
 
-    from modules.image_utils import generate_tiff_data
+    from _lumascope.modules.image_utils import generate_tiff_data
 
     metadata = generate_image_metadata(
         sim_scope,

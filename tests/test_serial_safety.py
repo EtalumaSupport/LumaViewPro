@@ -28,11 +28,12 @@ import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-import drivers.serialboard as serialboard
-from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
-from drivers.ledboard import LEDBoard
-from drivers.serialboard import SerialBoard
-from drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
+import _lumascope.drivers.serialboard as serialboard
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.serialboard import SerialBoard
+from _lumascope.drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
 from tests.log_capture import messages, records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scripted_port import LED_PID, LED_VID, ScriptedBackend, ScriptedLink
@@ -680,7 +681,7 @@ class TestTheDurationsSerialLogStates:
         monkeypatch.setattr(serialboard, 'time', _coarse_time())
         link = ScriptedLink({**_ANSWERING, 'LEDS_OFF': ['LEDs off'], 'FULLINFO': ['a', 'b']})
         link.write_takes_s = self._WRITE_S
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             board = _connected(link, LEDBoard)
             board.exchange_command('PING')
             board.exchange_multiline('FULLINFO', timeout=1)
@@ -841,35 +842,35 @@ class TestSimulatorFirmwareVersion:
     """Test that simulators expose firmware_version and is_v2."""
 
     def test_led_simulator_default_v2(self):
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         board = SimulatedLEDBoard()
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_led_simulator_legacy(self):
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         board = SimulatedLEDBoard(firmware_version=None)
         assert board.firmware_version is None
         assert board.is_v2 is False
 
     def test_led_simulator_custom_version(self):
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         board = SimulatedLEDBoard(firmware_version='1.0.0')
         assert board.firmware_version == '1.0.0'
         assert board.is_v2 is False
 
     def test_motor_simulator_default_v2(self):
-        from drivers.simulated_motorboard import SimulatedMotorBoard
+        from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_motor_simulator_legacy(self):
-        from drivers.simulated_motorboard import SimulatedMotorBoard
+        from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard(
             motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, firmware_version=None
@@ -891,7 +892,7 @@ class TestCameraStateLock:
         in test_audit_fixes.py guards the source-side contract; this is the
         runtime-side mirror.
         """
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         # Create a minimal concrete Camera subclass
         class StubCamera(Camera):
@@ -1003,7 +1004,7 @@ class TestCameraStateLock:
 
     def test_grab_returns_false_after_disconnect(self):
         """grab() should check flags under _state_lock and return False."""
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         class StubCamera(Camera):
             def connect(self):
@@ -1110,7 +1111,7 @@ class TestCameraStateLock:
 
     def test_concurrent_mark_disconnected(self):
         """Multiple threads calling _mark_disconnected should not raise."""
-        from drivers.camera import Camera
+        from _lumascope.drivers.camera import Camera
 
         class StubCamera(Camera):
             def connect(self):

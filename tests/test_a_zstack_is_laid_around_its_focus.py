@@ -15,7 +15,7 @@ whole number of steps the slices then missed the focus: 599 / 200 centred
 sat at -299.5, -99.5 and +100.5, and a top stack's top slice 199 below it.
 """
 
-from modules.zstack_config import ZStackConfig, ZStackReference
+from _lumascope.modules.zstack_config import ZStackConfig, ZStackReference
 
 FOCUS = 5000.0
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.stock_channels import LED0

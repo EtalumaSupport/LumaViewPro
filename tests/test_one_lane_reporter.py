@@ -18,16 +18,16 @@ import time
 
 import pytest
 
-import modules.sequential_io_executor as sio
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import (
+import _lumascope.modules.sequential_io_executor as sio
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import (
     RunWaitExpiredError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
 )
-from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 _WAIT_S = 2.0
 OUTCOMES = 'LVP.outcomes'

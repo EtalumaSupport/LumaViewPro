@@ -10,14 +10,14 @@ firmware drives at its DAC offset instead of off.
 """
 
 import functools
-import logging
 import time
 
 import pytest
 
-import drivers.sim_wire.backend as sim_backend
-from modules.lumascope_api.illumination import LedState
-from modules.scope_session import ScopeSession
+import _lumascope.drivers.sim_wire.backend as sim_backend
+from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 from tests.scope_fakes import channel_reading
@@ -44,7 +44,7 @@ def fx2(fx2_session):
 
 def test_an_fx2_request_below_one_step_lights_at_one_step(fx2, caplog):
     illumination, peripheral = fx2
-    with caplog.at_level(logging.INFO, logger='LVP.api'):
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
         commanded = illumination.led_on('BF', 1.0)
     assert any('(requested 1.0)' in r.getMessage() for r in caplog.records)
     assert peripheral.commands[-1] == ('D', 1)

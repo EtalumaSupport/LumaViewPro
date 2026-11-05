@@ -1,0 +1,883 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Protocol video step recording: one step drives the engine.
+
+The protocol-side twin of the manual controller
+(``src/_lumascope/modules/manual_recording.py``): builds the immutable
+``RecordingConfig`` from run-scoped snapshots, registers the camera
+frame listener, drives ``VideoRecordingEngine`` for one video step on
+the protocol thread, and finishes off that thread (MP4 close,
+execution-record row, drop report). The step's capture cadence is the
+engine's slot selection -- there is no polled frame sampler and no
+pacing sleep; Stop closes selection within one wait tick.
+
+Claim topology: the protocol run already holds the session's
+exclusive-activity claim, which fences recordings and runs against each
+other at the Session tier. A per-step recording nests INSIDE that
+running claim, so the engine receives a nested claim handle that always
+grants and releases as a no-op -- the run's own claim is the fence.
+Steps execute sequentially on the protocol thread; the only overlap is
+a previous step's drain tail against the next step, which shares no
+state with it.
+
+Notification policy: this controller posts through the central
+``NotificationCenter`` unconditionally; the center's protocol mute owns
+non-fatal suppression during a run, and fatal events (run aborts,
+writer-lane death via the engine) pass through it.
+"""
+
+import datetime
+import threading
+import time
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera import Frame
+from _lumascope.lvp_logger import logger, version as lvp_version
+from _lumascope.modules.activity_claim import BorrowedClaim
+from _lumascope.modules.common_utils import (
+    DISK_FLOOR_CHECK_INTERVAL_S,
+    MIN_PER_WRITE_DISK_MB,
+    MIN_REQUIRED_DISK_MB,
+    check_disk_space_ok,
+    estimate_step_write_mb,
+)
+import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.wall_time as wall_time
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.labware import Labware
+from _lumascope.modules.exceptions import (
+    RecordingDetailsNotSavedError,
+    RecordingFinalizeError,
+    RecordingFramesUnstampedError,
+    VideoFramesDroppedError,
+    VideoWriterFailedError,
+)
+from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.lumascope_api.frame_record import (
+    ClockMapping,
+    TimestampSource,
+    arrival_time,
+    camera_frame_time,
+)
+from _lumascope.modules.recording_frames import (
+    RecordingCamera,
+    arrival,
+    orient_and_fit,
+    protocol_frame_filename_template,
+    recording_camera,
+    write_frame,
+)
+from _lumascope.modules.recording_manifest import gather_host_provenance
+from _lumascope.modules.video_cadence import (
+    StallWatch,
+    effective_recording_fps,
+    prologue_stall_threshold_s,
+    stall_threshold_s,
+)
+from _lumascope.modules.video_recording import (
+    END_REASON_START_FAILED,
+    PreRollEnd,
+    RecordingConfig,
+    VideoRecordingEngine,
+    wait_for_changes_in_force,
+)
+from _lumascope.modules.video_writer import VideoWriter
+
+# Outcomes of run_blocking(), consumed by ProtocolImageWriter's video leg.
+COMPLETED = 'completed'  # recording ended normally (full or honest short delivery)
+CANCELLED = 'cancelled'  # run stop/abort ended the step early; kept frames are final
+NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
+CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
+ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
+
+# The wait loop's tick: how quickly Stop/abort is honored during a video
+# step, and the ceiling on how stale a recording progress can be beyond
+# its 1 s update throttle.
+_WAIT_TICK_S = 0.1
+_PROGRESS_INTERVAL_S = 1.0
+
+
+class ProtocolVideoStep:
+    """One protocol video step: snapshot, record via the engine, finish.
+
+    Args:
+        scope: The Lumascope instance (frame listener, camera identity,
+            imaging prologue).
+        step: The protocol step (reads Video Config, Color, False_Color,
+            Auto_Gain, Exposure).
+        save_folder: The run's save folder for this step.
+        name: The step's artifact base name (caller tokens preserved).
+        video_as_frames: Run-level flag -- TIFF frames vs MP4.
+        capture_config: The run's frozen ImageCaptureConfig (encoding,
+            depth).
+        timestamp_overlay: Run-scoped snapshot of the overlay choice.
+        global_max_fps: Run-scoped snapshot of the global "Recording max
+            FPS" limit (0 = none), never read live mid-run.
+        video_sizing_fps: The rate the run sized its video steps at
+            (``RunPlan.video_sizing_fps``), which the step's disk pre-flight
+            sizes it at too, so the run's and the step's checks agree.
+        autogain_settings: The runner's autogain settings dict.
+        events: The run's events; this step sends its ``video_progress``.
+        aborted_event: The run's abort event; checked every wait tick.
+        is_run_in_progress: Callable; False ends the step early.
+        abort_run_fatal: PIW's fatal-abort funnel, for disk faults and
+            the video writer's death; called with the cause, then domain,
+            title and message.
+        record_step_row: Records the finished step's execution-record
+            row: ``record_step_row(capture_result_file_name, frame_count,
+            duration_sec, timestamp)``.
+        record_dropped_capture: Records a no-artifact row:
+            ``record_dropped_capture(reason, capture_time)``.
+        run_claim: The run's activity claim, lent to this step. The
+            recording acts under it, and the step's end leaves it held:
+            the run releases its claim at run end, never per step.
+        to_plate: The run's stage-to-plate transform
+            (``runtime_state.plate_transform``): the protocol's plate and the
+            offset the run started with, bound at run start, so every frame
+            states its position in the frame the run moved in. A scope with
+            no X/Y stage has no X/Y position to convert, so its frames state
+            no plate position.
+        clock: Wall-time source (seconds) for what is measured against
+            frame timestamps: the engine's cadence, and its start on a
+            camera without a clock mapping. Tests drive it.
+        steady_clock: The host's steady clock (nanoseconds) the engine
+            reads its start on through the step's clock mapping. Tests
+            drive it.
+        elapsed_clock: Elapsed-time source (seconds) for the step's
+            bounds: the pre-recording stall watch, the duration, the
+            stall watch and the disk probe's interval. Monotonic, because
+            wall time steps (an NTP correction, a host resume) and a step
+            would end a good recording early or let one run past its
+            duration. Tests drive it.
+    """
+
+    def __init__(
+        self,
+        *,
+        scope: Any,
+        step: Any,
+        save_folder: Path,
+        name: str,
+        video_as_frames: bool,
+        capture_config: Any,
+        timestamp_overlay: bool,
+        global_max_fps: float,
+        video_sizing_fps: float | None,
+        channel_colors: layer_record.ChannelColors,
+        autogain_settings: dict,
+        events: RunEvents,
+        aborted_event: threading.Event,
+        is_run_in_progress: Callable[[], bool],
+        abort_run_fatal: Callable[[str, str, str, str], None],
+        record_step_row: Callable[..., None],
+        record_dropped_capture: Callable[..., None],
+        run_claim: BorrowedClaim,
+        to_plate: Callable[[float, float], PlatePosition] | None,
+        labware: Labware,
+        fallback_focus: str | None,
+        clock: Callable[[], float] = time.time,
+        steady_clock: Callable[[], int] = host_clock.steady_ns,
+        elapsed_clock: Callable[[], float] = time.monotonic,
+    ):
+        self._scope = scope
+        self._step = step
+        self._save_folder = Path(save_folder)
+        self._name = name
+        self._video_as_frames = video_as_frames
+        self._capture_config = capture_config
+        self._timestamp_overlay = timestamp_overlay
+        self._global_max_fps = global_max_fps
+        self._video_sizing_fps = video_sizing_fps
+        # Whether the finished step kept and wrote every frame it selected,
+        # with its backlog saved, not discarded: what the run's end needs to
+        # say "every frame was kept" when it waited for the step's saving.
+        self._kept_every_frame = False
+        self._channel_colors = channel_colors
+        self._autogain_settings = autogain_settings
+        self._events = events
+        # Whether this step has sent a recording or writing phase, which
+        # its 'ended' follows. Written by the recording and read by the
+        # finish thread, which starts after it.
+        self._progress_sent = False
+        self._aborted = aborted_event
+        self._is_run_in_progress = is_run_in_progress
+        self._abort_run_fatal = abort_run_fatal
+        self._record_step_row = record_step_row
+        self._record_dropped_capture = record_dropped_capture
+        self._run_claim = run_claim
+        self._to_plate = to_plate
+        # The plate the run's positions are stated on, and why the step's
+        # autofocus did not focus when it records at its fallback focus: each
+        # frame's file says both, as a still's does.
+        self._labware = labware
+        self._fallback_focus = fallback_focus
+        self._clock = clock
+        self._steady_clock = steady_clock
+        self._elapsed_clock = elapsed_clock
+
+        self._engine: VideoRecordingEngine | None = None
+        self._writer: VideoWriter | None = None
+        # The camera's clock as the step took it at start; None on a camera
+        # without a latch, whose frames state their arrival.
+        self._mapping: ClockMapping | None = None
+        self._tick_freq_hz: float | None = None
+        self._camera: RecordingCamera | None = None
+        self._output_dir: Path | None = None
+        self._frames_seen = 0
+        self._last_disk_check_ts = 0.0
+        self._start_dt: datetime.datetime | None = None
+        self._finish_thread: threading.Thread | None = None
+        # Whether the post-drain finish has yet to end. Its own store, not
+        # the finish thread's liveness: the thread announces its end as its
+        # last step, while still alive, and a listener told of that end must
+        # read it as ended.
+        self._finishing = False
+
+    # ------------------------------------------------------------------
+    # Drain-state surface (the runner's end-of-run wait and the app-close
+    # gate read these)
+    # ------------------------------------------------------------------
+
+    @property
+    def is_busy(self) -> bool:
+        """True until the drain and the post-drain finish complete."""
+        engine = self._engine
+        return (
+            engine is not None and (engine.is_recording or engine.is_draining)
+        ) or self._finishing
+
+    @property
+    def pending_writes(self) -> int:
+        """Frames enqueued but not yet on disk."""
+        return self._engine.pending_writes if self._engine is not None else 0
+
+    @property
+    def kept_every_frame(self) -> bool:
+        """True once the step has finished having written every frame it kept.
+
+        False while it is unfinished, and for a step whose backlog was
+        discarded, whose writer died, or that lost a frame to a write or a
+        missing camera timestamp.
+        """
+        return self._kept_every_frame
+
+    def wait_until_finished(self, timeout: float | None = None) -> bool:
+        """Block until the drain and finish complete; True when finished."""
+        thread = self._finish_thread
+        if thread is None:
+            return True
+        thread.join(timeout)
+        return not thread.is_alive()
+
+    def discard_pending(self) -> None:
+        """Drop the unwritten backlog loudly (the app-close discard path)."""
+        if self._engine is not None:
+            self._engine.discard_pending()
+
+    # ------------------------------------------------------------------
+    # The step
+    # ------------------------------------------------------------------
+
+    def run_blocking(self) -> str:
+        """Record this video step; blocks the protocol thread until
+        selection closes (the drain finishes on its own).
+
+        Returns one of COMPLETED / CANCELLED / NO_FRAMES / CAMERA_LOST /
+        ABORTED.
+        """
+        step = self._step
+        video_config = step['Video Config']
+        duration_s = float(video_config['duration'])
+        fps = effective_recording_fps(self._global_max_fps)
+
+        # Per-step disk pre-flight at the run's sizing rate: the whole-run
+        # estimate ran at scan start, but a long recording must re-check
+        # against what is free NOW, before frames start landing.
+        required_mb = max(
+            MIN_PER_WRITE_DISK_MB,
+            estimate_step_write_mb(
+                step,
+                video_as_frames=self._video_as_frames,
+                video_fps=self._video_sizing_fps,
+            ),
+        )
+        try:
+            ok, free_mb = check_disk_space_ok(self._save_folder, required_mb)
+        except Exception as e:
+            logger.warning(f'[PROTOCOL-VIDEO] Pre-flight disk probe failed (proceeding): {e}')
+            ok, free_mb = True, 0.0
+        if not ok:
+            self._abort_run_fatal(
+                'disk_space_critical',
+                'FileIO',
+                f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
+                'Aborting protocol to prevent data loss.',
+            )
+            return ABORTED
+
+        prologue_outcome = self._prologue(step)
+        if prologue_outcome is not None:
+            return prologue_outcome
+
+        scope = self._scope
+        camera = scope.capabilities
+        # The size the file is made at: held, else read, so an unknown one is
+        # asked for (CameraReadFailedError when the camera does not answer).
+        frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
+        self._tick_freq_hz = camera.camera_timestamp_tick_hz
+        # The objective, read once per step alongside the other
+        # start-of-recording camera facts: it cannot change while a step
+        # records. An unknown one refuses the step (ObjectiveUnknownError): a
+        # file with no objective would carry no scale.
+        self._objective_id, _ = scope.runtime_state.resolve_current_objective()
+        self._camera = recording_camera(scope) if self._video_as_frames else None
+        self._start_dt = wall_time.now()
+
+        if self._video_as_frames:
+            self._output_dir = self._save_folder / self._name
+        else:
+            self._output_dir = self._save_folder
+        self._output_dir.mkdir(exist_ok=True, parents=True)
+
+        false_color_on = bool(step['False_Color'])
+        config = RecordingConfig(
+            fps=fps,
+            duration_s=duration_s,
+            width=frame_size.width,
+            height=frame_size.height,
+            bit_depth=self._capture_config.capture_depth,
+            output_dir=self._output_dir,
+            filename_template=protocol_frame_filename_template(
+                self._name, self._capture_config.output_format_sequenced
+            ),
+            timestamp_overlay=self._timestamp_overlay,
+            timestamp_source=(
+                TimestampSource.CAMERA_FRAME_START
+                if self._mapping is not None
+                else TimestampSource.HOST_ARRIVAL
+            ),
+            manifest_extra={
+                'step_name': self._name,
+                # The channel, and whether it was shown in false colour, as
+                # the manual leg records them.
+                'channel': step['Color'],
+                'false_color': false_color_on,
+                'camera': {
+                    'model': camera.camera_model,
+                    'serial': camera.camera_serial_number,
+                    'timestamp_tick_hz': self._tick_freq_hz,
+                },
+                'provenance': {
+                    'host': gather_host_provenance(),
+                    'software': {'lvp_version': lvp_version},
+                },
+            },
+            # MP4 artifacts share the step's flat folder across steps and
+            # scans, so the manifest is named per recording; the frames
+            # leg owns a per-recording folder and keeps the default name.
+            manifest_filename=(
+                'recording_manifest.json'
+                if self._video_as_frames
+                else f'{self._name}_manifest.json'
+            ),
+        )
+
+        if not self._video_as_frames:
+            self._writer = VideoWriter(
+                output_path=self._output_dir / f'{self._name}.mp4',
+                fps=fps,
+                width=frame_size.width,
+                height=frame_size.height,
+                # Grey (a gray encode) when false color is off -- the same
+                # contract the manual leg encodes with.
+                color=layer_record.shown_color(step['Color'], false_color_on, self._channel_colors),
+                include_timestamp_overlay=self._timestamp_overlay,
+                vfr=True,
+            )
+
+        engine = VideoRecordingEngine(
+            write_frame=self._write_frame,
+            claim=self._run_claim,
+            clock=self._clock,
+            steady_clock=self._steady_clock,
+        )
+        engine.start(lambda: (config, self._mapping))
+        try:
+            self._engine = engine
+            scope.imaging.add_frame_listener(
+                self._on_camera_frame, name=f'protocol_video:{self._name}'
+            )
+        except BaseException:
+            # The nested claim leaks nothing to the session, but a step left
+            # recording never satisfies the runner's end-of-run wait, so the
+            # whole run hangs on a step that never began.
+            self._unwind_failed_start(engine)
+            raise
+        rate = 'every delivered frame' if fps is None else f'{fps:.2f} fps limit'
+        logger.info(
+            f'[PROTOCOL-VIDEO] Recording started: {rate}, {duration_s:.0f} s, '
+            f'{"frames" if self._video_as_frames else "mp4"} -> {self._output_dir}'
+        )
+
+        outcome, end_reason = self._wait_for_recording(
+            engine,
+            duration_s,
+            stall_threshold_s(fps, float(step['Exposure']) / 1000.0),
+        )
+
+        scope.imaging.remove_frame_listener(self._on_camera_frame)
+        engine.stop(end_reason)
+
+        if self._frames_seen == 0:
+            # The camera delivered nothing for the whole step -- a capture
+            # failure, not a short recording. The (empty) drain finishes
+            # inline; the caller owns the failure row and the strike.
+            engine.wait_for_drain(timeout=5.0)
+            if self._writer is not None:
+                try:
+                    self._writer.close()
+                except Exception as e:
+                    logger.warning(f'[PROTOCOL-VIDEO] Writer close after empty step: {e}')
+            self._end_progress()
+            # A user Stop or a run abort that arrived before any frame is
+            # not a capture failure: the early exit keeps its meaning, or
+            # a zero-frame Stop would land a bogus strike toward the
+            # 3-strike run abort. A camera lost before delivering anything
+            # IS "delivered nothing" -- it keeps the failure row + strike.
+            if outcome in (CANCELLED, ABORTED):
+                return outcome
+            return NO_FRAMES
+
+        self._finish_thread = threading.Thread(
+            target=self._finish_after_drain,
+            name='ProtocolVideoFinish',
+            daemon=True,
+        )
+        self._finishing = True
+        self._finish_thread.start()
+        return outcome
+
+    # ------------------------------------------------------------------
+    # Prologue (validity pre-roll + autogain first frame), stop-checkable
+    # ------------------------------------------------------------------
+
+    def _prologue(self, step) -> str | None:
+        """Arm the first-frame autogain, then wait until every change is in force.
+
+        Returns None when the recording may start, or the outcome to
+        return when it may not: CANCELLED on a run stop (checked first,
+        so Stop always wins), NO_FRAMES when the feed is dead. Dead
+        means zero frame ARRIVALS for the stall threshold, not a change
+        that stays owed while frames keep arriving: blaming the camera
+        for a motion fault would send the run's abort message pointing
+        at the wrong hardware. The arm comes first because it records a
+        gain and an exposure change of its own, which the step's first
+        frame must count too.
+
+        When the recording may start, the step's clock mapping is the one
+        the wait latched (``self._mapping``): every frame's time and the
+        recording's start are read through it, so a frame that started
+        before the recording did falls before its start and is not kept. A
+        failed latch fails the step, as a failed frame-size read does.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera
+                left during the wait; it leaves the video step, and the run
+                loop ends the run on it.
+            CameraReadFailedError: The camera did not answer the latch of
+                its clock.
+            CameraSettingRejected: The camera did not take the disarm or
+                the one-shot auto-gain; it leaves the video step, which the
+                writer counts a failed capture.
+        """
+        scope = self._scope
+        # A camera without hardware auto-gain records the step manual, as
+        # its layer apply did. A disarm or a one-shot the camera did not take
+        # raises out of the step, which then records nothing: the writer
+        # counts it a failed capture.
+        if scope.camera.applied_auto_gain_for(step['Auto_Gain']).applied:
+            scope.camera.set_auto_gain(False, self._autogain_settings)
+            scope.camera.auto_gain_once(
+                state=True,
+                target_brightness=self._autogain_settings['target_brightness'],
+                min_gain_db=self._autogain_settings['min_gain_db'],
+                max_gain_db=self._autogain_settings['max_gain_db'],
+                ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
+            )
+
+        stall_s = prologue_stall_threshold_s(float(step['Exposure']) / 1000.0)
+        ended, self._mapping = wait_for_changes_in_force(
+            scope.imaging,
+            clock=self._elapsed_clock,
+            stop_requested=self._stop_requested,
+            stall_threshold_s=stall_s,
+        )
+        if ended == PreRollEnd.DEAD_FEED:
+            logger.error(
+                '[PROTOCOL-VIDEO] No camera frames arrived during the '
+                f'pre-recording wait (stall threshold {stall_s:.0f} s); '
+                'treating the feed as dead'
+            )
+            return NO_FRAMES
+        return CANCELLED if self._stop_requested() else None
+
+    def _stop_requested(self) -> bool:
+        return self._aborted.is_set() or not self._is_run_in_progress()
+
+    # ------------------------------------------------------------------
+    # The wait loop (protocol thread)
+    # ------------------------------------------------------------------
+
+    def _wait_for_recording(
+        self, engine: VideoRecordingEngine, duration_s: float, stall_threshold: float
+    ) -> tuple[str, str]:
+        """Poll until the recording ends; say how and why.
+
+        Returns ``(outcome, end_reason)`` as one value so the manifest's
+        reason can never drift from the outcome that produced it. Check
+        order is the precedence: Stop always wins, the disconnect latch
+        is the fast camera-death path, and the stall watch catches the
+        feed that dies without an event -- delivery just stops while
+        ``active`` stays True.
+        """
+        start_ts = self._elapsed_clock()
+        last_progress_ts = 0.0
+        outcome, end_reason = COMPLETED, 'duration_elapsed'
+        watch = StallWatch(stall_threshold)
+        while engine.is_recording:
+            now = self._elapsed_clock()
+            elapsed = now - start_ts
+            if self._stop_requested():
+                outcome, end_reason = CANCELLED, 'run_stop'
+                break
+            if not self._scope.camera.active:
+                logger.warning(
+                    '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
+                )
+                outcome, end_reason = CAMERA_LOST, 'camera_disconnected'
+                break
+            if watch.stalled(self._frames_seen, now):
+                logger.warning(
+                    '[PROTOCOL-VIDEO] Camera feed stalled: no frames for '
+                    f'{stall_threshold:.0f} s with the camera still active; '
+                    'ending the recording'
+                )
+                outcome, end_reason = CAMERA_LOST, 'camera_stalled'
+                break
+            if elapsed >= duration_s + stall_threshold:
+                # The engine ends the recording at its duration on its
+                # frames' clock. This backstop ends one whose frames never
+                # reach that end (a feed of unstamped frames, a wall clock
+                # that stepped back under a camera without a latch), one
+                # stall bound past the duration, so it never races a last
+                # frame on its way.
+                break
+            if now - last_progress_ts >= _PROGRESS_INTERVAL_S:
+                last_progress_ts = now
+                # The last frame may land a little after the duration.
+                self._send_progress(
+                    VideoProgress(
+                        VideoPhase.RECORDING,
+                        elapsed_s=min(elapsed, duration_s),
+                        total_s=duration_s,
+                    )
+                )
+            time.sleep(_WAIT_TICK_S)
+        return outcome, end_reason
+
+    # ------------------------------------------------------------------
+    # Camera-thread ingest
+    # ------------------------------------------------------------------
+
+    def _on_camera_frame(self, frame: Frame) -> None:
+        """SDK-thread listener: give the frame its time, offer it to the engine.
+
+        Its time is its start on the camera's clock through the step's
+        mapping, or its arrival on a camera without a latch. A frame that
+        came without its tick in a step whose times are the camera's is not
+        offered: it is counted (``note_unstamped``) and reported at the
+        finish. It is seen either way, so the step's feed is alive.
+
+        The frame's facts -- where it was, what lit it -- are read HERE,
+        when the frame arrives, and ride the queue with it: the write runs
+        later, behind the backlog, and a read then would put a stage move
+        or an LED change on the wrong frames. Only the
+        frames leg writes a per-frame file, so only it pays.
+        """
+        engine = self._engine
+        if engine is None or not engine.is_recording:
+            return
+        self._frames_seen += 1
+        mapping = self._mapping
+        frame_time = (
+            camera_frame_time(frame, mapping) if mapping is not None else arrival_time(frame)
+        )
+        if frame_time is None:
+            engine.note_unstamped()
+            return
+        chunks = dict(frame.chunks) if frame.chunks is not None else None
+        timestamp_s = frame_time.at.timestamp()
+        facts = (
+            arrival(
+                self._scope,
+                frame,
+                frame_time=frame_time,
+                channel_tiebreak=self._step['Color'],
+                to_plate=self._to_plate,
+                camera=self._camera,
+            )
+            if self._video_as_frames
+            else None
+        )
+        engine.ingest_frame(frame.image, timestamp_s, chunks, fact=facts)
+
+    # ------------------------------------------------------------------
+    # Writer-lane edge
+    # ------------------------------------------------------------------
+
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
+        """Write one kept frame as its final artifact (runs on the lane)."""
+        self._check_disk_floor(config)
+
+        image = orient_and_fit(image, config.width, config.height)
+
+        step = self._step
+        if self._video_as_frames:
+            if config.bit_depth == 8 and image.dtype != np.uint8:
+                image = image_utils.convert_to_8bit(image, config.bit_depth)
+            file_loc = config.output_dir / config.filename_template.format(n=frame_number)
+            write_frame(
+                self._scope,
+                image,
+                file_loc,
+                facts,
+                frame_number=frame_number,
+                objective_id=self._objective_id,
+                labware=self._labware,
+                fallback_focus=self._fallback_focus,
+                false_color_on=bool(step['False_Color']),
+                channel_colors=self._channel_colors,
+                save_encoding=self._capture_config.save_encoding,
+            )
+            return file_loc
+
+        writer = self._writer
+        significant_bits = self._capture_config.capture_depth if image.dtype != np.uint8 else None
+        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
+        return writer.output_path
+
+    def _check_disk_floor(self, config) -> None:
+        """Rolling floor probe on the write lane; a breach aborts the RUN.
+
+        The protocol's disk contract is run-fatal (matching the per-write
+        guard the stills lane keeps): a disk that hits the floor mid-step
+        aborts the whole run loudly rather than letting later steps fail
+        one by one. Frames already on disk stay.
+        """
+        now = self._elapsed_clock()
+        if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
+            return
+        self._last_disk_check_ts = now
+        try:
+            ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
+        except Exception as e:
+            logger.warning(f'[PROTOCOL-VIDEO] Disk-floor probe failed: {e}')
+            return
+        if not ok and self._engine is not None and self._engine.is_recording:
+            logger.error(
+                f'[PROTOCOL-VIDEO] Free disk fell to {free_mb:.0f} MB (floor '
+                f'{MIN_REQUIRED_DISK_MB} MB); aborting the run'
+            )
+            self._engine.stop('disk_floor')
+            self._abort_run_fatal(
+                'disk_space_critical',
+                'FileIO',
+                f'Free disk fell to {free_mb:.0f} MB during a video step. '
+                'Aborting protocol to prevent data loss.',
+            )
+
+    # ------------------------------------------------------------------
+    # Post-drain finish (per-step thread; the protocol thread moves on)
+    # ------------------------------------------------------------------
+
+    def _unwind_failed_start(self, engine: VideoRecordingEngine) -> None:
+        """Undo a step start that raised after the engine committed.
+
+        Order matters: stop delivering frames, then end the recording so
+        the writer lane drains, and only then dispose the artifact --
+        disposing first would leave the lane writing into a closed encoder.
+        """
+        # A no-op when the start failed before the listener was added.
+        self._scope.imaging.remove_frame_listener(self._on_camera_frame)
+
+        try:
+            engine.stop(END_REASON_START_FAILED)
+        except Exception:
+            logger.exception('[PROTOCOL-VIDEO] engine did not end cleanly during start unwind')
+
+        if self._writer is not None:
+            try:
+                self._writer.close()
+                if self._writer.frame_count == 0:
+                    self._writer.output_path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception('[PROTOCOL-VIDEO] writer disposal failed during start unwind')
+            self._writer = None
+
+        self._engine = None
+
+    def _finish_after_drain(self) -> None:
+        """Run the finish, then say it ended, whatever it raised.
+
+        The end changes the Session's run state (its live_work) with
+        nothing else marking it: the recording returned its borrowing when
+        the drain ended, and the run still holds its claim. So the step
+        announces it, through the claim it was lent.
+        """
+        try:
+            self._finish()
+        finally:
+            self._finishing = False
+            self._run_claim.announce()
+
+    def _finish(self) -> None:
+        """Wait out the drain, close artifacts, record the row, report."""
+        engine = self._engine
+        total = max(1, engine.frames_selected)
+        while not engine.wait_for_drain(timeout=1.0):
+            done = total - engine.pending_writes
+            self._send_progress(VideoProgress(VideoPhase.WRITING, progress_pct=done / total * 100))
+
+        result = None
+        writer_dropped = 0
+        try:
+            # Close the encoder before reading measured truth: an unclosed
+            # container is a corrupt file on disk, while the result is only
+            # a report -- and result() raises when the engine never finished
+            # finalizing, which is exactly when the close matters most.
+            if self._writer is not None:
+                self._writer.close()
+                # The MP4 writer swallows per-frame encode errors into its
+                # own counter; fold them into the user-facing total. The
+                # manifest carries the engine-counted failures.
+                writer_dropped = self._writer.dropped_frames
+            result = engine.result()
+        except Exception as failed:
+            fault = RecordingFinalizeError(protocol_step=True)
+            fault.__cause__ = failed
+            notifications.report_outcome(fault, solicited=False, category='Protocol')
+        finally:
+            self._end_progress()
+            if result is None:
+                # The finish failed before any measured truth existed. The
+                # step still owes the run a row: a video step that vanishes
+                # from the execution record reads as one that never ran.
+                self._record_dropped_capture(
+                    reason='video_finalize_failed', capture_time=self._start_dt
+                )
+            else:
+                dropped = result.write_failures + writer_dropped
+                # Frames came and none had the camera's timestamp: the step
+                # saved none, and says why in its own words.
+                all_unstamped = result.frames_selected == 0 and result.frames_unstamped > 0
+                if result.aborted:
+                    # The writer's death ends the run. Logged once here with
+                    # its cause; the run's fatal funnel then stops the run,
+                    # darkens the light and shows the one popup last, in the
+                    # words the run's ending records. The reason is written
+                    # out because the run-ending vocabulary is collected from
+                    # the funnel's literal first argument.
+                    died = VideoWriterFailedError(protocol_step=True)
+                    died.__cause__ = result.writer_failure
+                    notifications.report_outcome(
+                        died, solicited=False, category='Recording', log_only=True
+                    )
+                    self._abort_run_fatal('video_writer_died', 'Recording', str(died))
+                    self._record_dropped_capture(
+                        reason='video_write_failed', capture_time=self._start_dt
+                    )
+                elif result.frames_written == 0:
+                    if all_unstamped:
+                        notifications.report_outcome(
+                            RecordingFramesUnstampedError(
+                                result.frames_unstamped, protocol_step=True
+                            ),
+                            solicited=False,
+                            category='Protocol',
+                        )
+                    # The row's reason is the engine's recorded end reason --
+                    # a camera death and a user stop must not share a label.
+                    self._record_dropped_capture(
+                        reason=f'video_{result.end_reason}', capture_time=self._start_dt
+                    )
+                    # No file exists to name: the mp4 muxer writes nothing at
+                    # all for an empty stream, so the configured output path
+                    # was never created. Announcing it would contradict the
+                    # dropped-capture row recorded immediately above.
+                    logger.info(
+                        '[PROTOCOL-VIDEO] No video written: the step captured 0 '
+                        'frames, so no file was produced'
+                    )
+                else:
+                    if self._writer is not None:
+                        artifact_name = self._writer.output_path.name
+                        logger.info(f'[PROTOCOL-VIDEO] Video written to {self._writer.output_path}')
+                    else:
+                        artifact_name = self._output_dir.name
+                    self._record_step_row(
+                        capture_result_file_name=artifact_name,
+                        frame_count=result.frames_written,
+                        duration_sec=result.measured_duration_s,
+                        timestamp=self._start_dt,
+                    )
+                if result.manifest_failure is not None:
+                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved.__cause__ = result.manifest_failure
+                    notifications.report_outcome(
+                        unsaved, solicited=False, category='Video Recording'
+                    )
+                if (
+                    (dropped > 0 or result.frames_unstamped > 0)
+                    and not result.aborted
+                    and not all_unstamped
+                ):
+                    # The center's protocol mute suppresses this popup during
+                    # an unattended run; the manifest and end-of-run report
+                    # carry the counts either way.
+                    notifications.report_outcome(
+                        VideoFramesDroppedError(
+                            dropped,
+                            result.frames_selected,
+                            unstamped=result.frames_unstamped,
+                            protocol_step=True,
+                        ),
+                        solicited=False,
+                        category='Protocol',
+                    )
+                self._kept_every_frame = (
+                    result.save_wait_s is not None
+                    and not result.aborted
+                    and dropped == 0
+                    and result.frames_unstamped == 0
+                )
+                logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
+
+    # ------------------------------------------------------------------
+    # The step's video_progress event
+    # ------------------------------------------------------------------
+
+    def _send_progress(self, progress: VideoProgress) -> None:
+        self._progress_sent = True
+        deliver(self._events, 'video_progress', progress)
+
+    def _end_progress(self) -> None:
+        """Send 'ended' once, when a recording or writing phase was sent."""
+        if self._progress_sent:
+            self._progress_sent = False
+            deliver(self._events, 'video_progress', VideoProgress(VideoPhase.ENDED))

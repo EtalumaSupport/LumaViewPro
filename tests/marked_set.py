@@ -3,7 +3,7 @@
 
 A class's marked member or published field, keyed ``Class.member``, and a
 module's marked top-level function, keyed by its dotted path
-(``rest.app.build_app``), each with its owner -- the class, or the module --
+(``_lumascope.rest.app.build_app``), each with its owner -- the class, or the module --
 carried beside the key rather than split from it. The guards read this one
 set; the wire and the doors read a member's own mark, so nothing in
 production enumerates marks across packages.
@@ -24,8 +24,8 @@ import pkgutil
 import types
 from functools import cache
 
-from modules import wire_encoding
-from modules.api_surface import API, IN_PROCESS, fields_of, mark_of
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import API, IN_PROCESS, fields_of, mark_of
 
 MARKS = frozenset({API, IN_PROCESS})
 
@@ -64,7 +64,7 @@ def project_modules() -> tuple[types.ModuleType, ...]:
     """Every module of every ``wire_encoding.PROJECT_PACKAGES`` package, imported.
 
     A package's modules are what ``pkgutil`` lists, as the wire's own walk
-    of ``modules/`` lists them. A stand-in the conftest installs for a whole
+    of ``src/_lumascope/modules/`` lists them. A stand-in the conftest installs for a whole
     package (``lvp_logger``) is no module and holds no mark.
 
     Raises:

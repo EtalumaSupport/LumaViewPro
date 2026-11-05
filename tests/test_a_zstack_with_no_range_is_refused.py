@@ -31,10 +31,10 @@ import os
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_start_zstack_entry_point import _POSITION, _zstack_settings
 from tests.objective_records import objective
@@ -52,7 +52,7 @@ UNCONFIGURED = [
 
 def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
     """The config a z-stack caller builds, with the stack's shape overridden."""
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     settings = _zstack_settings()
     settings['zstack'] = {**settings['zstack'], **zstack}

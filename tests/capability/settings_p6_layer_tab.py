@@ -13,7 +13,7 @@ import sys
 
 import harness as _common
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.stock_channels import LED1
 
 s, live = _common.make_session()

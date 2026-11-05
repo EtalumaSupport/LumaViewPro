@@ -40,9 +40,9 @@ import subprocess
 
 import pytest
 
-import drivers.sim_wire.backend as sim_backend
+import _lumascope.drivers.sim_wire.backend as sim_backend
 
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.sim_wire_bench import (
     BENCH,

@@ -11,9 +11,9 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 
 import pytest
 
-from modules.layer_record import load_scope_models
-from modules.scope_init_config import ScopeInitConfig
-from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
+from _lumascope.modules.layer_record import load_scope_models
+from _lumascope.modules.scope_init_config import ScopeInitConfig
+from _lumascope.modules.lumascope_api._constants import ACCELERATION_PCT_MAX
 from tests.scope_fakes import build_scope, identity_with_layers
 from tests.stock_channels import LED0, LED1, LED2
 

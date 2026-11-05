@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 import ui.file_dialogs as file_dialogs
-from modules import image_utils
+from _lumascope.modules import image_utils
 
 
 def _offered(filetypes) -> set[str]:

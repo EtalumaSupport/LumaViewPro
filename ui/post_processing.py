@@ -15,14 +15,14 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
-from modules import gui_logger
-from modules.cell_count_method import CellCountMethod, FilterBounds
-from modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
-from modules.stitch_mode import StitchMode
-import modules.post_processing as post_processing
-import modules.image_utils as image_utils
+from _lumascope.modules import gui_logger
+from _lumascope.modules.cell_count_method import CellCountMethod, FilterBounds
+from _lumascope.modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
+from _lumascope.modules.stitch_mode import StitchMode
+import _lumascope.modules.post_processing as post_processing
+import _lumascope.modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 from ui.ui_helpers import run_reported, run_unasked, submit_reported
 
 logger = logging.getLogger('LVP.ui.post_processing')

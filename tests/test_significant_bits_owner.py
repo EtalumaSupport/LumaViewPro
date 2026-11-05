@@ -24,10 +24,10 @@ import datetime
 import numpy as np
 import pytest
 
-from modules import image_utils
-from modules.exceptions import FrameDepthError
+from _lumascope.modules import image_utils
+from _lumascope.modules.exceptions import FrameDepthError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
-from modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_color
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
 
@@ -168,7 +168,7 @@ class TestSavePathNativeDepth:
     tag, and read-back scales to 8-bit by that tag -- not a hardcoded /256."""
 
     def _write(self, tmp_path, value, significant_bits):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), value, dtype=np.uint16)
         path = tmp_path / 'frame.tif'
@@ -195,14 +195,14 @@ class TestSavePathNativeDepth:
 
     def test_read_tiff_significant_bits_roundtrips(self, tmp_path):
         """The SignificantBits tag is recoverable from the written file."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write(tmp_path, 4095, significant_bits=12)
         assert image_utils.read_tiff_significant_bits(path) == 12
 
     def test_12bit_file_reads_back_to_full_white(self, tmp_path):
         """A right-aligned 12-bit file scales to 8-bit 255, not crushed to ~15."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write(tmp_path, 4095, significant_bits=12)
         sig = image_utils.read_tiff_significant_bits(path)
@@ -211,7 +211,7 @@ class TestSavePathNativeDepth:
 
     def test_legacy_16bit_file_still_reads_back_correctly(self, tmp_path):
         """A legacy left-justified file (SignificantBits=16) is not crushed."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write(tmp_path, 4095 * 16, significant_bits=16)  # 65520, the old *16 form
         sig = image_utils.read_tiff_significant_bits(path)
@@ -228,7 +228,7 @@ class TestNonOmeNativeDepth:
     the depth scales a 12-bit payload by 65535 instead of 4095 -- ~16x too dark."""
 
     def _write_plain(self, tmp_path, value, significant_bits):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), value, dtype=np.uint16)
         path = tmp_path / 'frame_plain.tif'
@@ -246,14 +246,14 @@ class TestNonOmeNativeDepth:
 
     def test_non_ome_significant_bits_roundtrips(self, tmp_path):
         """A plain (non-OME) 12-bit file recovers SignificantBits=12, not 16."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_plain(tmp_path, 4095, significant_bits=12)
         assert image_utils.read_tiff_significant_bits(path) == 12
 
     def test_non_ome_12bit_reads_back_to_full_white(self, tmp_path):
         """A plain right-aligned 12-bit file scales to 8-bit 255, not crushed to ~15."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_plain(tmp_path, 4095, significant_bits=12)
         sig = image_utils.read_tiff_significant_bits(path)
@@ -270,7 +270,7 @@ class TestLoadPixelsBoundary:
     def _write_tiff(
         self, tmp_path, value, significant_bits, ome, dtype=np.uint16, name='frame.tif'
     ):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), value, dtype=dtype)
         path = tmp_path / name
@@ -288,7 +288,7 @@ class TestLoadPixelsBoundary:
 
     def test_ome_right_aligned_12bit(self, tmp_path):
         """OME right-aligned 12-bit returns sig=12 with values stored raw."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=True)
         image, sig, _ = image_utils.load_pixels(path)
@@ -297,7 +297,7 @@ class TestLoadPixelsBoundary:
 
     def test_plain_private_tag_12bit(self, tmp_path):
         """Plain (non-OME) 12-bit recovers sig=12 from the private tag."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
         image, sig, _ = image_utils.load_pixels(path)
@@ -306,7 +306,7 @@ class TestLoadPixelsBoundary:
 
     def test_legacy_left_justified_reads_16(self, tmp_path):
         """A legacy left-justified file (SignificantBits=16) reads sig=16."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095 * 16, significant_bits=16, ome=True)
         image, sig, _ = image_utils.load_pixels(path)
@@ -315,7 +315,7 @@ class TestLoadPixelsBoundary:
 
     def test_8bit_file_reads_8(self, tmp_path):
         """An 8-bit file reports sig=8 and preserves the uint8 container."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 255, significant_bits=8, ome=True, dtype=np.uint8)
         image, sig, _ = image_utils.load_pixels(path)
@@ -326,7 +326,7 @@ class TestLoadPixelsBoundary:
         """A PNG carries no depth tag, so container width (8) is the depth."""
         import cv2
 
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), 200, dtype=np.uint8)
         path = tmp_path / 'frame.png'
@@ -338,7 +338,7 @@ class TestLoadPixelsBoundary:
     def test_returned_depth_scales_pixels_to_full_white(self, tmp_path):
         """The (pixels, depth) pair is self-consistent: feeding the returned
         depth back to convert_to_8bit maps full-payload to full 8-bit white."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
         image, sig, _ = image_utils.load_pixels(path)
@@ -346,8 +346,8 @@ class TestLoadPixelsBoundary:
 
     def test_missing_file_raises(self, tmp_path):
         """A path that does not exist is refused as unreadable, naming it, rather than a bare array."""
-        from modules import image_utils
-        from modules.exceptions import InputFramesUnusableError
+        from _lumascope.modules import image_utils
+        from _lumascope.modules.exceptions import InputFramesUnusableError
 
         with pytest.raises(InputFramesUnusableError, match='does_not_exist') as refused:
             image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
@@ -367,7 +367,7 @@ class TestLoadPixelsBoundary:
     def test_collapse_default_reduces_single_channel_rgb_to_mono(self, tmp_path):
         """The default collapses a single-populated-channel RGB to its mono
         plane so the mono-uniform consumers see one shape."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
         image, _, _ = image_utils.load_pixels(path)
@@ -377,7 +377,7 @@ class TestLoadPixelsBoundary:
         """Color-capable consumers (stitch / zproject / composite / stack) pass
         collapse_legacy_false_color=False to keep the raw RGB layout their own
         color handling expects -- collapsing it would turn a color stitch mono."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
         image, _, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
@@ -391,7 +391,7 @@ class TestLoadPixelsBoundary:
         returned (pixels, sig) must stay byte-identical to the two-open form."""
         import tifffile as tf
 
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
 
@@ -422,7 +422,7 @@ class TestWriteTiffDepthRequired:
         """write_tiff without significant_bits is a missing-argument error, not
         a default to 16. significant_bits is a required positional argument so
         a depth-less write cannot be expressed."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), 4095, dtype=np.uint16)
         with pytest.raises(TypeError, match='significant_bits'):
@@ -437,7 +437,7 @@ class TestWriteTiffDepthRequired:
 
     def test_stated_depth_is_recorded(self, tmp_path):
         """A stated depth round-trips through the file, not the container width."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         arr = np.full((8, 8), 4095, dtype=np.uint16)
         path = tmp_path / 'frame.tif'
@@ -459,7 +459,7 @@ class TestConverterCollapse:
     there is a single canonical 8-bit mapping with no divergent per-depth tables."""
 
     def test_12bit_converter_matches_canonical(self):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
         assert np.array_equal(
@@ -468,7 +468,7 @@ class TestConverterCollapse:
         )
 
     def test_16bit_converter_matches_canonical(self):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         src = np.arange(65536, dtype=np.uint16).reshape(256, 256)
         assert np.array_equal(
@@ -478,7 +478,7 @@ class TestConverterCollapse:
 
     def test_no_standalone_depth_luts(self):
         """The divergent module-level tables are gone; the cache is the source."""
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         assert not hasattr(image_utils, '_LUT_12_TO_8')
         assert not hasattr(image_utils, '_LUT_16_TO_8')
@@ -493,7 +493,7 @@ class TestConverterCollapse:
         the rescale rounds. Locking the bound and the count documents this as a
         decision, so a future change to the map is caught rather than absorbed.
         """
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         vals = np.arange(65536, dtype=np.uint16)
         new = image_utils.convert_to_8bit(vals.reshape(256, 256), 16).reshape(-1).astype(np.int32)
@@ -522,13 +522,13 @@ class TestVideoFrameCarriesDepth:
         return path
 
     def test_12bit_video_frame_records_true_depth(self, sim_scope, tmp_path):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
         assert image_utils.read_tiff_significant_bits(path) == 12
 
     def test_video_frame_roundtrips_through_load_pixels(self, sim_scope, tmp_path):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
         _, sig, _ = image_utils.load_pixels(path)
@@ -542,7 +542,7 @@ class TestEncodeDisplayJpgDepth:
     def test_summed_16bit_frame_encodes_bright(self):
         import cv2
 
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         frame = np.zeros((32, 32), dtype=np.uint16)
         frame[8:24, 8:24] = 60000  # near full 16-bit white
@@ -551,7 +551,7 @@ class TestEncodeDisplayJpgDepth:
         assert bgr[8:24, 8:24].mean() > 180  # bright, correctly scaled
 
     def test_wrong_depth_on_summed_frame_is_loud(self):
-        from modules import image_utils
+        from _lumascope.modules import image_utils
 
         # A summed value > 4095 declared as 12-bit violates the depth contract.
         # The explicit range check raises a typed FrameDepthError naming the
@@ -571,7 +571,7 @@ class TestCellCountConverterRouting:
     def test_routes_16bit_through_convert_to_8bit(self):
         from unittest import mock
 
-        from modules.cell_count import CellCount
+        from _lumascope.modules.cell_count import CellCount
 
         class _StopError(Exception):
             pass
@@ -580,8 +580,10 @@ class TestCellCountConverterRouting:
         img = np.zeros((16, 16), dtype=np.uint16)
 
         with (
-            mock.patch('modules.image_utils.convert_16bit_to_8bit') as legacy,
-            mock.patch('modules.image_utils.convert_to_8bit', side_effect=_StopError) as canonical,
+            mock.patch('_lumascope.modules.image_utils.convert_16bit_to_8bit') as legacy,
+            mock.patch(
+                '_lumascope.modules.image_utils.convert_to_8bit', side_effect=_StopError
+            ) as canonical,
             pytest.raises(_StopError),
         ):
             cc.process_image(img, settings={}, significant_bits=16, pixels_per_um=None)

@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules import gui_logger
+from _lumascope.modules import gui_logger
 import ui.file_dialogs as file_dialogs
 
 _COMPILE_ERROR = "0:69: syntax error: A identifier can't go after this property. (-2740)\n"

@@ -18,7 +18,7 @@ from unittest import mock
 
 from pypylon import genicam
 
-from drivers.camera import ImageHandlerBase
+from _lumascope.drivers.camera import ImageHandlerBase
 from tests.camera_fakes import bare_pylon_camera
 from tests.log_capture import records_of
 
@@ -29,7 +29,7 @@ def _stop_with_log(caplog, cam, stop_takes_s, during_stop=None):
     ``during_stop``, when given, runs inside the stop, as the SDK's own
     counters would move while it waits.
     """
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     clock = [100.0]
 

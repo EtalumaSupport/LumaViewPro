@@ -1,13 +1,13 @@
 """P06 -- the autofocus button, headless.
 
 GUI entry: ui/vertical_control.py:446 run_autofocus_from_ui (kv line 537).
-API member under test: modules/protocol_runner.py:281 ProtocolRunner.start_autofocus.
+API member under test: src/_lumascope/modules/protocol_runner.py:281 ProtocolRunner.start_autofocus.
 """
 
 from harness import check, run, void
-from modules.protocol_runner import ProtocolRunner
-from modules.exceptions import ArgumentRefusedError
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 def body(s):

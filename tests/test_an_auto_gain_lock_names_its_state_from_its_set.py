@@ -9,9 +9,9 @@ the word a saved image's metadata carries.
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
-from modules.wire_encoding import plain
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
+from _lumascope.modules.wire_encoding import plain
 
 
 def test_a_lock_built_with_the_plain_word_holds_the_member_and_answers_the_word():

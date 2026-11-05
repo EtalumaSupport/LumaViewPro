@@ -11,8 +11,8 @@ published and driven: the board's target plus the offset.
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, PositionOutOfRangeError
-from modules.lumascope_api.motion import AxisState
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, PositionOutOfRangeError
+from _lumascope.modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
 

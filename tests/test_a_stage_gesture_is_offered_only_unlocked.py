@@ -16,8 +16,8 @@ from unittest import mock
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.scope_session import ControlsLock, ScopeSession
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.scope_session import ControlsLock, ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui import ui_helpers
 

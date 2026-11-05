@@ -31,9 +31,9 @@ from tests.stock_channels import LED0
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
-PROTOCOL_SRC = REPO / 'modules' / 'protocol.py'
-SESSION_SRC = REPO / 'modules' / 'scope_session.py'
-PROTOCOLS_API_SRC = REPO / 'modules' / 'lumascope_api' / 'protocols.py'
+PROTOCOL_SRC = REPO / 'src/_lumascope/modules' / 'protocol.py'
+SESSION_SRC = REPO / 'src/_lumascope/modules' / 'scope_session.py'
+PROTOCOLS_API_SRC = REPO / 'src/_lumascope/modules' / 'lumascope_api' / 'protocols.py'
 
 
 def _make_protocol_with_steps(rows: list[dict]):
@@ -41,7 +41,7 @@ def _make_protocol_with_steps(rows: list[dict]):
     import sys
 
     sys.path.insert(0, str(REPO))
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     proto = Protocol.__new__(Protocol)
     # Each step is in no z-stack, so it takes the focus itself.
@@ -85,7 +85,7 @@ class TestApplyFocusAllLayerSteps:
         import sys
 
         sys.path.insert(0, str(REPO))
-        from modules.protocol import Protocol
+        from _lumascope.modules.protocol import Protocol
 
         params = list(inspect.signature(Protocol.apply_focus_all_layer_steps).parameters)
         assert params == ['self', 'layer', 'z']

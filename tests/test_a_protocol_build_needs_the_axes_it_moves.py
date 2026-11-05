@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.coord_transformations import AxisLimits, StageOffset
-from modules.exceptions import ProtocolRunRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.test_run_refusal_contract import _capture_notifications
 from tests.test_step_label_ssot import _ZSTACK, _WIDE_Z, _build_protocol, _labeled_step
 

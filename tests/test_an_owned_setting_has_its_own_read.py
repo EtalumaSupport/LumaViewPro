@@ -12,16 +12,16 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import settings_paths
-from modules.api_surface import IN_PROCESS, mark_of, sets_of
-from modules.exceptions import (
+from _lumascope.modules import settings_paths
+from _lumascope.modules.api_surface import IN_PROCESS, mark_of, sets_of
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
 )
-from modules.lumascope_api.camera import CameraAPI
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+from _lumascope.modules.lumascope_api.camera import CameraAPI
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1

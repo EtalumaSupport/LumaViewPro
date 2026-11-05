@@ -30,24 +30,24 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
-from modules.protocol_image_writer import RunWriteBatch
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import ConfigError
-from modules.image_mode import (
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import ConfigError
+from _lumascope.modules.image_mode import (
     ImageCaptureConfig,
     SAVE_ENCODING_MSB_ALIGNED,
     SAVE_ENCODING_RGB,
     SAVE_ENCODING_RIGHT_ALIGNED,
 )
-from modules.protocol import Protocol
-from modules.sequenced_capture_runner import (
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
     SequencedCaptureRunner,
 )
-from modules.run_events import RunEvents
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 from tests.protocol_fixtures import protocol_of
 
@@ -64,9 +64,9 @@ FILES_WAIT_S = 60
 # ---------------------------------------------------------------------------
 
 
-from modules.run_outcome import EndingLatch
-from modules.layer_record import release_colors
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.run_outcome import EndingLatch
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 def _make_step(color='BF'):
@@ -140,7 +140,7 @@ def scope():
 
 @pytest.fixture
 def executors():
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='SSOT_IO'),
@@ -193,7 +193,7 @@ def _spy_save_image(monkeypatch, tmp_path):
         recorded.append(kwargs)
         return tmp_path / 'out.tiff'
 
-    monkeypatch.setattr('modules.protocol_image_writer.save_image', _record)
+    monkeypatch.setattr('_lumascope.modules.protocol_image_writer.save_image', _record)
     return recorded
 
 
@@ -246,7 +246,7 @@ class TestHeadlessStillHonorsRunMode:
     def test_headless_still_saves_run_config_encoding(
         self, executor, tmp_path, monkeypatch, mode, expected_encoding
     ):
-        monkeypatch.setattr('modules.app_context.ctx', None)
+        monkeypatch.setattr('_lumascope.modules.app_context.ctx', None)
         recorded = _spy_save_image(monkeypatch, tmp_path)
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode(mode))
@@ -268,7 +268,7 @@ class TestOneRunOneEncoding:
 
     @staticmethod
     def _writer(config):
-        from modules.protocol_image_writer import ProtocolImageWriter
+        from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
 
         scope = MagicMock()
         # A brought-up scope answers the objective in the light path; the
@@ -305,13 +305,13 @@ class TestOneRunOneEncoding:
 
         # A live settings source that says 8-bit must have no say.
         monkeypatch.setattr(
-            'modules.app_context.ctx',
+            '_lumascope.modules.app_context.ctx',
             MagicMock(settings={'image_mode': '8bit'}, settings_lock=threading.Lock()),
         )
 
         still_saves = _spy_save_image(monkeypatch, tmp_path)
 
-        from modules.protocol_image_writer import CapturedFrame
+        from _lumascope.modules.protocol_image_writer import CapturedFrame
 
         step = {'Name': 'A1_BF', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
@@ -337,7 +337,7 @@ class TestOneRunOneEncoding:
 
         # The video leg hands the SAME held config object to its recorder --
         # identity, not a copied value, so the two legs cannot diverge.
-        import modules.protocol_image_writer as piw
+        import _lumascope.modules.protocol_image_writer as piw
 
         recorded = {}
 
@@ -403,7 +403,7 @@ class TestSettingsDoNotOverrideRunConfig:
             # app context (e.g. the protocol's objective loader) keep working.
             source_path=str(REPO_ROOT),
         )
-        monkeypatch.setattr('modules.app_context.ctx', ctx)
+        monkeypatch.setattr('_lumascope.modules.app_context.ctx', ctx)
         recorded = _spy_save_image(monkeypatch, tmp_path)
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode('12bit_scientific'))
@@ -479,12 +479,12 @@ class TestIllegalConfigStatesUnrepresentable:
 
 
 RUN_PIPELINE_MODULES = [
-    'modules/sequenced_capture_runner.py',
-    'modules/protocol_image_writer.py',
-    'modules/protocol_step_runner.py',
-    'modules/protocol_recording.py',
-    'modules/recording_frames.py',
-    'modules/video_recording.py',
+    'src/_lumascope/modules/sequenced_capture_runner.py',
+    'src/_lumascope/modules/protocol_image_writer.py',
+    'src/_lumascope/modules/protocol_step_runner.py',
+    'src/_lumascope/modules/protocol_recording.py',
+    'src/_lumascope/modules/recording_frames.py',
+    'src/_lumascope/modules/video_recording.py',
 ]
 
 FORBIDDEN_CONFIG_SOURCES = {
@@ -517,7 +517,7 @@ def test_run_pipeline_has_no_config_source_but_the_run_config(module_path):
 
 def test_sequenced_capture_runner_has_no_8bit_fallback():
     """The ctx-is-None hardcoded 8-bit fallback must stay dead."""
-    tree = ast.parse((REPO_ROOT / 'modules/sequenced_capture_runner.py').read_text())
+    tree = ast.parse((REPO_ROOT / 'src/_lumascope/modules/sequenced_capture_runner.py').read_text())
     assert 'SAVE_ENCODING_8BIT' not in _referenced_names(tree), (
         'sequenced_capture_runner must not fall back to SAVE_ENCODING_8BIT; '
         'the run config is the only encoding source'

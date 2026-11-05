@@ -23,12 +23,12 @@ returned -1 on any failure).
 
 from __future__ import annotations
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 
 class TestGetTargetPosRetired:
     def test_motion_api_has_no_get_target_pos(self):
-        from modules.lumascope_api.motion import MotionAPI
+        from _lumascope.modules.lumascope_api.motion import MotionAPI
 
         assert not hasattr(MotionAPI, 'get_target_pos'), (
             'MotionAPI.get_target_pos was retired (zero external '
@@ -37,7 +37,7 @@ class TestGetTargetPosRetired:
         )
 
     def test_lumascope_has_no_get_target_pos_forwarder(self):
-        from modules.lumascope_api import Lumascope
+        from _lumascope.modules.lumascope_api import Lumascope
 
         assert not hasattr(Lumascope, 'get_target_pos'), (
             'Lumascope.get_target_pos backcompat forwarder was retired '
@@ -46,7 +46,7 @@ class TestGetTargetPosRetired:
 
     def test_motion_api_still_has_get_target_positions(self):
         """The canonical reader stays."""
-        from modules.lumascope_api.motion import MotionAPI
+        from _lumascope.modules.lumascope_api.motion import MotionAPI
 
         assert hasattr(MotionAPI, 'get_target_positions'), (
             'MotionAPI.get_target_positions is the canonical '
@@ -57,7 +57,7 @@ class TestGetTargetPosRetired:
         """The driver method that the retired API wrapper called
         stays -- `_refresh_position_cache` uses it to seed the cache
         from hardware after homing."""
-        from drivers.motorboard import MotorBoard
+        from _lumascope.drivers.motorboard import MotorBoard
 
         assert hasattr(MotorBoard, 'target_pos'), (
             'MotorBoard.target_pos is used by _refresh_position_cache '
@@ -68,8 +68,8 @@ class TestGetTargetPosRetired:
         """Source-wide source-grep guard: a future merge that re-adds
         an API call to scope.get_target_pos() or motion.get_target_pos()
         should be caught."""
-        for sub in ('modules', 'ui', 'drivers'):
-            for path in (REPO_ROOT / sub).rglob('*.py'):
+        for sub in ('src/_lumascope/modules', 'ui', 'src/_lumascope/drivers'):
+            for path in [REPO_ROOT / rel for rel in tracked_files((sub,))]:
                 text = path.read_text()
                 # Skip the driver-level target_pos (legitimate); only
                 # the API-shape get_target_pos is retired.

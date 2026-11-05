@@ -6,7 +6,7 @@ exception and set the spinner back to None. The person saw the spinner reset
 with no reason given. An exponential or power fit over a zero, or a NaN in
 either column, gave a curve of NaN or an arbitrary one. A pick with the
 trendline already on fitted twice, because the axis handlers called the fit
-again. The fit now lives in ``modules/graph_analysis.py``. It refuses, naming
+again. The fit now lives in ``src/_lumascope/modules/graph_analysis.py``. It refuses, naming
 the values and how many, and the widget asks the session to draw once per
 gesture and shows the figure it was given.
 """
@@ -20,9 +20,9 @@ import pandas as pd
 import pytest
 
 import ui.post_processing as panel_module
-from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from modules.graph_analysis import fit_trendline, trendline_kinds
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from _lumascope.modules.graph_analysis import fit_trendline, trendline_kinds
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

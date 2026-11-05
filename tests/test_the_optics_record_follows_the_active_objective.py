@@ -8,10 +8,14 @@ which scale a capture after a turret move used. It is now written by the
 one derivation, once per change, however the objective changed.
 """
 
+import logging
+
 import pytest
 
-import modules.config_helpers as config_helpers
-from modules.scope_session import ScopeSession
+import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.modules.scope_session import ScopeSession
+from tests.log_capture import messages, records_of
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -70,3 +74,24 @@ def test_answering_the_question_records_the_answer(turret_session, recorded):
 
     assert _read(turret_session) == '20x Oly'
     assert recorded == ['20x Oly']
+
+
+def test_a_scope_with_no_camera_records_no_image_scale(caplog):
+    """The record explains the scale of the images a scope takes; a scope
+    whose camera is not on the bus takes none, so reading its objective
+    writes no optics line -- not a warning that its images carry no
+    PhysicalSizeX, which the error log a support bundle is read from would
+    carry on every camera-less launch."""
+    session = ScopeSession.create(
+        complete_settings(microscope='LS850'),
+        simulate=True,
+        warn_pre_release=False,
+        simulated=SimulatedScope(camera_present=False),
+    )
+    try:
+        assert not session.scope.camera_connected
+        with caplog.at_level(logging.DEBUG):
+            assert _read(session) is not None
+        assert [m for m in messages(records_of(caplog, config_helpers)) if '[Optics' in m] == []
+    finally:
+        session.shutdown()

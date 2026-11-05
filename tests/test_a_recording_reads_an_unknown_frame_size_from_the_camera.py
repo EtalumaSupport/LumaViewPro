@@ -23,10 +23,10 @@ import threading
 import pytest
 import tifffile
 
-import modules.manual_recording as manual_recording_module
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CameraSettingRejected
-from modules.scope_session import ScopeSession
+import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 

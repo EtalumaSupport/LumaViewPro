@@ -15,6 +15,7 @@ import pathlib
 import time
 from unittest.mock import MagicMock
 
+from tests.ast_seams import tracked_files
 from tests.camera_fakes import bare_ids_camera
 from tests.log_capture import records_of
 
@@ -30,16 +31,16 @@ def _wait_until(condition, timeout_s=2.0):
 
 def test_only_the_base_camera_defines_the_removal_teardown():
     definers = []
-    for path in sorted((REPO / 'drivers').rglob('*.py')):
+    for path in [REPO / rel for rel in tracked_files(('src/_lumascope/drivers',))]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == '_schedule_async_teardown':
                 definers.append(path.relative_to(REPO).as_posix())
-    assert definers == ['drivers/camera.py']
+    assert definers == ['src/_lumascope/drivers/camera.py']
 
 
 def test_a_teardown_that_fails_is_logged_as_a_warning(caplog):
-    import drivers.camera as camera_module
+    import _lumascope.drivers.camera as camera_module
 
     # The camera log, which reaches camera.log and the errors log.
     caplog.set_level(logging.DEBUG)
@@ -60,7 +61,7 @@ def test_a_teardown_that_fails_is_logged_as_a_warning(caplog):
 def test_a_camera_built_by_its_own_constructor_can_be_torn_down():
     # A driver that seeds none of the teardown's state itself still gets it
     # from the base, so a real removal never meets a missing latch.
-    from drivers.simulated_camera import SimulatedCamera
+    from _lumascope.drivers.simulated_camera import SimulatedCamera
 
     cam = SimulatedCamera()
     cam.disconnect = MagicMock()

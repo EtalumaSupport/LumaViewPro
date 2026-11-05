@@ -18,8 +18,8 @@ import threading
 import pytest
 import tifffile
 
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings

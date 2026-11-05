@@ -10,14 +10,14 @@ of; each driver's own body is the hook the base calls.
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames
+from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 
-_MEMBERS = MemberNames('drivers/camera.py', {'start_grabbing', 'stop_grabbing'})
+_MEMBERS = MemberNames('src/_lumascope/drivers/camera.py', {'start_grabbing', 'stop_grabbing'})
 
 
 def test_no_driver_defines_the_grab_start_or_stop_itself():
     definers = []
-    for path in sorted((REPO_ROOT / 'drivers').rglob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('src/_lumascope/drivers',))]:
         if path.name == 'camera.py':
             continue
         tree = ast.parse(path.read_text())

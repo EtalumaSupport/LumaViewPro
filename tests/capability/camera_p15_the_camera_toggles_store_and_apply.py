@@ -50,7 +50,7 @@ def _toggle(session, name, setter, held, stored_path):
 
 def _absent(session, name, setter, held, reason):
     """A camera without the mode: on is refused with its reason, off is its state."""
-    from modules.exceptions import CameraSettingUnsupportedError
+    from _lumascope.modules.exceptions import CameraSettingUnsupportedError
 
     try:
         setter(True)

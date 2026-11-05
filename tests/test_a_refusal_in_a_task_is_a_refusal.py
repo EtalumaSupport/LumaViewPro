@@ -22,10 +22,10 @@ import logging
 
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
-from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from _lumascope.modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
+from _lumascope.modules.notification_center import REFUSAL_OPERATION_KEY, Severity
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # Each case builds its refusal fresh, as a press does: an outcome is logged
 # once and shown at most once per exception object, so one object shared by
@@ -108,7 +108,7 @@ class TestAFireAndForgetRefusal:
 
 @pytest.fixture
 def scope():
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(), simulate=True)

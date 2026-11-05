@@ -26,30 +26,33 @@ import time
 import pandas as pd
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from _lumascope.modules.lumascope_api.illumination import LedState
 
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolRunRefusedError
-from modules.image_mode import ImageCaptureConfig
-from modules.labware_loader import WellPlateLoader
-from modules.layer_record import release_catalogue
-from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol, ProtocolFormatError
-from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequenced_capture_runner import (
+    SequencedCaptureRunner,
+    SequencedCaptureRunMode,
+)
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
     StepHeartbeat,
     wait_for_run_end,
 )
 from tests.scope_fakes import configure_turret_like_bringup, measure_delivery_like_a_session
-from modules.acquire_mode import AcquireMode
+from _lumascope.modules.acquire_mode import AcquireMode
 from unittest.mock import MagicMock
-from modules.layer_record import release_colors
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_from_file, protocol_of
 
@@ -230,7 +233,7 @@ def scope():
 
 @pytest.fixture
 def executors():
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_IO'),
@@ -971,7 +974,7 @@ class TestRoundTripMetadata:
         corrupted TSV. Constructs the file by hand-editing a known-good
         save because _build_protocol/datetime.timedelta won't carry a
         negative-minutes value into the on-disk Period row directly."""
-        from modules.protocol import ProtocolFormatError
+        from _lumascope.modules.protocol import ProtocolFormatError
 
         tmp_path.mkdir(parents=True, exist_ok=True)
         proto = _build_protocol([_make_step()], period_min=1.0)
@@ -1466,7 +1469,7 @@ class TestExecuteCancellation:
 
 
 # ===========================================================================
-# PART 6: Real Path Tests (no mocking of drivers/transforms)
+# PART 6: Real Path Tests (no mocking of src/_lumascope/drivers/transforms)
 # ===========================================================================
 
 
@@ -1783,7 +1786,7 @@ class TestExecutorEdgeCases:
 
     def test_executor_state_idle_after_run(self, real_executor, scope, tmp_path):
         """Executor returns to IDLE state after protocol completes."""
-        from modules.sequenced_capture_runner import ProtocolState
+        from _lumascope.modules.sequenced_capture_runner import ProtocolState
 
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)

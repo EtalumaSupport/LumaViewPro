@@ -19,8 +19,8 @@ import enum
 import pytest
 from fastapi.testclient import TestClient
 
-from modules import wire_encoding
-from modules.api_surface import (
+from _lumascope.modules import wire_encoding
+from _lumascope.modules.api_surface import (
     API,
     api,
     IN_PROCESS,
@@ -31,16 +31,16 @@ from modules.api_surface import (
     reads_of,
     sets_of,
 )
-from modules.coord_transformations import StageOffset
-from modules.exceptions import ConfigurationDefectError
-from modules.frame_validity import FrameRule, FrameValiditySource, Rule
-from modules.lumascope_api.illumination import LedReading, LedState
-from modules.notification_center import UNTYPED_FAULT_TITLE
-from modules.operation import Operation
-from modules.scope_session import ScopeSession
-import rest.app
-from rest.app import SERVER_SEGMENTS, build_app
-from rest.routes import routes
+from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.exceptions import ConfigurationDefectError
+from _lumascope.modules.frame_validity import FrameRule, FrameValiditySource
+from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
+from _lumascope.modules.notification_center import UNTYPED_FAULT_TITLE
+from _lumascope.modules.operation import Operation
+from _lumascope.modules.scope_session import ScopeSession
+import _lumascope.rest.app
+from _lumascope.rest.app import SERVER_SEGMENTS, build_app
+from _lumascope.rest.routes import routes
 from tests.scope_fakes import led_reading
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
@@ -95,7 +95,7 @@ def _wire_routes(session) -> set[tuple[str, str]]:
         for name in reads:
             value = getattr(obj, name)
             if (
-                type(value).__module__.startswith('modules')
+                type(value).__module__.startswith('_lumascope.modules')
                 and not is_record(type(value))
                 and not isinstance(value, enum.Enum)
             ):
@@ -156,7 +156,9 @@ def test_every_engineering_member_is_in_process_and_served_nowhere(client, sessi
                     reads.append(name)
         for name in reads:
             child = getattr(obj, name)
-            if type(child).__module__.startswith('modules') and not is_record(type(child)):
+            if type(child).__module__.startswith('_lumascope.modules') and not is_record(
+                type(child)
+            ):
                 walk(child)
 
     walk(session)
@@ -285,16 +287,6 @@ class _APropertyHandsOutARun:
         raise NotImplementedError
 
 
-_PROVENANCE = {
-    'run_id': 'run-1',
-    'host': 'bench-pc',
-    'os': 'Windows 11',
-    'lvp_version': '4.0.0',
-    'plugin_version': '1.0.90',
-    'measured_date': '2026-10-20',
-}
-
-
 def _black_level_in_force(client) -> bool:
     """The wire's ``changes_in_force``, every source but the black level left out."""
     others = [('exclude_sources', s) for s in FrameValiditySource if s != 'black_level']
@@ -303,35 +295,24 @@ def _black_level_in_force(client) -> bool:
     return answer.json()
 
 
-def _black_level_on_the_clock_rule(session, delay_us: float) -> None:
-    """A black-level change from now on runs the clock rule at ``delay_us``, and one is made."""
+def _black_level_waiting(session, count: int) -> None:
+    """A black-level change from now on waits ``count`` frames, and one is made."""
     frame_validity = session.scope.imaging.frame_validity
     rules = dict(frame_validity.rules())
-    rules['black_level'] = FrameRule(
-        rule=Rule.CLOCK,
-        count=rules['black_level'].count,
-        delay_us=delay_us,
-        provenance=_PROVENANCE,
-    )
+    rules['black_level'] = FrameRule(count=count, provenance=None)
     frame_validity.use_rules(rules)
     session.scope.camera.set_black_level(4.0)
 
 
-def test_a_wire_client_is_told_a_change_is_not_in_force_while_its_delay_runs(client, session):
-    """``changes_in_force`` on the wire is the capture's own answer: under the
-    clock rule a change is in force once its delay has run, so a REST
-    client is not told it has settled while the delay runs."""
-    _black_level_on_the_clock_rule(session, delay_us=60e6)
+def test_a_wire_client_is_told_a_change_is_not_in_force_while_its_frames_are_owed(client, session):
+    """``changes_in_force`` on the wire is the capture's own answer: a
+    change is in force once its count of frames has come, so a REST client
+    is not told it has settled while frames are still owed."""
+    _black_level_waiting(session, count=10**6)
     assert _black_level_in_force(client) is False
 
-    _black_level_on_the_clock_rule(session, delay_us=0.0)
+    _black_level_waiting(session, count=0)
     assert _black_level_in_force(client) is True
-
-
-def test_the_clock_mapping_of_changes_in_force_stays_in_process(client):
-    answer = client.get('/api/v1/scope/imaging/changes_in_force', params={'mapping': 'none'})
-    assert answer.status_code == 422, answer.text
-    assert 'mapping' in answer.text
 
 
 def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_when_built():
@@ -580,7 +561,7 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
 def test_a_session_member_named_as_a_server_route_fails_the_build(session, monkeypatch):
     """A Session member the server's own route would shadow is a program defect, found when the server is built."""
     # ScopeSession.app_version is served at /api/v1/app_version.
-    monkeypatch.setattr(rest.app, 'SERVER_SEGMENTS', SERVER_SEGMENTS | {'app_version'})
+    monkeypatch.setattr(_lumascope.rest.app, 'SERVER_SEGMENTS', SERVER_SEGMENTS | {'app_version'})
     with pytest.raises(ConfigurationDefectError) as refused:
         build_app(session)
     assert refused.value.reason == 'route_shadowed'

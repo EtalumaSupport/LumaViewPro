@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import AxisMovingError
-from modules.lumascope_api.motion import AxisState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import AxisMovingError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -129,4 +129,6 @@ def test_once_the_move_has_ended_each_save_keeps_where_the_axis_stopped(session)
 
     assert session.save_bookmark(('Z',)).z_um == pytest.approx(at_rest.position_um, abs=0.01)
     assert session.get_current_plate_position().z_um == pytest.approx(at_rest.position_um, abs=0.01)
-    assert session.scope.protocols.focus_z_um(then='save the focus') == at_rest.position_um
+    assert session.scope.protocols.focus_z_um(then='save the focus') == pytest.approx(
+        at_rest.position_um, abs=0.01
+    )

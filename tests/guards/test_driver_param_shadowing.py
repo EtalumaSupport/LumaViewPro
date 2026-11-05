@@ -1,14 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """No driver method takes a parameter named after itself.
 
-A sweep over every module in drivers/, so it gates every commit from
+A sweep over every module in src/_lumascope/drivers/, so it gates every commit from
 tests/guards/; the per-driver regression tests it grew out of stay in
 tests/test_audit_fixes.py.
 """
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module, tracked_files
 
 
 class TestDriverParametersNotShadowingMethods:
@@ -28,10 +28,10 @@ class TestDriverParametersNotShadowingMethods:
     """
 
     def test_no_driver_method_param_shadows_its_method_name(self):
-        """No function in any drivers/*.py module may take a parameter
+        """No function in any src/_lumascope/drivers/*.py module may take a parameter
         named identically to the function itself."""
         offenders = []
-        for path in sorted((REPO_ROOT / 'drivers').glob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files(('src/_lumascope/drivers',), '*.py')]:
             rel = path.relative_to(REPO_ROOT).as_posix()
             tree = parse_module(rel)
             for node in ast.walk(tree):

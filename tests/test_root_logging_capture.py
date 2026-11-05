@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-_SRC = (ROOT / 'lvp_logger.py').read_text(encoding='utf-8')
+_SRC = (ROOT / 'src/_lumascope/lvp_logger.py').read_text(encoding='utf-8')
 
 
 class TestRootLoggerCapturedInBundle:
@@ -69,11 +69,11 @@ _KIVY_FIRST = r"""
 import os, sys
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
-sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 import kivy.logger
-import modules.settings_init as settings_init
+import _lumascope.modules.settings_init as settings_init
 settings_init.load_debug_setting = lambda directory: True
-from lvp_logger import logger
+from _lumascope.lvp_logger import logger
 logger.info('a line logged after Kivy loaded')
 print('LOGGED')
 """
@@ -91,20 +91,20 @@ def test_a_debug_console_made_after_kivy_loaded_logs_without_looping(tmp_path):
     assert 'a line logged after Kivy loaded' in ran.stderr
 
 
-# The drivers and lib/ take their loggers from lib/log_helpers, never from
+# The drivers and src/_lumascope/lib/ take their loggers from src/_lumascope/lib/log_helpers, never from
 # lvp_logger; the real lvp_logger configures those same objects by name.
 _A_DRIVERS_LINES = r"""
-import sys
-sys.path.insert(0, sys.argv[1])
-import modules.settings_init as settings_init
+import os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
+import _lumascope.modules.settings_init as settings_init
 settings_init.load_debug_setting = lambda directory: True
-import lvp_logger
-from lib.log_helpers import camera_logger, logger
+import _lumascope.lvp_logger
+from _lumascope.lib.log_helpers import camera_logger, logger
 logger.debug('a driver debug line')
 camera_logger.info('a camera line')
-for handler in lvp_logger.logging.getLogger().handlers + camera_logger.handlers:
+for handler in _lumascope.lvp_logger.logging.getLogger().handlers + camera_logger.handlers:
     handler.flush()
-print(lvp_logger.log_dir)
+print(_lumascope.lvp_logger.log_dir)
 """
 
 
@@ -113,7 +113,11 @@ def test_a_drivers_lines_land_in_the_main_and_camera_logs(tmp_path):
     # launched from, so this run's logs are the test's own.
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt', 'data'):
+    for item in (
+        'src',
+        'version.txt',
+        'data',
+    ):
         (folder / item).symlink_to(ROOT / item)
     script = tmp_path / 'driver_lines.py'
     script.write_text(_A_DRIVERS_LINES)

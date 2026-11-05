@@ -14,12 +14,12 @@ import logging
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

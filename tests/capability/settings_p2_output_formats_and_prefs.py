@@ -16,7 +16,7 @@ import sys
 
 import harness as _common
 
-from modules.exceptions import SettingRefusedError
+from _lumascope.modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
@@ -50,7 +50,7 @@ try:
     except SettingRefusedError as e:
         _common.ok('bogus live format refused at update_settings', True, f'{e.reason}: {e}')
     # ... and at the run-config boundary?
-    from modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.image_mode import ImageCaptureConfig
 
     try:
         ImageCaptureConfig.from_image_mode(
@@ -76,7 +76,7 @@ try:
         )
     except SettingRefusedError as e:
         _common.ok('jpg_quality 500 refused', True, f'{e.reason}: {e}')
-    from modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.image_mode import ImageCaptureConfig
 
     try:
         c = ImageCaptureConfig.from_image_mode(s.settings['image_mode'], jpg_quality=500)

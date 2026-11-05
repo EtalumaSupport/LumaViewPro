@@ -7,10 +7,10 @@ from kivy.metrics import dp
 from kivy.properties import ColorProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-import modules.layer_record as layer_record
-from modules import gui_logger
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules import gui_logger
 from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
@@ -450,6 +450,6 @@ def set_histogram_layer(active_layer):
 
         if layer == active_layer:
             Clock.schedule_interval(layer_ref.ids['histo_id'].histogram, 0.5)
-            logger.info(
+            logger.debug(
                 f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)'
             )

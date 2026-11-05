@@ -26,11 +26,10 @@ import configparser
 import datetime
 import importlib.util
 import pathlib
-import sys
 
 import pytest
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / 'scripts' / 'appBuild' / 'config'
@@ -141,7 +140,7 @@ def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
 
 
 def test_repair_runs_the_driver_step_the_build_ships():
-    from modules import fx2_driver_step
+    from _lumascope.modules import fx2_driver_step
 
     assert fx2_driver_step.DRIVER_STEP_EXE == fx2_bundle.DRIVER_STEP_EXE
 
@@ -151,8 +150,8 @@ def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monke
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
     datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
     dist = _dist(tmp_path, datas, binaries)
-    monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, '_MEIPASS', str(dist), raising=False)
+    # Frozen, the build root is the bundle's folder the spec collects into.
+    monkeypatch.setattr(fx2driver, 'build_root', lambda: dist)
 
     found = fx2driver._FX2Connection.find_firmware_path()
 

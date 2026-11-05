@@ -19,10 +19,10 @@ binning level is reproducible and the cycle round-trips exactly.
 
 from typing import ClassVar
 
-import modules.binning as binning
-from drivers import host_clock
-from drivers.camera_profiles import lookup_profile
-from drivers.simulated_camera import SimulatedCamera
+import _lumascope.modules.binning as binning
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera_profiles import lookup_profile
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 
 
 # Mimics the buggy pre-fix derivation: iterate on the displayed value, and
@@ -101,7 +101,7 @@ class TestBinningRoundTrip:
     def test_simulated_camera_profile_round_trips(self):
         """Exercise the shipped SimulatedCamera profile end-to-end.
 
-        Profile (drivers/camera_profiles.py): native 3840x2160, alignment
+        Profile (src/_lumascope/drivers/camera_profiles.py): native 3840x2160, alignment
         48x4 (width must be a multiple of 48). The cycle must still return
         to the start with the non-trivial width alignment.
         """
@@ -177,7 +177,7 @@ class TestDeliverableAlignmentFloor:
         # reviewed regression). The simulator's own grid is 48x4; the driver
         # here reports the IDS even grid, so a request floored to anything
         # but the driver's answer is visible.
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
@@ -213,7 +213,7 @@ class TestSimPostBinningContract:
 
     def _grab_shape(self, cam):
         return cam._generate_image(
-            cam._start_exposure(host_clock.steady_ns())
+            cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
         ).shape  # (height, width)
 
     def test_set_frame_size_is_post_binning(self):

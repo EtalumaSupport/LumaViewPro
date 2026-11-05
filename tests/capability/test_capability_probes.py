@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Run every capability probe: can a SCRIPT do what the GUI does?
 
-Each probe drives `ScopeSession` / `modules.lumascope_api` only and reports
+Each probe drives `ScopeSession` / `_lumascope.modules.lumascope_api` only and reports
 what it observed. The probes were written for
 `CENSUS_API_CAPABILITY_SORT_2026-09-20.md`, which sorted 106 capabilities by
 RUNNING them; this module is that census's instrument, kept runnable so the
@@ -49,7 +49,13 @@ from tests.bench_results import linked_checkout
 HERE = pathlib.Path(__file__).resolve().parent
 
 # The harness and its helpers are not probes.
-_NOT_A_PROBE = {'harness.py', 'runfolder.py', '__init__.py', pathlib.Path(__file__).name}
+_NOT_A_PROBE = {
+    'harness.py',
+    'runfolder.py',
+    'stitch_instrument.py',
+    '__init__.py',
+    pathlib.Path(__file__).name,
+}
 
 # Void names reported by the probes THIS RUN. Populated as probes execute, so
 # the announced number describes what actually ran and nothing more.
@@ -75,7 +81,9 @@ def run_probe(path, scratch):
     # scripts; this directory is what makes that resolve. `-P` keeps Python
     # from putting the script's own folder first: it resolves the links, and
     # the harness would then find the checkout's log folder.
-    env['PYTHONPATH'] = os.pathsep.join([str(capability), str(folder), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join(
+        [str(capability), str(folder / 'src'), str(folder), env.get('PYTHONPATH', '')]
+    )
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
     proc = subprocess.run(
         [sys.executable, '-P', str(capability / path.name)],

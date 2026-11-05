@@ -9,8 +9,8 @@ phase.
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.run_events import VideoPhase, VideoProgress
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.run_events import VideoPhase, VideoProgress
 
 
 def test_a_video_progress_holds_its_phase_as_a_member_and_refuses_any_other_word():

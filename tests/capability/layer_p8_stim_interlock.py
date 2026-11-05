@@ -18,7 +18,7 @@ from tests.stock_channels import LED0, LED1
 
 s, live = harness.make_session('p8', home=True)
 try:
-    from modules import config_helpers
+    from _lumascope.modules import config_helpers
 
     lay = LED0
     with s.settings_lock:

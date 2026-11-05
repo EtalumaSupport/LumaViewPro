@@ -6,7 +6,7 @@ A dark frame is never refused. Pixel content cannot distinguish an LED
 that failed to light from a genuinely dark sample or a deliberately dim
 transmitted setting, so darkness decides nothing about the hardware --
 capture readiness is owned by tracked illumination state
-(``modules/frame_validity.py``), never inferred from pixels. Refusing a
+(``src/_lumascope/modules/frame_validity.py``), never inferred from pixels. Refusing a
 dark frame destroyed real observations; the operator can see a dark
 image perfectly well.
 
@@ -31,7 +31,7 @@ measures against 4095, not 65535).
 import numpy as np
 import pytest
 
-from modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from tests.camera_fakes import frames_carrying
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.stock_channels import LED0, LED2
@@ -190,7 +190,7 @@ class TestLitFractionDepthRule:
 
 
 class TestLiveCaptureConfigSeam:
-    """Every key the manual capture (modules/manual_capture.py) reads off a
+    """Every key the manual capture (src/_lumascope/modules/manual_capture.py) reads off a
     get_layer_configs() entry must exist in the dict get_layer_configs() actually emits.
 
     The emitted keys carry unit suffixes (illumination_ma, exposure_ms,
@@ -205,7 +205,7 @@ class TestLiveCaptureConfigSeam:
         import ast
         from pathlib import Path
 
-        from modules import config_helpers
+        from _lumascope.modules import config_helpers
 
         layer_settings = {
             'acquire': None,
@@ -223,7 +223,9 @@ class TestLiveCaptureConfigSeam:
             config_helpers.get_layer_configs({'BF': layer_settings}, specific_layers=['BF'])['BF']
         )
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'manual_capture.py').read_text()
+        src = (
+            Path(__file__).resolve().parent.parent / 'src/_lumascope/modules' / 'manual_capture.py'
+        ).read_text()
         read_keys = []
         for node in ast.walk(ast.parse(src)):
             if (

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The scope's identity carries its model, and a model change applies at the next start.
 
-An FX2 scope (LS560, LS620, LS720) cannot report its own model, so the
+An FX2 scope (LS460, LS560, LS620, LS720) cannot report its own model, so the
 operator's selection is its identity. The resolver settled on a model and
 threw it away: the capabilities asked the motor board, which on an FX2 scope
 is the null board and answers nothing, and a saved image recorded the same
@@ -16,10 +16,10 @@ selection is saved for the next start without touching the running scope.
 
 import pytest
 
-from modules import layer_record
-from modules.exceptions import Refusal
+from _lumascope.modules import layer_record
+from _lumascope.modules.exceptions import Refusal
 from tests.scope_fakes import refuse_a_report
-from modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
 
@@ -80,7 +80,7 @@ class TestTheRunningScopeHasOneModel:
         assert ls620_session.scope.channel_identity.model == 'LS620'
 
     def test_a_saved_image_records_the_identitys_model(self, ls620_session):
-        from modules import image_save
+        from _lumascope.modules import image_save
 
         scope = ls620_session.scope
         metadata = image_save.generate_image_metadata(
@@ -112,7 +112,7 @@ class TestAModelSelectionAppliesAtTheNextStart:
         assert scope.channel_identity.model == 'LS620'
 
     def test_a_model_the_catalogue_lacks_is_refused_and_nothing_is_saved(self, ls620_session):
-        from modules.exceptions import ScopeModelUnknownError
+        from _lumascope.modules.exceptions import ScopeModelUnknownError
 
         with pytest.raises(ScopeModelUnknownError) as refused:
             ls620_session.select_model('LS9999')
@@ -140,8 +140,8 @@ class TestNothingReselectsARunningScope:
         from tests.ast_seams import writers_of_settings_keys
 
         assert writers_of_settings_keys({'microscope'}) == {
-            ('modules/scope_session.py', 'ScopeSession._configure_scope'),
-            ('modules/scope_session.py', 'ScopeSession.select_model'),
+            ('src/_lumascope/modules/scope_session.py', 'ScopeSession._configure_scope'),
+            ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_model'),
         }
 
     def test_no_production_code_re_resolves_the_identity(self):
@@ -176,3 +176,18 @@ class TestNothingReselectsARunningScope:
             if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant)
         }
         assert 'microscope' not in keys
+
+
+@pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)
+def test_a_lumi_offers_darkfield_and_lights_its_led(sim_session):
+    """A Lumi's illuminator carries the darkfield ring, so the Lumi model
+    offers DF and lights its LED at the board's DF address, as the LS820's."""
+    from _lumascope.modules.lumascope_api.illumination import LedState
+
+    scope = sim_session.scope
+    assert 'DF' in [record.key_name for record in scope.channel_identity.channels]
+
+    scope.illumination.led_on('DF', 10)
+
+    (df,) = [reading for reading in scope.illumination.get_led_states() if reading.name == 'DF']
+    assert (df.address, df.state) == (5, LedState.LIT)

@@ -18,14 +18,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.exceptions import CameraUsbOpenFailedError
-from modules.exceptions import CameraNotAvailableError
-from modules.lumascope_api._lumascope import _camera_failure_cause
+from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.modules.exceptions import CameraNotAvailableError
+from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
 
 def _ids_camera(monkeypatch, devices):
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     dm = MagicMock()
     dm.Devices.return_value = devices
@@ -66,7 +66,7 @@ def test_an_ids_camera_that_another_program_holds_raises(monkeypatch):
     devices, descriptor = _one_ids_device()
     descriptor.OpenDevice.side_effect = type('BadAccessException', (Exception,), {})('open already')
     # The open's retries ride out a held camera; with no backoff they run at once.
-    monkeypatch.setattr('drivers.idscamera._OPEN_CONTROL_BACKOFF_S', 0.0)
+    monkeypatch.setattr('_lumascope.drivers.idscamera._OPEN_CONTROL_BACKOFF_S', 0.0)
     cam, _dm = _ids_camera(monkeypatch, devices)
 
     with pytest.raises(CameraUsbOpenFailedError):
@@ -85,7 +85,7 @@ def test_an_ids_host_whose_device_update_fails_has_no_camera(monkeypatch):
 
 
 def _pylon_tl(monkeypatch, devices):
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     tl = MagicMock()
     tl.GetInstance.return_value.EnumerateDevices.return_value = devices
@@ -94,7 +94,7 @@ def _pylon_tl(monkeypatch, devices):
 
 
 def test_a_basler_that_is_listed_and_will_not_open_raises(monkeypatch):
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     _pylon_tl(monkeypatch, [MagicMock()])
     # a stand-in by design: pylon refusing an open is a fault the simulator cannot yet produce (it has no pylon)
@@ -113,7 +113,7 @@ def test_a_basler_that_is_listed_and_will_not_open_raises(monkeypatch):
 
 
 def test_a_host_with_no_basler_has_no_camera(monkeypatch):
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     factory = _pylon_tl(monkeypatch, [])
     factory.CreateFirstDevice.side_effect = pyloncamera.genicam.RuntimeException(
@@ -129,7 +129,7 @@ def test_a_host_with_no_basler_has_no_camera(monkeypatch):
 def test_the_bring_up_tells_an_open_failure_as_could_not_connect():
     fault = CameraUsbOpenFailedError('IDS camera found, its data stream failed: IndexError')
 
-    assert _camera_failure_cause(fault) == 'camera_not_initialized'
+    assert _camera_failure_cause(fault, False) == 'camera_not_initialized'
     assert 'Could not connect to the camera' in str(
         CameraNotAvailableError('camera_not_initialized')
     )
@@ -140,7 +140,7 @@ def test_the_bring_up_tells_its_own_failure_as_lumaviewpros_not_the_cables():
     defect: its cause and words name LumaViewPro, never the USB cable."""
     fault = TypeError('scripted defect')
 
-    assert _camera_failure_cause(fault) == 'camera_bring_up_failed'
+    assert _camera_failure_cause(fault, False) == 'camera_bring_up_failed'
     words = str(CameraNotAvailableError('camera_bring_up_failed'))
     assert 'LumaViewPro failed' in words
     assert 'USB' not in words

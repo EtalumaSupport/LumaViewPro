@@ -10,7 +10,7 @@ import pytest
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from modules.notification_center import NotificationCenter, Severity, Notification
+from _lumascope.modules.notification_center import NotificationCenter, Severity, Notification
 
 
 class TestNotificationCenter:
@@ -337,14 +337,14 @@ class TestEveryHostReadsAnOutcomeAlike:
     """``outcome_of`` is the one reading of what an exception is: the reporter and the REST server both use it."""
 
     def test_each_kind_is_read_from_its_type(self):
-        from modules.exceptions import (
+        from _lumascope.modules.exceptions import (
             CaptureFailedError,
             RunWaitExpiredError,
             LiveFolderPathRefusedError,
             RefusalCause,
             SingleScanNotice,
         )
-        from modules.notification_center import OutcomeKind, outcome_of
+        from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 
         refusal = outcome_of(LiveFolderPathRefusedError('outside_live_folder', '..', 'Not there.'))
         notice = outcome_of(SingleScanNotice(period_s=0.0, duration_s=0.0))
@@ -383,6 +383,6 @@ class TestEveryHostReadsAnOutcomeAlike:
         )
 
     def test_a_quiet_kind_crosses_a_wire_as_its_value(self):
-        from modules.notification_center import OutcomeKind
+        from _lumascope.modules.notification_center import OutcomeKind
 
         assert OutcomeKind.QUIET.value == 'quiet'

@@ -27,15 +27,20 @@ if sys.version_info < (3, 12):  # noqa: UP036 -- runtime check is load-bearing U
     print(f'ERROR: {_msg}', file=sys.stderr)
     sys.exit(1)
 
+# This checkout's own API, whatever lumascope.pth the interpreter holds; the
+# link is not followed, so a link farm stays its own launch folder.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
 # The IDS camera stack must initialize while the process is still nearly
 # empty: its image-processing DLL fails initialization once the full DLL
 # population (matplotlib->numpy, Kivy/SDL, cv2, pylon) is resident, so the
 # preload precedes every heavy import.
-from modules.app_environment import preload_camera_sdks
+from _lumascope.modules.app_environment import preload_camera_sdks
 
 preload_camera_sdks()
 
 import concurrent.futures
+import pathlib
 import threading
 
 import matplotlib
@@ -50,14 +55,14 @@ if __name__ == '__main__':
     no_engineering = '--no-engineering' in sys.argv
     if no_engineering:
         sys.argv.remove('--no-engineering')
-    from modules.app_environment import take_sim_launch_value
+    from _lumascope.modules.app_environment import take_sim_launch_value
 
     def _take_stall(flag):
         try:
             value = take_sim_launch_value(sys.argv, flag, simulate=simulate_mode)
             if value is None:
                 return None
-            from drivers.simulated_camera import SimulatedStall
+            from _lumascope.drivers.simulated_camera import SimulatedStall
 
             _after, _for = value.split(',')
             return SimulatedStall(after_s=float(_after), for_s=float(_for))
@@ -97,7 +102,7 @@ if __name__ == '__main__':
             sys.argv, 'sim-refused-camera-write', simulate=simulate_mode
         )
         if _refused is not None:
-            from modules.lumascope_api.simulation import (
+            from _lumascope.modules.lumascope_api.simulation import (
                 CameraWriteAnswer,
                 CameraWriteNode,
                 SimulatedCameraWriteRefusal,
@@ -115,17 +120,26 @@ if __name__ == '__main__':
             )
     except ValueError as _refused_error:
         sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
+    # --sim-camera=absent brings the simulated scope up with its camera
+    # unplugged, so a launch with no camera is shown without hardware.
+    try:
+        _camera = take_sim_launch_value(sys.argv, 'sim-camera', simulate=simulate_mode)
+        if _camera not in (None, 'absent'):
+            raise ValueError(f'{_camera!r} is not absent')
+    except ValueError as _camera_error:
+        sys.exit(f'--sim-camera=absent: {_camera_error}')
     # The flags above are the simulated scope the session is built as; a
     # real scope is given none.
     simulated_scope = None
     if simulate_mode:
-        from modules.lumascope_api.simulation import SimulatedScope
+        from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 
         simulated_scope = SimulatedScope(
             refused_camera_writes=sim_refused_camera_writes,
             camera_stall=sim_camera_stall,
             focal_spread_um=sim_focal_spread_um,
             file_stall=sim_file_stall,
+            camera_present=_camera is None,
         )
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
@@ -144,10 +158,9 @@ if __name__ == '__main__':
     live_view_fps = 30
 
     # Environment setup -- paths, version, platform detection
-    from modules.app_environment import init_environment
+    from _lumascope.modules.app_environment import init_environment
 
-    _env = init_environment(main_file=__file__)
-    script_path = _env.script_path
+    _env = init_environment()
     source_path = _env.source_path
     version = _env.version
     windows_machine = _env.windows_machine
@@ -159,7 +172,7 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, install_crash_hooks, log_dir, logger
+    from _lumascope.lvp_logger import debug, install_crash_hooks, log_dir, logger
 
     # LumaViewPro's crash policy: an uncaught exception is recorded in the
     # log, before settings, Kivy, the plugins or the app can raise one.
@@ -170,7 +183,7 @@ if __name__ == '__main__':
     # The installer logs to the user TEMP folder, which no support bundle
     # collects and Windows eventually sweeps -- so an install that failed
     # to replace a file cannot be told apart from an application defect.
-    from modules.app_environment import capture_installer_logs
+    from _lumascope.modules.app_environment import capture_installer_logs
 
     capture_installer_logs(log_dir)
 
@@ -179,36 +192,27 @@ if __name__ == '__main__':
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')
 
-    # Start the memory profiler before the heavy module/driver/ui imports so
-    # tracemalloc captures the resident baseline, not just post-startup growth.
-    # No-op unless memory_profile_enabled is set in the live settings.
-    from lib import memory_profile
-    from modules.settings_init import load_memory_profile_setting
-
-    memory_gate = load_memory_profile_setting(source_path)
-    memory_profile.start(enabled=memory_gate['enabled'], interval_s=memory_gate['interval_s'])
-
     # A settings or installation file that cannot be used stops the launch by
     # escaping: the crash hook logs it, and the packaged build's bootloader
     # shows its message. Never a SystemExit here, which the bootloader treats
     # as a deliberate stop and shows nothing for.
-    from modules.settings_init import load_lvp_settings
+    from _lumascope.modules.settings_init import load_lvp_settings
 
     load_lvp_settings(logger, source_path)
 
-    from modules.settings_init import settings
+    from _lumascope.modules.settings_init import settings
 
-    import modules.app_context as app_context
-    import modules.common_utils as common_utils
-    import modules.lvp_lock as lvp_lock
-    import modules.profiling_utils as profiling_utils
-    from modules.app_context import AppContext
-    from modules.scope_session import ScopeSession
+    import _lumascope.modules.app_context as app_context
+    import _lumascope.modules.common_utils as common_utils
+    import _lumascope.modules.lvp_lock as lvp_lock
+    import _lumascope.modules.profiling_utils as profiling_utils
+    from _lumascope.modules.app_context import AppContext
+    from _lumascope.modules.scope_session import ScopeSession
 
     global profiling_helper
     profiling_helper = None
 
-    from modules.path_utils import app_runtime
+    from _lumascope.modules.path_utils import app_runtime
 
     if app_runtime().frozen:
         import pyi_splash  # type: ignore
@@ -420,7 +424,7 @@ if __name__ == '__main__':
 
 else:
     # Subprocess/worker compatibility -- Kivy not available
-    from modules.subprocess_stubs import (
+    from _lumascope.modules.subprocess_stubs import (
         AccordionItem,
         App,
         BoxLayout,
@@ -460,17 +464,18 @@ else:
 # Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
-from modules import gui_logger, live_work
-from modules.kivy_utils import schedule_ui, schedule_ui_latest
-from modules.app_config import (
+from _lumascope.lib.build_files import build_file
+from _lumascope.modules import gui_logger, live_work
+from _lumascope.modules.ui_queue import schedule_ui, schedule_ui_latest
+from _lumascope.modules.app_config import (
     load_mode as _load_mode,
 )
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     ObjectiveUnknownError,
     ScopeModelUnknownError,
 )
-from modules.settings_init import fall_back_to_template
+from _lumascope.modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
 # (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
@@ -527,7 +532,7 @@ from ui.zstack import ZStack
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
-    kv_file = 'ui/lumaviewpro.kv'
+    kv_file = build_file('ui/lumaviewpro.kv')
 
     # The saved protocol is loaded once, after the startup objective
     # question settles. A plain attribute rather than a kv property: no
@@ -558,7 +563,7 @@ class LumaViewProApp(TooltipMixin, App):
     # forgets.
     _close_thread = None
 
-    # The REST server served beside the window (``rest.server.Server``), or
+    # The REST server served beside the window (``_lumascope.rest.server.Server``), or
     # None while none has been started; every close ends the session
     # through it.
     _rest_server = None
@@ -625,6 +630,9 @@ class LumaViewProApp(TooltipMixin, App):
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
+        # A window that opens at its final size sends no resize, so its
+        # geometry is recorded from here.
+        self._geometry_changed()
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
@@ -698,18 +706,18 @@ class LumaViewProApp(TooltipMixin, App):
             # On startup stay where homing left the stage -- do NOT drive to
             # protocol step 1. A loaded protocol's steps stay available (the
             # steps table is rendered by load_protocol) and the user navigates
-            # to them explicitly. Show the Session's shown channel (BF in a
-            # fresh session) at its saved settings, identical to the
-            # no-protocol path, so there is no stage motion either way.
-            shown = ctx.session.shown_channel.channel
-            ctx.image_settings.layer_lookup(layer=shown).apply_settings()
+            # to them explicitly. Nothing is shown here either: bring-up has
+            # already shown BF and put its settings on the camera, skipping a
+            # missing camera it has already reported, so showing it again here
+            # writes nothing and repeats that report.
 
         if sim_walk is not None:
             from ui.sim_walk import SimWalk
 
             _walk_path, _walk_steps = sim_walk
             # Held on the app: the Clock keeps only weak references to the
-            # walk's bound methods. Pictures land beside the walk file.
+            # walk's bound methods. A shot lands where it names, under the walk file's
+            # folder; the picture of a stop goes beside the log.
             self._sim_walk = SimWalk(
                 _walk_steps,
                 source=str(_walk_path),
@@ -717,6 +725,7 @@ class LumaViewProApp(TooltipMixin, App):
                 in_flight=ctx.session.in_flight_named,
                 simulation=ctx.scope.simulation,
                 shot_dir=_walk_path.parent,
+                stop_dir=pathlib.Path(log_dir),
             )
             self._sim_walk.start()
 
@@ -742,7 +751,7 @@ class LumaViewProApp(TooltipMixin, App):
             self._prompt_objective_if_needed()
 
             # Objective and LEDs are set by scope.initialize() during load_settings();
-            # The shown channel's settings are applied by complete_initialization().
+            # the shown channel's settings are applied by the Session's bring-up.
 
             # The session owns the metrics lifecycle (it owns the session
             # scheduler, and logs the environment fingerprint ahead of the
@@ -760,15 +769,8 @@ class LumaViewProApp(TooltipMixin, App):
             # The atexit emergency-shutdown hook is registered in Lumascope.__init__
             # so every Lumascope user gets the same safety net automatically.
 
-            # Capture the settled startup footprint a few seconds after the
-            # start has finished, so the camera/UI have finished initializing.
-            # No-op unless the memory profiler is enabled.
-            from lib import memory_profile
-
-            Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
-
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            from modules.exceptions import LaneCallStillRunningError, SessionClosingError
+            from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
 
             # The window's close began, in this tick or an earlier one.
             if self._closing_begun:
@@ -834,12 +836,14 @@ class LumaViewProApp(TooltipMixin, App):
         has finished: the saved protocol loads once the objective question
         resolves, and the display shows a frame once the display thread
         delivers one. A walk started on the timer pressed a control
-        mid-layout and shot the black placeholder.
+        mid-layout and shot the black placeholder. A scope with no camera
+        connected has no frame to show, so none is owed.
 
         While the objective question is showing, the load is owed by the
         walk's answer, not by bring-up: a walk of that question is the
         one that answers it, so a popup up is bring-up waiting on the walk.
         """
+        from _lumascope.modules.lumascope_api.bring_up import Part
         from ui.sim_walk import open_popups
 
         owed = []
@@ -847,7 +851,7 @@ class LumaViewProApp(TooltipMixin, App):
             owed.append('initialization')
         if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
-        if ctx.scope_display.frames_shown == 0:
+        if Part.CAMERA not in ctx.scope.unconnected_parts() and ctx.scope_display.frames_shown == 0:
             owed.append('a displayed frame')
         return owed
 
@@ -964,7 +968,7 @@ class LumaViewProApp(TooltipMixin, App):
         live_histo_setting = False
         last_save_folder = None
 
-        self.icon = './data/icons/icon.png'
+        self.icon = build_file('data/icons/icon.png')
 
         # Window title: version + build timestamp
         _title_version = version
@@ -1023,11 +1027,16 @@ class LumaViewProApp(TooltipMixin, App):
         # Kivy runs on.
         from kivy.clock import Clock
 
-        from modules.kivy_utils import UiDispatcher
+        from _lumascope.modules.ui_queue import UiDispatcher
 
         ScopeSession.set_ui_dispatcher(
             UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
         )
+        # Half a second after the last resize, move, zoom or pan
+        # (``_geometry_changed``), so a drag records where it settled, not
+        # every step. Built before the main loop, the first that delivers one.
+        self._geometry_settled = Clock.create_trigger(self._log_geometry, 0.5)
+        Window.bind(on_move=self._geometry_changed)
 
         # The Session composes the instrument -- the scope (the camera
         # registry picks by priority, Pylon -> IDS -> FX2, reading the
@@ -1092,7 +1101,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.
-        from modules.manual_recording import sweep_recording_scratch
+        from _lumascope.modules.manual_recording import sweep_recording_scratch
 
         sweep_recording_scratch(settings['live_folder'])
 
@@ -1116,6 +1125,10 @@ class LumaViewProApp(TooltipMixin, App):
         # Wire UI components now that widget tree exists
         ctx.viewer = lumaview.ids['viewer_id']
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
+        # A zoom, a pan, Fit and 1:1 all change the viewer's transform; a
+        # frame of another shape changes the image's place inside the view.
+        ctx.viewer.bind(transform=self._geometry_changed)
+        ctx.scope_display.bind(texture_size=self._geometry_changed)
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
 
@@ -1164,7 +1177,7 @@ class LumaViewProApp(TooltipMixin, App):
         # exists. Each registered (name, mount, builder) tuple is
         # invoked here; builder() returns the Kivy widget which is
         # added to the named mount point.
-        from modules.plugins import UIMountPoint
+        from _lumascope.modules.plugins import UIMountPoint
 
         motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
         for plugin_name, mount_point, builder in ctx.session.plugins.ui.mounts():
@@ -1205,6 +1218,43 @@ class LumaViewProApp(TooltipMixin, App):
         """Kivy on_resize hook: re-evaluate motion / image settings layout."""
         Clock.schedule_once(ctx.motion_settings.check_settings, 0.1)
         Clock.schedule_once(ctx.image_settings.check_settings, 0.1)
+        self._geometry_changed()
+
+    def _geometry_changed(self, *args) -> None:
+        """Restart the half-second wait before the window's and the live image's geometry is recorded."""
+        # A pending trigger ignores a second call, so a drag would record
+        # every half second; cancelling first restarts the wait.
+        self._geometry_settled.cancel()
+        self._geometry_settled()
+
+    def _log_geometry(self, *args) -> None:
+        """Record where the window is and where the live image is drawn in it.
+
+        The image's rectangle is the contain-fit image inside the live view,
+        carried through the viewer's zoom and pan to window pixels, measured
+        from the window's top left (``gui_logger.window_geometry``, ``gui_logger.view``).
+        """
+        from kivy.core.window import Window
+        from kivy.metrics import Metrics
+
+        display = ctx.scope_display
+        gui_logger.window_geometry(
+            (int(Window.left), int(Window.top)),
+            (int(Window.width), int(Window.height)),
+            Metrics.density,
+            (int(display.width), int(display.height)),
+        )
+        image_w, image_h = display.norm_image_size
+        left, bottom = display.to_window(
+            display.center_x - image_w / 2, display.center_y - image_h / 2
+        )
+        right, top = display.to_window(
+            display.center_x + image_w / 2, display.center_y + image_h / 2
+        )
+        gui_logger.view(
+            ctx.viewer.scale,
+            (round(left), round(Window.height - top), round(right - left), round(top - bottom)),
+        )
 
     def _on_window_close(self, *args) -> None:
         """Kivy on_close hook -- the window is closing for real."""
@@ -1379,7 +1429,7 @@ class LumaViewProApp(TooltipMixin, App):
         # doesn't see 30+ error toasts as queued IO tasks fail against
         # disconnecting hardware. Log lines still fire for post-mortem.
         try:
-            from modules.notification_center import notifications
+            from _lumascope.modules.notification_center import notifications
 
             notifications.set_shutting_down(True)
         except Exception as e:  # grain: ignore NAKED_EXCEPT
@@ -1405,7 +1455,7 @@ class LumaViewProApp(TooltipMixin, App):
         """Serve the API beside the window, on its own session, unless ``rest_api.enabled`` is false.
 
         On ``rest_api.address`` and ``rest_api.port`` (shipped this computer
-        only), on a thread and loop of its own; ``python -m rest`` is the
+        only), on a thread and loop of its own; ``python -m lumascope.rest`` is the
         headless way. Where it serves is logged, and shown in Advanced
         Settings.
         Only false leaves it off: any other value is the server's to judge,
@@ -1413,7 +1463,7 @@ class LumaViewProApp(TooltipMixin, App):
         """
         if ctx.session.get_setting('rest_api.enabled') is False:
             return
-        from rest.server import serve_beside
+        from _lumascope.rest.server import serve_beside
 
         self._rest_server = serve_beside(ctx.session, shut_down=self._shut_the_session_down)
         logger.info(f'[LVP Main  ] REST server serving {self._rest_server.reach}')
@@ -1440,9 +1490,9 @@ class LumaViewProApp(TooltipMixin, App):
     def _shut_the_session_down(self) -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
         logger.info('[LVP Main  ] ctx.session.shutdown()')
-        from modules.caller import Caller, calling
-        from modules.exceptions import ScopeDisconnectError
-        from modules.notification_center import notifications
+        from _lumascope.modules.caller import Caller, calling
+        from _lumascope.modules.exceptions import ScopeDisconnectError
+        from _lumascope.modules.notification_center import notifications
 
         try:
             # On the close's own thread, or the Kivy thread from on_stop: the GUI's close.
@@ -1478,7 +1528,7 @@ class LumaViewProApp(TooltipMixin, App):
 # ============================================================================
 
 if __name__ == '__main__':
-    from modules.caller import Caller, calling
+    from _lumascope.modules.caller import Caller, calling
 
     # Every call the Kivy thread makes is the GUI's; the GUI stamps the
     # threads it hands work to where it hands it (ui/ui_helpers.py).

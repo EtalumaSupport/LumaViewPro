@@ -23,11 +23,11 @@ import pandas as pd
 import pytest
 import tifffile as tf
 
-import modules.app_context as _app_ctx
-import modules.image_utils as image_utils
-from modules.composite_generation import CompositeGeneration
-from modules.layer_record import GREY
-from modules.layer_record import release_colors
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.layer_record import GREY
+from _lumascope.modules.layer_record import release_colors
 from tests.ast_seams import parse_module
 from tests.stock_channels import LED0, LED2
 from tests.test_a_derived_image_says_how_it_was_made import write_run_folder
@@ -52,7 +52,7 @@ def _rgb_mode_context():
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -165,20 +165,25 @@ class TestTheCompositeMergeIsEightBitRgb:
 def test_image_utils_does_not_import_the_context():
     """Structural, at every scope: the writer the engine and every build share
     never reaches the GUI's context."""
-    tree = parse_module('modules/image_utils.py')
+    tree = parse_module('src/_lumascope/modules/image_utils.py')
     offenders = [
         node.lineno
         for node in ast.walk(tree)
         if (
             isinstance(node, ast.Import)
-            and any(a.name == 'modules.app_context' for a in node.names)
+            and any(a.name == '_lumascope.modules.app_context' for a in node.names)
         )
         or (
             isinstance(node, ast.ImportFrom)
             and (
-                node.module == 'modules.app_context'
-                or (node.module == 'modules' and any(a.name == 'app_context' for a in node.names))
+                node.module == '_lumascope.modules.app_context'
+                or (
+                    node.module == '_lumascope.modules'
+                    and any(a.name == 'app_context' for a in node.names)
+                )
             )
         )
     ]
-    assert not offenders, f'modules/image_utils.py imports the application context at {offenders}'
+    assert not offenders, (
+        f'src/_lumascope/modules/image_utils.py imports the application context at {offenders}'
+    )

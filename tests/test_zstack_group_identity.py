@@ -25,11 +25,11 @@ from __future__ import annotations
 
 import pytest
 
-from modules.protocol import ProtocolFormatError, StoredNames
+from _lumascope.modules.protocol import ProtocolFormatError, StoredNames
 from tests.protocol_fixtures import protocol_from_file
-from modules.coord_transformations import AxisLimits, StageOffset
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.test_step_label_ssot import (
     _ZSTACK,
     _WIDE_Z,

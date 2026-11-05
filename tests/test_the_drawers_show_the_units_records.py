@@ -18,9 +18,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-import modules.layer_record as layer_record
-from modules.path_utils import read_installation_file
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules.path_utils import read_installation_file
 from tests.installation_fixtures import FLUORESCENCE_UNITS, write_release_with_added_channels
 from tests.scope_fakes import refuse_a_report
 from ui.image_settings import ImageSettings

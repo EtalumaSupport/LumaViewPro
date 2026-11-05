@@ -19,7 +19,7 @@ import pytest
 
 from pypylon import genicam
 
-from drivers.pyloncamera import PylonCamera
+from _lumascope.drivers.pyloncamera import PylonCamera
 
 
 class _AbsentNodeMap:

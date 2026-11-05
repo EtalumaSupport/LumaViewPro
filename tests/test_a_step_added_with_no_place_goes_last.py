@@ -11,11 +11,11 @@ channel order.
 
 import pytest
 
-from modules import config_helpers
-from modules.exceptions import ProtocolError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import config_helpers
+from _lumascope.modules.exceptions import ProtocolError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0
 
 

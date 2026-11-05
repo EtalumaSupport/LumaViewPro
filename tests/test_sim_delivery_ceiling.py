@@ -13,7 +13,7 @@ delivered 25 fps against a 40 fps ceiling.
 
 import time
 
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 
 # Stand-in for the cost of building a full-size frame; large enough that a
 # pump adding it to the interval misses the ceiling by a wide margin.

@@ -15,7 +15,7 @@ is why the Steps field rendered "1.0" -- and "11.0" for every healthy stack.
 
 import pytest
 
-from modules.zstack_config import ZStackConfig
+from _lumascope.modules.zstack_config import ZStackConfig
 
 
 def _config(range_um: float, step_size: float) -> ZStackConfig:

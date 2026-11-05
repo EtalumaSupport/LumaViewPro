@@ -19,15 +19,15 @@ acquire: it used to save a step with an empty Acquire that failed at Run.
 
 import pytest
 
-from modules import config_helpers, scope_session
-from modules.exceptions import (
+from _lumascope.modules import config_helpers, scope_session
+from _lumascope.modules.exceptions import (
     ConfigError,
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.layer_record import UNRESOLVED
-from modules.scope_session import ScopeSession
+from _lumascope.modules.layer_record import UNRESOLVED
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare

@@ -16,8 +16,8 @@ import threading
 
 import pytest
 
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
 
 HELD_S = 30.0

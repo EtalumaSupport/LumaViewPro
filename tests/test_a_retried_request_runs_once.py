@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A retried request runs once: ``Idempotency-Key`` (``rest.idempotency``).
+"""A retried request runs once: ``Idempotency-Key`` (``_lumascope.rest.idempotency``).
 
 A POST carrying the header is reserved when it arrives; the same key again,
 from any connection, runs nothing and is answered what the first request
@@ -19,10 +19,10 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-import rest.idempotency
-import rest.jobs
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+import _lumascope.rest.idempotency
+import _lumascope.rest.jobs
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
@@ -141,8 +141,8 @@ def test_a_started_operation_retried_is_its_one_job(client, session):
 
 
 def test_keys_are_held_apart_from_jobs_and_the_oldest_is_let_go(client, counted, monkeypatch):
-    monkeypatch.setattr(rest.jobs, 'FINISHED_LIMIT', 1)
-    monkeypatch.setattr(rest.idempotency, 'KEY_LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'FINISHED_LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.idempotency, 'KEY_LIMIT', 1)
     counted.clear()
     job = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
     counted.set()
@@ -160,9 +160,9 @@ def test_keys_are_held_apart_from_jobs_and_the_oldest_is_let_go(client, counted,
 
 
 def test_a_request_refused_before_it_ran_holds_no_key(client, counted, monkeypatch):
-    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 0)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 0)
     refused = client.post('/api/v1/scope/illumination/leds_off', headers=_keyed('k6'))
-    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 256)
+    monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 256)
     ran = client.post('/api/v1/scope/illumination/leds_off', headers=_keyed('k6'))
 
     assert refused.status_code == 503

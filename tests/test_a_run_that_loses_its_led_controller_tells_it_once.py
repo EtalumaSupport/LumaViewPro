@@ -16,8 +16,8 @@ error the serial driver keeps, the serial-exchange row's subject, not this
 one's.
 """
 
-from modules.notification_center import Severity
-from modules.run_events import RunEvents
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.run_events import RunEvents
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _protocol, _session, _wait
 
 

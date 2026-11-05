@@ -23,9 +23,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from modules.kivy_utils import UiDispatcher, ui_backlog
-from modules.lumascope_api._lumascope import Lumascope
-from modules.scope_session import ScopeSession
+from _lumascope.lib.build_files import build_file
+from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
+from _lumascope.modules.lumascope_api._lumascope import Lumascope
+from _lumascope.modules.scope_session import ScopeSession
 from ui.scope_display import ScopeDisplay
 
 _FRAMES = 30
@@ -128,7 +129,7 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
     assert (ui_backlog(), len(held.queue)) == (4, 1), 'after the camera left'
 
     held.run()
-    assert display.source == './data/icons/camera_to_USB.png'
+    assert display.source == build_file('data/icons/camera_to_USB.png')
     shown = [line for line in display_log if 'no-camera indicator' in line]
     assert len(shown) == 1, display_log
     assert not [line for line in display_log if 'restored' in line], display_log
@@ -138,7 +139,7 @@ def test_a_display_started_with_no_camera_shows_the_indicator(gui_ctx, display, 
     gui_ctx.scope.simulation.remove_camera()
     display._render_one_frame(open_layer=None)
     held.run()
-    assert display.source == './data/icons/camera_to_USB.png'
+    assert display.source == build_file('data/icons/camera_to_USB.png')
 
 
 def test_a_camera_that_returns_restores_the_live_view_once(

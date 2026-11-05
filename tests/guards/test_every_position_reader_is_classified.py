@@ -22,7 +22,7 @@ import ast
 from tests.ast_seams import MemberNames, production_modules, walk_defs
 
 _READERS = MemberNames(
-    'modules/lumascope_api/motion.py',
+    'src/_lumascope/modules/lumascope_api/motion.py',
     {
         'get_current_position',
         'get_current_positions',
@@ -50,18 +50,18 @@ FEEDS_A_REFUSING_API = 'feeds a refusing API'
 CAPTURE_METADATA = 'capture metadata'
 
 CLASSIFIED = {
-    'modules/autofocus_runner.py::AutofocusRunner._calculate_params': RUN,
-    'modules/autofocus_runner.py::AutofocusRunner._iterate': RUN,
-    'modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
-    'modules/config_helpers.py::kept_plate_position': SAVES,
-    'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_xy': DISPLAYS,
-    'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_sensor_inputs': DISPLAYS,
-    'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z_um': SAVES,
-    'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
-    'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
-    'modules/scope_session.py::ScopeSession.get_sequenced_capture_config': FEEDS_A_REFUSING_API,
-    'modules/scope_session.py::ScopeSession.status_at_edge': DISPLAYS,
-    'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
+    'src/_lumascope/modules/autofocus_runner.py::AutofocusRunner._calculate_params': RUN,
+    'src/_lumascope/modules/autofocus_runner.py::AutofocusRunner._iterate': RUN,
+    'src/_lumascope/modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
+    'src/_lumascope/modules/config_helpers.py::kept_plate_position': SAVES,
+    'src/_lumascope/modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_xy': DISPLAYS,
+    'src/_lumascope/modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_sensor_inputs': DISPLAYS,
+    'src/_lumascope/modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z_um': SAVES,
+    'src/_lumascope/modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
+    'src/_lumascope/modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
+    'src/_lumascope/modules/scope_session.py::ScopeSession.get_sequenced_capture_config': FEEDS_A_REFUSING_API,
+    'src/_lumascope/modules/scope_session.py::ScopeSession.status_at_edge': DISPLAYS,
+    'src/_lumascope/modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/motion_settings.py::XYStageControl.get_xy_positions': DISPLAYS,
     'ui/protocol_settings.py::ProtocolSettings.insert_step_ex': DISPLAYS,
     'ui/shader.py::cursor_plate': DISPLAYS,
@@ -90,7 +90,7 @@ def _readers_by_function():
     """``{'path::qualname': (first reader line, own nodes)}`` outside the motion API."""
     found = {}
     for rel, tree in production_modules():
-        if rel == 'modules/lumascope_api/motion.py':
+        if rel == 'src/_lumascope/modules/lumascope_api/motion.py':
             continue
         for qualname, fn in walk_defs(tree.body):
             nodes = list(_own_nodes(fn))

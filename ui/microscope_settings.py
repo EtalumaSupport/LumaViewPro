@@ -1,23 +1,21 @@
 # Copyright Etaluma, Inc.
 import logging
-import os
 import threading
 from typing import TYPE_CHECKING
 
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
-import modules.app_context as _app_ctx
-import modules.binning as binning
-import modules.common_utils as common_utils
-import modules.layer_record as layer_record
-from modules import gui_logger, path_utils
-from modules.config_helpers import camera_max_gain_for_ui
-from modules.memory_profiler import MemoryLeakProfiler
-from modules.kivy_utils import schedule_ui_latest
-from modules.notification_center import notifications
-import modules.image_mode as image_mode
-from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.binning as binning
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.layer_record as layer_record
+from _lumascope.modules import gui_logger, path_utils
+from _lumascope.modules.config_helpers import camera_max_gain_for_ui
+from _lumascope.modules.ui_queue import schedule_ui_latest
+from _lumascope.modules.notification_center import notifications
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from ui.ui_helpers import (
     refused_in_this_input,
     run_reported,
@@ -178,21 +176,6 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
 
         # Settings are imported at the very beginning of file
-
-        if settings['profiling']['enabled']:
-            # Joined to the data directory, never CWD-relative: an
-            # installed build cannot write beside its executable.
-            profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')
-            MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
-            logger.info('[LVP Main  ] Memory Profiler started.')
-
-        # Handle leak diagnostic. Same opt-in pattern as
-        # the memory profiler above; settings-driven so customers and
-        # bench operators can enable without rebuilding.
-        if settings['profiling']['handle_trace_enabled']:
-            from lib import handle_trace as _handle_trace
-
-            _handle_trace.enable()
 
         # update GUI values from JSON data:
 
@@ -649,6 +632,7 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_focus_control_visibility(visible=caps.has_focus)
+        motion_settings.ids['verticalcontrol_id'].show_z_travel()
         ctx.lumaview.stage_has_motors = caps.has_xy_stage or caps.has_focus or caps.has_turret
 
         image_settings = ctx.image_settings

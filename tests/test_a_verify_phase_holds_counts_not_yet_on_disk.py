@@ -9,9 +9,9 @@ installation's, however the block ended.
 
 import pytest
 
-from modules.activity_claim import ActivityClaim
-from modules.caller import Caller, calling
-from modules.exceptions import ArgumentRefusedError, ControlSessionRefusedError
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.exceptions import ArgumentRefusedError, ControlSessionRefusedError
 
 _MEASURED = {
     'delivered_frames': {'p50': 3, 'p95': 6, 'max': 6},

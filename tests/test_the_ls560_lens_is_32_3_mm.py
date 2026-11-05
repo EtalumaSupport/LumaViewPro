@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-import modules.common_utils as common_utils
-from modules.scope_session import ScopeSession
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

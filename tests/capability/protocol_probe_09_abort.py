@@ -10,8 +10,8 @@ from harness import make_session, banner
 
 session, live = make_session('abort', home=True)
 try:
-    import modules.config_helpers as config_helpers
-    from modules.protocol_runner import ProtocolRunner
+    import _lumascope.modules.config_helpers as config_helpers
+    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     settings = session.settings
     runner = ProtocolRunner(session)

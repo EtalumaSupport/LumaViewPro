@@ -6,7 +6,7 @@ resolves to two derived facts -- capture depth and save encoding -- that
 flow through stills, composites, and video.
 
 These tests describe the TARGET behavior. The ones that exercise surfaces
-not yet built (the ``modules.image_mode`` resolver, the ``write_tiff``
+not yet built (the ``_lumascope.modules.image_mode`` resolver, the ``write_tiff``
 ``save_encoding`` parameter) carry ``xfail(strict=True)``: they error/fail
 today and flip green as the resolver, the migration, and the save-path
 rewiring land. ``strict=True`` catches a marker left stale after its
@@ -29,8 +29,8 @@ import pathlib
 import numpy as np
 import pytest
 import tifffile as tf
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1
 
@@ -70,7 +70,7 @@ def _metadata(path, channel=LED0, significant_bits=None):
 )
 def test_resolve_image_mode(mode, capture_depth, save_encoding):
     """Each mode resolves to its capture depth and save encoding."""
-    from modules.image_mode import resolve_image_mode
+    from _lumascope.modules.image_mode import resolve_image_mode
 
     resolved = resolve_image_mode(mode)
     assert resolved['capture_depth'] == capture_depth
@@ -94,7 +94,7 @@ def test_resolve_image_mode(mode, capture_depth, save_encoding):
 def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expected_mode):
     """The two retiring keys map onto the new enum. No legacy combo maps to
     12bit_scaled -- it is new and only reachable by explicit selection."""
-    from modules.image_mode import migrate_legacy_settings
+    from _lumascope.modules.image_mode import migrate_legacy_settings
 
     assert migrate_legacy_settings(use_full_pixel_depth, false_color_16bit) == expected_mode
 
@@ -115,7 +115,7 @@ def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expect
 def test_config_helper_reads_the_stored_image_mode(mode, depth, encoding):
     """The settings config getter exposes the stored image_mode and its derived
     capture_depth / save_encoding; 12bit_scaled is reachable only this way."""
-    from modules.config_helpers import get_image_capture_config_from_settings
+    from _lumascope.modules.config_helpers import get_image_capture_config_from_settings
     from tests.settings_fixtures import complete_settings
 
     cfg = get_image_capture_config_from_settings(complete_settings(image_mode=mode))
@@ -134,7 +134,7 @@ def test_config_helper_reads_the_stored_image_mode(mode, depth, encoding):
 
 def test_available_modes_are_every_mode_in_selector_order():
     """A mode is a save policy every camera honours, so all four are offered."""
-    from modules.image_mode import available_modes
+    from _lumascope.modules.image_mode import available_modes
 
     assert available_modes() == [
         '8bit',
@@ -148,7 +148,7 @@ def test_select_capture_pixel_format_ids_no_mono8():
     """An IDS sensor without a native Mono8 resolves 8-bit to its lowest
     native (Mono10) and 12-bit to its Mono12 native -- never a bare Mono8
     the sensor would reject."""
-    from modules.image_mode import select_capture_pixel_format
+    from _lumascope.modules.image_mode import select_capture_pixel_format
 
     ids = ('Mono10g40IDS', 'Mono12g24IDS')
     assert select_capture_pixel_format(8, ids) == 'Mono10g40IDS'
@@ -158,7 +158,7 @@ def test_select_capture_pixel_format_ids_no_mono8():
 def test_select_capture_pixel_format_native_mono8():
     """A camera with a native Mono8 (Pylon / FX2) uses it for 8-bit and a
     true Mono12 for 12-bit."""
-    from modules.image_mode import select_capture_pixel_format
+    from _lumascope.modules.image_mode import select_capture_pixel_format
 
     pylon = ('Mono8', 'Mono10', 'Mono12', 'Mono12p')
     assert select_capture_pixel_format(8, pylon) == 'Mono8'
@@ -170,7 +170,7 @@ def test_select_capture_pixel_format_native_mono8():
 
 def test_select_capture_pixel_format_no_formats():
     """No reported formats -> None (caller skips the push)."""
-    from modules.image_mode import select_capture_pixel_format
+    from _lumascope.modules.image_mode import select_capture_pixel_format
 
     assert select_capture_pixel_format(8, ()) is None
     assert select_capture_pixel_format(12, None) is None
@@ -196,7 +196,7 @@ def test_depth_truncation_warning_active(feature_count, mode, expected):
     """The summing/binning depth-loss hint fires only when an accumulating
     feature is active AND the mode saves 8-bit (the accumulated range is
     downconverted on save)."""
-    from modules.image_mode import depth_truncation_warning_active
+    from _lumascope.modules.image_mode import depth_truncation_warning_active
 
     assert depth_truncation_warning_active(feature_count, mode) is expected
 
@@ -209,7 +209,7 @@ def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys(c
     migration and derives silently."""
     import logging
 
-    import modules.image_mode as image_mode
+    import _lumascope.modules.image_mode as image_mode
     from tests.log_capture import records_of
 
     def warnings():
@@ -237,7 +237,7 @@ def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys(c
 def test_migrate_settings_dict_folds_legacy_and_drops():
     """An old install's two keys collapse to the right image_mode and the
     legacy keys are removed in place."""
-    from modules.image_mode import migrate_settings_dict
+    from _lumascope.modules.image_mode import migrate_settings_dict
 
     settings = {'use_full_pixel_depth': True, 'false_color_16bit': True, 'other': 1}
     assert migrate_settings_dict(settings) is True
@@ -250,7 +250,7 @@ def test_migrate_settings_dict_folds_legacy_and_drops():
 def test_migrate_settings_dict_keeps_explicit_image_mode():
     """An explicit image_mode wins over stray legacy keys, which still drop --
     the only way 12bit_scaled survives a migration."""
-    from modules.image_mode import migrate_settings_dict
+    from _lumascope.modules.image_mode import migrate_settings_dict
 
     settings = {'image_mode': '12bit_scaled', 'use_full_pixel_depth': True}
     assert migrate_settings_dict(settings) is True
@@ -260,7 +260,7 @@ def test_migrate_settings_dict_keeps_explicit_image_mode():
 
 def test_migrate_settings_dict_noop_when_already_migrated():
     """A dict with only image_mode and no legacy keys is left untouched."""
-    from modules.image_mode import migrate_settings_dict
+    from _lumascope.modules.image_mode import migrate_settings_dict
 
     settings = {'image_mode': '8bit'}
     assert migrate_settings_dict(settings) is False
@@ -271,7 +271,7 @@ def test_migrate_settings_dict_noop_when_already_migrated():
 def test_an_unusable_mode_beside_the_legacy_keys_takes_the_choice_they_hold(stored):
     """The legacy keys are the person's choice; an unusable image_mode beside
     them is derived from them, not left for the load to reset to the shipped one."""
-    from modules.image_mode import migrate_settings_dict
+    from _lumascope.modules.image_mode import migrate_settings_dict
 
     settings = {'image_mode': stored, 'use_full_pixel_depth': True}
     assert migrate_settings_dict(settings) is True
@@ -281,7 +281,7 @@ def test_an_unusable_mode_beside_the_legacy_keys_takes_the_choice_they_hold(stor
 def test_an_unknown_mode_with_no_legacy_keys_is_left_for_the_load_to_replace():
     """With nothing to derive a choice from, the migration leaves the value to
     the writer's rule, which replaces and reports it after the merge."""
-    from modules.image_mode import migrate_settings_dict
+    from _lumascope.modules.image_mode import migrate_settings_dict
 
     settings = {'image_mode': 'bogus'}
     assert migrate_settings_dict(settings) is False
@@ -299,8 +299,8 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
     fills the 16-bit container and makes no narrower significant-bits claim, so
     our own read-back reports container width (16) and scales it bright -- not
     12, which would mis-scale left-justified data."""
-    import modules.image_utils as image_utils
-    from modules.image_utils import write_tiff
+    import _lumascope.modules.image_utils as image_utils
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'scaled.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)  # full-scale 12-bit
@@ -339,7 +339,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(sim_scope, tmp_path)
     The alignment contract is a property of what reaches the encoder, not of
     the carrier that delivers it: this named the memmap when a memmap fed the
     encoder, and holds unchanged now that the recording engine does."""
-    import modules.image_utils as image_utils
+    import _lumascope.modules.image_utils as image_utils
 
     raw = np.zeros((8, 8), dtype=np.uint16)
     raw[0, 0] = 4095  # full-scale, right-aligned 12-bit
@@ -369,7 +369,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
     """12bit_scientific stores the raw right-aligned value with SignificantBits=12
     -- correct quantitative data, the current default behavior under the new
     parameter name."""
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'sci.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
@@ -398,7 +398,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
 def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     """rgb encoding bakes the layer color into 3-channel RGB for a
     fluorescence layer. LED0 (blue) lands at index 2, value preserved, others zero."""
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'blue_rgb.tiff'
     data = np.full((8, 8), 42000, dtype=np.uint16)
@@ -423,7 +423,7 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
     """The per-layer color gate survives the rewire: rgb encoding does NOT
     force color onto a transmitted (BF) layer -- it stays 2D mono. This is the
     'mono when there is no color to preserve' invariant."""
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'bf_mono.tiff'
     data = np.full((8, 8), 3000, dtype=np.uint16)
@@ -452,8 +452,8 @@ def test_mp4_writers_pass_layer_color():
     repo = pathlib.Path(__file__).resolve().parent.parent
     # Both MP4 writers live in the recording controllers (manual, protocol
     # video step).
-    manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
-    cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
+    manual_src = (repo / 'src/_lumascope/modules' / 'manual_recording.py').read_text()
+    cap_src = (repo / 'src/_lumascope/modules' / 'protocol_recording.py').read_text()
     # Both colorize from the recorded layer's false-color signal, in the
     # colours the recording began with, and both encode grey when false
     # color is off -- one contract, one resolver. Whitespace is dropped, so a
@@ -548,7 +548,7 @@ def test_write_recorded_frame_takes_its_depth_from_its_record(sim_scope, tmp_pat
     """The writer stamps the depth the frame was delivered at, from its
     record, so msb_aligned left-justifies a 12-bit frame -- without the
     depth, write_tiff would treat the payload as 16-bit and not scale."""
-    import modules.image_utils as image_utils
+    import _lumascope.modules.image_utils as image_utils
 
     out_path = tmp_path / 'scaled_frame.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
@@ -569,7 +569,7 @@ def test_write_recorded_frame_rejects_unknown_save_encoding(sim_scope, tmp_path)
     """A typo'd save_encoding fails loud at the write boundary instead of falling
     through to a plain mono write -- the silent-wrong-file the unvalidated entry
     point allowed."""
-    from modules.exceptions import CaptureError
+    from _lumascope.modules.exceptions import CaptureError
 
     out_path = tmp_path / 'bad_encoding.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
@@ -592,7 +592,7 @@ def test_write_tiff_requires_save_encoding(tmp_path):
     """write_tiff cannot be called without save_encoding -- the depth-less-write
     guard, now extended to encoding. A defaulted None silently right-aligned a
     scaled payload."""
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'no_encoding.tiff'
     data = np.full((4, 4), 4095, dtype=np.uint16)
@@ -611,7 +611,7 @@ def test_write_tiff_requires_save_encoding(tmp_path):
 def test_save_image_requires_save_encoding():
     """save_image cannot be called without save_encoding -- binding fails before
     any work, so no live-capture call site can drop the image mode."""
-    from modules.image_save import save_image
+    from _lumascope.modules.image_save import save_image
 
     with pytest.raises(TypeError, match='save_encoding'):
         save_image(
@@ -634,7 +634,7 @@ def test_encoding_for_array_derives_from_dtype(dtype, expected):
     """A derived data product (projection / stitch / composite) preserves its
     inputs verbatim: 8-bit saves 8bit, a right-aligned uint16 payload saves
     right_aligned. One canonical helper so no post-processor inlines the check."""
-    from modules.image_mode import encoding_for_array
+    from _lumascope.modules.image_mode import encoding_for_array
 
     assert encoding_for_array(np.zeros((2, 2), dtype=dtype)) == expected
 
@@ -643,8 +643,8 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
     """A post-processor re-save through the derived encoding keeps the raw
     right-aligned value (no MSB shift) -- the helper preserves bytes, matching
     the verbatim pixels load_pixels hands back."""
-    from modules.image_mode import encoding_for_array
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_mode import encoding_for_array
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'proj.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
@@ -664,7 +664,7 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
 
 def test_manual_capture_path_passes_save_encoding():
     """Structural lock: every save_image call in the manual capture path
-    (modules/manual_capture.py, which the Capture button calls) forwards both the image mode and the acquiring channel.
+    (src/_lumascope/modules/manual_capture.py, which the Capture button calls) forwards both the image mode and the acquiring channel.
 
     A refactor that drops save_encoding from the non-engineering branch was the
     original defect. Channel is locked the same way and for the same reason:
@@ -672,7 +672,9 @@ def test_manual_capture_path_passes_save_encoding():
     answering for it makes the omission invisible at the call site."""
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / 'modules' / 'manual_capture.py'
+    src = (
+        pathlib.Path(__file__).resolve().parents[1] / 'src/_lumascope/modules' / 'manual_capture.py'
+    )
     tree = ast.parse(src.read_text())
 
     save_calls = [

@@ -34,9 +34,9 @@ import threading
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
-from modules.acquire_mode import AcquireMode
-from modules.image_utils import read_file_record
-from modules.lumascope_api.frame_record import camera_frame_time
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.image_utils import read_file_record
+from _lumascope.modules.lumascope_api.frame_record import camera_frame_time
 
 _EXPOSURE_MS = 25.0
 _RECORDED_FRAMES = 40
@@ -234,7 +234,7 @@ def _manual(session, live, as_frames):
 
 
 def main():
-    import modules.common_utils as common_utils
+    import _lumascope.modules.common_utils as common_utils
 
     args = _arguments()
     live = probe_dir('recording_p03')

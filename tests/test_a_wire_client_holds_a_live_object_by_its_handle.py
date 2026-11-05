@@ -17,12 +17,12 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import rest.handles
-from modules.api_surface import API, fields_of, mark_of, reads_of
-from modules.protocol import Protocol
-from modules.protocol_runner import ProtocolRunner
-from modules.scope_session import ScopeSession
-from rest.app import build_app
+import _lumascope.rest.handles
+from _lumascope.modules.api_surface import API, fields_of, mark_of, reads_of
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.protocol_runner import ProtocolRunner
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 
@@ -132,13 +132,13 @@ def test_forgetting_an_id_lets_go_of_the_id_and_the_shared_runner_is_kept(client
 
 
 def test_a_call_that_would_hand_out_past_the_limit_is_refused_before_it_runs(client, monkeypatch):
-    monkeypatch.setattr(rest.handles, 'LIMIT', 1)
+    monkeypatch.setattr(_lumascope.rest.handles, 'LIMIT', 1)
     runner = client.post('/api/v1/protocol_runner').json()
 
     refused = client.post('/api/v1/create_empty_protocol')
 
     assert refused.status_code == 503
-    assert refused.headers['Retry-After'] == str(rest.handles.RETRY_AFTER_S)
+    assert refused.headers['Retry-After'] == str(_lumascope.rest.handles.RETRY_AFTER_S)
     assert client.get('/api/v1/handles').json() == [runner]
     # A call that hands nothing out is not refused.
     assert client.get('/api/v1/status').status_code == 200

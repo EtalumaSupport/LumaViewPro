@@ -50,7 +50,7 @@ Changelog names, by design, surfaces that do NOT resolve -- its ``removal``
 and ``rename`` entries -- so its section is left out by its heading, a rule
 rather than a list of exceptions to keep in step.
 
-A backticked path into a project package (```modules.x.y```, ``drivers.``,
+A backticked path into a project package (```_lumascope.modules.x.y```, ``drivers.``,
 ``rest.``) names something a reader is told to import, so it must be API like
 a fenced import.
 
@@ -76,8 +76,8 @@ import warnings
 
 import pytest
 
-from lib.lumascope_error import LumascopeError
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from _lumascope.lib.lumascope_error import LumascopeError
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 DOC = REPO_ROOT / 'docs' / 'lumascope-skills.md'
@@ -216,7 +216,7 @@ def live_objects(tmp_path_factory):
     which is ~0.5s and pointless to repeat per test.
     """
     warnings.simplefilter('ignore', FutureWarning)
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     # The reference's `scope` is a session's: a scope reads the labware,
     # offset, turret map, objective and scale bar from its session's settings.
@@ -248,14 +248,14 @@ def _walk_chain(root, chain):
 
 def _first_unmarked_step(root, receiver, chain):
     """The first ``Class.member`` the chain reaches that is not marked, or None."""
-    from modules.api_surface import fields_of, mark_of
+    from _lumascope.modules.api_surface import fields_of, mark_of
 
     obj = root
     for attr in chain:
         owner = next((k for k in type(obj).__mro__ if attr in vars(k)), None)
         if owner is None and attr in getattr(obj, '__dict__', {}):
             owner = type(obj)
-        if owner is None or not owner.__module__.startswith('modules'):
+        if owner is None or not owner.__module__.startswith('_lumascope.modules'):
             return None
         marked = mark_of(vars(owner).get(attr)) or any(
             attr in fields_of(k) for k in type(obj).__mro__
@@ -335,7 +335,7 @@ class TestLumascopeSkillsCallFormsResolve:
 # a consumer makes -- so it carries the arguments most likely to be copied and
 # the least likely to be re-read. Being a class rather than an instance, it is
 # invisible to the alias-rooted attribute check.
-_CONSTRUCTOR_RECEIVERS = MemberNames('modules/scope_session.py', {'ScopeSession'})
+_CONSTRUCTOR_RECEIVERS = MemberNames('src/_lumascope/modules/scope_session.py', {'ScopeSession'})
 
 # Stands in for an argument value. bind() checks arity and parameter names; it
 # never looks at what is passed, and a doc example's values are illustrative.
@@ -345,7 +345,7 @@ _SENTINEL = object()
 @pytest.fixture(scope='module')
 def bind_roots(live_objects):
     """Every receiver polarity 2 resolves against: the aliases plus the class."""
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     return {**live_objects, 'ScopeSession': ScopeSession}
 
@@ -415,8 +415,22 @@ class TestLumascopeSkillsCallFormsBind:
 # it must be API -- the receivers above cover only what a reader reaches from
 # a live object, and an internal helper's signature change broke eight
 # examples in its module-level calls with this file green.
-_PROJECT_PACKAGES = Packages({'modules', 'drivers', 'rest'})
-_PROSE_PATH = re.compile(r'`((?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)')
+_PROJECT_PACKAGES = Packages(
+    {'_lumascope/modules', '_lumascope/drivers', '_lumascope/rest'}, under='src'
+)
+_PROJECT_MODULES = tuple(sorted(p.replace('/', '.') for p in _PROJECT_PACKAGES))
+_PROSE_PATH = re.compile(r'`(_lumascope\.(?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)')
+
+
+# What a reader imports names from: the public module, which every published
+# doc teaches, and the project packages, which a doc must not (the docs'
+# import guard) but whose names are still judged here if one does.
+_IMPORTED_FROM = ('lumascope', *_PROJECT_MODULES)
+
+
+def _in_project(module):
+    """Whether the module name ``module`` is the public module, a project package's, or one of theirs."""
+    return any(module == p or module.startswith(f'{p}.') for p in _IMPORTED_FROM)
 
 
 def why_not_api(obj):
@@ -427,7 +441,7 @@ def why_not_api(obj):
     is where names live, not a name: each of its names a reader uses is
     checked where it is used.
     """
-    from modules.api_surface import fields_of, mark_of
+    from _lumascope.modules.api_surface import fields_of, mark_of
 
     if inspect.ismodule(obj) or isinstance(obj, enum.Enum):
         return None
@@ -464,7 +478,7 @@ def _why_name_is_not_api(dotted):
     A field its class publishes is API whatever its value, so it is judged
     by the publishing, not by what it holds.
     """
-    from modules.api_surface import fields_of
+    from _lumascope.modules.api_surface import fields_of
 
     owner_path, _, attr = dotted.rpartition('.')
     if owner_path:
@@ -480,7 +494,7 @@ def _why_name_is_not_api(dotted):
 def _project_module(name):
     """``'<package>.<name>'`` for the first project package with a module ``name``, or None."""
     return next(
-        (f'{p}.{name}' for p in _PROJECT_PACKAGES if importlib.util.find_spec(f'{p}.{name}')),
+        (f'{p}.{name}' for p in _PROJECT_MODULES if importlib.util.find_spec(f'{p}.{name}')),
         None,
     )
 
@@ -499,11 +513,9 @@ def project_names(source, start=1, assigned=frozenset()):
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.split('.')[0] in _PROJECT_PACKAGES:
+                if _in_project(alias.name):
                     bound[alias.asname or alias.name] = alias.name
-        elif isinstance(node, ast.ImportFrom) and (node.module or '').split('.')[0] in (
-            _PROJECT_PACKAGES
-        ):
+        elif isinstance(node, ast.ImportFrom) and _in_project(node.module or ''):
             for alias in node.names:
                 bound[alias.asname or alias.name] = f'{node.module}.{alias.name}'
                 imported.append((f'{node.module}.{alias.name}', start + node.lineno - 1))
@@ -622,15 +634,17 @@ class TestLumascopeSkillsTeachesOnlyApi:
     def test_a_planted_helper_import_call_and_path_are_reported(self):
         planted = (
             '```python\n'
-            'from modules.image_save import save_image\n'
-            'from modules import settings_init\n'
+            'from _lumascope.modules.image_save import save_image\n'
+            'from _lumascope.modules import settings_init\n'
             'save_image(None)\n'
             'settings_init.current_json_path(".")\n'
-            'from modules.scope_session import ScopeSession\n'
+            'from _lumascope.modules.scope_session import ScopeSession\n'
             'ScopeSession.user_settings_file(".", "extra")\n'
+            'from lumascope import ScopeSession as Public\n'
+            'Public.user_settings_file(".", "extra")\n'
             '```\n'
             '\n'
-            'Prose naming `modules.post_processing.with_pixels_per_um`.\n'
+            'Prose naming `_lumascope.modules.post_processing.with_pixels_per_um`.\n'
             '\n'
             '```\n'
             'not python at all (\n'
@@ -638,11 +652,12 @@ class TestLumascopeSkillsTeachesOnlyApi:
         )
         reported = '\n'.join(_doc_project_name_failures(planted, 'planted'))
         for expected in (
-            'planted:2  modules.image_save.save_image  -> an unmarked function',
-            'planted:5  modules.settings_init.current_json_path  -> an unmarked function',
-            'planted:7  modules.scope_session.ScopeSession.user_settings_file(...)',
-            'planted:10  modules.post_processing.with_pixels_per_um',
-            'planted:13  the fence does not parse',
+            'planted:2  _lumascope.modules.image_save.save_image  -> an unmarked function',
+            'planted:5  _lumascope.modules.settings_init.current_json_path  -> an unmarked function',
+            'planted:7  _lumascope.modules.scope_session.ScopeSession.user_settings_file(...)',
+            'planted:9  lumascope.ScopeSession.user_settings_file(...)',
+            'planted:12  _lumascope.modules.post_processing.with_pixels_per_um',
+            'planted:15  the fence does not parse',
         ):
             assert expected in reported, reported
 
@@ -650,8 +665,8 @@ class TestLumascopeSkillsTeachesOnlyApi:
 def test_the_reference_names_each_protocol_constructor_and_each_is_api():
     """A presence claim the call-form check does not make: the reference
     teaches the three ways to get a protocol, and each is a marked member."""
-    from modules.api_surface import API, mark_of
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.api_surface import API, mark_of
+    from _lumascope.modules.scope_session import ScopeSession
 
     doc = DOC.read_text(encoding='utf-8')
     for member in ('load_protocol', 'new_protocol', 'create_empty_protocol'):
@@ -707,8 +722,8 @@ class _ChapterSessions:
 
     def use(self, options):
         """Bring up the session a fence's ``options`` ask for, unless it is up."""
-        from modules import settings_init
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules import settings_init
+        from _lumascope.modules.scope_session import ScopeSession
 
         if self._key is not None and 'tier' not in options and 'model' not in options:
             return
@@ -734,7 +749,7 @@ class _ChapterSessions:
         self._key = (tier, model)
 
     def close(self):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         made = self._made + [v for v in self._namespace.values() if isinstance(v, ScopeSession)]
         for session in {id(s): s for s in made}.values():
@@ -794,7 +809,7 @@ def guide_fence_failures(text, label):
     ``user_settings_file(root)`` saves there, never into this checkout's
     ``data/current.json``.
     """
-    from modules import settings_init
+    from _lumascope.modules import settings_init
 
     failures = []
     prepared = settings_init.settings
@@ -1030,8 +1045,8 @@ def curl_failures(lines, label, client, run):
 def _walk(text, label):
     from fastapi.testclient import TestClient
 
-    from modules import settings_init
-    from rest.app import build_app
+    from _lumascope.modules import settings_init
+    from _lumascope.rest.app import build_app
 
     prepared = settings_init.settings
     sessions = _ChapterSessions({})
@@ -1127,8 +1142,8 @@ class _ProseOwners:
     """What each kind of prose name is resolved against: the owner of that kind."""
 
     def __init__(self, live_objects, app):
-        from modules import run_outcome, wire_encoding
-        from rest.problems import _SERVER_STATUS
+        from _lumascope.modules import run_outcome, wire_encoding
+        from _lumascope.rest.problems import _SERVER_STATUS
         from tests.api_reference import outcome_classes
         from tests.marked_set import marked_set
 
@@ -1186,7 +1201,7 @@ class _ProseOwners:
 
 @pytest.fixture(scope='module')
 def prose_owners(live_objects):
-    from rest.app import build_app
+    from _lumascope.rest.app import build_app
 
     return _ProseOwners(live_objects, build_app(live_objects['session']))
 
@@ -1266,7 +1281,7 @@ def published_docs():
     """Every document LumaViewPro publishes: the repo's README and its ``docs/``."""
     return [
         REPO_ROOT / 'README.md',
-        *sorted((REPO_ROOT / 'docs').glob('*.md')),
+        *[REPO_ROOT / rel for rel in tracked_files(('docs',), '*.md')],
         REPO_ROOT / 'docs' / 'api_examples' / 'README.md',
     ]
 

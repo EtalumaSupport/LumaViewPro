@@ -50,29 +50,29 @@ from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import bare_capture_runner, run_identity, scr_run_kwargs
 
 
-from modules.lumascope_api.bring_up import Part
-from modules.activity_claim import ActivityClaim, acting
-from modules.caller import Caller, calling
-from modules.autofocus_thread import AutofocusSweep
-from modules.exceptions import (
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.activity_claim import ActivityClaim, acting
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.autofocus_thread import AutofocusSweep
+from _lumascope.modules.exceptions import (
     ControlSessionRefusedError,
     ProtocolNotSavedError,
     ProtocolRunRefusedError,
     RunCheckFailedError,
 )
-from modules.run_events import RunEvents
-from modules.protocol_image_writer import RunWriteBatch
-from modules.protocol_state_machine import ProtocolState
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope, swap_lanes
-from modules.image_mode import ImageCaptureConfig
-from modules.protocol import Protocol
-from modules.sequenced_capture_runner import SequencedCaptureRunner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.layer_record import release_colors
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED2
 from tests.protocol_fixtures import protocol_of
 
@@ -101,7 +101,7 @@ def _make_simulated_scope():
 
 
 def _make_executors():
-    from modules.protocol_thread import ProtocolThread
+    from _lumascope.modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_IO'),
@@ -311,7 +311,7 @@ class _WarningsAndErrors:
         self._start = len(posts)
 
     def _seen(self):
-        from modules.notification_center import Severity
+        from _lumascope.modules.notification_center import Severity
 
         return [
             n
@@ -342,7 +342,7 @@ def _capture_notifications(centre_posts):
 
 class TestHeadlessRefusalDoesNotHang:
     def test_refused_single_scan_raises_and_session_stays_usable(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         settings = {
             'stage_offset': {'x': 0.0, 'y': 0.0},
@@ -1091,13 +1091,13 @@ def test_every_runner_refusal_reason_is_covered():
     """Census guard: the refusal's declared reasons, the source and the coverage map agree.
 
     Collects every reason literal fed to a _refuse funnel (or a direct
-    ProtocolRunRefusedError construction) in every module under modules/
+    ProtocolRunRefusedError construction) in every module under src/_lumascope/modules/
     and diffs the set, in both directions, against the reasons
     ProtocolRunRefusedError declares a cause for (with RunCheckFailedError's
     two), and those against RUNNER_REFUSAL_COVERAGE: the type's table is the
     vocabulary, so no second list of the reasons is kept here.
     The modules are discovered, not listed: a hand-kept list once missed
-    modules/protocol.py for a commit, and a refusal added in a module
+    src/_lumascope/modules/protocol.py for a commit, and a refusal added in a module
     nobody listed escaped the census in silence. A reason the census
     cannot read as a literal fails it, unless it is a funnel handing on
     its own parameter, whose callers' literals are collected instead.
@@ -1144,7 +1144,7 @@ def test_every_runner_refusal_reason_is_covered():
                         )
             self.generic_visit(node)
 
-    for rel_path, tree in ast_seams.iter_package_modules(('modules',)):
+    for rel_path, tree in ast_seams.iter_package_modules(('src/_lumascope/modules',)):
         ReasonCollector(rel_path).visit(tree)
     assert raised, 'found no refusal reasons in production source; the scan is broken'
     assert not unread, (

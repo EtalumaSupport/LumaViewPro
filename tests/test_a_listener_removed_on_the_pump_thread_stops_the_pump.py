@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 
-import modules.lumascope_api.imaging as imaging_mod
+import _lumascope.modules.lumascope_api.imaging as imaging_mod
 from tests.log_capture import records_of
 
 

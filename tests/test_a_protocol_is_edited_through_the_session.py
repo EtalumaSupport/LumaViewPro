@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.coord_transformations import PlateLocation
-from modules.protocol import ProtocolScheduleRefusedError, StepNotFoundError
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.protocol import ProtocolScheduleRefusedError, StepNotFoundError
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.stock_channels import LED0
 

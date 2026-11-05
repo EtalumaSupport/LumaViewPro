@@ -2,7 +2,7 @@
 
 A recording waits, before its first frame, on the condition a capture drains
 on (``ImagingAPI.changes_in_force``), so the first frame it keeps counts for
-every change by its source's rule; a run's video step no longer sleeps after
+every change by its source's count of frames; a run's video step no longer sleeps after
 it starts, so every camera's step starts one exposure sooner. Three
 recordings, each through the member the GUI's press reaches:
 
@@ -17,8 +17,7 @@ Each records as frames (``video_as_frames``) at every frame the camera
 delivers, so the first file is the first frame after the start. Its
 ``frame_id`` (the file's record) names the frame the camera delivered,
 caught by a frame listener, and that frame is judged through
-``judge_frame`` as it arrives, with a clock mapping latched before the
-recording (no public member reads the recording's own). The settings are written on the session
+``judge_frame`` as it arrives. The settings are written on the session
 in memory, never saved.
 
     python tests/capability/recording_p02_the_first_frame_counts_for_a_change.py
@@ -33,9 +32,9 @@ import threading
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
-from modules.acquire_mode import AcquireMode
-from modules.frame_validity import FrameValiditySource
-from modules.image_utils import read_file_record
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.frame_validity import FrameValiditySource
+from _lumascope.modules.image_utils import read_file_record
 
 _MANUAL_FRAMES = 5
 
@@ -50,8 +49,7 @@ def _arguments():
 class _Delivered:
     """Every frame the camera delivers, by its frame id, judged as it arrives.
 
-    Judged at delivery, through a clock mapping latched before the recording:
-    ``judge_frame`` judges a frame against each source's latest change, and a
+    Judged at delivery: ``judge_frame`` judges a frame against each source's latest change, and a
     run's cleanup restores the camera after its step, so a judgment made
     after the run would be of the restore, not of the change before the
     recording.
@@ -61,12 +59,11 @@ class _Delivered:
         self._imaging = imaging
         self._lock = threading.Lock()
         self._awaited = None
-        self.mapping = imaging.map_camera_clock()
         self.by_id = {}
         imaging.add_frame_listener(self._on_frame, name='recording_p02')
 
     def _on_frame(self, frame):
-        judged = {j.change.source: j for j in self._imaging.judge_frame(frame, self.mapping)}
+        judged = {j.change.source: j for j in self._imaging.judge_frame(frame)}
         with self._lock:
             self.by_id[int(frame.chunks['FrameID'])] = judged
             if self._awaited is not None and len(self.by_id) >= self._awaited[0]:
@@ -98,23 +95,12 @@ def _judge(name, delivered, first_file, sources):
     )
     if judged is None:
         return
-    mapping = delivered.mapping
-    figure(f'{name}.mapping', repr(mapping))
     for source in sources:
         judgment = judged.get(source)
-        late = None
-        if (
-            judgment is not None
-            and mapping is not None
-            and None not in (judgment.frame_start_ticks, judgment.qualifies_after_ticks)
-        ):
-            late = round(
-                (judgment.frame_start_ticks - judgment.qualifies_after_ticks)
-                * 1000
-                / mapping.tick_hz,
-                3,
-            )
-        figure(f'{name}.{source.name}.started_after_ms', late)
+        figure(
+            f'{name}.{source.name}.frames_after',
+            judgment.frames_after if judgment is not None else None,
+        )
         check(
             f'{name}: the first kept frame counts for {source.name}',
             judgment is not None and judgment.counts,
@@ -170,7 +156,7 @@ def _manual(session, live, change, source):
 
 
 def main():
-    import modules.common_utils as common_utils
+    import _lumascope.modules.common_utils as common_utils
 
     args = _arguments()
     live = probe_dir('recording_p02')

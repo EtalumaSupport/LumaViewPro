@@ -27,10 +27,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.microscope_settings as microscope_settings
-from modules import kivy_utils
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.microscope_settings import MicroscopeSettings
@@ -222,7 +222,7 @@ def test_a_frames_changes_are_redrawn_once_each_on_the_ui_thread():
         ),
     )
     bridge = UIListenerBridge(scope=None, ctx=ctx, stage=None)
-    ScopeSession.set_ui_dispatcher(kivy_utils.UiDispatcher(schedule=ui.schedule, thread=ui.thread))
+    ScopeSession.set_ui_dispatcher(ui_queue.UiDispatcher(schedule=ui.schedule, thread=ui.thread))
     try:
         bridge._on_settings_changed(('BF.gain_db', 'jpg_quality'))
         bridge._on_settings_changed(('BF.exposure_ms', 'zstack.range', 'scale_bar.enabled'))

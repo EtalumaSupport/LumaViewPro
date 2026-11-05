@@ -315,7 +315,7 @@ if ($ids_files) {
     }
 }
 
-# The FX2's driver package (LS560/LS620/LS720) is not a dependency here:
+# The FX2's driver package (LS460/LS560/LS620/LS720) is not a dependency here:
 # its INF is in the repo (build_exe\fx2_driver\) and is stamped and carried
 # by every build, after the installer version is known. Its libusb library
 # comes from the libusb-package wheel, with the firmware hex, through the

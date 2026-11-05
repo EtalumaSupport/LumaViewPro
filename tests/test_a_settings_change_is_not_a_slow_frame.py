@@ -22,8 +22,8 @@ from collections import deque
 from types import SimpleNamespace
 
 
-from modules.frame_validity import Counter, FrameRule, FrameValidity, Rule
-from modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.frame_validity import Counter, FrameValidity
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from ui.scope_display import (
     FRAME_SPIKE_MIN_SAMPLES,
     FRAME_SPIKE_WINDOW,
@@ -193,42 +193,26 @@ def _imaging(validity):
     return SimpleNamespace(changes_in_force=functools.partial(ImagingAPI.changes_in_force, owner))
 
 
-_PROVENANCE = {
-    'run_id': 'run-1',
-    'host': 'bench-pc',
-    'os': 'Windows 11',
-    'lvp_version': '4.0.0',
-    'plugin_version': '1.0.90',
-    'measured_date': '2026-10-20',
-}
-
-
-def _exposure_on_the_clock_rule(delay_us: float) -> FrameValidity:
-    """A frame validity whose exposure changes run the clock rule at ``delay_us``."""
+def _exposure_changed(frames_counted: int) -> FrameValidity:
+    """A frame validity with an exposure change and ``frames_counted`` frames counted after it."""
     delivered = {'n': 0}
     validity = FrameValidity(lambda: delivered['n'])
-    rules = dict(validity.credit_rules())
-    rules['exposure'] = FrameRule(
-        rule=Rule.CLOCK, count=rules['exposure'].count, delay_us=delay_us, provenance=_PROVENANCE
-    )
-    validity.use_rules(rules)
     validity.invalidate('exposure', began_ns=None)
-    for _ in range(rules['exposure'].count):
+    for _ in range(frames_counted):
         delivered['n'] += 1
         validity.count_frame(delivered['n'], by=Counter.PREVIEW)
     return validity
 
 
-def test_a_change_whose_delay_still_runs_has_not_settled():
-    """Under the clock rule a change is in force once its delay has run,
-    whatever frames were counted: the slow-frame check judges no frame
-    inside it. Its count is met here and its instant a minute ahead."""
-    validity = _exposure_on_the_clock_rule(delay_us=60e6)
+def test_a_change_still_owed_frames_has_not_settled():
+    """A change is in force once its count of frames has come: the
+    slow-frame check judges no frame before that."""
+    validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'] - 1)
     assert ScopeDisplay._camera_settled(_imaging(validity)) is False
 
 
-def test_a_change_whose_delay_has_run_has_settled():
-    validity = _exposure_on_the_clock_rule(delay_us=0.0)
+def test_a_change_whose_count_has_come_has_settled():
+    validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'])
     assert ScopeDisplay._camera_settled(_imaging(validity)) is True
 
 

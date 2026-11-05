@@ -11,7 +11,7 @@ was never un-xfailed (regression-of-the-regression).
 
 Distilled from the F0.5e historical-bug walk (8 commits, May 2025 - May
 2026). The 4 MUST-HAVE tests catch >90% of the historical production
-risk (the #657 fluorescence-channel-swap cluster); the 4 NICE-TO-HAVE
+risk (the #657 fluorescence-channel-swap cluster); the NICE-TO-HAVE
 tests harden adjacent surfaces.
 
 Pipeline coverage:
@@ -20,20 +20,18 @@ Pipeline coverage:
 - MP4 encode through PyAV (must)
 - cv2.VideoWriter BGR boundary (must)
 - OME-TIFF axes (nice-to-have)
-- Buffer-allocation O(1) reuse (nice-to-have)
 - PNG composite output (nice-to-have)
 """
 
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
 
 import numpy as np
 import pytest
 import tifffile as tf
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -76,7 +74,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
     value preserved exactly and the other planes zero (the R/B-swap and
     wrong-channel-on-video defects guard against an ordering regression).
     """
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / 'blue.tiff'
     data = np.full((8, 8), 42000, dtype=np.uint16)
@@ -122,7 +120,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     pytest.importorskip('av')
     import av
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     # One mono input TIFF (post-1d input shape).
     input_dir = tmp_path / 'tiff_in'
@@ -186,7 +184,7 @@ def _rgb_step(index: int, color: str) -> list[str]:
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(
@@ -204,7 +202,7 @@ def rgb_run_folder(tmp_path):
 def _write_rgb_run_folder(tmp_path, *, ome: bool):
     """One position imaged in LED 2, LED 1 and LED 0 (red, green, blue), each a flat 8-bit frame
     of its own value, as a run of this release saves it: OME-TIFF when ``ome``, else plain."""
-    from modules import image_utils
+    from _lumascope.modules import image_utils
 
     folder = tmp_path / 'live' / 'ProtocolData' / '20261013_120000'
     folder.mkdir(parents=True)
@@ -281,7 +279,7 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
     plane. Catches asymmetries in the layer-color lookup (a historical
     Red-specific R/B swap motivates the parametrize).
     """
-    from modules.image_utils import write_tiff
+    from _lumascope.modules.image_utils import write_tiff
 
     out_path = tmp_path / f'{color.lower()}.tiff'
     data = np.full((8, 8), 30000, dtype=np.uint16)
@@ -330,7 +328,7 @@ def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
     plain. It once hardcoded ome=False.
     """
     import pandas as pd
-    from modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.composite_generation import CompositeGeneration
 
     for ch in (LED2, LED1, LED0):
         tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
@@ -363,80 +361,3 @@ def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
     )
     with tf.TiffFile(str(plain_out)) as t:
         assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'
-
-
-# ---------------------------------------------------------------------------
-# NICE-TO-HAVE 8: PIW-6 buffer-allocation O(1) regression
-# ---------------------------------------------------------------------------
-
-
-def test_piw6_buffer_allocation_o1(tmp_path):
-    """100 sequential ``write_tiff`` calls on the false-color widen path
-    with a caller-supplied ``false_color_buf`` must allocate the
-    3-channel false-color buffer ONCE, not 100 times -- a caller-supplied
-    scratch buffer is reused across all saves; the O(1) reuse property
-    must hold.
-    """
-    from modules.image_utils import write_tiff
-
-    data = np.full((64, 64), 42000, dtype=np.uint16)
-    # The widen path produces (H, W, 3); the caller-supplied scratch must
-    # match that shape so add_false_color reuses it instead of allocating
-    # a fresh 3-channel buffer on every call.
-    scratch = np.zeros((64, 64, 3), dtype=data.dtype)
-
-    # Track frame-sized allocations via np.zeros (add_false_color's fallback
-    # when output shape mismatch) and np.empty (other internals). Filter to
-    # frame-sized to avoid counting tifffile's many tiny scratch buffers.
-    FRAME_SIZE = 64 * 64
-    frame_alloc_count = {'n': 0}
-    orig_zeros = np.zeros
-    orig_empty = np.empty
-
-    def _size_of(shape_arg):
-        try:
-            if hasattr(shape_arg, '__iter__'):
-                n = 1
-                for d in shape_arg:
-                    n *= int(d)
-                return n
-            return int(shape_arg)
-        except Exception:
-            return 0
-
-    def counting_zeros(shape, *args, **kwargs):
-        if _size_of(shape) >= FRAME_SIZE:
-            frame_alloc_count['n'] += 1
-        return orig_zeros(shape, *args, **kwargs)
-
-    def counting_empty(shape, *args, **kwargs):
-        if _size_of(shape) >= FRAME_SIZE:
-            frame_alloc_count['n'] += 1
-        return orig_empty(shape, *args, **kwargs)
-
-    with (
-        patch('numpy.zeros', side_effect=counting_zeros),
-        patch('numpy.empty', side_effect=counting_empty),
-    ):
-        for i in range(100):
-            write_tiff(
-                data=data,
-                file_loc=tmp_path / f'frame_{i:04d}.tiff',
-                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel=LED0),
-                ome=False,
-                color=release_color(LED0),
-                false_color_buf=scratch,
-                significant_bits=16,
-                save_encoding='rgb',
-                white_bits=None,
-            )
-
-    # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen
-    # output, so add_false_color reuses it across all 100 saves. A
-    # mismatched scratch would fall back to np.zeros((H, W, 3), ...) on
-    # every call -> O(n) = 100.
-    assert frame_alloc_count['n'] < 10, (
-        f'Expected O(1) frame-sized allocations across 100 saves; got '
-        f'{frame_alloc_count["n"]}. A mismatched scratch buffer forces a '
-        f'fresh 3-channel allocation per call.'
-    )

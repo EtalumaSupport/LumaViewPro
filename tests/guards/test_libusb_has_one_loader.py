@@ -17,7 +17,7 @@ import ast
 
 from tests.ast_seams import Words, iter_package_modules, production_modules
 
-_LOADER = 'drivers/fx2driver.py'
+_LOADER = 'src/_lumascope/drivers/fx2driver.py'
 _BINDINGS = Words({'usb', 'usb1', 'libusb_package'})
 
 
@@ -34,7 +34,7 @@ def _imported_names(tree: ast.Module):
 
 def _all_production_modules():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools'))
 
 
 def test_no_module_but_the_fx2_driver_imports_a_libusb_binding():
@@ -46,7 +46,7 @@ def test_no_module_but_the_fx2_driver_imports_a_libusb_binding():
             if any(name == root or name.startswith(f'{root}.') for root in _BINDINGS):
                 found.append(f'{rel_path}:{lineno} imports {name}')
     assert found == [], (
-        'only drivers/fx2driver.py may import pyusb, python-libusb1 or '
+        'only src/_lumascope/drivers/fx2driver.py may import pyusb, python-libusb1 or '
         'libusb_package, so its load of the bundled libusb is the first in '
         f'the process: {found}'
     )

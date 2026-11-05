@@ -22,7 +22,7 @@ import harness
 def main() -> int:
     import dataclasses
 
-    from modules.exceptions import PostProcessingRefusedError
+    from _lumascope.modules.exceptions import PostProcessingRefusedError
 
     scratch = pathlib.Path(os.environ.get('LVP_CAPABILITY_SCRATCH') or tempfile.mkdtemp())
     path = scratch / 'cell_count_method.json'

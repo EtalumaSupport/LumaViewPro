@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from drivers import fx2driver
-from drivers.fx2driver import FX2Camera
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.fx2driver import FX2Camera
 from tests.camera_fakes import fx2_stream
 
 # DS: the active array is 2592 columns from column 16, so its centre is
@@ -26,9 +26,11 @@ ARRAY_CENTRE = 1312
 
 @pytest.fixture
 def sim():
-    from drivers.simulated_fx2 import SimulatedFX2
+    from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
-    return SimulatedFX2()
+    sim = SimulatedFX2()
+    sim.connect()
+    return sim
 
 
 @pytest.fixture

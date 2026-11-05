@@ -19,12 +19,12 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
-from modules.run_events import RunEvents
-from modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
-from tests.ast_seams import REPO_ROOT
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.protocol_drives import run_identity
 
-MODULES = REPO_ROOT / 'modules'
+MODULES = REPO_ROOT / 'src/_lumascope/modules'
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ def test_every_ending_that_tells_of_lost_files_is_one_a_site_records():
     # The files report stays quiet after these endings because their popup
     # already told the person; a name no site records would leave that
     # report shown twice, with nothing failing.
-    from modules.run_outcome import FILES_LOST_ENDINGS
+    from _lumascope.modules.run_outcome import FILES_LOST_ENDINGS
 
     unrecorded = FILES_LOST_ENDINGS - _recorded_reasons()
     assert not unrecorded, sorted(unrecorded)
@@ -162,7 +162,7 @@ def test_no_cleanup_call_states_an_ending_without_one():
     never what the cleanup ends.
     """
     offenders = []
-    for path in MODULES.glob('*.py'):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('src/_lumascope/modules',), '*.py')]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (
@@ -227,7 +227,7 @@ def test_every_error_state_write_aborts_the_run_in_the_same_function():
 def _stop_stub(loop_ended=False):
     import concurrent.futures
 
-    import modules.sequenced_capture_runner as scr
+    import _lumascope.modules.sequenced_capture_runner as scr
 
     cleaned = []
     loop = concurrent.futures.Future()
@@ -273,7 +273,7 @@ class TestTheRunnerRecordsTheStop:
 
     def test_a_stop_the_gui_makes_says_the_gui_stopped_it(self):
         """The sentence is the stopping thread's stamp, not the starter's."""
-        from modules.caller import Caller, calling
+        from _lumascope.modules.caller import Caller, calling
 
         scr, stub, _cleaned = _stop_stub()
         with calling(Caller.GUI):
@@ -311,8 +311,8 @@ class TestTheRunnerRecordsTheStop:
 
 class TestAStartFailureCarriesItsCause:
     def test_a_typed_start_failure_keeps_its_code_and_sentence(self):
-        import modules.sequenced_capture_runner as scr
-        from modules.exceptions import RunStartError
+        import _lumascope.modules.sequenced_capture_runner as scr
+        from _lumascope.modules.exceptions import RunStartError
 
         cleaned = []
         stub = SimpleNamespace(
@@ -341,7 +341,7 @@ class TestAStartFailureCarriesItsCause:
         assert cleaned == [ending]
 
     def test_an_untyped_failure_does_not_put_a_traceback_in_front_of_the_user(self):
-        import modules.sequenced_capture_runner as scr
+        import _lumascope.modules.sequenced_capture_runner as scr
 
         stub = SimpleNamespace(
             _run_dir=None,
@@ -382,7 +382,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
     # MagicMock-backed: _cleanup_inner builds run_cleanup's whole kwarg list
     # before calling it, so every attribute it reads must exist. Only the ones
     # this test reasons about are pinned; the rest are inert.
-    import modules.sequenced_capture_runner as scr
+    import _lumascope.modules.sequenced_capture_runner as scr
 
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
@@ -403,7 +403,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
 
 def _run_cleanup_args(monkeypatch, stub, stated):
     """Drive _cleanup_inner and hand back what it told run_cleanup."""
-    import modules.sequenced_capture_runner as scr
+    import _lumascope.modules.sequenced_capture_runner as scr
 
     seen = {}
 
@@ -498,7 +498,7 @@ class TestTheRunLoopsOwnEndings:
         anyway'; a raise from the probe dropped the abort and the run walked
         into the next step on a full disk.
         """
-        import modules.protocol_run_loop as prl
+        import _lumascope.modules.protocol_run_loop as prl
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
@@ -533,7 +533,7 @@ def _plain_scan_protocol(session):
     Borrowed from production assembly rather than hand-rolled: what makes
     this a scan is the run MODE, not which positions it visits.
     """
-    import modules.config_helpers as config_helpers
+    import _lumascope.modules.config_helpers as config_helpers
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
         session.settings,

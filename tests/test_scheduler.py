@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from modules.scheduler import (
+from _lumascope.modules.scheduler import (
     Scheduler,
     ThreadingTimerScheduler,
 )

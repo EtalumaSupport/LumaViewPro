@@ -35,19 +35,19 @@ import time
 import pytest
 
 
-from modules.activity_claim import ActivityClaim
-from modules.image_mode import ImageCaptureConfig
-from modules.protocol import Protocol
-from modules.run_events import RunEvents
-from modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunner
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.executor_registry import session_lane_closed
-from modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.executor_registry import session_lane_closed
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
@@ -105,7 +105,7 @@ def _make_af_step_protocol():
 @contextlib.contextmanager
 def _reported(monkeypatch):
     """Every outcome reported while the block runs."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     report = notifications.report_outcome
@@ -122,9 +122,9 @@ class _AfRig:
     """A real runner over real executors, reusable for two runs in a row."""
 
     def __init__(self):
-        from modules.autofocus_runner import AutofocusRunner
-        from modules.autofocus_thread import AutofocusThread
-        from modules.protocol_thread import ProtocolThread
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_thread import AutofocusThread
+        from _lumascope.modules.protocol_thread import ProtocolThread
 
         # The data root is the scope's, given at construction; a runner over a
         # bare scope reads its catalogues and tiling config from it.
@@ -377,7 +377,7 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         with a mock. The executors stay plain doubles: nothing here
         submits work, and the waiter is handed in directly.
         """
-        from modules.autofocus_runner import AutofocusRunner
+        from _lumascope.modules.autofocus_runner import AutofocusRunner
         from tests.scope_fakes import spec_scope
 
         return AutofocusRunner(
@@ -385,7 +385,7 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         )
 
     def test_the_wait_blocks_until_the_write_completes(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         runner = self._bare_runner()
         waiter = _ReusableTaskWaiter()
@@ -413,10 +413,10 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         """A save the close finds unstarted, or still running when its stuck
         writer is replaced, ends the wait at once: neither will be told later,
         and the sweep reports no data file."""
-        from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
-        from modules.exceptions import FileWriterReplacedError
-        from modules.executor_registry import session_lane_closed
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+        from _lumascope.modules.exceptions import FileWriterReplacedError
+        from _lumascope.modules.executor_registry import session_lane_closed
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         for answer in (session_lane_closed('save'), FileWriterReplacedError('save')):
             runner = self._bare_runner()
@@ -437,7 +437,7 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
     def test_nothing_queued_needs_no_wait(self):
         """A refused submit returns no waiter, and saved_data_path stays None."""
         runner = self._bare_runner()
-        from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+        from _lumascope.modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
 
         runner._data_write_future = None
 
@@ -450,7 +450,7 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         assert runner.saved_data_path() is None
 
     def test_the_waiter_is_consumed_so_a_later_sweep_cannot_inherit_it(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from _lumascope.modules.sequential_io_executor import _ReusableTaskWaiter
 
         runner = self._bare_runner()
         waiter = _ReusableTaskWaiter()
@@ -487,7 +487,7 @@ class TestARunUnderALentClaim:
             rig.close()
 
     def test_a_second_run_during_it_is_refused_naming_the_diagnostic(self, tmp_path):
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         rig = _AfRig()
         diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
@@ -509,7 +509,7 @@ class TestARunUnderALentClaim:
         """start() reads the holder before already-running too: a plan that
         passed prepare() before the diagnostic took the scope, started while
         a borrowed run is live, names the diagnostic, not that run."""
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         rig = _AfRig()
         stale = rig.prepare_autofocus(tmp_path, save_data=False)
@@ -528,7 +528,7 @@ class TestARunUnderALentClaim:
             rig.close()
 
     def test_a_borrow_whose_lender_has_released_is_refused(self, tmp_path):
-        from modules.exceptions import ProtocolRunRefusedError
+        from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
         rig = _AfRig()
         diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
@@ -588,8 +588,8 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         assert abs(outcome.af_focus_z_um - stage_z) < 1.0, (outcome.af_focus_z_um, stage_z)
 
     def test_a_flat_curve_ends_the_run_failed_told_once_by_autofocus(self, tmp_path, monkeypatch):
-        import modules.autofocus_functions as autofocus_functions
-        from modules.exceptions import AutofocusFailedError, RunFailedError
+        import _lumascope.modules.autofocus_functions as autofocus_functions
+        from _lumascope.modules.exceptions import AutofocusFailedError, RunFailedError
 
         # Every frame scores zero: the flat-curve branch, where the sweep
         # chooses no focus and returns the stage to where it started.
@@ -615,7 +615,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
     def test_an_autofocus_refused_out_of_travel_ends_the_run_not_started(
         self, tmp_path, monkeypatch
     ):
-        from modules.exceptions import AutofocusOutOfTravelError
+        from _lumascope.modules.exceptions import AutofocusOutOfTravelError
 
         # The window is centred on where Z stands; a step a micrometre above
         # the bottom of travel reaches past it before anything moves.
@@ -640,7 +640,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         assert [type(told) for told in reported] == [AutofocusOutOfTravelError]
 
     def test_a_failed_autofocus_that_lost_z_ends_the_run_position_lost(self, tmp_path, monkeypatch):
-        import modules.autofocus_functions as autofocus_functions
+        import _lumascope.modules.autofocus_functions as autofocus_functions
 
         rig = _AfRig()
         lost = {}

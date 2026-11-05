@@ -15,7 +15,7 @@ test is the only one that fails.
 
 from unittest.mock import MagicMock
 
-from drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, init_configurable_pylon_camera
 from tests.test_bring_up_is_a_record import _bring_up
 

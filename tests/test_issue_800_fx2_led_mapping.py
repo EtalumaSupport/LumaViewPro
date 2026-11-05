@@ -16,7 +16,7 @@ byte from ever repeating the preamble.
 
 from __future__ import annotations
 
-from drivers import fx2driver
+from _lumascope.drivers import fx2driver
 
 
 def _led() -> fx2driver.FX2LEDController:

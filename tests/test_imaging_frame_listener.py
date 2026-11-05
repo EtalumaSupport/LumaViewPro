@@ -12,7 +12,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from modules.lumascope_api.imaging import (
+from _lumascope.modules.lumascope_api.imaging import (
     _BudgetedHandler,
     HANDLER_BUDGET_MS,
     HANDLER_DROP_K,
@@ -244,7 +244,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     to scope.imaging.add_frame_listener and the SimulatedCamera pump
     fires the handler. Tests the end-to-end registration -> driver fan-out
     path that intern-led live_processing plugins will exercise."""
-    from modules.plugins import PluginRegistry, PluginSpec
+    from _lumascope.modules.plugins import PluginRegistry, PluginSpec
 
     scope = _make_simulated_scope()
     registry = PluginRegistry(scope)

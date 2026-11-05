@@ -9,11 +9,11 @@ import sys
 
 import harness as _common
 
-from modules.exceptions import ScopeModelUnknownError
+from _lumascope.modules.exceptions import ScopeModelUnknownError
 
 s, live = _common.make_session()
 try:
-    from modules.layer_record import load_scope_models
+    from _lumascope.modules.layer_record import load_scope_models
 
     models = load_scope_models()
     print('models a script can list:', sorted(models))

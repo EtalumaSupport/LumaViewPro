@@ -13,7 +13,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LVP_LOGGER_SRC = REPO / 'lvp_logger.py'
+LVP_LOGGER_SRC = REPO / 'src/_lumascope/lvp_logger.py'
 
 
 class TestInstalledPackageInventory:

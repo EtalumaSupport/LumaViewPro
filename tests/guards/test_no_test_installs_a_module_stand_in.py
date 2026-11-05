@@ -6,7 +6,7 @@ process-level swap: a production module first imported while the stand-in is
 installed binds it through its own ``from ... import`` and keeps it for the
 rest of the process, so the failure lands in another file, by collection
 order. Seventeen test files installed a ``MagicMock`` as
-``modules.settings_init`` this way (2026-10-09, skillspass session 37);
+``_lumascope.modules.settings_init`` this way (2026-10-09, skillspass session 37);
 ``test_a_stored_value_the_writer_refuses_is_replaced_at_load.py`` then got a
 ``MagicMock`` back from ``prepare_settings`` whenever one of them was collected
 first, 11 red for a file that was green alone.
@@ -14,8 +14,8 @@ first, 11 red for a file that was green alone.
 ``tests/conftest.py`` is the one place a module is stood in for, and only for
 the layers that never run in the test process (Kivy, the camera SDKs, the USB
 bus, requests, platformdirs). This walk over every other test module refuses a
-``sys.modules`` write whose key is a production name, ``modules.*``, ``ui.*``,
-``drivers.*`` or ``lumaviewpro``, in each of its forms: an assignment, a
+``sys.modules`` write whose key is a production name, ``_lumascope.*``, ``ui.*``
+or ``lumaviewpro``, in each of its forms: an assignment, a
 ``setdefault`` and a ``monkeypatch.setitem``. A key that reaches the write
 through a ``for`` over literal names is read through the loop. A write of
 ``None`` is not refused: it installs nothing, it makes the import raise
@@ -32,7 +32,10 @@ import ast
 
 from tests.ast_seams import Packages, iter_package_modules
 
-PRODUCTION_ROOTS = Packages({'modules', 'ui', 'drivers', 'lumaviewpro'})
+# The head of a production module's name: the API's package, and the clients
+# at the checkout's root.
+API_ROOT = Packages({'_lumascope'}, under='src')
+CLIENT_ROOTS = Packages({'ui', 'lumaviewpro'})
 EXEMPT = frozenset(
     {
         'tests/conftest.py',
@@ -42,7 +45,7 @@ EXEMPT = frozenset(
 
 
 def _is_production_name(name: str) -> bool:
-    return name.split('.')[0] in PRODUCTION_ROOTS
+    return name.split('.')[0] in API_ROOT | CLIENT_ROOTS
 
 
 def _is_sys_modules(node: ast.AST) -> bool:
@@ -143,12 +146,12 @@ def _forms(source: str) -> list[tuple[str, str]]:
 
 def test_the_guard_sees_every_form_it_refuses():
     refused = [
-        "sys.modules['modules.settings_init'] = MagicMock()",
-        "sys.modules.setdefault('modules.settings_init', _mock)",
+        "sys.modules['_lumascope.modules.settings_init'] = MagicMock()",
+        "sys.modules.setdefault('_lumascope.modules.settings_init', _mock)",
         "monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)",
-        "mp.setitem(sys.modules, 'drivers.registry', registry_mod)",
+        "mp.setitem(sys.modules, '_lumascope.drivers.registry', registry_mod)",
         "sys.modules['lumaviewpro'] = fake",
-        "for _name in ('kivy.uix', 'modules.settings_init'):\n    sys.modules.setdefault(_name, MagicMock())",
+        "for _name in ('kivy.uix', '_lumascope.modules.settings_init'):\n    sys.modules.setdefault(_name, MagicMock())",
         "for _name, _attr in (('ui.layer_control', 'LayerControl'),):\n    sys.modules[_name] = _module",
     ]
     assert [len(_forms(source)) for source in refused] == [1] * len(refused)
@@ -156,8 +159,8 @@ def test_the_guard_sees_every_form_it_refuses():
 
 def test_an_import_failure_injection_is_not_a_stand_in():
     allowed = [
-        "monkeypatch.setitem(sys.modules, 'drivers.idscamera', None)",
-        "sys.modules['modules.optional'] = None",
+        "monkeypatch.setitem(sys.modules, '_lumascope.drivers.idscamera', None)",
+        "sys.modules['_lumascope.modules.optional'] = None",
     ]
     assert [_forms(source) for source in allowed] == [[], []]
 

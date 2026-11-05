@@ -14,8 +14,8 @@ import pathlib
 
 import pytest
 
-import modules.protocol as protocol_module
-from modules.protocol import Protocol, ProtocolFormatError
+import _lumascope.modules.protocol as protocol_module
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
 from tests.scope_fakes import build_scope
 from tests.test_a_zstack_with_no_range_is_refused import _standalone_config
 from tests.installation_fixtures import shipped_grids

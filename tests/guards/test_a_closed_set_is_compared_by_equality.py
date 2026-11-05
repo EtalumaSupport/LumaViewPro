@@ -9,7 +9,7 @@ from a file, holds the string. ``'lit' == LedState.LIT`` holds and
 member answers False for the very value it names, silently. A snapshot
 built with the plain word once restored no LED for exactly that reason.
 
-The walk is over ``modules/``, ``ui/`` and ``rest/``: every comparison by
+The walk is over ``src/_lumascope/modules/``, ``ui/`` and ``src/_lumascope/rest/``: every comparison by
 ``is`` or ``is not`` whose side is a member of a ``StrEnum`` defined there,
 by class or by the functional form.
 """
@@ -20,7 +20,7 @@ import ast
 
 from tests.ast_seams import Packages, iter_package_modules
 
-_PACKAGES = Packages({'modules', 'ui', 'rest'})
+_PACKAGES = Packages({'src/_lumascope/modules', 'ui', 'src/_lumascope/rest'})
 
 
 def _is_str_enum(base: ast.expr) -> bool:

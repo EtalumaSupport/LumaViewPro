@@ -26,7 +26,7 @@ import pathlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.app_context import AppContext
+from _lumascope.modules.app_context import AppContext
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.stock_channels import LED0
 

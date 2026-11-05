@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import (
+from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
@@ -25,12 +25,12 @@ from modules.exceptions import (
     MissingPart,
     Refusal,
 )
-from modules.image_mode import ImageMode
+from _lumascope.modules.image_mode import ImageMode
 
 
 @pytest.fixture
 def session(tmp_path):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

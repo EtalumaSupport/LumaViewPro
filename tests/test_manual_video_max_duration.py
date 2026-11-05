@@ -7,7 +7,7 @@ that config_helpers.get_manual_video_max_duration answers the stored
 value as stored.
 """
 
-from modules.config_helpers import get_manual_video_max_duration
+from _lumascope.modules.config_helpers import get_manual_video_max_duration
 
 
 def test_present_key_returns_stored_value():

@@ -22,7 +22,7 @@ from tests.log_capture import records_of
 @pytest.fixture
 def handler_and_log(caplog):
     """The handler, its camera, and the driver's camera-log lines at a level."""
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     parent = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
     parent._device_removed = False

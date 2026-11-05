@@ -1,49 +1,58 @@
-# LumaViewPro -- the Lumascope API guide
+# The Lumascope API guide
 
-How the API that drives an Etaluma microscope fits together, and how to use it
-from Python and over REST. Every member, field, closed set and outcome class is
-in the [API reference](api-reference.md), generated from the code; this guide
-links to it rather than repeating it. Every Python block below runs, in order,
-on the simulator in LumaViewPro's test suite, and so does the REST walkthrough.
+This guide shows how to drive an Etaluma Lumascope from your own program, in
+Python or over REST: how the API fits together, and how to do each task with
+it. Every member, field, closed set and outcome class is in the
+[API reference](api-reference.md), generated from the code; this guide links to
+it rather than repeating it.
 
-## PRE-RELEASE API
+> **Pre-release.** Until LumaViewPro `4.0.0` ships, the API may change without a
+> deprecation cycle: members, routes, records and outcome reasons may be
+> renamed, moved or removed. Most likely to move are the REST surface (its
+> routes, handles, jobs, problems and event stream) and the protocol members
+> and file columns. If you build on the API before `4.0.0`, **contact Etaluma
+> support**, so we can consult you before a structural change. From `4.0.0` the
+> API is frozen for the 4.x versions, and every change is recorded in the
+> [Changelog](#changelog). What freezes is what the
+> [API reference](api-reference.md) lists, and the plugin contract
+> ([Plugins](#plugins)), with one exception: the simulator's surface,
+> [`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
+> release ([The simulator](#the-simulator)). Etaluma's bench and support
+> members are not in the reference and are outside the freeze.
 
-The Lumascope SDK API is **subject to breaking changes** until `4.0.0` ships.
-Members, routes, records and outcome reasons may still be renamed, moved or
-removed without a deprecation cycle. What is most likely to move:
-
-- The REST surface: its routes, handles, jobs, problems and event stream.
-- The protocol members and the protocol file's columns, as their wire forms
-  settle.
-
-If you build on this API before `4.0.0`, **contact Etaluma support**, so we
-can consult you before a structural change.
-
-When the first LumaViewPro release that is not a beta ships (`4.0.0`), the API
-freezes for the 4.x versions, and every change after it is recorded in the
-[Changelog](#changelog) at the end of this guide. What freezes is what the
-[API reference](api-reference.md) lists, and the plugin contract
-([Plugins](#plugins)), with one exception: the simulator's surface,
-[`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
-release ([The simulator](#the-simulator)). Etaluma's bench and support members
-are not in the reference and are outside the freeze.
+**Contents.** [What LumaViewPro is](#what-lumaviewpro-is) ·
+[Supported Lumascopes](#supported-lumascopes) · [Examples](#examples) ·
+[Architecture](#architecture) · [Bringing a session up](#bringing-a-session-up) ·
+[Outcomes](#outcomes) · [Who may act](#who-may-act) ·
+[State and settings](#state-and-settings) ·
+[Units and coordinate frames](#units-and-coordinate-frames) ·
+[Motion](#motion) · [Illumination](#illumination) · [Camera](#camera) ·
+[Frames and captures](#frames-and-captures) · [Saved files](#saved-files) ·
+[Protocols and runs](#protocols-and-runs) ·
+[Events and listeners](#events-and-listeners) · [REST](#rest) ·
+[The simulator](#the-simulator) · [Plugins](#plugins) · [Changelog](#changelog)
 
 ## What LumaViewPro is
 
 LumaViewPro controls Etaluma's Lumascope microscopes: the LEDs that light the
 sample, the stage, focus and objective turret that move it, and the camera that
-images it. It runs as a desktop application, and the same API it is built on is
-open to your own programs:
+images it. It runs as a desktop application, and the API it is built on is open
+to your own programs:
 
 - **Python**, in the same process: a script, a notebook, MATLAB calling Python,
   or a plugin loaded into LumaViewPro.
 - **REST**, over HTTP from any language: a server LumaViewPro starts beside its
   window, or one you start without a window at all.
 
-Every shipped Lumascope is supported. The models differ in what they have -- an
-XY stage, a focus axis, a turret, which LEDs, which camera -- and the API tells
-your program what the attached scope has rather than leaving it to know models
-by name (see [Who may act](#who-may-act)):
+This guide is for researchers who script an experiment and for developers who
+integrate a Lumascope into a larger system. LumaViewPro runs on Python 3.12 and
+3.13, on Windows, macOS and Linux.
+
+## Supported Lumascopes
+
+Every shipped Lumascope is supported. The models differ in what they have, and
+the API tells your program what the attached scope has, so it never needs to
+know models by name:
 
 ```python
 caps = scope.capabilities                   # read once, when the scope came up
@@ -51,20 +60,51 @@ print(caps.axes, caps.has_xy_stage, caps.has_turret)
 print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 ```
 
-This guide is for researchers who script an experiment and for developers who
-integrate a Lumascope into a larger system. It runs on Python 3.12 and 3.13, on
-Windows, macOS and Linux.
+| Model | Focus (Z) | XY stage | Turret | Channels | Controller |
+|---|---|---|---|---|---|
+| LS820 | yes | -- | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850 | yes | yes | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850-0 | yes | yes | -- | BF | EL-0940 |
+| LS850T | yes | yes | yes | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850T-0 | yes | yes | yes | BF, PC | EL-0940 |
+| Lumi | yes | -- | -- | BF, PC, DF, Lumi | EL-0940 |
+| LS560 | -- | -- | -- | BF, Ex488 | FX2 |
+| LS460 | -- | -- | -- | BF | FX2 |
+| LS620 | -- | -- | -- | BF, Ex405, Ex488, Ex589 | FX2 |
+| LS720 | yes | yes | -- | BF, Ex405, Ex488, Ex589 | FX2, with a TMCM-6110 motor board |
 
-**Examples.** [`api_examples/`](api_examples) holds a Python script per task,
-run on the simulator, and beside each a `.sh` twin that does the same over REST
-with `curl`: a first saved still (`first_still`), channels with their own
-current, exposure and gain (`channel_settings`), a scan whose images are kept
-(`scan`), stopping a run (`stop_a_run`), a saved z-stack (`z_stack_saved`),
-refusals and an injected fault (`refusals_and_faults`), and the control session
-(`control_session`). Its [README](api_examples/README.md) says, step by step,
-how to run them: a script from LumaViewPro's source, a twin against the
-installed app or `python -m rest --simulate`. LumaViewPro's test suite runs
-each, script and twin, and checks what it leaves.
+- **Channels.** `BF` brightfield, `PC` phase contrast, `DF` darkfield, `Ex405`,
+  `Ex488` and `Ex589` fluorescence named for its excitation wavelength in nm, and
+  `Lumi` luminescence, which lights no LED. The FX2 models label brightfield
+  "BF-Phase". The release also knows `Ex550` and `Ex640`. Which channels the
+  attached scope has, and which LEDs each drives, is `scope.channel_identity`
+  ([Illumination](#illumination)).
+- **EL-0940 models** have one mainboard carrying the LED controller and the
+  motor controller, and a Basler or IDS camera.
+- **FX2 models** have one USB device that serves both the camera and the LEDs.
+  The LS720 adds a TMCM-6110 motor board for X, Y and focus; the LS460, LS560
+  and LS620 have no motion, and present identically, so the user selects which.
+
+## Examples
+
+[`api_examples/`](api_examples) holds a Python script per task, each with a
+`.sh` twin that does the same over REST with `curl`. Its
+[README](api_examples/README.md) says how to run them: a script from
+LumaViewPro's source, a twin against the installed app or
+`python -m lumascope.rest --simulate`.
+
+| Example | What it shows |
+|---|---|
+| `first_still` | a first saved still |
+| `channel_settings` | channels with their own current, exposure and gain |
+| `scan` | a scan whose images are kept |
+| `stop_a_run` | stopping a run |
+| `z_stack_saved` | a saved z-stack |
+| `refusals_and_faults` | refusals and an injected fault |
+| `control_session` | the control session |
+
+Every example, script and twin, and every Python block and the REST
+walkthrough in this guide, runs on the simulator in LumaViewPro's test suite.
 
 ## Architecture
 
@@ -96,13 +136,19 @@ so every host -- the GUI, the REST server, your script -- brings a scope up the
 same way.
 
 **The scope.** `session.scope` is the `Lumascope`: the instrument, split into
-sub-APIs, one per part. `scope.motion` moves the stage, the focus and the
-turret; `scope.illumination` lights the LEDs; `scope.camera` holds the camera's
-settings; `scope.imaging` takes frames; `scope.capabilities` says what this
-scope has; `scope.channel_identity` names its channels; `scope.runtime_state`
-answers derived state (the objective, the pixel size, plate coordinates);
-`scope.diagnostics` reads the boards for support; `scope.simulation` injects
-faults into a simulated scope.
+sub-APIs, one per part.
+
+| Sub-API | What it does |
+|---|---|
+| `scope.motion` | moves the stage, the focus and the turret |
+| `scope.illumination` | lights the LEDs |
+| `scope.camera` | holds the camera's settings |
+| `scope.imaging` | takes frames |
+| `scope.capabilities` | says what this scope has |
+| `scope.channel_identity` | names its channels |
+| `scope.runtime_state` | answers derived state: the objective, the pixel size, plate coordinates |
+| `scope.diagnostics` | reads the boards for support |
+| `scope.simulation` | injects faults into a simulated scope |
 
 **The lanes.** Each bus is driven by one thread, its lane: the IO lane carries
 every LED and motion command, the CAMERA lane every camera command. Commands from
@@ -117,7 +163,7 @@ scope, a command from anyone else that would change what it is doing is
 refused, naming the holder (see [Who may act](#who-may-act)).
 
 **What is API.** A member is API when it carries the `@api` mark, and a field
-when its class names it in `@api_fields` (`modules.api_surface`); the
+when its class names it in `@api_fields`; the
 [reference](api-reference.md) lists exactly those. A member marked *in-process*
 is for a Python caller only -- it takes a callback, returns a live object, or
 blocks -- and has no route. Anything unmarked is not API, whatever its name: it
@@ -141,7 +187,7 @@ repaired, and completed with keys newer releases added. Settings are an argument
 of `create`, never read behind your back.
 
 ```python
-from modules.scope_session import ScopeSession
+from lumascope import ScopeSession
 
 root = '.'                                   # the LumaViewPro source folder, which holds data/
 settings = ScopeSession.load_user_settings(root)
@@ -228,7 +274,7 @@ assert session.live_work.closed
 ## Outcomes
 
 Everything the API does ends in a return or an outcome, and every outcome is an
-exception class under `LumascopeError` (`modules.exceptions`). An outcome
+exception class under `LumascopeError`. An outcome
 raised to you is yours to report; the API has not shown or logged it as a
 failure on your behalf. An outcome nobody asked for -- a camera stream that
 stalls, a run's file writer that stops -- reaches the outcome listeners
@@ -248,7 +294,7 @@ program branches on, and every refusal a `cause`: whether the same request
 could succeed later.
 
 ```python
-from modules.exceptions import PositionOutOfRangeError, RefusalCause
+from lumascope import PositionOutOfRangeError, RefusalCause
 
 try:
     scope.motion.move_z(1_000_000)          # far beyond Z's travel
@@ -479,7 +525,7 @@ move X and Y on the selected plate; Z stays in stage micrometres, so a
 `PlateLocation` for `move_to_plate` gives Z as None.
 
 ```python
-from modules.lumascope_api.motion import PlateLocation
+from lumascope import PlateLocation
 
 scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
@@ -693,7 +739,7 @@ the frame size is floored to even sides and refused outside
 lacks a binning factor or a feature refuses it `CameraSettingUnsupportedError`.
 
 ```python
-from modules.image_mode import ImageMode
+from lumascope import ImageMode
 
 print(scope.camera.set_binning(2))
 print(scope.camera.set_frame_size(960, 600))
@@ -710,11 +756,11 @@ falsify its frames -- binning, frame size, image mode -- is refused.
 **Frame validity.** After a change -- an LED lit, an exposure set, the stage
 moved -- the camera keeps delivering frames that were exposed before the change
 took effect. A capture waits until a frame counts for every recorded change,
-by that change's rule: the **clock rule**, where the camera stamps when each
-frame started exposing, counts a frame that started after the change was in
-force; the **credit rule** counts a frame once enough frames have arrived since
-the change. `scope.capabilities.frame_rules` answers each source's rule, and
-`scope.imaging.changes_in_force()` whether a frame starting now would count
+by counting frames: a frame counts once the change's source's count of frames
+has arrived since the change (a move's since its stop), the count the camera's
+timing record measured, else the shipped one. `scope.capabilities.frame_rules`
+answers each source's count, and `scope.imaging.changes_in_force()` whether a
+frame arriving now would count
 (`GET /api/v1/scope/imaging/changes_in_force`). A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
 (`'deadline_expired'`). A recording, manual or a run's video step, waits the
@@ -917,7 +963,7 @@ duration (hours), the plate and the capture root, then a table of steps whose
 columns are `Protocol.CURRENT_COLUMNS`:
 
 ```python
-from modules.protocol import Protocol
+from lumascope import Protocol
 
 print(Protocol.CURRENT_VERSION, Protocol.CURRENT_COLUMNS)
 ```
@@ -942,7 +988,7 @@ when the file is read, and refused when a run starts.
 | `start_composite(...)` | one capture per acquiring channel, merged |
 
 ```python
-from modules.run_outcome import RunStatus
+from lumascope import RunStatus
 
 runner = session.protocol_runner()
 started = runner.start_single_scan(protocol, sequence_name='guide')
@@ -972,7 +1018,7 @@ operation. In-process each run also has a waiting form, `run_single_scan`,
 
 ```python
 import threading
-from modules.run_events import RunEvents
+from lumascope import RunEvents
 
 ended = threading.Event()
 events = RunEvents(run_ended=lambda outcome, run_dir, protocol: ended.set())
@@ -1039,7 +1085,7 @@ registration on; read the current value first.
 ### Serving it
 
 ```bash
-python -m rest --simulate      # a simulated scope; leave out --simulate for the hardware
+python -m lumascope.rest --simulate      # a simulated scope; leave out --simulate for the hardware
 ```
 
 The server brings the scope up as LumaViewPro does -- the user's settings, the
@@ -1058,7 +1104,7 @@ set in its settings (shipped `false`). To serve a session your own program has
 brought up, build its server, the one every host serves through:
 
 ```python norun
-from rest.server import build_server
+from lumascope import build_server
 
 server = build_server(session, shut_down=session.shutdown)
 server.run()    # until Ctrl-C, whose close shuts the session down
@@ -1069,9 +1115,9 @@ if not server.close_begun:    # it stopped before it served
 The server reads `rest_api` from the session's settings. A `rest_api` setting
 it cannot use, or an address and port it cannot take, is refused with
 `RestServerNotStartedError` before anything is served, from every host:
-LumaViewPro shows it and runs on without a server, and `python -m rest`
+LumaViewPro shows it and runs on without a server, and `python -m lumascope.rest`
 prints it and exits `1`. While it serves, `server.reach` says where and to
-whom (`python -m rest` prints it, and LumaViewPro shows it in Advanced
+whom (`python -m lumascope.rest` prints it, and LumaViewPro shows it in Advanced
 Settings). The settings are read from the file as written, and LumaViewPro
 writes its whole settings file back as it runs, so edit `rest_api` with
 LumaViewPro closed.

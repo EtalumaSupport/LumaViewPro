@@ -9,7 +9,7 @@ the way out and on the way back in, and a check against
 ``INVALID_HANDLE_VALUE`` can never match. On the 2026-08-26 Windows bench
 the stream's device lookup said "WinUSB device not found" on every launch
 while the device was present and bound; the truncated handle is the likeliest
-cause. ``modules/app_environment.py`` and ``modules/common_utils.py`` fixed
+cause. ``src/_lumascope/modules/app_environment.py`` and ``src/_lumascope/modules/common_utils.py`` fixed
 the same defect for their own Win32 calls.
 
 ``GetLastError`` called after the foreign call returns reads whatever the
@@ -27,7 +27,7 @@ import ast
 
 from tests.ast_seams import REPO_ROOT, Words
 
-_MODULE = 'drivers/winusb_iso.py'
+_MODULE = 'src/_lumascope/drivers/winusb_iso.py'
 _DLLS = Words({'kernel32', 'setupapi', 'winusb'})
 
 

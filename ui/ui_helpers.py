@@ -2,32 +2,34 @@
 """
 UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
 
-Moved from modules/ui_helpers.py to ui/ because this is GUI code (imports
-Kivy Window). A compatibility shim at modules/ui_helpers.py
+Moved from src/_lumascope/modules/ui_helpers.py to ui/ because this is GUI code (imports
+Kivy Window). A compatibility shim at src/_lumascope/modules/ui_helpers.py
 re-exports everything for existing callers.
 """
 
+import datetime
 import logging
 import threading
 import typing
 
+from kivy.clock import Clock
 from kivy.properties import AliasProperty, StringProperty
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.textinput import TextInput
-from modules import gui_logger, live_work
-from modules.acquire_mode import AcquireMode
-from modules.caller import Caller, calling
-from modules.kivy_utils import schedule_ui as _schedule_ui
-from modules.run_events import VideoPhase
+from _lumascope.modules import gui_logger, live_work, wall_time
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.ui_queue import schedule_ui as _schedule_ui
+from _lumascope.modules.run_events import VideoPhase
 
-import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
-import modules.image_utils as image_utils
+import _lumascope.modules.app_context as _app_ctx
+import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.config_helpers as config_helpers
+import _lumascope.modules.image_utils as image_utils
 
 if typing.TYPE_CHECKING:
-    from modules.coord_transformations import PlateLocation
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from _lumascope.modules.coord_transformations import PlateLocation
+    from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
@@ -39,14 +41,25 @@ UI_HOLD_REPORT_S = 1.0
 def report_ui_thread_hold(dt: float) -> None:
     """The Clock's interval callback: say once, on return, that the UI thread was held.
 
-    Kivy hands an interval callback the time since its last run, so a gap
-    over ``UI_HOLD_REPORT_S`` is a hold of that length, read with no state
-    of its own. A field bundle's 9-10 s protocol loads froze the GUI with no
-    line saying so; the watchdog's UI probe sees only a hold of a minute or
-    more, and dumps the stack it is in.
+    Kivy hands an interval callback the time from the start of the frame it
+    last ran in to the start of this one, so a gap over ``UI_HOLD_REPORT_S``
+    is a hold of that length, read with no state of its own. The hold ended
+    when this frame started, which can be well before this line is written
+    (the frame's earlier callbacks run first), so the line states the
+    window's own start and end: read from the line's stamp, two windows
+    seem to overlap. The first window counts from the Clock's last tick
+    before ``build()`` scheduled this. A field bundle's 9-10 s protocol
+    loads froze the GUI with no line saying so; the watchdog's UI probe
+    sees only a hold of a minute or more, and dumps the stack it is in.
     """
     if dt > UI_HOLD_REPORT_S:
-        logger.warning(f'[UI        ] The UI thread was held {dt:.1f} s')
+        ended = wall_time.now() - datetime.timedelta(seconds=Clock.time() - Clock.get_time())
+        began = ended - datetime.timedelta(seconds=dt)
+        logger.warning(
+            f'[UI        ] The UI thread was held {dt:.1f} s, '
+            f'{began.time().isoformat(timespec="milliseconds")} - '
+            f'{ended.time().isoformat(timespec="milliseconds")}'
+        )
 
 
 def run_reported(
@@ -79,7 +92,7 @@ def run_reported(
             already does.
         label: The gesture's interaction-log label; the outcome's category.
     """
-    from modules.sequential_io_executor import inline_outcome
+    from _lumascope.modules.sequential_io_executor import inline_outcome
 
     global _unanswered_frame
     with inline_outcome():
@@ -167,7 +180,7 @@ def submit_reported(
     logged as a slow task each time it succeeds. The cost is the member's;
     the GUI only says which member it called.
     """
-    from modules.sequential_io_executor import (
+    from _lumascope.modules.sequential_io_executor import (
         PRIORITY_HIGH,
         PRIORITY_MED,
         SLOW_TASK_BUDGET_ATTR,
@@ -360,7 +373,7 @@ def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited:
     """
     if fn is None:
         return True
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     try:
         fn()

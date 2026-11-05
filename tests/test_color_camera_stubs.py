@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modules.image_utils import imread_color, imwrite_color, videowriter_color
+from _lumascope.modules.image_utils import imread_color, imwrite_color, videowriter_color
 
 
 class TestImreadColorStub:

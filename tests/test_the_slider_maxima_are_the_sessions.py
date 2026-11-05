@@ -16,8 +16,8 @@ import dataclasses
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.layer_record import ChannelSliderMaxima
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.layer_record import ChannelSliderMaxima
 from tests.stock_channels import LED0
 from tests.test_a_camera_command_with_no_camera_is_refused import _camera_less
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
@@ -39,7 +39,7 @@ def test_each_maximum_is_the_parts_cap_narrowed_to_the_layers_ceiling(make_sessi
 
 
 def test_with_no_camera_the_exposure_maximum_is_none(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
 
     assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50)
 

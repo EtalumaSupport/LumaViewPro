@@ -1,4 +1,4 @@
-"""Tests for ``modules.image_utils`` -- convert helpers + boundary wrappers.
+"""Tests for ``_lumascope.modules.image_utils`` -- convert helpers + boundary wrappers.
 
 Covers ``convert_12bit_to_8bit(out=...)``, whose reusable out buffer saves
 ~120 MB/s allocator churn on the 30fps Pylon 12-bit preview path.
@@ -11,9 +11,9 @@ from typing import ClassVar
 
 import numpy as np
 
-import modules.image_utils as image_utils
-from modules.image_utils import convert_12bit_to_8bit
-from tests.ast_seams import REPO_ROOT
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.image_utils import convert_12bit_to_8bit
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.stock_channels import LED0
 
 
@@ -187,8 +187,8 @@ class TestTiffSuffixSingleSource:
     @staticmethod
     def _production_files():
         files = [REPO_ROOT / 'lumaviewpro.py']
-        for sub in ('modules', 'ui', 'drivers'):
-            files.extend(sorted((REPO_ROOT / sub).rglob('*.py')))
+        for sub in ('src/_lumascope/modules', 'ui', 'src/_lumascope/drivers'):
+            files.extend([REPO_ROOT / rel for rel in tracked_files((sub,))])
         return REPO_ROOT, files
 
     @classmethod
@@ -228,7 +228,7 @@ class TestTiffSuffixSingleSource:
 
     def test_no_second_tiff_suffix_authority_in_production_source(self):
         root, files = self._production_files()
-        canonical = root / 'modules' / 'image_utils.py'
+        canonical = root / 'src/_lumascope/modules' / 'image_utils.py'
         offenders = []
         for path in files:
             tree = ast.parse(path.read_text(encoding='utf-8'))
@@ -274,7 +274,7 @@ class TestImageSuffixSingleSource:
 
     def test_no_second_image_suffix_authority_in_production_source(self):
         root, files = TestTiffSuffixSingleSource._production_files()
-        canonical = root / 'modules' / 'image_utils.py'
+        canonical = root / 'src/_lumascope/modules' / 'image_utils.py'
         offenders = [
             f'{path.relative_to(root)}:{node.lineno}'
             for path in files

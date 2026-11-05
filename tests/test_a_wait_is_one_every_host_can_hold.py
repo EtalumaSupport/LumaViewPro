@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
-from modules.finite_number import WAIT_S
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.finite_number import WAIT_S
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 

@@ -22,13 +22,13 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from modules.activity_claim import ActivityClaim, RunIdentity
-from modules.caller import Caller
-from modules.image_mode import ImageCaptureConfig
-from modules.run_outcome import CaptureTally
+from _lumascope.modules.activity_claim import ActivityClaim, RunIdentity
+from _lumascope.modules.caller import Caller
+from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
 from tests.settings_fixtures import complete_settings
-from modules.layer_record import release_colors
+from _lumascope.modules.layer_record import release_colors
 
 
 def held_run_claim():
@@ -165,7 +165,7 @@ def no_post_run_builds() -> MagicMock:
 
 def bare_capture_runner(**overrides):
     """SequencedCaptureRunner with MagicMock deps."""
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
     kwargs = {
         'scope': MagicMock(),
@@ -206,7 +206,7 @@ def scr_run_kwargs(**overrides):
     """Keyword args for SequencedCaptureRunner.prepare() with a protocol
     mock that passes every refusal gate; tests override the gate or
     snapshot under test."""
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 
     protocol = MagicMock()
     protocol.num_steps.return_value = 1
@@ -241,7 +241,7 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
     plate-position conversion the between-scan return to the first step
     asks (``stage_targets``) the same way.
     """
-    from modules.lumascope_api.protocols import StepTargets
+    from _lumascope.modules.lumascope_api.protocols import StepTargets
 
     scope.protocols.stage_targets.side_effect = lambda protocol, px, py, z, stage_offset=None: (
         plate_to_stage[0],
@@ -263,7 +263,7 @@ def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
-    from modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
+    from _lumascope.modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
 
     runner = bare_capture_runner()
     runner._scope.motion.is_any_axis_moving.return_value = False
@@ -308,9 +308,9 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     """Runner ready for a synchronous run_loop() drive: RUNNING state,
     zero-period protocol, step_started handled by a mock, and
     _cleanup mocked out (its behavior is covered on run_cleanup)."""
-    from modules.run_events import RunEvents
-    from modules.protocol_state_machine import ProtocolState
-    from modules.run_outcome import PendingRunOutcome
+    from _lumascope.modules.run_events import RunEvents
+    from _lumascope.modules.protocol_state_machine import ProtocolState
+    from _lumascope.modules.run_outcome import PendingRunOutcome
 
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()

@@ -13,9 +13,9 @@ A step's values stay lenient at load: the run refuses them.
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
-from modules.notification_center import notifications
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_validate_steps import _make_protocol, _valid_step
 

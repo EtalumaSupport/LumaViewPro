@@ -14,7 +14,7 @@ from tools import ratchet_history as rh
 
 
 def _boom():
-    raise FileNotFoundError('modules/config_ui_getters.py')
+    raise FileNotFoundError('src/_lumascope/modules/config_ui_getters.py')
 
 
 def test_a_detector_that_cannot_run_records_none_never_zero(monkeypatch, tmp_path):
@@ -127,15 +127,50 @@ def test_the_test_ratchets_measure_the_sampled_tree(tmp_path):
         'from unittest.mock import MagicMock\n'
         '\n'
         'def test_a():\n'
-        "    assert 'x' in Path('modules/x.py').read_text()\n"
+        "    assert 'x' in Path('src/_lumascope/modules/x.py').read_text()\n"
         '\n'
         'def test_b():\n'
         '    scope = MagicMock()\n'
         '    assert scope\n'
     )
+    _track(tmp_path)
     row = rh.measure_tree(tmp_path)
     assert row['fragile src pins'] == 1, row.get('fragile src pins (why)')
     assert row['scope stand-ins'] == 1, row.get('scope stand-ins (why)')
+
+
+def test_a_sampled_tree_without_a_folder_a_detector_reads_records_none_naming_it(tmp_path):
+    """A tree with no ``ui/`` has no GUI count: not 0, which reads as none found."""
+    (tmp_path / 'tests').mkdir()
+    (tmp_path / 'tests' / '__init__.py').write_text('')
+    _track(tmp_path)
+    row = rh.measure_tree(tmp_path)
+    assert row['except handlers'] is None
+    assert "'ui'" in row['except handlers (why)'], row['except handlers (why)']
+
+
+def test_a_sampled_tree_without_a_size_folder_records_none_naming_it(tmp_path):
+    """A size folder the tree lacks has no size: not 0 lines, which reads as
+    a folder emptied. A folder the tree has is counted at every depth."""
+    (tmp_path / 'tests' / 'nested').mkdir(parents=True)
+    (tmp_path / 'tests' / 'nested' / 'test_x.py').write_text('def test_x():\n    pass\n')
+    _track(tmp_path)
+    folder_of = {files_key: folder for folder, files_key, _lines_key in rh.SIZE_FOLDERS}
+    row = rh.measure_tree(tmp_path)
+    for files_key, lines_key in (('ui_files', 'ui_lines'), ('modules_files', 'modules_lines')):
+        assert row[files_key] is None, row
+        assert row[lines_key] is None, row
+        assert repr(folder_of[files_key]) in row[f'{files_key} (why)'], row
+    assert row['tests_files'] == 1
+    assert row['tests_lines'] == 2
+
+
+def _track(tree):
+    """Make ``tree`` the git tree ``ratchet_history`` samples, every file tracked."""
+    import subprocess
+
+    subprocess.run(['git', 'init', '-q'], cwd=tree, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tree, check=True)
 
 
 def _commit(repo, message, date, *parents_to_merge):
@@ -180,3 +215,49 @@ def test_each_point_is_on_the_trunks_own_line(monkeypatch, tmp_path):
     points = dict(rh.sample_points('2026-09-01', '2026-09-04', 1, 'trunk'))
 
     assert points == {'2026-09-01': a[:8], '2026-09-02': b[:8], '2026-09-04': m[:8]}
+
+
+_BODY_PIN = (
+    'from pathlib import Path\n'
+    '\n'
+    'def test_a():\n'
+    "    assert 'x' in Path('src/_lumascope/modules/x.py').read_text()\n"
+)
+
+
+def test_a_tree_from_before_a_move_is_measured_in_the_instruments_layout(monkeypatch, tmp_path):
+    """A sampled tree holding a moved folder at its old path is measured as if
+    it held it at the new one, so the two sides of the move compare.
+
+    The move is ``old_guards`` -> ``tests/deep/guards``, a path the
+    instrument tracks: two folders below ``tests/``, which the first commit
+    lacks, so the move must create every folder above the new path, as
+    ``src/_lumascope/modules`` will need. The second commit holds a
+    different file at the new path, so a move from the first sample left in
+    the scratch tree would abort the second checkout or be counted in it.
+    """
+    import subprocess
+
+    instrument = tmp_path / 'instrument'
+    (instrument / 'tests' / 'deep' / 'guards').mkdir(parents=True)
+    (instrument / 'tests' / 'deep' / 'guards' / 'test_kept.py').write_text('')
+    _track(instrument)
+    sampled = tmp_path / 'sampled'
+    sampled.mkdir()
+    subprocess.run(['git', 'init', '-q', '-b', 'trunk'], cwd=sampled, check=True)
+    (sampled / 'old_guards').mkdir()
+    (sampled / 'old_guards' / 'test_before.py').write_text(_BODY_PIN)
+    subprocess.run(['git', 'add', '.'], cwd=sampled, check=True)
+    before = _commit(sampled, 'before the move', '2026-09-01')
+    subprocess.run(['git', 'rm', '-q', '-r', 'old_guards'], cwd=sampled, check=True)
+    (sampled / 'tests' / 'deep' / 'guards').mkdir(parents=True)
+    (sampled / 'tests' / 'deep' / 'guards' / 'test_after.py').write_text(_BODY_PIN)
+    subprocess.run(['git', 'add', '.'], cwd=sampled, check=True)
+    after = _commit(sampled, 'after the move', '2026-09-02')
+    monkeypatch.setattr(rh, 'REPO', instrument)
+    monkeypatch.setattr(rh, 'LAYOUT_MOVES', (('old_guards', 'tests/deep/guards'),))
+
+    rows = rh.run([('2026-09-01', before[:8]), ('2026-09-02', after[:8])], 'trunk', repo=sampled)
+
+    assert [row['fragile src pins'] for row in rows] == [1, 1], rows
+    assert [row['layout moved'] for row in rows] == [['old_guards -> tests/deep/guards'], []]

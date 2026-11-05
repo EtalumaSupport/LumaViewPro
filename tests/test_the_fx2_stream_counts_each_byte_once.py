@@ -14,8 +14,8 @@ import threading
 import time
 from types import SimpleNamespace
 
-from drivers import fx2driver
-from drivers.camera import ImageHandlerBase
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.camera import ImageHandlerBase
 from tests.camera_fakes import fx2_stream
 
 W = H = 100

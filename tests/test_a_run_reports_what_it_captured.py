@@ -16,9 +16,9 @@ import time
 
 import pytest
 
-import modules.common_utils as common_utils
-from modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
-from modules.run_events import RunEvents
+import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
+from _lumascope.modules.run_events import RunEvents
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -117,7 +117,7 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
 @contextlib.contextmanager
 def _reports_of(outcome_type):
     """Every outcome of *outcome_type* reported while the block runs."""
-    from modules.notification_center import notifications
+    from _lumascope.modules.notification_center import notifications
 
     reported = []
     report = notifications.report_outcome
@@ -234,7 +234,7 @@ class TestACompositeMissingAChannel:
     def test_its_shortfall_is_told_before_its_outcome_settles(self, tmp_path):
         """A caller the outcome releases finds the run's reports already
         made: the shortfall is reported while the outcome is still armed."""
-        from modules.notification_center import notifications
+        from _lumascope.modules.notification_center import notifications
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
         step_colors = ('BF', _FAILING, LED1)
@@ -304,7 +304,7 @@ class TestTheFileCountCountsImages:
         ):
             # The run loop binds its own name for the check at import; this
             # replaces only the per-write floor the writer reads.
-            import modules.protocol_run_loop  # noqa: F401
+            import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
             outcome = _run(
@@ -330,7 +330,7 @@ class TestTheFileCountCountsImages:
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
-            import modules.protocol_run_loop  # noqa: F401
+            import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
             start = len(centre_posts)
@@ -352,7 +352,7 @@ class TestTheFileCountCountsImages:
         # when the file does not finish, the run's image is still missing.
         from unittest.mock import MagicMock
 
-        from modules.protocol_image_writer import RunWriteBatch
+        from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
         batch = RunWriteBatch(MagicMock())
         batch.count_off_lane('The video V1', lost='video_unfinished')
@@ -368,7 +368,7 @@ class TestARunWhoseCleanupFailedSaysWhich:
     def test_the_outcome_names_the_step_and_the_person_is_told_once(self, tmp_path):
         # A REST caller waiting on the run was told 'completed' while the
         # scope was not put back; only the GUI's popup said so.
-        from modules.exceptions import RunCleanupFailedError
+        from _lumascope.modules.exceptions import RunCleanupFailedError
 
         with (
             _reports_of(RunCleanupFailedError) as reported,
@@ -422,7 +422,7 @@ class TestAVideoStepIsOneCapture:
     def test_a_video_whose_file_did_not_finish_is_a_file_not_written(self, tmp_path, monkeypatch):
         # The step recorded, so it is a capture; its file never finished, so
         # it is also the run's one image not on disk.
-        from modules.video_recording import VideoRecordingEngine
+        from _lumascope.modules.video_recording import VideoRecordingEngine
 
         def _unfinished(engine):
             raise OSError('the container could not be finalized')
@@ -454,7 +454,7 @@ class TestTheFilesLineAndItsReport:
             caplog.at_level(logging.WARNING),
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
-            import modules.protocol_run_loop  # noqa: F401
+            import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
             _run(
@@ -476,7 +476,7 @@ class TestTheFilesLineAndItsReport:
 
         files = []
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            import modules.protocol_run_loop  # noqa: F401
+            import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', _unreadable)
             outcome = _run(
@@ -492,7 +492,7 @@ class TestTheFilesLineAndItsReport:
         assert (batch.written, batch.not_written) == (2, 0), (batch.written, batch.not_written)
 
     def test_a_composites_lost_image_is_told_by_its_merge_alone(self, tmp_path, monkeypatch):
-        import modules.sequenced_capture_runner as sequenced_capture_runner
+        import _lumascope.modules.sequenced_capture_runner as sequenced_capture_runner
         from tests.test_a_failed_save_is_counted_not_written import _fail_saves
 
         files_done = threading.Event()

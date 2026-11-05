@@ -17,10 +17,10 @@ the next from ``files_written``; from ``run_ended`` it can be refused
 import threading
 import time
 
-import modules.protocol_image_writer as protocol_image_writer
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.run_events import RunEvents
+import _lumascope.modules.protocol_image_writer as protocol_image_writer
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
+from _lumascope.modules.run_events import RunEvents
 from tests.test_run_refusal_contract import (  # noqa: F401 -- fixtures
     COMPLETION_TIMEOUT,
     _make_autogain_settings,

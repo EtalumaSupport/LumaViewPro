@@ -20,12 +20,12 @@ import datetime
 import pandas as pd
 import pytest
 
-from modules import config_helpers
-from modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
-from modules.scope_session import ScopeSession
+from _lumascope.modules import config_helpers
+from _lumascope.modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.protocol_fixtures import protocol_of
 
 NUM_STEPS = 3

@@ -13,16 +13,16 @@ execution record, with no pixel data shipped.
 import json
 import time
 
-from modules import recording_frames, tech_support_report
-from modules.image_mode import OutputFormat
-from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.tech_support_report import (
+from _lumascope.modules import recording_frames, tech_support_report
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+from _lumascope.modules.tech_support_report import (
     TechSupportReport,
     find_execution_record,
     find_video_recording_dirs,
     video_recording_inventory,
 )
-from modules.video_recording import MANIFEST_FILENAME
+from _lumascope.modules.video_recording import MANIFEST_FILENAME
 from tests.stock_channels import LED1
 
 

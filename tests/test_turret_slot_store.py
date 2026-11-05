@@ -20,9 +20,9 @@ import time
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
-from modules.lumascope_api.motion import AxisState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import MoveNotCompletedError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -161,7 +161,7 @@ class TestNothingElseMovesTheTurret:
 
     @pytest.mark.slow
     def test_the_support_report_homes_through_the_motion_api(self, session):
-        from modules.tech_support_report import TechSupportReport
+        from _lumascope.modules.tech_support_report import TechSupportReport
 
         motion = session.scope.motion
         motion.move_turret(2)

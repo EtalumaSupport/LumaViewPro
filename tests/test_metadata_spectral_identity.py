@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from modules import image_save, image_utils
-from modules.layer_record import UNRESOLVED, release_color
+from _lumascope.modules import image_save, image_utils
+from _lumascope.modules.layer_record import UNRESOLVED, release_color
 from tests.frame_records import frame_record
 from tests.scope_fakes import bind_settings_like_a_session, identity_with_layers
 from tests.stock_channels import LED1

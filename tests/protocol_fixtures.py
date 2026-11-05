@@ -8,7 +8,7 @@ added in one place rather than at every site
 (``tests/guards/test_a_test_builds_a_protocol_through_its_fixtures.py``).
 """
 
-from modules.protocol import Protocol
+from _lumascope.modules.protocol import Protocol
 from tests.installation_fixtures import shipped_grids
 from tests.scope_fakes import stock_unit
 

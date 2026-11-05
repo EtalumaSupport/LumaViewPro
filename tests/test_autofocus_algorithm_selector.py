@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules import autofocus_functions as af
+from _lumascope.modules import autofocus_functions as af
 
 
 @pytest.fixture(autouse=True)

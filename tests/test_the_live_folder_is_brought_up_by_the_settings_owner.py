@@ -19,8 +19,8 @@ import os
 
 import pytest
 
-from modules import scope_session, settings_init
-from modules.scope_session import ScopeSession
+from _lumascope.modules import scope_session, settings_init
+from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 
 _REPO_TEMPLATE = os.path.join(

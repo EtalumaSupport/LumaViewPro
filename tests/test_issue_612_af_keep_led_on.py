@@ -41,8 +41,8 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-RUNNER_SRC = REPO / 'modules' / 'autofocus_runner.py'
-PSR_SRC = REPO / 'modules' / 'protocol_step_runner.py'
+RUNNER_SRC = REPO / 'src/_lumascope/modules' / 'autofocus_runner.py'
+PSR_SRC = REPO / 'src/_lumascope/modules' / 'protocol_step_runner.py'
 
 
 def _module_tree(path: pathlib.Path) -> ast.Module:

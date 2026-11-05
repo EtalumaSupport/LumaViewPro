@@ -21,14 +21,20 @@ blank and refuses any other cell its column cannot hold.
 import ast
 import pathlib
 
+import pandas as pd
 import pytest
 
-from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
+from _lumascope.modules.protocol import (
+    Protocol,
+    ProtocolFormatError,
+    StepEditRefusedError,
+    StoredNames,
+)
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.case_walk import failing_cases
 from tests.protocol_fixtures import protocol_from_file
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 
 
 def _saved(tmp_path, steps) -> pathlib.Path:
@@ -123,6 +129,36 @@ def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
     assert column in str(refused.value)
 
 
+def test_a_frame_refusal_shows_the_cell_as_the_frame_holds_it():
+    """The refusal's words show the cell as the frame holds it, here a numpy float.
+
+    A number column of a caller's frame holds numpy scalars, and the words
+    are the cell's repr: a reader handed the column as Python values would
+    word the same refusal ``has Illumination inf``.
+    """
+    with pytest.raises(ProtocolFormatError) as refused:
+        _build_protocol(
+            [_make_step(), {**_make_step(name='A2_BF', well='A2'), 'Illumination': float('inf')}]
+        )
+
+    assert str(refused.value) == (
+        'step 2 (A2_BF) has Illumination np.float64(inf), which is not a number.'
+    )
+
+
+def test_a_refused_cell_names_its_step_by_position_not_by_the_frames_index():
+    """A caller's frame may carry any index; the step is counted from 1 by position."""
+    frame = pd.DataFrame(
+        [_make_step(), {**_make_step(name='A2_BF', well='A2'), 'Exposure': 'ten'}],
+        index=[7, 3],
+    )
+
+    with pytest.raises(ProtocolFormatError) as refused:
+        _build_protocol(frame)
+
+    assert str(refused.value).startswith("step 2 (A2_BF) has Exposure 'ten'"), refused.value
+
+
 WRITES = {
     'modify_autofocus': (
         'Auto_Focus',
@@ -198,7 +234,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol.set_turret_slot',
     }
     writing = set()
-    for qualname, node in walk_defs(parse_module('modules/protocol.py').body):
+    for qualname, node in walk_defs(parse_module('src/_lumascope/modules/protocol.py').body):
         for statement in ast.walk(node):
             targets = getattr(statement, 'targets', None) or [getattr(statement, 'target', None)]
             for target in targets:
@@ -237,7 +273,9 @@ def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_pa
 def test_the_post_processing_reader_keeps_the_stored_names_and_is_not_runnable():
     node = next(
         node
-        for _, node in walk_defs(parse_module('modules/protocol_post_processing_helper.py').body)
+        for _, node in walk_defs(
+            parse_module('src/_lumascope/modules/protocol_post_processing_helper.py').body
+        )
         for node in ast.walk(node)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)

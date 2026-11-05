@@ -13,9 +13,9 @@ import json
 
 import pytest
 
-from drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE
-from modules.scope_session import ScopeSession
-from modules.tech_support_report import TechSupportReport
+from _lumascope.drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.tech_support_report import TechSupportReport
 from tests.settings_fixtures import complete_settings
 
 

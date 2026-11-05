@@ -12,8 +12,8 @@ the outcome is logged and shown with a sentence naming its type.
 import logging
 from typing import ClassVar
 
-from modules.exceptions import Quiet, Refusal, RefusalCause
-from modules.notification_center import Severity, notifications
+from _lumascope.modules.exceptions import Quiet, Refusal, RefusalCause
+from _lumascope.modules.notification_center import Severity, notifications
 
 
 class _FaultError(Exception):

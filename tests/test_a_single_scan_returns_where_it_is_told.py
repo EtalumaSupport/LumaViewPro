@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.test_a_late_write_records_its_frame import _protocol
 from tests.test_a_run_reports_what_it_captured import _two_steps
 from tests.test_composite_run_e2e import headless_settings, open_composite_session

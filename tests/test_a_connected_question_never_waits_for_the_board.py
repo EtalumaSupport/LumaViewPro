@@ -14,7 +14,7 @@ import threading
 
 import pytest
 
-import drivers.serialboard as sb
+import _lumascope.drivers.serialboard as sb
 from tests.scope_fakes import build_scope
 
 # Only a failure waits this long; a passing answer comes back at once.

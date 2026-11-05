@@ -13,18 +13,18 @@ own columns; a file no LumaViewPro writer produces is refused naming it.
 
 import pytest
 
-from modules.cell_count_method import CellCountMethod
-from modules.common_utils import read_table
-from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing import (
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.common_utils import read_table
+from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.post_processing import (
     PostProcessing,
     read_cell_count_results,
 )
-from modules.protocol import ProtocolFormatError
-from modules.protocol_post_record import ProtocolPostRecord
+from _lumascope.modules.protocol import ProtocolFormatError
+from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from tests.test_post_processing_stays_inside_its_folder import _project, _run_folder
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from modules.protocol import StoredNames
+from _lumascope.modules.protocol import StoredNames
 from tests.protocol_fixtures import protocol_from_file
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']

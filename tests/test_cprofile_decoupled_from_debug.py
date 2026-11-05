@@ -38,10 +38,10 @@ def test_cprofile_default_dir_is_cprofile_namespace(tmp_path, monkeypatch):
     # default used to be CWD-relative, which an installed build cannot write
     # to. The namespace separation is what this test is for; where the root
     # comes from is not.
-    from modules import path_utils
+    from _lumascope.modules import path_utils
 
     monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
-    from modules.profiling_utils import ProfilingHelper
+    from _lumascope.modules.profiling_utils import ProfilingHelper
 
     helper = ProfilingHelper()
     artifact_dir = helper._profile_artifact_path

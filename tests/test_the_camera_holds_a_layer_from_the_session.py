@@ -19,9 +19,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
-from modules.lumascope_api.illumination import LedState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
@@ -314,12 +314,10 @@ class TestTheHeldLayer:
 
 def test_no_gui_module_puts_a_layer_on_the_camera_itself():
     """The GUI applies a layer through the Session member, never the camera one."""
-    from tests.ast_seams import REPO_ROOT
+    from tests.ast_seams import REPO_ROOT, tracked_files
 
     callers = [
-        str(path.relative_to(REPO_ROOT))
-        for path in sorted((REPO_ROOT / 'ui').rglob('*.py'))
-        if 'camera.apply(' in path.read_text()
+        rel for rel in tracked_files(('ui',)) if 'camera.apply(' in (REPO_ROOT / rel).read_text()
     ]
     assert callers == []
 

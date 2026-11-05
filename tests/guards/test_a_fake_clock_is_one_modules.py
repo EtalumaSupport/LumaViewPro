@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A test fakes the clock of the module it tests, never the process's.
 
-``mock.patch('modules.protocol_run_loop.time.sleep', fake)`` reads like a
-patch of one module, but ``modules.protocol_run_loop.time`` IS the time
+``mock.patch('_lumascope.modules.protocol_run_loop.time.sleep', fake)`` reads like a
+patch of one module, but ``_lumascope.modules.protocol_run_loop.time`` IS the time
 module, so the patch replaces ``time.sleep`` for every thread in the pytest
 worker. A thread left over from an earlier test then sleeps on the fake: it
 spins hot, and when the fake advances a clock, it advances the clock under
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, Words
+from tests.ast_seams import REPO_ROOT, Words, tracked_files
 
 # Calls whose first argument is a dotted target string, and calls whose
 # first argument is the object an attribute is set on.
@@ -72,7 +72,7 @@ def offences(tree: ast.AST) -> list[int]:
 
 def test_no_test_patches_a_member_of_the_time_module():
     offenders = []
-    for path in sorted((REPO_ROOT / 'tests').rglob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('tests',))]:
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
         for lineno in offences(tree):
             offenders.append(f'{path.relative_to(REPO_ROOT)}:{lineno}')

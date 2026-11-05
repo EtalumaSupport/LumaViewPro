@@ -26,8 +26,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 _CHILD = """
 import json, logging
-from modules.scope_session import ScopeSession
-import lvp_logger
+from _lumascope.modules.scope_session import ScopeSession
+import _lumascope.lvp_logger
 
 def files(name):
     return sorted(
@@ -40,10 +40,10 @@ print(json.dumps({
     'autofocus': files('LVP.autofocus'),
     'autofocus_rotations': [
         h.backupCount for h in logging.getLogger('LVP.autofocus').handlers
-        if getattr(h, 'baseFilename', None) == lvp_logger.AUTOFOCUS_LOG_FILE
+        if getattr(h, 'baseFilename', None) == _lumascope.lvp_logger.AUTOFOCUS_LOG_FILE
     ],
-    'api_log': lvp_logger.API_LOG_FILE,
-    'autofocus_log': lvp_logger.AUTOFOCUS_LOG_FILE,
+    'api_log': _lumascope.lvp_logger.API_LOG_FILE,
+    'autofocus_log': _lumascope.lvp_logger.AUTOFOCUS_LOG_FILE,
 }))
 """
 

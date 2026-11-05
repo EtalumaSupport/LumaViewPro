@@ -23,13 +23,13 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
-from modules.common_utils import (
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.common_utils import (
     PROTOCOL_SIZE_ADVISORY_STEPS,
     estimate_step_write_mb,
     format_disk_size_mb,
 )
-from modules.scope_session import ControlsLock
+from _lumascope.modules.scope_session import ControlsLock
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from ui.protocol_settings import ProtocolSettings
 
@@ -338,7 +338,7 @@ class TestTheAbortMessageNamesTheRealStepCount:
         # pin-justified: the count is interpolated into an f-string inside the
         # scan loop's body, which has no importable seam -- reaching it for
         # real needs a fully faked run.
-        return (_REPO_ROOT / 'modules/protocol_run_loop.py').read_text()
+        return (_REPO_ROOT / 'src/_lumascope/modules/protocol_run_loop.py').read_text()
 
     def test_the_message_interpolates_the_step_count(self):
         assert '{num_steps} steps' in self._run_loop_source()

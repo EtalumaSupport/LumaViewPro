@@ -18,7 +18,7 @@ from tests.log_capture import records_of
 
 
 def test_a_bare_pylon_camera_disconnects_without_an_error(caplog):
-    from drivers import pyloncamera
+    from _lumascope.drivers import pyloncamera
 
     cam = bare_pylon_camera()
 
@@ -34,7 +34,7 @@ def test_a_bare_pylon_camera_disconnects_without_an_error(caplog):
 
 
 def test_a_bare_ids_camera_disconnects_without_an_error(caplog):
-    from drivers import idscamera
+    from _lumascope.drivers import idscamera
 
     cam = bare_ids_camera()
 

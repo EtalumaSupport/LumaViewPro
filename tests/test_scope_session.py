@@ -34,8 +34,8 @@ import threading
 
 import pytest
 
-from modules.scope_session import ScopeSession
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
 
 
@@ -66,10 +66,10 @@ class TestCreateHeadlessComposesARealSession:
     """
 
     def test_scope_is_a_real_lumascope_on_simulated_drivers(self, headless_session):
-        from modules.lumascope_api import Lumascope
-        from drivers.ledboard import LEDBoard
-        from drivers.sim_wire.backend import SimWireBackend
-        from drivers.simulated_ledboard import SimulatedLEDBoard
+        from _lumascope.modules.lumascope_api import Lumascope
+        from _lumascope.drivers.ledboard import LEDBoard
+        from _lumascope.drivers.sim_wire.backend import SimWireBackend
+        from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 
         assert isinstance(headless_session.scope, Lumascope)
         # Simulated on either tier: the Python stand-in, or the production

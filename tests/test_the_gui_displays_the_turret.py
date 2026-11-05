@@ -16,12 +16,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
-from modules.exceptions import ObjectiveUnknownError
-from modules.sequential_io_executor import ENQUEUED
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from ui.vertical_control import VerticalControl
@@ -325,7 +325,7 @@ class TestTheAskedQuestion:
         assert (question.turret_slot, question.proposed) == (2, '4x Oly')
 
     def test_a_slot_holding_glass_the_catalogue_lacks_proposes_the_default(self, session):
-        from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
+        from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(4)

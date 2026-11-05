@@ -18,12 +18,13 @@ import time
 import pytest
 import serial
 
-from drivers.exceptions import HardwareError
-from drivers.motorboard import MotorBoard
-from drivers.sim_wire import backend as sim_backend
-from drivers.sim_wire import port as sim_port
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-from drivers.sim_wire.mp import tmc5072
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.sim_wire import backend as sim_backend
+from _lumascope.drivers.sim_wire import port as sim_port
+from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.mp import tmc5072
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 pytestmark = pytest.mark.firmware_tier
@@ -287,7 +288,7 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
     script = textwrap.dedent(
         """
         import sys, time
-        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+        from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
         b = SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT')))
         p = b.open(port=b.comports()[0].device, baudrate=115200, timeout=0.5)
         while True:  # the firmware is running, not still starting
@@ -300,8 +301,8 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
     )
     host = subprocess.Popen(
         [sys.executable, '-c', script],
-        cwd=sim_backend._REPO,
-        env=dict(os.environ, PYTHONPATH=str(sim_backend._REPO)),
+        cwd=REPO_ROOT,
+        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT / 'src')),
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -393,9 +394,9 @@ def test_a_missing_runtime_is_refused_by_name(monkeypatch, tmp_path):
 
 
 def test_the_repo_carries_compiled_firmware_and_no_firmware_source():
-    firmware = sim_backend._PACKAGE / 'firmware'
-    assert not list(firmware.rglob('*.py'))
-    for mpy in firmware.glob('*.mpy'):
+    firmware = (sim_backend._PACKAGE / 'firmware').relative_to(REPO_ROOT).as_posix()
+    assert not tracked_files((firmware,))
+    for mpy in [REPO_ROOT / rel for rel in tracked_files((firmware,), '*.mpy')]:
         data = mpy.read_bytes()
         assert data[:1] == b'M', f'{mpy.name} is not MicroPython bytecode'
         assert b'/Users/' not in data and b'/home/' not in data, f'{mpy.name} embeds a local path'

@@ -23,15 +23,15 @@ import time
 import numpy as np
 import pytest
 
-import modules.image_mode as image_mode
-from modules.exceptions import (
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules.exceptions import (
     CaptureFailedError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
 )
-from modules.image_mode import OutputFormat
-from modules.image_utils import read_file_record, read_tiff_with_legacy_collapse
-from modules.sequential_io_executor import IOTask
+from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.image_utils import read_file_record, read_tiff_with_legacy_collapse
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
 from tests.protocol_drives import run_identity
@@ -48,7 +48,7 @@ def _settings(tmp_path, **overrides):
 
 @contextlib.contextmanager
 def _open_session(settings):
-    from modules.scope_session import ScopeSession
+    from _lumascope.modules.scope_session import ScopeSession
 
     session = ScopeSession.create(settings, simulate=True)
     try:
@@ -137,8 +137,8 @@ class TestWhereTheFileLands:
     ):
         # After a failed home the target cache keeps its last well, real and
         # stale. The image is still real, so it is saved -- without the well.
-        from modules.lumascope_api import AxisState
-        from modules.notification_center import notifications
+        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.notification_center import notifications
 
         session, _ = still_session
         shown = []
@@ -359,7 +359,7 @@ class TestAStillIsWaitedForWithinItsBound:
     def short_bound(self, monkeypatch):
         # a stand-in by design: the bound's size is not what these tests pin,
         # only what the caller is told when it runs out.
-        from modules.manual_capture import ManualCaptureController
+        from _lumascope.modules.manual_capture import ManualCaptureController
 
         monkeypatch.setattr(ManualCaptureController, '_bound_s', lambda self, request: 0.2)
 
@@ -475,7 +475,7 @@ class TestAStillReturnsItsRecord:
         assert 0 <= still.statistics.minimum <= still.statistics.maximum <= 255
 
     def test_the_statistics_are_the_saved_pixels(self, still_session):
-        from modules.image_utils import image_statistics, load_pixels
+        from _lumascope.modules.image_utils import image_statistics, load_pixels
 
         session, _ = still_session
 
@@ -499,7 +499,7 @@ class TestAStillReturnsItsRecord:
     def test_the_record_is_the_jobs_result_on_the_wire(self, still_session):
         from fastapi.testclient import TestClient
 
-        from rest.app import build_app
+        from _lumascope.rest.app import build_app
 
         session, _ = still_session
         with TestClient(build_app(session)) as client:
@@ -510,7 +510,8 @@ class TestAStillReturnsItsRecord:
 
         assert ended['status'] == 'completed', ended
         (still,) = ended['result']
-        assert still['file']['name'] == 'Manual/live_BF_000001.tiff'
+        # The homed stage stands over E7 of the default plate.
+        assert still['file']['name'] == 'Manual/live_E7_BF_000001.tiff'
         assert still['channel'] == 'BF'
         assert still['frame']['frames_summed'] == 1
         assert set(still['statistics']) == {

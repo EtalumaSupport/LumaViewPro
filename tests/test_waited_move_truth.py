@@ -17,9 +17,9 @@ import threading
 
 import pytest
 
-from modules.exceptions import MoveFaultError, MoveNotCompletedError
-from modules.lumascope_api.motion import AxisState
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import MoveFaultError, MoveNotCompletedError
+from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -82,8 +82,8 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
 def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     """Off an executor worker the user reads the error's message, not the
     generic 'did not complete' line that names no axis and no remedy."""
-    from modules.lumascope_api._lumascope import scope_lane_closed
-    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+    from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+    from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _move():
         raise MoveFaultError('T', 'faulted')

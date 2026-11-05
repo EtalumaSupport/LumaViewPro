@@ -1,0 +1,267 @@
+"""GUI interaction logger for crash forensics and test creation.
+
+Logs every user interaction BEFORE the action executes, so crash/freeze
+forensics show exactly what the user did last. Also provides data for
+creating automated tests from real user workflows.
+
+WORKAROUND: INFO level during beta/early 4.0.x releases for maximum
+visibility. Move to DEBUG level once crash/freeze issues are resolved.
+
+Log file: logs/LVP_Log/gui_interactions.log (separate from main log)
+"""
+
+import logging
+
+_log = logging.getLogger('LVP.gui_interactions')
+
+
+def button(name, detail=''):
+    """Log a button press."""
+    _log.info(f'BUTTON {name} {detail}')
+
+
+def toggle(name: str, state: bool) -> None:
+    """Log a toggle state change.
+
+    ``state`` must be a real ``bool``. The two toggle-ish Kivy widgets do not
+    agree on how they expose their value: a ``CheckBox`` has ``active``, which
+    is already a bool, while a ``ToggleButton`` has ``state``, which is the
+    string ``'normal'`` or ``'down'`` -- and BOTH of those strings are truthy.
+    A caller handing ``widget.state`` straight through would therefore log
+    ``ON`` for every gesture including the ones turning the control off, and a
+    record that is wrong is worse than one that is missing: nothing downstream
+    can tell it from a real press. Callers convert at the call site with
+    ``widget.state == 'down'``; this refuses the unconverted value rather than
+    relying on each new caller to remember.
+    """
+    if not isinstance(state, bool):
+        raise TypeError(
+            f'gui_logger.toggle({name!r}, ...) needs a bool, got '
+            f'{type(state).__name__} {state!r}. A ToggleButton exposes '
+            f"'normal'/'down', both truthy -- convert with state == 'down'."
+        )
+    _log.info(f'TOGGLE {name} {"ON" if state else "OFF"}')
+
+
+def slider(name, value):
+    """Log a slider value change."""
+    _log.info(f'SLIDER {name} {value}')
+
+
+def select(name: str, value: object) -> None:
+    """Log a person's selection (spinner, dropdown, etc.).
+
+    Written from the pick itself (``PickSpinner``), never from a text-change
+    event, which an app write to the spinner fires as well.
+    """
+    _log.info(f'SELECT {name} {value}')
+
+
+def frame_size(width: int, height: int, binning: int) -> None:
+    """Log a framing change -- the displayed (post-binning) frame size + binning.
+
+    Wired from ``MicroscopeSettings._framing_applied``, the redraw both the
+    frame-field edit (``frame_size``) and the binning pick
+    (``select_binning_size``) end in, so one call covers every framing change
+    the user makes -- including the frame-box resize that was once absent
+    from the GUI log. It records the framing stored once the camera answered.
+    """
+    _log.info(f'FRAME_SIZE {width}x{height} binning={binning}')
+
+
+def protocol_action(action, detail=''):
+    """Log a protocol-level action (run, stop, pause, step add, etc.)."""
+    _log.info(f'PROTOCOL {action} {detail}')
+
+
+def one_line(text: object) -> str:
+    """Collapse free text to a single physical log line.
+
+    Popup and notification messages are caller-supplied prose that may
+    span paragraphs; written raw, the continuation lines carry no
+    level/timestamp prefix and every line-oriented consumer of the log
+    miscounts. Escaping (rather than indenting) keeps the record one
+    physical line and round-trippable.
+    """
+    return str(text).replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
+
+
+def notification(severity: str, title: str, message: str, source: str = '') -> None:
+    """Log a notification posted to the user, at its severity.
+
+    Written by ``_lumascope.modules.notification_center.NotificationCenter.notify``,
+    once per notification, whether or not it is shown; the popup that
+    shows one is recorded separately by ``dialog``. The severity is the
+    notification's, so this is the one GUI record that carries a level.
+
+    Pipe character separates fields so log-scrapers can split cleanly
+    when titles or messages contain colons.
+    """
+    src_suffix = f' from={source}' if source else ''
+    _log.info(f'NOTIFICATION {severity} | {one_line(title)} | {one_line(message)}{src_suffix}')
+
+
+def dialog(title: str, body: str) -> None:
+    """Log a dialog as it opens: what was on the screen.
+
+    Written from the one place every dialog opens (``ui.notification_popup``,
+    the patched ``Popup.open``), whoever built it. A dialog has no severity:
+    a question asks, and a notice's level is its notification's, recorded
+    by ``notification``.
+    """
+    _log.info(f'DIALOG | {one_line(title)} | {one_line(body)}')
+
+
+def dialog_closed(title: str) -> None:
+    """Log a dialog leaving the screen, however it closed.
+
+    Pairs with ``dialog``: written from the one place every dialog opens, so
+    the app closing it, a person's answer, the title-bar X, a click outside
+    and Escape all leave the same line, once per opening.
+    """
+    _log.info(f'DIALOG_CLOSED | {one_line(title)}')
+
+
+def popup_response(title: str, response: str) -> None:
+    """Log the user's response to a modal popup (OK / Cancel / Ack / dismiss).
+
+    Pairs with ``dialog`` -- one entry when the popup is shown,
+    one when the user resolves it. Without the response, post-mortem
+    can tell what the user saw but not what they did with it.
+    """
+    _log.info(f'POPUP_RESPONSE {one_line(response)} | {one_line(title)}')
+
+
+def text_input(name: str, value: object) -> None:
+    """Log a text field's final committed value.
+
+    Call this once per commit, from the handler the box's ``on_commit`` binding
+    reaches, with what the box holds BEFORE the handler transforms it. The
+    emit is synchronous and unconditional: the record lands in the file ahead
+    of whatever the entry goes on to do, so a bundle reads in the order the
+    user acted, and the last thing typed before a freeze or a crash is already
+    written.
+
+    A handler that CORRECTS the entry -- a clamp, a sanitiser, a substitution
+    for something unparseable -- records the correction under
+    ``<name>_APPLIED``. The pair is the contract, and both halves are needed:
+    alone, the first says the user asked for something the app never did, and
+    the second asserts they typed a value they did not. Emit ``_APPLIED`` only
+    when the value actually moved, comparing the PARSED values rather than the
+    strings, or every float box reports '5' -> 5.0 as a correction.
+
+    ``value`` is whatever the field holds -- text from the protocol fields,
+    a parsed number from the video ones -- and is only interpolated, so it
+    is typed by what this needs of it rather than by today's callers.
+    """
+    _log.info(f'TEXT_INPUT {name} {value}')
+
+
+def walk_scripted(source: str) -> None:
+    """Log that the presses which follow are a scripted sim walk's, not a person's.
+
+    The walk driver (``ui.sim_walk``) touches widgets through the same handlers a
+    person's touch reaches, so its presses record exactly as a person's would --
+    that is what a walk checks. This one line, written before the first step, is
+    what tells a reader of the log that no person made them.
+    """
+    _log.info(f'WALK SCRIPTED {source}')
+
+
+_shown: dict[str, str] = {}
+
+
+def display(name: str, value: object, *, stage: str | None = None) -> None:
+    """Log a change in what the window shows, as it changes.
+
+    A press is recorded where the person made it; what the window then shows
+    -- the controls greyed, the homing banner, the title's event text -- is
+    decided by the app and was in no record, so whether it appeared could only
+    be asked of whoever was watching. Recorded only when it differs from the
+    last one recorded for ``name``, so a writer that runs on every edge adds a
+    line only when the screen changed.
+
+    ``value`` is what the window shows, compared whole: a step number or a
+    well is what is shown, and each change of it is a line. A caller showing
+    progress -- a recording's elapsed seconds, a drain's files left -- names
+    the stage that progress belongs to in ``stage``, which is compared in
+    place of ``value``, so the record names each stage once.
+
+    Logged at DEBUG, so under debug_mode alone: a protocol run changes the
+    window on every step, and at INFO those lines pushed the user's own
+    actions out of the file within an hour.
+    """
+    shown = one_line(value)
+    compared = shown if stage is None else stage
+    if _shown.get(name) == compared:
+        return
+    _shown[name] = compared
+    _log.debug(f'DISPLAY {name} {shown}')
+
+
+def window_event(event_name: str, detail: str = '') -> None:
+    """Log a Kivy Window-level lifecycle event.
+
+    Captures the events that the OS / window manager / global keyboard
+    shortcuts deliver outside any registered widget -- the events that
+    would otherwise leave a gap when reading the GUI log to reconstruct
+    "what triggered shutdown / minimize / focus change?" Wired from the
+    Window.bind sites in ``lumaviewpro.py``.
+
+    Event names (kebab-cased for stable log-scraping):
+    - ``close-requested`` -- ``on_request_close`` fired; the close
+      sequence about to start. Detail includes ``protocol_running``.
+    - ``close`` -- ``on_close`` fired; the window is closing for real.
+    - ``minimize`` / ``maximize`` / ``restore`` -- window-state change.
+    - ``focus`` -- focus gained or lost. Detail includes ``focused``.
+    - ``geometry`` -- the window settled at a new place or size
+      (``window_geometry``).
+    - ``keyboard`` -- a non-widget-consumed key event (Alt-F4 etc.).
+      Detail names the key + modifiers.
+    """
+    detail = (detail or '').strip()
+    suffix = f' {detail}' if detail else ''
+    _log.info(f'WINDOW {event_name}{suffix}')
+
+
+def window_geometry(
+    position: tuple[int, int],
+    window_px: tuple[int, int],
+    density: float,
+    live_view_px: tuple[int, int],
+) -> None:
+    """Log where the window is and its and the live view's size in pixels, when any changes.
+
+    Every displayed frame repaints the whole window and is scaled to the live
+    view's box, so a display rate read from a bundle depends on both sizes;
+    without this line a field box's window had to be inferred from its panel
+    and how it was launched. ``position`` is the window's top left on the
+    screen, as the window system states it; ``density`` is Kivy's pixels per
+    dp, the display's scaling. Recorded only when it differs from the last
+    one, at INFO, so every bundle carries it.
+    """
+    shown = (
+        f'pos={position[0]},{position[1]} size={window_px[0]}x{window_px[1]}px '
+        f'density={density:.2f} live_view={live_view_px[0]}x{live_view_px[1]}px'
+    )
+    if _shown.get('WINDOW geometry') == shown:
+        return
+    _shown['WINDOW geometry'] = shown
+    window_event('geometry', shown)
+
+
+def view(zoom: float, image_px: tuple[int, int, int, int]) -> None:
+    """Log the live image's zoom and where it is drawn in the window, when either changes.
+
+    ``image_px`` is (left, top, width, height) in window pixels from the
+    window's top left: where a person sees the image after every zoom, pan,
+    Fit, 1:1 and resize, so an image off centre is a number in the record,
+    not a recollection. Recorded only when it differs from the last one, at
+    INFO.
+    """
+    left, top, width, height = image_px
+    shown = f'zoom={zoom:.2f} image={left},{top} {width}x{height}px'
+    if _shown.get('VIEW') == shown:
+        return
+    _shown['VIEW'] = shown
+    _log.info(f'VIEW {shown}')

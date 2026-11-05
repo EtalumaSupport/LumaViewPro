@@ -28,15 +28,20 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
-from modules.coord_transformations import AxisLimits, StageOffset
-from modules.exceptions import ProtocolError
-from modules.protocol import Protocol, ProtocolFormatError
-from modules.protocol_post_record import ProtocolPostRecord
+from _lumascope.modules import post_derivation
+from _lumascope.modules.common_utils import (
+    PostFunction,
+    build_step_name,
+    recover_step_label,
+    step_components,
+)
+from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
+from _lumascope.modules.exceptions import ProtocolError
+from _lumascope.modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from modules.coord_transformations import PlateLocation
+from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED1, LED2
 from tests.installation_fixtures import shipped_grids
 from tests.protocol_fixtures import protocol_from_file
@@ -235,8 +240,8 @@ def test_zstack_children_keep_parent_label():
 
 
 def test_tiling_children_keep_parent_label(scale_capabilities):
-    from modules.labware_loader import WellPlateLoader
-    from modules.objectives_loader import ObjectiveLoader
+    from _lumascope.modules.labware_loader import WellPlateLoader
+    from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')
     axis_limits = {
@@ -771,8 +776,8 @@ def test_rewrite_failure_preserves_original_and_removes_tmp(tmp_path, monkeypatc
 
 
 def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, monkeypatch):
-    import modules.protocol_post_processing_helper as pph
-    from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+    import _lumascope.modules.protocol_post_processing_helper as pph
+    from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
     corrupt_path = tmp_path / 'protocol_post_record.tsv'
     corrupt_text = 'THIS IS NOT A POST RECORD\ngarbage\n'

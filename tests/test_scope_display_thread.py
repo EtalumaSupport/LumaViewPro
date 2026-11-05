@@ -10,8 +10,8 @@ import threading
 import time
 from collections import deque
 
-from modules import app_context as _app_ctx
-from modules.scope_display_thread import (
+from _lumascope.modules import app_context as _app_ctx
+from _lumascope.modules.scope_display_thread import (
     ScopeDisplayThread,
     IDLE_BACKOFF_SECONDS,
     STATUS_OK,

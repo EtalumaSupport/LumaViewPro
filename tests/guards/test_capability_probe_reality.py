@@ -6,8 +6,8 @@ make the code under test proceed. Together they let a production branch
 that can NEVER run stay green forever -- the suite proves the fake world.
 Two such families were confirmed by the 2026-08 census:
 
-    modules/video_capture.py    hasattr(self._scope, 'led_on_fast')
-    modules/metrics_logger.py   getattr(self._scope, 'camera', None)
+    src/_lumascope/modules/video_capture.py    hasattr(self._scope, 'led_on_fast')
+    src/_lumascope/modules/metrics_logger.py   getattr(self._scope, 'camera', None)
 
 Neither name exists on `Lumascope`. `led_on_fast` lives on the
 `illumination` sub-API (the guard probes the parent and then calls
@@ -35,7 +35,7 @@ design:
 
 Coverage, stated honestly (Rule 39 -- this guard is not a probe-site
 audit). Measured at introduction: 256 literal-name probe sites across
-`modules/` + `ui/` (89 `hasattr`, 167 three-arg `getattr`). Of those, 25
+`src/_lumascope/modules/` + `ui/` (89 `hasattr`, 167 three-arg `getattr`). Of those, 25
 have the scope object as receiver -- the subset this oracle can
 adjudicate -- and 13 probe a DRIVER through the scope
 (`scope._camera_driver`, `self._led_driver`). The rest probe widgets,
@@ -65,9 +65,9 @@ import pytest
 from tests.ast_seams import Packages, Words, iter_package_modules
 from tests.scope_fakes import build_scope
 
-# Packages that hold callers of the scope API. `drivers/` is excluded on
+# Packages that hold callers of the scope API. `src/_lumascope/drivers/` is excluded on
 # purpose: it sits BELOW the API and never holds a scope reference.
-SCANNED_PACKAGES = Packages({'modules', 'ui'})
+SCANNED_PACKAGES = Packages({'src/_lumascope/modules', 'ui'})
 
 # Receiver expressions denoting the Lumascope object. Matched on the
 # FINAL attribute so dotted chains are covered without enumerating them

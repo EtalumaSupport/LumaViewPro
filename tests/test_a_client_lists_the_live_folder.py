@@ -18,8 +18,8 @@ import os
 
 import pytest
 
-from modules.exceptions import LiveFolderPathRefusedError
-from modules.scope_session import EntryKind, LiveFolderEntry, ScopeSession
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+from _lumascope.modules.scope_session import EntryKind, LiveFolderEntry, ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

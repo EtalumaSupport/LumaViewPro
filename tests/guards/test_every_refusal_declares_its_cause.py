@@ -26,8 +26,8 @@ import importlib
 
 import pytest
 
-from lib.stage_interlock import INTERLOCK_TITLES
-from modules.exceptions import (
+from _lumascope.lib.stage_interlock import INTERLOCK_TITLES
+from _lumascope.modules.exceptions import (
     INTERLOCK_REASONS,
     AlreadyStartedError,
     BlockingCallRefusedError,
@@ -199,7 +199,7 @@ class _RaisedReasons(ast.NodeVisitor):
 
 def _raised(type_name):
     raised, unread = set(), []
-    for rel, tree in ast_seams.iter_package_modules(('modules',)):
+    for rel, tree in ast_seams.iter_package_modules(('src/_lumascope/modules',)):
         _RaisedReasons(rel, type_name, raised, unread).visit(tree)
     return raised, unread
 
@@ -218,7 +218,7 @@ def test_the_raise_sites_and_the_table_agree(cls):
 
 def test_the_drivers_interlock_reasons_are_the_tables():
     raised, unread = set(), []
-    for rel, tree in ast_seams.iter_package_modules(('drivers',)):
+    for rel, tree in ast_seams.iter_package_modules(('src/_lumascope/drivers',)):
         _RaisedReasons(rel, 'MotionInterlockError', raised, unread).visit(tree)
     assert unread == [], unread
     assert raised == set(INTERLOCK_TITLES)

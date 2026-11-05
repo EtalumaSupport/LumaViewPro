@@ -14,10 +14,10 @@ import json
 
 import pytest
 
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.lumascope_api.diagnostics import MotorCommandSet
-from modules.scope_session import ScopeSession
-from modules.tech_support_report import NO_MOTOR_TEXT, TechSupportReport
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.lumascope_api.diagnostics import MotorCommandSet
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.tech_support_report import NO_MOTOR_TEXT, TechSupportReport
 from tests.settings_fixtures import complete_settings
 
 TEXT_SECTIONS = (

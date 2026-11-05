@@ -14,15 +14,9 @@ Run it in a LumaViewPro source folder (how, step by step: README.md here):
 The same stop over REST is ``stop_a_run.sh``.
 """
 
-import pathlib
-import sys
 import threading
 
-# The installation folder, importable when the script is run by its path.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
-
-from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from lumascope import RunEvents, ScopeSession
 
 WELLS = ('B2', 'B3', 'B4')
 

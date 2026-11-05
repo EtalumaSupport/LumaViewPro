@@ -14,8 +14,8 @@ from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 
-from lvp_logger import logger
-from modules import gui_logger
+from _lumascope.lvp_logger import logger
+from _lumascope.modules import gui_logger
 
 
 def _close_pressed(popup) -> None:

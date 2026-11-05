@@ -19,11 +19,11 @@ import numpy as np
 import ome_types
 import tifffile as tf
 
-from modules import image_utils, recording_frames, wall_time
-from modules.stack_builder import StackBuilder
+from _lumascope.modules import image_utils, recording_frames, wall_time
+from _lumascope.modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
-from modules.lumascope_api.frame_record import FrameTime, TimestampSource
-from modules.layer_record import release_colors
+from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
+from _lumascope.modules.layer_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.ome_schema import schema_errors
 from tests.stock_channels import LED1, LED2

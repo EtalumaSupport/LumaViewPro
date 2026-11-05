@@ -18,12 +18,12 @@ import pandas as pd
 import pytest
 import tifffile as tf
 
-import modules.app_context as _app_ctx
-from modules.composite_generation import CompositeGeneration
-from modules.protocol_post_processing_result import PostProcResult
-from modules.stitcher import Stitcher
-from modules.zprojector import ZProjector
-from modules.layer_record import release_colors
+import _lumascope.modules.app_context as _app_ctx
+from _lumascope.modules.composite_generation import CompositeGeneration
+from _lumascope.modules.protocol_post_processing_result import PostProcResult
+from _lumascope.modules.stitcher import Stitcher
+from _lumascope.modules.zprojector import ZProjector
+from _lumascope.modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
 
 

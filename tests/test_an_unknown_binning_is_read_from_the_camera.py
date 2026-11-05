@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CameraSettingRejected
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 

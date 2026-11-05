@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.exceptions import PositionOutOfRangeError
+from _lumascope.modules.exceptions import PositionOutOfRangeError
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import build_scope, home_sim_scope
 
@@ -57,7 +57,7 @@ def _config_axis(board):
 def test_the_simulated_driver_builds_a_read_only_config(edit):
     """The simulator builds its config in its own body, as the real and the
     null drivers do; the driver's config is the other door onto the limits."""
-    from drivers.simulated_motorboard import SimulatedMotorBoard
+    from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
     board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     travel_max = board.get_axis_limits('Z')['max']
@@ -71,8 +71,8 @@ def test_the_simulated_driver_builds_a_read_only_config(edit):
 def test_the_hardware_driver_builds_a_read_only_config():
     """The real MotorBoard builds its config in a different body from the
     simulator's; it must refuse the same edits."""
-    from drivers.motorboard import MotorBoard
-    from drivers.motorconfig import MotorConfig
+    from _lumascope.drivers.motorboard import MotorBoard
+    from _lumascope.drivers.motorconfig import MotorConfig
 
     with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
@@ -86,7 +86,7 @@ def test_the_hardware_driver_builds_a_read_only_config():
 
 
 def test_the_null_driver_builds_a_read_only_config():
-    from drivers.null_motorboard import NullMotionBoard
+    from _lumascope.drivers.null_motorboard import NullMotionBoard
 
     board = NullMotionBoard()
 

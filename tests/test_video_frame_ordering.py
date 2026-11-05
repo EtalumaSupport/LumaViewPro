@@ -17,9 +17,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from modules import post_derivation
-from modules.video_builder import VideoBuilder
-from modules.layer_record import release_colors
+from _lumascope.modules import post_derivation
+from _lumascope.modules.video_builder import VideoBuilder
+from _lumascope.modules.layer_record import release_colors
 
 
 def _frame_name(n):
@@ -45,7 +45,7 @@ def _consumed_order(tmp_path, frame_numbers):
     writer.dropped_frames = 0
     with (
         patch.object(VideoBuilder, '_add_source_frame', _record_frame),
-        patch('modules.video_builder.VideoWriter', return_value=writer),
+        patch('_lumascope.modules.video_builder.VideoWriter', return_value=writer),
     ):
         builder = VideoBuilder(has_turret=False)
         builder._create_video(

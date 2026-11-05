@@ -1,0 +1,39 @@
+# Your Lumascope {#sec-your-lumascope}
+
+This manual covers every Lumascope model LumaViewPro supports. Each feature is
+described once. A section that needs particular hardware opens with a line
+naming it, for example "Requires: a motorized XY stage". @tbl-models shows
+what each model has.
+
+```{=typst}
+// The model table only: gridlines, and the two short unruled rows (6 and 8)
+// that set the LS800s, the Lumi and the FX2 models apart.
+#[
+#set table(
+  stroke: (x, y) => if y == 6 or y == 8 {
+    (top: 0.5pt + luma(150), bottom: 0.5pt + luma(150))
+  } else { 0.5pt + luma(150) },
+  rows: (auto,) * 6 + (4pt, auto, 4pt) + (auto,) * 4,
+)
+```
+
+| Model | Focus motor | XY stage | Turret | Channels |
+|:---|:---:|:---:|:---:|:---|
+| LS820 | yes | no | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| LS850 | yes | yes | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| LS850-0 | yes | yes | no | Brightfield |
+| LS850T | yes | yes | yes | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast |
+| | | | | |
+| Lumi | yes | no | no | Brightfield, Phase Contrast, Darkfield, Lumi |
+| | | | | |
+| LS460 | no | no | no | BF-Phase |
+| LS560 | no | no | no | BF-Phase, 488 nm |
+| LS620 | no | no | no | BF-Phase, 405 nm, 488 nm, 589 nm |
+| LS720 | yes | yes | no | BF-Phase, 405 nm, 488 nm, 589 nm |
+
+: The Lumascope models and what each has {#tbl-models tbl-colwidths="[13,13,10,9,55]"}
+
+```{=typst}
+]
+```

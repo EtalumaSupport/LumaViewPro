@@ -15,7 +15,7 @@ post-merge bugfix sessions surfaced live-code misses:
                                         and recording-finalize manifest builder
 
 Each miss caused a user-visible failure on real hardware. This test
-walks every .py file under modules/ and ui/ (the production layers
+walks every .py file under src/_lumascope/modules/ and ui/ (the production layers
 above drivers) and asserts that NO Attribute node with the form
 `<chain>.scope.led` exists (``scope.camera`` and ``scope.motion`` are the
 sub-APIs the names were reserved for), where `scope` is either a
@@ -39,22 +39,16 @@ during the transition.
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, RetiredNames
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, RetiredNames, tracked_files
 
 BANNED_ATTRS = RetiredNames({'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
-PROD_ROOTS = Packages({'modules', 'ui'})
+PROD_ROOTS = Packages({'src/_lumascope/modules', 'ui'})
 
 
 def _iter_prod_files() -> list[pathlib.Path]:
-    files: list[pathlib.Path] = []
-    for root_name in PROD_ROOTS:
-        root = REPO_ROOT / root_name
-        if not root.is_dir():
-            continue
-        files.extend(sorted(p for p in root.rglob('*.py')))
-    return files
+    return [REPO_ROOT / rel for rel in tracked_files(PROD_ROOTS)]
 
 
 def _chain_ends_in_scope(node: ast.AST) -> bool:
@@ -121,7 +115,7 @@ def test_no_legacy_scope_driver_accesses_in_production():
 # `Lumascope(simulate=True)` instance; hardcoded here so the test is
 # pure-AST (no simulator instantiation at collection time).
 MOTION_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/motion.py',
+    'src/_lumascope/modules/lumascope_api/motion.py',
     {
         'add_position_listener',
         'get_actual_position',
@@ -197,7 +191,7 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
 # hardcoded here so the test is pure-AST (no simulator instantiation
 # at collection time).
 ILLUMINATION_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/illumination.py',
+    'src/_lumascope/modules/lumascope_api/illumination.py',
     {
         'add_led_listener',
         'ch2color',
@@ -257,7 +251,7 @@ def test_no_illumination_method_calls_on_bare_scope_in_production():
 # motivating incident: Lumascope.initialize() called self.leds_off()
 # which was retired in Phase 3f.
 
-_LUMASCOPE_PATH = REPO_ROOT / 'modules' / 'lumascope_api' / '_lumascope.py'
+_LUMASCOPE_PATH = REPO_ROOT / 'src/_lumascope/modules' / 'lumascope_api' / '_lumascope.py'
 
 
 def _find_self_method_accesses(tree: ast.AST, banned: frozenset[str]) -> list[tuple[int, str]]:
@@ -316,7 +310,7 @@ def test_no_self_motion_calls_in_lumascope():
 # aliases that 4d.5b had kept as forwarders; only the new names
 # (`add_frame_listener` / `remove_frame_listener`) remain.
 IMAGING_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/imaging.py',
+    'src/_lumascope/modules/lumascope_api/imaging.py',
     {
         'add_frame_listener',
         'capture_still',
@@ -332,7 +326,7 @@ IMAGING_ONLY_METHODS = MemberNames(
 
 # The camera's members (CameraAPI, W3b), reached as scope.camera.<member>.
 CAMERA_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/camera.py',
+    'src/_lumascope/modules/lumascope_api/camera.py',
     {
         'add_exposure_listener',
         'add_gain_listener',
@@ -432,7 +426,7 @@ def test_no_self_imaging_calls_in_lumascope():
 # facade as of 2026-05-19. Same shape as IMAGING_ONLY_METHODS /
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
 DIAGNOSTICS_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/diagnostics.py',
+    'src/_lumascope/modules/lumascope_api/diagnostics.py',
     {
         'get_camera_temperatures_degc',
         'run_camera_bandwidth_test',
@@ -502,7 +496,7 @@ def test_no_self_diagnostics_calls_in_lumascope():
 
 # Phase 6 (image_save extraction) retires 6 instance methods + 5 *_static
 # duplicates from Lumascope, replacing them with free functions in
-# `modules/image_save.py`. See docs/WAVE7_PHASE_6_PLAN.md. Three guards
+# `src/_lumascope/modules/image_save.py`. See docs/WAVE7_PHASE_6_PLAN.md. Three guards
 # stage the migration:
 #   1. Bare-scope guard -- no `scope.<image_save_method>(` in production.
 #      Flips at 6e (production caller migration).
@@ -512,7 +506,7 @@ def test_no_self_diagnostics_calls_in_lumascope():
 #      _lumascope.py. Flips at 6c (instance bodies move to module;
 #      wrappers are thin forwarders that don't self-call).
 IMAGE_SAVE_METHODS = MemberNames(
-    'modules/image_save.py',
+    'src/_lumascope/modules/image_save.py',
     {
         'save_image',
         'get_next_save_path',
@@ -585,11 +579,12 @@ def test_no_image_save_method_calls_on_bare_scope_in_production():
             rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} -- '
-                f'use `from modules.image_save import {attr}; {attr}(scope, ...)`'
+                f'use `from _lumascope.modules.image_save import {attr}; {attr}(scope, ...)`'
             )
     assert not failures, (
         'image_save methods reached on bare scope -- production code '
-        'must import the free functions from modules.image_save:\n  ' + '\n  '.join(failures)
+        'must import the free functions from _lumascope.modules.image_save:\n  '
+        + '\n  '.join(failures)
     )
 
 
@@ -611,31 +606,31 @@ def test_no_lumascope_class_static_method_calls():
             bare_name = attr.removesuffix('_static')
             failures.append(
                 f'{rel}:{lineno}: Lumascope.{attr} retired -- '
-                f'use `from modules.image_save import {bare_name}`'
+                f'use `from _lumascope.modules.image_save import {bare_name}`'
             )
     assert not failures, (
         'Lumascope.*_static methods called -- the static chain is '
         'retired in Phase 6c; use the free functions in '
-        'modules.image_save:\n  ' + '\n  '.join(failures)
+        '_lumascope.modules.image_save:\n  ' + '\n  '.join(failures)
     )
 
 
 def test_no_self_image_save_calls_in_lumascope():
     """Lumascope's own methods must not reach image_save methods via
     bare `self.X` -- after Phase 6c the bodies live in
-    `modules.image_save` and the Lumascope wrappers are thin forwarders
+    `_lumascope.modules.image_save` and the Lumascope wrappers are thin forwarders
     that call the free function directly with `self` as the scope arg."""
     source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, IMAGE_SAVE_METHODS)
     failures = [
         f'_lumascope.py:{lineno}: self.{attr} -- '
-        f'use `from modules.image_save import {attr}; {attr}(self, ...)`'
+        f'use `from _lumascope.modules.image_save import {attr}; {attr}(self, ...)`'
         for lineno, attr in hits
     ]
     assert not failures, (
         'Lumascope reached image_save methods via bare self -- the '
-        'bodies live in modules.image_save after Phase 6c; call the '
+        'bodies live in _lumascope.modules.image_save after Phase 6c; call the '
         'free function with self as the scope arg:\n  ' + '\n  '.join(failures)
     )
 
@@ -652,7 +647,7 @@ def test_no_self_image_save_calls_in_lumascope():
 #
 #   2. compute_focus_score RETIRES outright (no replacement on a
 #      sub-API; callers migrate to
-#      modules.autofocus_functions.focus_function directly). Bare-
+#      _lumascope.modules.autofocus_functions.focus_function directly). Bare-
 #      scope guard `xfail strict=True` until 7e; inside-class guard
 #      passes plain today (the wrapper has zero internal self-callers
 #      verified at 7a) and stays green through 7f retirement.
@@ -664,7 +659,7 @@ def test_no_self_image_save_calls_in_lumascope():
 # migration. Kept separate so the two phases' guard staging stays
 # obvious.
 DIAGNOSTIC_FACADE_GETTERS = MemberNames(
-    'modules/lumascope_api/diagnostics.py',
+    'src/_lumascope/modules/lumascope_api/diagnostics.py',
     {
         'get_motor_info',
         'get_led_info',
@@ -749,13 +744,13 @@ def test_no_compute_focus_score_calls_on_scope_in_production():
             rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} retired -- '
-                f'use `from modules import autofocus_functions; '
+                f'use `from _lumascope.modules import autofocus_functions; '
                 f'autofocus_functions.focus_function(image=..., '
                 f'skip_score_logging=True)`'
             )
     assert not failures, (
         'compute_focus_score reached on scope -- the wrapper retires in '
-        'Phase 7f; callers must use modules.autofocus_functions.'
+        'Phase 7f; callers must use _lumascope.modules.autofocus_functions.'
         'focus_function directly:\n  ' + '\n  '.join(failures)
     )
 
@@ -792,7 +787,7 @@ def test_no_self_compute_focus_score_calls_in_lumascope():
 #   - inside-class self: 4 sites in _lumascope.py::initialize (lines
 #     622, 624, 625, 628)
 RUNTIME_STATE_ONLY_METHODS = MemberNames(
-    'modules/lumascope_api/runtime_state.py',
+    'src/_lumascope/modules/lumascope_api/runtime_state.py',
     {
         'get_labware',
         'get_current_objective_id',

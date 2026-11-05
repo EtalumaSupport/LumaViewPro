@@ -11,11 +11,11 @@ from unittest.mock import MagicMock
 import pytest
 from pypylon import genicam
 
-from drivers import fx2driver
-from drivers.camera import Camera, link_info
-from drivers.exceptions import HardwareError
-from modules.lumascope_api.diagnostics import CameraLink
-from modules.scope_session import ScopeSession
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.camera import Camera, link_info
+from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.modules.lumascope_api.diagnostics import CameraLink
+from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.settings_fixtures import complete_settings
 

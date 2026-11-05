@@ -18,10 +18,10 @@ steps, typed the same way.
 
 import pytest
 
-from modules.acquire_mode import AcquireMode
-from modules.exceptions import ArgumentRefusedError, ProtocolNotSavedError
-from modules.layer_record import release_catalogue
-from modules.protocol import ChannelSettings, ProtocolFormatError
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolNotSavedError
+from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.protocol import ChannelSettings, ProtocolFormatError
 from tests.scope_fakes import home_sim_scope
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
@@ -144,7 +144,7 @@ class TestSaveThenRestore:
         assert session.settings['protocol']['filepath'] == remembered
 
     def test_a_failed_write_raises(self, session, tmp_path, monkeypatch):
-        import modules.protocol as protocol_module
+        import _lumascope.modules.protocol as protocol_module
 
         _only_bf_acquiring(session)
 
@@ -160,7 +160,7 @@ class TestSaveThenRestore:
     def test_a_layer_this_scope_does_not_have_is_logged_and_dropped(
         self, session, tmp_path, monkeypatch
     ):
-        import modules.scope_session as scope_session
+        import _lumascope.modules.scope_session as scope_session
 
         warned = []
         monkeypatch.setattr(

@@ -1,0 +1,972 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Frame validity tracking for hardware state changes.
+
+When hardware state changes (LED on/off, gain/exposure change, motor movement),
+frames from the camera may not yet reflect the new state due to:
+  1. Camera pipeline latency (2-3 frames to flush)
+  2. Physical hardware settle time (motor moves take seconds)
+
+Frame validity is the SINGLE source of truth for capture readiness. No capture
+should proceed until frame_validity confirms all pending state changes have
+settled. This includes both camera pipeline flush AND physical completion.
+
+For camera-only sources (LED, gain, exposure): settled = frame count met.
+For motion sources (xy_move, z_move, turret): settled = axis has physically
+stopped moving (via settle callback) AND the frame count met by frames that
+arrived after the stop.
+
+A frame only counts toward a change it could actually show: each pending
+source records which frame the camera had already delivered when its
+register was written, and a frame credits it only if it arrived later.
+Without that, a frame the live preview grabbed before the write but
+counted after it would retire part of the wait it was never subject to.
+
+Whether one frame counts for one change is ``FrameValidity.judge``, on
+every camera and for every source by counting frames: a frame counts once
+the source's frame count (``FrameRule``) was met by frames before it, a
+move's counted from its stop. The count is the one the camera's timing
+record measured, else the shipped count (``SKIP_FRAMES``); each source's is
+decided at bring-up and published as ``capabilities.frame_rules``.
+
+Usage:
+    fv = FrameValidity(lambda: camera.frames_delivered)
+    fv.set_settle_check(my_axis_check_fn)  # Register motion completion callback
+    fv.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)  # Z axis started moving
+    fv.owed()          # frames > 0, moving={z_move}: the axis is not settled
+    # ... Z arrives at target, settle check returns True, the stop is stamped ...
+    fv.owed()          # the frames owed from the stop
+    # ... frames are counted ...
+    fv.owed()          # frames=0 -- a frame arriving now counts
+
+``ImagingAPI.changes_in_force`` is the one reading of it as yes or no.
+Excluding a source asks whether a frame counts ignoring that change, so the
+frame can predate it: fit for showing a frame during motion, never for one
+that is measured or recorded (autofocus waits out each Z move, or a step's
+score would be the previous step's):
+    fv.owed(exclude_sources=(FrameValiditySource.Z_MOVE,))
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import enum
+import threading
+import time
+import types
+from collections.abc import Callable, Mapping
+from typing import ClassVar
+
+from _lumascope.drivers import host_clock
+from _lumascope.drivers.camera import Frame
+from _lumascope.lib import profile_trace
+from _lumascope.modules.api_surface import api_fields
+
+# The camera timing record's version this release reads, and what its
+# validity group's entries must carry (``FrameValidity.check_timing_record``).
+TIMING_RECORD_SCHEMA = 3
+TIMING_MEASURES = ('delivered_frames',)
+TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'measured_date')
+# A count of frames is the camera's on one microscope model: the record
+# keeps an entry per microscope it was measured on, and the gate takes the
+# largest.
+TIMING_MICROSCOPE = 'microscope'
+
+
+def _is_amount(value) -> bool:
+    """Whether a timing record's measured number is a number, 0 or more."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
+
+
+class FrameValiditySource(enum.StrEnum):
+    """What changed, for a capture to wait out: each a key of ``FrameValidity.SKIP_FRAMES``."""
+
+    LED = 'led'
+    GAIN = 'gain'
+    EXPOSURE = 'exposure'
+    XY_MOVE = 'xy_move'
+    Z_MOVE = 'z_move'
+    TURRET = 'turret'
+    AUTO_GAIN = 'auto_gain'
+    PIXEL_FORMAT = 'pixel_format'
+    FRAME_SIZE = 'frame_size'
+    BINNING = 'binning'
+    BLACK_LEVEL = 'black_level'
+    CONVERSION_GAIN_MODE = 'conversion_gain_mode'
+    LINE_NOISE_REDUCTION = 'line_noise_reduction'
+
+
+class Counter(enum.StrEnum):
+    """Who counted a frame toward a change: the capture's drain, a grab
+    (a capture's own, or an ungated ``get_image``), or the live preview.
+
+    A capture's wait can be met by frames another consumer counted, so the
+    record of a wait names who counted each frame.
+    """
+
+    DRAIN = 'drain'
+    GRAB = 'grab'
+    PREVIEW = 'preview'
+
+
+@api_fields('seq', 'by')
+@dataclasses.dataclass(frozen=True)
+class Credit:
+    """One frame counted toward a change, and who counted it."""
+
+    seq: int
+    by: Counter
+
+
+@api_fields('count', 'provenance')
+@dataclasses.dataclass(frozen=True)
+class FrameRule:
+    """The frames a source's changes wait, and where the count came from.
+
+    Attributes:
+        count: The frames a change of the source needs counted after it,
+            before the first that counts: the largest
+            ``delivered_frames.max`` the camera's timing record holds for
+            the source, over its directions and the microscopes it was
+            measured on, a move taking the largest over every move; else
+            the shipped count (``SKIP_FRAMES``).
+        provenance: The run that measured the count, naming the microscope
+            it was measured on (``TIMING_MICROSCOPE``); None for a shipped
+            count.
+
+    Raises:
+        ValueError: a count that is not a whole number, 0 or more.
+    """
+
+    count: int
+    provenance: Mapping[str, str] | None
+
+    def __post_init__(self):
+        if not (
+            isinstance(self.count, int) and not isinstance(self.count, bool) and self.count >= 0
+        ):
+            raise ValueError(f'a frame count of {self.count!r}, not a whole number 0 or more')
+
+
+@api_fields(
+    'source',
+    'at_seq',
+    'written_ns',
+    'earliest_ns',
+    'skip',
+    'rule',
+    'credits',
+    'needs_in_force',
+    'in_force_ns',
+)
+@dataclasses.dataclass(frozen=True)
+class Change:
+    """The last recorded change of one source, and the facts a frame is judged against.
+
+    Frames do not consume it: it stays the source's change until the next
+    ``invalidate`` replaces it, so a capture long after can still say how
+    long after the change its frame came.
+
+    Attributes:
+        source: What changed.
+        at_seq: The last frame the camera's driver had been handed when the
+            change was recorded, a frame still in a host queue included; for
+            a move, once in force, when its stop was stamped
+            (``FrameValidity.motion_settled``). A frame already in
+            the camera's pipeline when the
+            register was written cannot show the new state, so crediting it
+            would retire the skip count against frames that predate the
+            change -- and the capture then returns a frame from before the
+            write. An ordinal rather than a clock reading, because the
+            comparison has to survive the clock moving: wall time runs
+            backwards across a DST fall-back, an NTP correction or a host
+            resume, and a settle count measured against a timestamp that
+            jumped forward never completes. Frame numbers only go up.
+        written_ns: The scope's steady clock (``host_clock.steady_ns``) when
+            the change was recorded. Every recorder calls ``invalidate`` after
+            a camera register or LED write returns, and before a move starts.
+        earliest_ns: The scope's steady clock (``host_clock.steady_ns``) of the
+            earliest moment the change could have reached the hardware: a
+            write's start, as its writer stamped it, since the register may
+            change anywhere inside the write; for a move, once in force, the
+            start of the last read that saw its axis still moving, else
+            ``written_ns``. A lag measured from here is never short.
+        skip: The frames the change needed, its rule's count when it was
+            recorded.
+        rule: Its source's count and where it came from, as they stood when
+            the change was recorded.
+        credits: The frames counted toward it, in the order counted, until
+            ``skip`` was met.
+        needs_in_force: A motion source the axis must also settle for: the
+            frame count alone does not end its wait.
+        in_force_ns: The scope's steady clock (``host_clock.steady_ns``) when
+            the axis state the settle check reads became settled, stamped by
+            the motion API (``FrameValidity.motion_settled``); None until then,
+            and for a change that does not wait on an axis.
+    """
+
+    source: FrameValiditySource
+    at_seq: int
+    written_ns: int
+    earliest_ns: int
+    skip: int
+    rule: FrameRule
+    credits: tuple[Credit, ...]
+    needs_in_force: bool
+    in_force_ns: int | None
+
+    @property
+    def remaining(self) -> int:
+        """Frames the change still needs counted; 0 once the count is met."""
+        return max(0, self.skip - len(self.credits))
+
+
+@api_fields(
+    'change',
+    'frame_seq',
+    'frames_after',
+    'after_write_ms',
+    'after_in_force_ms',
+    'counts',
+)
+@dataclasses.dataclass(frozen=True)
+class Judgment:
+    """Whether one frame counts for one change, and the facts that decided it.
+
+    Attributes:
+        change: The change judged against, as it stood when judged.
+        frame_seq: The frame's hand-over ordinal.
+        frames_after: Frames handed over after the change was recorded, up
+            to and including this one: an upper bound on the frames stored
+            after it, since a frame handed over may be dropped before the
+            store.
+        after_write_ms: Milliseconds from the change's recording to the
+            frame's arrival.
+        after_in_force_ms: Milliseconds from the change's in-force time to
+            the frame's arrival; None when it has none.
+        counts: The frame arrived after the change, the change's count was
+            met by frames before it, and an axis the change waits on had
+            settled before it arrived.
+    """
+
+    change: Change
+    frame_seq: int
+    frames_after: int
+    after_write_ms: float
+    after_in_force_ms: float | None
+    counts: bool
+
+    def fields(self) -> dict:
+        """The judgment as plain fields, the one shape a saved file and the
+        capture's log line both carry. A time the judgment has none of is
+        absent, never a stand-in."""
+        out = {
+            'source': self.change.source.value,
+            'counts': self.counts,
+            'frames_after': self.frames_after,
+            'after_write_ms': round(self.after_write_ms, 3),
+            'skip': self.change.skip,
+            'counted_by': [f'{credit.seq}:{credit.by.value}' for credit in self.change.credits],
+        }
+        if self.after_in_force_ms is not None:
+            out['after_in_force_ms'] = round(self.after_in_force_ms, 3)
+        return out
+
+
+@dataclasses.dataclass(frozen=True)
+class Owed:
+    """What a capture still waits on before a frame can count for every change.
+
+    Attributes:
+        frames: Frames still to be delivered for the changes pending, and 1
+            while a move's axis has not settled; 0 when none is owed.
+        moving: The motion sources owed a frame because their axis reads
+            moving. A capture's deadline pauses while this is non-empty:
+            motion has its own completion signal, and a frame budget must
+            not out-vote it.
+    """
+
+    frames: int
+    moving: frozenset[FrameValiditySource]
+
+
+class FrameValidity:
+    """Tracks frame validity after hardware state changes.
+
+    Each hardware state change source has a configurable number of frames
+    that must be skipped before the camera output reflects the new state.
+    Motion sources additionally require physical completion (axis stopped).
+    """
+
+    # Per-source shipped frame counts (camera pipeline flush), and the
+    # sources' names: the count a source's rule carries when the camera's
+    # timing record measured none (``rules_from_record``). A change takes
+    # its count from its source's rule, never from here.
+    SKIP_FRAMES: ClassVar[dict[FrameValiditySource, int]] = {
+        FrameValiditySource.LED: 2,  # LED on/off or current change (measured: 2 on a2A3536)
+        FrameValiditySource.GAIN: 2,  # Camera gain change (measured: 2 on a2A3536)
+        # Camera exposure time change. Not a measurement: the a2A3536 timing
+        # record's value that once stood beside it has no surviving source run.
+        FrameValiditySource.EXPOSURE: 3,
+        # A move's frames are counted from its stop (``motion_settled``).
+        # Not measurements: no shipped timing record holds a move's count.
+        FrameValiditySource.XY_MOVE: 2,  # X or Y axis movement
+        FrameValiditySource.Z_MOVE: 2,  # Z axis movement
+        FrameValiditySource.TURRET: 2,  # Turret rotation
+        # Frames for hardware continuous auto-gain to settle against the lit
+        # scene after arming. Like led/gain/exposure this is an instrumentation
+        # settling count, not a content measurement: the LED must be lit before
+        # arming so AG settles on the real scene, not a dark frame. At 10 a dim
+        # brightfield scene (low LED current, gain starting at 0) often had not
+        # converged when the frame was grabbed -- the capture came out dark.
+        # Doubled to give AG more frames to ramp; the [AG CONVERGE] diagnostic
+        # measures the real convergence need per camera for the eventual
+        # camera_timing/<model>.json value (or a brightness-converge gate).
+        FrameValiditySource.AUTO_GAIN: 20,
+        # Geometry / format changes restart the grab engine or realloc the
+        # camera buffer; the pipeline needs frames to flush the old
+        # geometry before a capture reflects the new one. Conservative
+        # defaults pending per-camera bench measurement into
+        # camera_timing/<model>.json, like the others.
+        FrameValiditySource.PIXEL_FORMAT: 3,
+        FrameValiditySource.FRAME_SIZE: 3,
+        FrameValiditySource.BINNING: 3,
+        # Sensor settings that change the next frames like gain does. Unmeasured;
+        # gain's count until a bench measurement goes into camera_timing.
+        FrameValiditySource.BLACK_LEVEL: 2,
+        FrameValiditySource.CONVERSION_GAIN_MODE: 2,
+        FrameValiditySource.LINE_NOISE_REDUCTION: 2,
+    }
+
+    # One shape for every trace row this class writes. A row records the
+    # comparison the gate actually made: the frame's arrival ordinal against
+    # the ordinal the write was stamped against, and what the count stands at
+    # afterwards. Both sides are in the row so a reader can see WHY a source
+    # did or did not clear, rather than inferring it from what is missing.
+    _TRACE_FILE = 'frame_validity_trace.csv'
+    _TRACE_HEADER = 'ts_ms,event,source,frame_seq,at_seq,remaining,pending_count'
+
+    # Sources that require physical hardware completion in addition to frame count.
+    MOTION_SOURCES = frozenset(
+        {FrameValiditySource.XY_MOVE, FrameValiditySource.Z_MOVE, FrameValiditySource.TURRET}
+    )
+
+    # Sources carrying per-frame chunk metadata, used to REJECT a frame at
+    # capture time -- never to accept one. A chunk reports the register value
+    # in force when the camera TAGGED the frame, not the light integrated
+    # into it, so a chunk that AGREES with the target proves nothing about
+    # the pixels; a chunk that DISAGREES proves the frame predates the write.
+    # Only the disagreement direction is sound. LED has no chunk equivalent;
+    # motion is firmware-gated via _settle_check_fn.
+    CHUNK_VALIDATABLE_SOURCES = frozenset({FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE})
+
+    # Maps our source names to the chunk_data dict keys used by camera
+    # drivers (chunk_data uses the genicam attribute symbolic names).
+    CHUNK_KEY_FOR_SOURCE: ClassVar[dict[FrameValiditySource, str]] = {
+        FrameValiditySource.GAIN: 'Gain',
+        FrameValiditySource.EXPOSURE: 'ExposureTime',
+    }
+
+    # Float-tolerance for chunk-match equality. ChunkExposureTime is in
+    # microseconds (the API converts ms -> us when calling set_target);
+    # ChunkGain is in dB. Values measured by sweeping set values across
+    # the supported range and reading back ChunkGain / ChunkExposureTime
+    # on multiple Basler USB3 cameras (a2A3536-31umBAS ace 2; daA3840-45um
+    # dart with firmware 1.1.0 and 2.6.0): observed deltas were bit-
+    # identical across hardware and firmware -- quantization happens at
+    # the Pylon SDK / genicam nodemap layer, not in camera firmware.
+    # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
+    # bit-exact in microseconds. Tolerances set ~20x above observed max
+    # for safety across future firmware revisions.
+    DEFAULT_CHUNK_TOLERANCE: ClassVar[dict[FrameValiditySource, float]] = {
+        FrameValiditySource.GAIN: 0.001,  # dB
+        FrameValiditySource.EXPOSURE: 2.0,  # microseconds
+    }
+
+    def __init__(self, frames_delivered):
+        """
+        Args:
+            frames_delivered: zero-argument callable returning how many frames
+                the camera's driver has handed over so far (``HandOver``).
+                REQUIRED -- without it a write cannot be placed in the frame
+                stream, every frame would credit
+                every pending source, and that is precisely the defect this
+                class exists to prevent. Passing a callable rather than the
+                driver keeps the lookup late: the composition root assigns the
+                camera driver after this object is built.
+        """
+        self._lock = threading.Lock()
+        self._frames_delivered = frames_delivered
+        self._frame_counter = 0
+        # Each source's last change, kept after it settles so a capture can be
+        # judged against it; and the sources whose last change has not.
+        self._changes: dict[str, Change] = {}
+        self._pending: set[str] = set()
+        self._settle_check_fn = None  # Optional: (source) -> bool
+        self._target_values = {}  # source -> requested value (for chunk-match)
+        self._last_counted_seq = None  # ordinal of the last counted frame
+        # Each source's rule; its shipped count until
+        # bring-up hands over the scope's (use_rules), as for a camera with no
+        # measured record.
+        self._rules = self.credit_rules()
+        # Monotone per-source invalidation history. Unlike _pending, entries
+        # are never consumed by frames -- count_frame leaves this map
+        # untouched -- so a capture can snapshot it before its grab and
+        # compare after to detect an invalidation that frames have already
+        # settled. Pending-state snapshots cannot do that: a poller frame
+        # plus the capture's own final grab can consume a 2-skip source's
+        # entry exactly, leaving the pending state bit-identical around a
+        # real mid-window invalidation.
+        self._invalidation_counts = {}  # source -> total invalidate() calls
+
+    def set_settle_check(self, fn: Callable[[FrameValiditySource], bool]) -> None:
+        """Register a callback that checks if a source has physically settled.
+
+        Args:
+            fn: Answers whether the hardware for a source has physically
+                completed its state change.
+                For motion sources, this typically checks axis state == IDLE.
+                For non-motion sources, should return True.
+
+        Called during validity checks for MOTION_SOURCES. Without this
+        callback, motion sources settle based on frame count only (legacy
+        behavior, incorrect for long moves).
+        """
+        self._settle_check_fn = fn
+
+    @classmethod
+    def credit_rules(cls) -> Mapping[FrameValiditySource, FrameRule]:
+        """Every source at its shipped count: the rules of a camera with no record."""
+        return types.MappingProxyType(
+            {
+                source: FrameRule(count=count, provenance=None)
+                for source, count in cls.SKIP_FRAMES.items()
+            }
+        )
+
+    @classmethod
+    def rules_from_record(cls, record: dict | None) -> Mapping[FrameValiditySource, FrameRule]:
+        """Each source's rule, from a camera's checked timing record.
+
+        A source the record holds a ``delivered_frames`` entry for waits the
+        largest ``max`` over its directions and entries, every
+        microscope's, with that entry's provenance: a capture waits the most
+        frames any microscope the camera ships in needs, whichever way the
+        change went. A move's count is the camera's whatever the axis, so
+        every move takes the largest over the moves the record holds. A
+        source the record measured no count for keeps its shipped count,
+        with no provenance.
+
+        Args:
+            record: The camera's timing record, already checked
+                (``check_timing_record``); None for a camera that names none.
+        """
+        rules = dict(cls.credit_rules())
+        validity = record['validity'] if record is not None else {}
+
+        def entries(sources):
+            return [
+                entry
+                for source in sources
+                for direction in validity.get(source, {}).values()
+                for entry in direction
+            ]
+
+        counted = {
+            source: entries((source,)) for source in rules if source not in cls.MOTION_SOURCES
+        }
+        counted.update(dict.fromkeys(cls.MOTION_SOURCES, entries(cls.MOTION_SOURCES)))
+        for source, measured in counted.items():
+            if measured:
+                largest = max(measured, key=lambda e: e['delivered_frames']['max'])
+                rules[source] = FrameRule(
+                    count=int(largest['delivered_frames']['max']),
+                    provenance=types.MappingProxyType(dict(largest['provenance'])),
+                )
+        return types.MappingProxyType(rules)
+
+    def use_rules(self, rules: Mapping[FrameValiditySource, FrameRule]) -> None:
+        """Judge each change recorded from now on by its source's rule in ``rules``.
+
+        Bring-up hands over the scope's ``capabilities.frame_rules``; a
+        verify phase holds rules of its own for a while
+        (``ImagingAPI.held_frame_rules``). A change already recorded keeps
+        the rule and count it was recorded under.
+
+        Raises:
+            ValueError: ``rules`` leaves a source without a rule.
+        """
+        missing = sorted(set(self.SKIP_FRAMES) - set(rules))
+        if missing:
+            raise ValueError(f'frame rules name no rule for {missing}')
+        with self._lock:
+            self._rules = rules
+
+    def rules(self) -> Mapping[FrameValiditySource, FrameRule]:
+        """Each source's rule a change recorded now is judged by, and its count."""
+        with self._lock:
+            return self._rules
+
+    def invalidate(self, source: FrameValiditySource, *, began_ns: int | None) -> Change:
+        """Record that hardware state changed and frames need to settle.
+
+        Args:
+            source: What changed.
+            began_ns: The scope's steady clock (``host_clock.steady_ns``) when
+                the write that made the change began, the change's
+                ``earliest_ns``; None for a change recorded before it is made
+                (a move), whose earliest is its record.
+
+        Returns:
+            Change: The change as recorded, now the source's last change.
+
+        Raises:
+            ValueError: ``source`` has no rule. A source that settled on a
+                silent default had a count nobody chose.
+        """
+        with self._lock:
+            # The rule is read with the ordinal, so a change recorded while
+            # held rules are handed back is never given one's count and the
+            # other's rule.
+            rule = self._rules.get(source)
+            if rule is None:
+                raise ValueError(f'frame validity has no rule for source {source!r}')
+            skip = rule.count
+            # Read INSIDE the lock: two threads invalidating the same source
+            # can otherwise store the earlier ordinal for the later write,
+            # which is this whole class of bug reintroduced by a race.
+            written_ns = host_clock.steady_ns()
+            entry = Change(
+                source=source,
+                at_seq=self._frames_delivered(),
+                written_ns=written_ns,
+                earliest_ns=written_ns if began_ns is None else began_ns,
+                skip=skip,
+                rule=rule,
+                credits=(),
+                needs_in_force=source in self.MOTION_SOURCES and self._settle_check_fn is not None,
+                in_force_ns=None,
+            )
+            self._changes[source] = entry
+            self._pending.add(source)
+            self._invalidation_counts[source] = self._invalidation_counts.get(source, 0) + 1
+            # Snapshot for the trace while the lock is still held. Reading any
+            # of this back afterwards lets another thread's invalidate supply
+            # it, and the row then describes a state no write produced.
+            at_seq = entry.at_seq
+            pending_count = len(self._pending)
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            self._trace_rows([('invalidate', source, '', at_seq, skip, pending_count)])
+        return entry
+
+    def count_frame(self, frame_seq: int, *, by: Counter) -> None:
+        """Record that a frame was grabbed from the camera.
+
+        Call this after every successful camera grab (grab() or grab_new_capture()).
+        A frame credits only the sources whose write it POSTDATES, and only
+        when it is newer than every frame already counted toward that
+        source; a source clears once its skip count has been met that way. A
+        motion source's count starts at its stop, so it clears only when the
+        settle check passes and frames after the stop met the count.
+
+        Args:
+            frame_seq: The frame's arrival ordinal, from the grab that
+                produced it. Required: it is both the frame's identity and
+                the evidence that the frame is newer than a given write.
+                Multiple consumers poll the same buffered frame concurrently
+                (live preview, histogram, capture drains); without identity
+                dedupe those polls retire the skip counts with zero new
+                frames, and a capture can then accept a frame exposed under
+                the previous gain/exposure/LED state.
+            by: Who counted it, recorded on each change it credits.
+        """
+        tracing = profile_trace.ENABLE_PROFILE_TRACE
+        rows = []
+        with self._lock:
+            if frame_seq == self._last_counted_seq:
+                # Only while something is pending: the dedupe check runs before
+                # the pending loop, so it has no idle bound of its own and a
+                # poller would otherwise fill the file forever. While a source
+                # IS pending this row is the load-bearing one -- a camera whose
+                # ordinal never advances produces nothing but these, and without
+                # them the file is empty and reads as "no frames arrived".
+                if tracing and self._pending:
+                    rows.append(('dedupe', '', frame_seq, '', '', len(self._pending)))
+            else:
+                self._last_counted_seq = frame_seq
+                self._frame_counter += 1
+                settled = []
+                events = []
+                for source in self._pending:
+                    pending = self._changes[source]
+                    # What a source publishes is frames STILL NEEDED -- a count
+                    # that stops at zero rather than running down one per frame
+                    # into nonsense. A frame no newer than the last one credited
+                    # is one the wait already holds, or older: the preview can
+                    # count a frame it grabbed before the drain's newer one,
+                    # after it, and the dedupe above sees only the last count.
+                    # A move's frame count starts at its stop (motion_settled):
+                    # a frame before it was exposed while the axis could move.
+                    credited = (
+                        frame_seq > pending.at_seq
+                        and not (pending.needs_in_force and pending.in_force_ns is None)
+                        and pending.remaining > 0
+                        and (not pending.credits or frame_seq > pending.credits[-1].seq)
+                    )
+                    if credited:
+                        pending = dataclasses.replace(
+                            pending, credits=(*pending.credits, Credit(frame_seq, by))
+                        )
+                        self._changes[source] = pending
+                    if self._is_source_settled_unlocked(source, pending):
+                        settled.append(source)
+                        events.append(('settled', source, pending.at_seq, pending.remaining))
+                    else:
+                        events.append(
+                            (
+                                'credit' if credited else 'nocredit',
+                                source,
+                                pending.at_seq,
+                                pending.remaining,
+                            )
+                        )
+                for s in settled:
+                    self._pending.discard(s)
+                pending_count = len(self._pending)
+                # One row per source, never a joined one: the bench pass
+                # criterion pairs each settled row with its own invalidate row
+                # by source, which a row naming two sources cannot support.
+                if tracing:
+                    rows = [
+                        (event, source, frame_seq, at_seq, remaining, pending_count)
+                        for event, source, at_seq, remaining in events
+                    ]
+        if rows:
+            self._trace_rows(rows)
+
+    def _trace_rows(self, rows) -> None:
+        """Write already-built trace rows. Call with the lock RELEASED.
+
+        Every row this class emits is built through here, so the field count
+        cannot drift between sites: an arity mismatch raises out of the writer
+        rather than being logged, which would surface on whichever thread
+        happened to be counting a frame.
+
+        Args:
+            rows: sequence of
+                ``(event, source, frame_seq, at_seq, remaining, pending_count)``
+                tuples, each already snapshotted under the lock.
+        """
+        ts_ms = int(time.time() * 1000)
+        for row in rows:
+            profile_trace.trace(
+                self._TRACE_FILE,
+                self._TRACE_HEADER,
+                [ts_ms, *row],
+                recording_id=profile_trace.NO_RECORDING,
+            )
+
+    def _is_source_settled_unlocked(self, source: FrameValiditySource, pending: Change) -> bool:
+        """Check if a source has settled. Must be called with _lock held."""
+        if pending.remaining > 0:
+            return False
+        # Motion sources also require physical completion
+        if source in self.MOTION_SOURCES and self._settle_check_fn is not None:
+            return self._settle_check_fn(source)
+        return True
+
+    def set_target(self, source: FrameValiditySource, value: float | None) -> None:
+        """Record the requested value for a chunk-validatable source.
+
+        The API layer (Lumascope.set_gain_db / set_exposure_ms) calls this
+        after invalidate() so the capture path can compare a returned
+        frame's chunk against what was asked for and REJECT a frame whose
+        chunk disagrees. The target never clears a source: settling is by
+        frame count alone.
+
+        Args:
+            source: What the target is for (``GAIN``, ``EXPOSURE``). Sources outside
+                CHUNK_VALIDATABLE_SOURCES are accepted but never consulted.
+            value: Target value to compare chunks against. None clears any
+                prior target.
+        """
+        with self._lock:
+            if value is None:
+                self._target_values.pop(source, None)
+            else:
+                self._target_values[source] = float(value)
+
+    def target(self, source: FrameValiditySource) -> float | None:
+        """Return the recorded target value for a source, or None if unset.
+
+        Capture paths use this to decide whether a returned frame can be
+        chunk-verified: a set target plus a present chunk key means the
+        frame must match; no target (e.g. hardware auto-gain owns the
+        value) means chunk verification does not apply.
+
+        Args:
+            source: What the target is for (``GAIN``, ``EXPOSURE``).
+        """
+        with self._lock:
+            return self._target_values.get(source)
+
+    def chunk_match(
+        self, source: FrameValiditySource, chunk_value: float | None, tolerance: float | None = None
+    ) -> bool:
+        """Public float-tolerant equality between a chunk value and the recorded target.
+
+        Used by the capture path's stale-frame rejection, and by tests.
+
+        Args:
+            source: What the target is for.
+            chunk_value: Observed value from chunk metadata. May be None.
+            tolerance: Optional tolerance override; defaults to DEFAULT_CHUNK_TOLERANCE.
+        """
+        if chunk_value is None:
+            return False
+        with self._lock:
+            target = self._target_values.get(source)
+        if target is None:
+            return False
+        if tolerance is None:
+            tolerance = self.DEFAULT_CHUNK_TOLERANCE.get(source, 0.0)
+        return abs(float(chunk_value) - target) <= tolerance
+
+    def owed(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> Owed:
+        """What a capture waits on: what remains of each pending change's count.
+
+        A move is also owed a frame whenever its axis reads moving, its count
+        met or not: a command holding several moves open reads every axis
+        moving (``motion.one_command``), so no frame from between its moves
+        counts, whether the capture was asked before its first move or
+        during it.
+
+        Args:
+            exclude_sources: Sources a frame may predate: their changes are
+                not owed.
+        """
+        with self._lock:
+            frames = 0
+            moving_sources = set()
+            for source, change in self._changes.items():
+                if source in exclude_sources:
+                    continue
+                if (
+                    source in self.MOTION_SOURCES
+                    and self._settle_check_fn is not None
+                    and not self._settle_check_fn(source)
+                ):
+                    moving_sources.add(source)
+                    frames = max(frames, 1)
+                if source in self._pending:
+                    frames = max(frames, change.remaining)
+            return Owed(frames=frames, moving=frozenset(moving_sources))
+
+    @property
+    def frame_counter(self) -> int:
+        """Current frame counter value (for debugging)."""
+        with self._lock:
+            return self._frame_counter
+
+    @property
+    def invalidation_counts(self) -> dict[FrameValiditySource, int]:
+        """Per-source count of every invalidate() call, monotone for the
+        instance's lifetime.
+
+        Snapshot before a grab and compare (!=) after it to detect a
+        mid-window invalidation regardless of whether frames have since
+        settled it. Compare full dicts, not shared keys only: a source's
+        first-ever invalidation adds a key the snapshot lacks.
+        """
+        with self._lock:
+            return dict(self._invalidation_counts)
+
+    def changes(self) -> dict[FrameValiditySource, Change]:
+        """Each source's last recorded change, settled or not, by source."""
+        with self._lock:
+            return dict(self._changes)
+
+    @staticmethod
+    def judge(frame: Frame, change: Change) -> Judgment:
+        """Whether ``frame`` counts for ``change``: the one place that decides it.
+
+        A function of facts the frame and the change carry, so a capture,
+        the characterization tool and a test ask the same question of any
+        frame and get the gate's own answer: the frame counts when it
+        arrived after the change was recorded, the change's count was met by
+        frames that arrived before it, and, for a change that waits on an
+        axis, the axis had settled before it arrived.
+
+        Args:
+            frame: The camera's frame record; its ``seq`` and ``arrived_ns``
+                are read.
+            change: The change to judge it against (``changes()``, or what
+                ``invalidate`` returned).
+        """
+        in_force = change.in_force_ns
+        counted_before = sum(1 for credit in change.credits if credit.seq < frame.seq)
+        counts = (
+            frame.seq > change.at_seq
+            and counted_before >= change.skip
+            and (
+                not change.needs_in_force or (in_force is not None and in_force <= frame.arrived_ns)
+            )
+        )
+        return Judgment(
+            change=change,
+            frame_seq=frame.seq,
+            frames_after=frame.seq - change.at_seq,
+            after_write_ms=(frame.arrived_ns - change.written_ns) / 1e6,
+            after_in_force_ms=(frame.arrived_ns - in_force) / 1e6 if in_force is not None else None,
+            counts=counts,
+        )
+
+    def judgments(self, frame: Frame) -> tuple[Judgment, ...]:
+        """``frame`` judged against every source's last change, by source name."""
+        changes = self.changes()
+        return tuple(self.judge(frame, changes[source]) for source in sorted(changes))
+
+    def motion_settled(
+        self, source: FrameValiditySource, at_ns: int, *, moving_seen_ns: int | None
+    ) -> None:
+        """Stamp ``at_ns`` as the in-force time of ``source``'s change, if the settle check now passes.
+
+        The motion API calls this after every write of an axis state the
+        settle check reads, naming the source that axis belongs to, with the
+        time it took in that write's hold, once that hold is released: the
+        settle check takes the axis-state lock inside this class's, so
+        calling in from under the axis-state lock would take the two in the
+        opposite order. A change keeps the latest stamp it is given, since a
+        change waiting on two axes (X and Y) is in force only once the later
+        of them settles, and each axis's stamp can land after the other's
+        write; a stamp older than the change is not its own.
+
+        The axis stopped somewhere between ``moving_seen_ns`` and ``at_ns``,
+        so the change's ``earliest_ns`` moves up to ``moving_seen_ns`` with
+        the stamp that sets its in-force time.
+
+        The stamp places the change in the frame stream, as ``invalidate``
+        places a write: its ``at_seq`` becomes the frames the camera has
+        delivered now, its credits are cleared, and the source is pending
+        again, so its frame count is met only by frames that arrived after
+        the stop. A frame that arrived during the move was exposed while the
+        axis could still move. A later stamp, from a later write of the axis
+        settled, starts the count again from there.
+
+        Args:
+            source: The motion source of the axis whose state was written.
+            at_ns: The scope's steady clock (``host_clock.steady_ns``) taken
+                where it was written.
+            moving_seen_ns: The scope's steady clock (``host_clock.steady_ns``)
+                at the start of the last read that saw the axis still moving;
+                None when no read did, so the stop could be as early as the
+                change's record.
+        """
+        with self._lock:
+            change = self._changes.get(source)
+            if (
+                change is None
+                or not change.needs_in_force
+                or at_ns < change.written_ns
+                or (change.in_force_ns is not None and change.in_force_ns >= at_ns)
+                or not self._settle_check_fn(source)
+            ):
+                return
+            # Of two axes (X and Y) the later to stop sets it, as it sets
+            # the in-force time.
+            earliest_ns = change.earliest_ns
+            if moving_seen_ns is not None:
+                earliest_ns = max(earliest_ns, moving_seen_ns)
+            change = dataclasses.replace(
+                change,
+                at_seq=self._frames_delivered(),
+                credits=(),
+                in_force_ns=at_ns,
+                earliest_ns=earliest_ns,
+            )
+            self._changes[source] = change
+            self._pending.add(source)
+            at_seq = change.at_seq
+            pending_count = len(self._pending)
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            self._trace_rows([('in_force', source, '', at_seq, change.skip, pending_count)])
+
+    @classmethod
+    def check_timing_record(cls, record: dict) -> None:
+        """Refuse a camera timing record this gate cannot take as measured.
+
+        A record (``data/camera_timing/<model>.json``) states, in its
+        ``validity`` group, how late each change reaches a frame: per source
+        and direction, a list of measured entries, each the frames delivered
+        after the change's arrival position before the first that shows it
+        (``delivered_frames``) as ``{'p50', 'p95', 'max'}`` over its
+        ``trials``, its ``max`` a whole number of frames, with the
+        ``provenance`` of the run that measured it, naming the microscope
+        model it was measured on (``TIMING_MICROSCOPE``), since a count is
+        the camera's on one microscope. A value with no run behind it is not
+        a measurement.
+
+        Raises:
+            ValueError: the record is not ``TIMING_RECORD_SCHEMA``, names a
+                source this gate has no change for, holds a direction that
+                is not a list of entries, or an entry that holds a delay
+                (``apply_delay_us``) or lacks its count, its trials or its
+                provenance.
+        """
+        if record.get('schema') != TIMING_RECORD_SCHEMA:
+            raise ValueError(
+                f'schema {record.get("schema")!r}, not {TIMING_RECORD_SCHEMA}: '
+                'a record this release cannot read'
+            )
+        validity = record.get('validity')
+        if not isinstance(validity, dict):
+            raise ValueError('no validity group')
+        for source, directions in validity.items():
+            if source not in cls.SKIP_FRAMES:
+                raise ValueError(f'validity names {source!r}, a source with no change')
+            if not isinstance(directions, dict):
+                raise ValueError(f'validity.{source} is not a group of directions')
+            for direction, entries in directions.items():
+                if not (isinstance(entries, list) and entries):
+                    raise ValueError(
+                        f'validity.{source}.{direction} is not a list of measured entries'
+                    )
+                for index, value in enumerate(entries):
+                    cls._check_timing_entry(f'validity.{source}.{direction}[{index}]', value)
+
+    @staticmethod
+    def _check_timing_entry(where: str, value) -> None:
+        """Refuse one measured entry of a timing record (``check_timing_record``)."""
+        if not isinstance(value, dict):
+            raise ValueError(f'{where} is not a measured value')
+        if 'apply_delay_us' in value:
+            raise ValueError(
+                f'{where} holds apply_delay_us, a delay: frames are counted, never timed'
+            )
+        measures = [m for m in TIMING_MEASURES if m in value]
+        if len(measures) != 1:
+            raise ValueError(
+                f'{where} holds {measures or "no measure"}, not one of {TIMING_MEASURES}'
+            )
+        measured = value[measures[0]]
+        if not (
+            isinstance(measured, dict)
+            and set(measured) == {'p50', 'p95', 'max'}
+            and all(_is_amount(v) for v in measured.values())
+        ):
+            raise ValueError(f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more')
+        elif not float(measured['max']).is_integer():
+            raise ValueError(
+                f'{where}.delivered_frames.max is {measured["max"]!r}, not a whole number of frames'
+            )
+        trials = value.get('trials')
+        if not (isinstance(trials, int) and not isinstance(trials, bool) and trials > 0):
+            raise ValueError(f'{where} states no trials')
+        provenance = value.get('provenance')
+        if not isinstance(provenance, dict):
+            raise ValueError(f'{where} has no provenance')
+        needed = TIMING_PROVENANCE
+        if measures[0] == 'delivered_frames':
+            needed = (*needed, TIMING_MICROSCOPE)
+        missing = [k for k in needed if not provenance.get(k)]
+        if missing:
+            raise ValueError(f'{where} has no provenance for {missing}')

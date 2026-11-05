@@ -24,8 +24,8 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_utils
-from modules.layer_record import GREY, release_catalogue, release_color
+from _lumascope.modules import image_utils
+from _lumascope.modules.layer_record import GREY, release_catalogue, release_color
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -436,7 +436,7 @@ class TestTiff16BitFalseColorOn:
         """Mock app_context so write_tiff resolves the false-color RGB mode."""
         mock_ctx = mock.MagicMock()
         mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
-        return mock.patch('modules.app_context.ctx', mock_ctx)
+        return mock.patch('_lumascope.modules.app_context.ctx', mock_ctx)
 
     @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
@@ -1380,8 +1380,8 @@ def _a_full_still(
     """A BF still with every field of its record set, lit by BF's LED, on
     ``labware`` in ``well_label``, judged as ``judgments`` say: the record the
     save built, and the file it wrote."""
-    from modules import image_save
-    from modules.layer_record import release_colors
+    from _lumascope.modules import image_save
+    from _lumascope.modules.layer_record import release_colors
     from tests.frame_records import frame_record, plate
     from tests.scope_fakes import bind_settings_like_a_session
 
@@ -2031,29 +2031,21 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
     ]
 
 
-def _a_judgment_by_each_rule():
-    """A gain change judged by the credit rule, and a settled Z move by the
-    clock rule: between them every field a judgment can state."""
-    from modules.frame_validity import FrameValidity
-    from tests.test_a_capture_records_whether_its_frame_counts import (
-        _clocked,
-        _frame,
-        _mapping_at,
-    )
+def _a_judgment_of_a_change_and_a_move():
+    """A gain change, and a settled Z move: between them every field a
+    judgment can state (a move's in-force time the gain change has none of)."""
+    from _lumascope.modules.frame_validity import FrameValidity
+    from tests.test_a_capture_records_whether_its_frame_counts import _frame
 
-    credit = FrameValidity(lambda: 0)
-    gain = credit.invalidate('gain', began_ns=None)
-    clock = _clocked('z_move', delay_us=0.0, settle_check=lambda source: True)
-    move = clock.invalidate('z_move', began_ns=None)
-    clock.motion_settled('z_move', at_ns=move.written_ns + 1_000_000, moving_seen_ns=None)
-    move = clock.changes()['z_move']
+    fv = FrameValidity(lambda: 0)
+    fv.set_settle_check(lambda source: True)
+    gain = fv.invalidate('gain', began_ns=None)
+    move = fv.invalidate('z_move', began_ns=None)
+    fv.motion_settled('z_move', at_ns=move.written_ns + 1_000_000, moving_seen_ns=None)
+    move = fv.changes()['z_move']
     return (
-        credit.judge(_frame(3), gain, None),
-        clock.judge(
-            _frame(2, arrived_ns=move.in_force_ns + 4_000_000, started_ticks=10**12),
-            move,
-            _mapping_at(move.written_ns),
-        ),
+        fv.judge(_frame(3), gain),
+        fv.judge(_frame(2, arrived_ns=move.in_force_ns + 4_000_000), move),
     )
 
 
@@ -2073,7 +2065,7 @@ def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
         significant_bits=8,
         dtype=np.uint8,
         output_format='TIFF',
-        judgments=_a_judgment_by_each_rule(),
+        judgments=_a_judgment_of_a_change_and_a_move(),
     )
 
     unmeasured = {'objective': {'focus_peak_fwhm_dense_um'}}

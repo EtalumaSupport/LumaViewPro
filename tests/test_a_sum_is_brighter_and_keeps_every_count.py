@@ -29,16 +29,16 @@ import pandas as pd
 import pytest
 import tifffile as tf
 
-from modules import image_mode, image_utils, zprojection
-from modules.exceptions import FrameDepthError
-from modules.scope_session import ScopeSession
-from modules.stack_builder import StackBuilder
-from modules.zprojector import ZProjector
+from _lumascope.modules import image_mode, image_utils, zprojection
+from _lumascope.modules.exceptions import FrameDepthError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.stack_builder import StackBuilder
+from _lumascope.modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
-from modules.layer_record import release_color
-from modules.layer_record import release_colors
-from modules.zproject_method import ZProjectMethod
+from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1, LED2
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
@@ -458,7 +458,7 @@ def test_fiji_opens_a_file_at_the_white_lvp_shows_it_against(tmp_path):
 def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
     import av
 
-    from modules.video_builder import VideoBuilder
+    from _lumascope.modules.video_builder import VideoBuilder
 
     # Four frames of 1024 each: one frame's white, about a quarter of the sum's tag.
     rows = []
@@ -486,7 +486,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
 def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
     """A 4-sum LED1 beside an unsummed LED2, each at one frame's white: both
     render full, where one shared depth showed the unsummed channel dark."""
-    from modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.composite_generation import CompositeGeneration
 
     _write(
         tmp_path / 'green.tiff',
@@ -522,7 +522,7 @@ def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
 
 
 def test_a_stitch_keeps_its_tiles_white(tmp_path):
-    from modules.stitching_core import simple_position_stitcher
+    from _lumascope.modules.stitching_core import simple_position_stitcher
 
     rows = []
     for i, x in enumerate((0.0, 1.0)):
@@ -550,7 +550,7 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
     one frame's white, so the JPG is white, not 255 of the sum's 1023."""
     import cv2
 
-    from modules import image_save
+    from _lumascope.modules import image_save
     from tests.frame_records import frame_record, plate
     from tests.test_jpg_export import _scope_with_depth
 
@@ -586,7 +586,7 @@ def test_a_single_frames_depth_is_its_own_stamp(sim_camera):
 
 
 def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path, post_processing):
-    from modules import stack_builder
+    from _lumascope.modules import stack_builder
 
     asked = {}
 

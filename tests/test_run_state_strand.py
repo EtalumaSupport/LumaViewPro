@@ -21,12 +21,12 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 
-from modules import live_work
-from modules.caller import Caller, calling
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules import live_work
+from _lumascope.modules.caller import Caller, calling
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
-from modules.run_events import RunEvents
+from _lumascope.modules.run_events import RunEvents
 from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
@@ -56,7 +56,7 @@ def _make_single_step_protocol():
 
     import pandas as pd
 
-    from modules.protocol import Protocol
+    from _lumascope.modules.protocol import Protocol
 
     step = {
         'Name': 'A1_test',
@@ -102,7 +102,7 @@ def _make_single_step_protocol():
 
 class TestClaimRefusalLeavesNoState:
     def test_recording_held_claim_refusal_strands_nothing(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         session = ScopeSession.create(
             complete_settings(**_make_session_settings(tmp_path)), simulate=True
@@ -196,7 +196,7 @@ class TestTheHolderIsTheLiveRun:
     whether anything holds it: the session's activity claim."""
 
     def test_the_claim_names_the_run_while_it_holds_the_scope(self, tmp_path):
-        from modules.scope_session import ScopeSession
+        from _lumascope.modules.scope_session import ScopeSession
 
         session = ScopeSession.create(
             complete_settings(**_make_session_settings(tmp_path)), simulate=True

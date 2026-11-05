@@ -15,11 +15,11 @@ import datetime
 import numpy as np
 import pytest
 
-from modules.lumascope_api.frame_record import SettingSource
-from modules.protocol_image_writer import _capture_evidence
+from _lumascope.modules.lumascope_api.frame_record import SettingSource
+from _lumascope.modules.protocol_image_writer import _capture_evidence
 from tests.frame_records import frame_record
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 
 @pytest.fixture

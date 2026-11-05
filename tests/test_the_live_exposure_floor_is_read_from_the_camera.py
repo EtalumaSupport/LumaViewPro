@@ -12,8 +12,8 @@ floor. It replaced ``get_camera_profile_info``'s ``exposure_min_ms``.
 
 import pytest
 
-from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import HardwareCommandRefusedError, MissingPart
+from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 
 
 def test_a_connected_camera_answers_its_floor(sim_scope):

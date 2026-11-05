@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The WinUSB control-transfer failure contract -- WINDOWS ONLY.
 
-`drivers/winusb_iso.py` loads its DLLs with ``ctypes.WinDLL`` at module scope, so
+`src/_lumascope/drivers/winusb_iso.py` loads its DLLs with ``ctypes.WinDLL`` at module scope, so
 it cannot be imported on macOS or Linux at all. This whole module is skipped
 there, which means the defect these tests cover is NOT guarded by any CI run
 on a dev machine -- only by running this file on a Windows box.
@@ -38,7 +38,7 @@ def _device():
     file handle and calls WinUsb_Initialize. Only the interface handle the
     transfer passes through is needed.
     """
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     dev = object.__new__(winusb_iso.WinUsbDevice)
     dev._iface_handle = ctypes.c_void_p(1)
@@ -58,7 +58,7 @@ def _fake_winusb(ok, wrote=0):
 
 
 def test_a_failed_out_transfer_raises_and_names_the_error_code():
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
@@ -71,7 +71,7 @@ def test_a_failed_out_transfer_raises_and_names_the_error_code():
 def test_a_failed_in_transfer_raises_instead_of_returning_empty_bytes():
     """Pre-fix this returned b'', which a caller cannot tell from a real
     zero-length read."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
@@ -84,7 +84,7 @@ def test_a_failed_in_transfer_raises_instead_of_returning_empty_bytes():
 def test_a_successful_out_transfer_returns_the_byte_count():
     """The half that re-arms the short-write detector: pre-fix this returned
     None, and `_led_write` skips its check when the count is None."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with patch.object(winusb_iso, 'winusb', _fake_winusb(ok=1, wrote=1)):
         result = _device().control_transfer(0x40, 0xB3, 0, 0x42, data=b'\x01')
@@ -95,7 +95,7 @@ def test_a_successful_out_transfer_returns_the_byte_count():
 def test_a_short_out_transfer_reports_the_short_count_not_the_requested_one():
     """A transfer that succeeds but writes fewer bytes than asked must report
     what actually went out -- that difference is the whole signal."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with patch.object(winusb_iso, 'winusb', _fake_winusb(ok=1, wrote=0)):
         result = _device().control_transfer(0x40, 0xB3, 0, 0x42, data=b'\x01')
@@ -104,7 +104,7 @@ def test_a_short_out_transfer_reports_the_short_count_not_the_requested_one():
 
 
 def test_a_successful_in_transfer_returns_the_buffer_slice():
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with patch.object(winusb_iso, 'winusb', _fake_winusb(ok=1, wrote=2)):
         result = _device().control_transfer(0xC0, 0xB2, 0, 0x42, length=2)
@@ -117,7 +117,7 @@ def test_a_successful_in_transfer_returns_the_buffer_slice():
 def test_a_timed_out_transfer_raises_a_timeout_naming_the_code(request_type, kwargs):
     """ERROR_SEM_TIMEOUT is the device not answering, which the FX2 driver
     tells from every other failure by the type."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
@@ -131,7 +131,7 @@ def test_a_reader_whose_pipe_query_fails_closes_the_device_it_opened():
     """The reader is held by no one until its start returns, so a start that
     raised after opening the device left the WinUSB handle open with nothing
     to close it, and the next start could not open the device."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     closed = []
 
@@ -185,7 +185,7 @@ def test_a_reader_whose_buffer_registration_fails_fails_its_start():
     stream was reported started: the camera then saw only silence. Built
     in the start, the refusal is the start's, and what was opened is
     released."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     closed_devices, registered, closed_events = [], [], []
 
@@ -221,7 +221,7 @@ def test_a_reader_whose_buffer_registration_fails_fails_its_start():
 
 def test_a_slot_whose_event_cannot_be_made_is_refused():
     """A NULL event makes every overlapped read look complete at once."""
-    from drivers import winusb_iso
+    from _lumascope.drivers import winusb_iso
 
     class Kernel32:
         def CreateEventW(self, *args):

@@ -115,7 +115,7 @@ class TestTheShownLayerSyncsItsAutoGainCheckbox:
     """
 
     def test_showing_a_layer_syncs_checkbox_active(self, monkeypatch):
-        import modules.app_context as _app_ctx
+        import _lumascope.modules.app_context as _app_ctx
         import ui.image_settings as image_settings
         import ui.layer_control as layer_control
 

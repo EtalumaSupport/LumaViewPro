@@ -20,9 +20,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api.imaging import ImagingAPI
-from modules.notification_center import Severity
+from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.notification_center import Severity
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move, axis_move_by
 from tests.stock_channels import LED0
@@ -285,7 +285,7 @@ class TestSaturationGuard:
     def test_a_depth_no_frame_has_is_refused_not_measured(self):
         # A negative depth raised a bare ValueError from the shift, and 0
         # made full scale 0, so every pixel read as saturated.
-        from modules.exceptions import ArgumentRefusedError
+        from _lumascope.modules.exceptions import ArgumentRefusedError
 
         frame = np.zeros((2, 2), dtype=np.uint8)
         refused = []

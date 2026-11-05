@@ -21,9 +21,9 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.exceptions import PluginFailedError, PluginNotLoadedError
-from modules.notification_center import Severity
-from modules.plugins import PluginSpec, ProcessorResult
+from _lumascope.modules.exceptions import PluginFailedError, PluginNotLoadedError
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.plugins import PluginSpec, ProcessorResult
 from tests.ast_seams import REPO_ROOT, find_def
 from tests.plugin_test_harness import harness_ctx  # noqa: F401 -- pytest fixture
 
@@ -207,8 +207,10 @@ def test_a_ui_crash_or_a_failed_mount_is_reported(harness_ctx, centre_posts, out
     harness_ctx.plugins.record_runtime_error('crashy', hook, boom)
 
     _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'crashy', cause=boom)
-    errors = harness_ctx.plugins.post_processing.health().last_runtime_errors
-    assert [(e.plugin_name, e.hook, e.exc_type) for e in errors] == [('crashy', hook, 'ValueError')]
+    failures = harness_ctx.plugins.post_processing.health().last_runtime_failures
+    assert [(f.plugin_name, f.hook, f.exc_type) for f in failures] == [
+        ('crashy', hook, 'ValueError')
+    ]
 
 
 def test_a_plugin_in_no_namespace_is_still_reported(harness_ctx, centre_posts, outcome_records):

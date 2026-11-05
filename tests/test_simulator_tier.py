@@ -19,20 +19,20 @@ import time
 import pytest
 import serial
 
-from drivers.fx2driver import FX2LEDController
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverNotLiveError
-from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
-from drivers.tmcm6110 import Tmcm6110Board
-from drivers.simulated_ledboard import SimulatedLEDBoard
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import ScopeModelUnknownError, SettingRefusedError
-from modules.layer_record import load_scope_models, model_axes
-from modules.lumascope_api import Lumascope
-from modules.lumascope_api.illumination import LedState
-from modules.scope_session import ScopeSession
+from _lumascope.drivers.fx2driver import FX2LEDController
+from _lumascope.drivers.ledboard import LEDBoard
+from _lumascope.drivers.motorboard import MotorBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.drivers.registry import DriverNotLiveError
+from _lumascope.drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
+from _lumascope.drivers.tmcm6110 import Tmcm6110Board
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
+from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.modules.exceptions import ScopeModelUnknownError, SettingRefusedError
+from _lumascope.modules.layer_record import load_scope_models, model_axes
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope, led_reading
 
@@ -182,7 +182,7 @@ class TestTheSessionReadsTheTier:
         # developer who never ran the build script must still get a scope.
         import platform
 
-        import drivers.sim_wire.backend as backend
+        import _lumascope.drivers.sim_wire.backend as backend
 
         monkeypatch.setattr(sys, 'platform', 'linux')
         monkeypatch.setattr(platform, 'machine', lambda: 'x86_64')

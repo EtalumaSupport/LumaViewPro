@@ -10,16 +10,16 @@ a reintroduction anywhere is caught at test time, not by a field crash.
 
 from __future__ import annotations
 
-from tests.ast_seams import REPO_ROOT, Packages
+from tests.ast_seams import REPO_ROOT, Packages, tracked_files
 
 
-_DIRS = Packages({'ui', 'modules', 'drivers'})
+_DIRS = Packages({'ui', 'src/_lumascope/modules', 'src/_lumascope/drivers'})
 
 
 def test_no_tostring_calls_in_production_source():
     offenders = []
     for d in _DIRS:
-        for path in (REPO_ROOT / d).rglob('*.py'):
+        for path in [REPO_ROOT / rel for rel in tracked_files((d,))]:
             text = path.read_text(encoding='utf-8', errors='ignore')
             for i, line in enumerate(text.splitlines(), 1):
                 if '.tostring(' in line:

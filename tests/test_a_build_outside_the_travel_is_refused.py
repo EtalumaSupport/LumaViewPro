@@ -21,10 +21,10 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from modules.coord_transformations import AxisLimits, CoordinateTransformer, StageOffset
-from modules.exceptions import ProtocolRunRefusedError
-from modules.labware_loader import WellPlateLoader
-from modules.objectives_loader import ObjectiveLoader
+from _lumascope.modules.coord_transformations import AxisLimits, CoordinateTransformer, StageOffset
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.ast_seams import find_def
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
@@ -50,7 +50,7 @@ def _tile(proto, capabilities, axis_limits):
 def _refused(proto, build):
     before = proto.steps().copy()
     with (
-        patch('modules.protocol.notifications.report_outcome') as report,
+        patch('_lumascope.modules.protocol.notifications.report_outcome') as report,
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         build()

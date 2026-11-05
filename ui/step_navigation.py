@@ -11,9 +11,9 @@ module directly.
 
 import logging
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from _lumascope.modules.ui_queue import schedule_ui as _schedule_ui
 
-import modules.app_context as _app_ctx
+import _lumascope.modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.step_navigation')
 

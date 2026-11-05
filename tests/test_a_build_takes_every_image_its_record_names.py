@@ -20,8 +20,8 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import PostProcessingFailedError, PostProcessingOperation
-from modules.protocol_post_record import ProtocolPostRecord
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingOperation
+from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- fixtures
     run_folder,
     session,

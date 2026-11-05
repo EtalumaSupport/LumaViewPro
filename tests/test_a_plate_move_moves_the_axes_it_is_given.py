@@ -11,8 +11,8 @@ microns only, so a position's unit never depends on another argument.
 
 import pytest
 
-from modules.coord_transformations import PlateLocation
-from modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.exceptions import ArgumentRefusedError
 
 
 @pytest.fixture(scope='module')

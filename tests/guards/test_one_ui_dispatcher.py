@@ -1,12 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The process has one UI dispatcher, held by kivy_utils, with one door.
+"""The process has one UI dispatcher, held by ui_queue, with one door.
 
-Each lane, the listener bridge and kivy_utils once held a dispatcher of
+Each lane, the listener bridge and ui_queue once held a dispatcher of
 their own, each given by a different caller. A session built over a caller's
 scope gave its file, post-processing, worker-pool and diagnostics lanes none
 at all, so on the GUI host their callbacks ran on the worker while the
 scope's lanes delivered on the UI thread. One process has one UI thread, so
-one store: ``kivy_utils``' ``_ui_dispatcher``, written only through
+one store: ``ui_queue``' ``_ui_dispatcher``, written only through
 ``ScopeSession.set_ui_dispatcher``. This walk, over production and tests
 alike, refuses a second holder and a second writer.
 """
@@ -18,8 +18,8 @@ import re
 
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
-_STORE_MODULE = 'modules/kivy_utils.py'
-_DOOR_MODULE = 'modules/scope_session.py'
+_STORE_MODULE = 'src/_lumascope/modules/ui_queue.py'
+_DOOR_MODULE = 'src/_lumascope/modules/scope_session.py'
 _DOOR_DEF = 'ScopeSession.set_ui_dispatcher'
 _WRITER = '_set_ui_dispatcher'
 # The door's own name is how every caller reaches the store; the writer's
@@ -31,7 +31,7 @@ _HOLDER = re.compile(r'(?<![a-z])ui_dispatch')
 
 def _every_module():
     yield from production_modules()
-    yield from iter_package_modules(('drivers', 'tools', 'tests'))
+    yield from iter_package_modules(('src/_lumascope/drivers', 'tools', 'tests'))
 
 
 def _names(node: ast.AST) -> list[str]:
@@ -49,7 +49,7 @@ def _names(node: ast.AST) -> list[str]:
     return []
 
 
-def test_no_module_but_kivy_utils_holds_a_dispatcher():
+def test_no_module_but_ui_queue_holds_a_dispatcher():
     found = []
     for rel_path, tree in _every_module():
         if rel_path == _STORE_MODULE:
@@ -59,8 +59,8 @@ def test_no_module_but_kivy_utils_holds_a_dispatcher():
                 if _HOLDER.search(name) and name not in _ALLOWED:
                     found.append(f'{rel_path}:{getattr(node, "lineno", "?")} {name}')
     assert found == [], (
-        'a UI dispatcher is held or passed outside kivy_utils; the process has one, '
-        'set through ScopeSession.set_ui_dispatcher and read by kivy_utils.schedule_ui:\n'
+        'a UI dispatcher is held or passed outside ui_queue; the process has one, '
+        'set through ScopeSession.set_ui_dispatcher and read by ui_queue.schedule_ui:\n'
         + '\n'.join(found)
     )
 
@@ -80,6 +80,6 @@ def test_only_the_session_door_writes_the_store():
             if id(inner) not in inside and _WRITER in _names(inner):
                 found.append(f'{rel_path}:{getattr(inner, "lineno", "?")} <module>')
     assert found == [], (
-        f'kivy_utils.{_WRITER} is reached outside {_DOOR_DEF}; set the dispatcher '
+        f'ui_queue.{_WRITER} is reached outside {_DOOR_DEF}; set the dispatcher '
         'through the door:\n' + '\n'.join(found)
     )

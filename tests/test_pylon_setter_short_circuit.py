@@ -15,7 +15,7 @@ import threading
 import unittest
 from unittest.mock import MagicMock
 
-from drivers.pyloncamera import PylonCamera
+from _lumascope.drivers.pyloncamera import PylonCamera
 
 
 def _mock_camera():

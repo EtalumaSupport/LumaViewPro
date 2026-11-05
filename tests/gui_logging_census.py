@@ -36,7 +36,7 @@ import ast
 import re
 from collections import defaultdict
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 # Kivy events only a person raises. Excludes lifecycle hooks (on_open,
 # on_dismiss) and layout callbacks (on_size), which fire without anyone
@@ -134,7 +134,7 @@ def _python_paths():
     """Every module where GUI code lives: the one list the census reads."""
     paths = [REPO_ROOT / m for m in SEARCH_MODULES]
     for package in SEARCH_PACKAGES:
-        paths += sorted((REPO_ROOT / package).glob('*.py'))
+        paths += [REPO_ROOT / rel for rel in tracked_files((package,), '*.py')]
     return paths
 
 

@@ -19,18 +19,18 @@ import contextlib
 
 import pytest
 
-from modules import kivy_utils
-from modules.exceptions import ProtocolRunRefusedError, RunCleanupFailedError
-from modules.notification_center import notifications
-from modules.run_events import RunEvents, deliver
-from modules.scope_session import ScopeSession
+from _lumascope.modules import ui_queue
+from _lumascope.modules.exceptions import ProtocolRunRefusedError, RunCleanupFailedError
+from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.run_events import RunEvents, deliver
+from _lumascope.modules.scope_session import ScopeSession
 
 
 @pytest.fixture
 def immediate_gui_dispatcher():
     """Stand in for Clock.schedule_once, which runs callbacks unguarded."""
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=lambda func, timeout: func(timeout), thread=None)
+        ui_queue.UiDispatcher(schedule=lambda func, timeout: func(timeout), thread=None)
     )
     yield
     ScopeSession.set_ui_dispatcher(None)
@@ -41,7 +41,7 @@ def deferring_gui_dispatcher():
     """A dispatcher that runs what it is handed only when the test says: a later tick."""
     queued = []
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=lambda func, timeout: queued.append(func), thread=None)
+        ui_queue.UiDispatcher(schedule=lambda func, timeout: queued.append(func), thread=None)
     )
     yield queued
     ScopeSession.set_ui_dispatcher(None)
@@ -162,4 +162,4 @@ def test_the_unguarded_scheduler_still_propagates(immediate_gui_dispatcher):
     app-wide policy and the delivery deliberately does not touch it.
     """
     with pytest.raises(RuntimeError):
-        kivy_utils.schedule_ui(_raise(RuntimeError('boom')))
+        ui_queue.schedule_ui(_raise(RuntimeError('boom')))

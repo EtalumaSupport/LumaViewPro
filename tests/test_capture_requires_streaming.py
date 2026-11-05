@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from drivers import host_clock
+from _lumascope.drivers import host_clock
 
 
 def test_capture_still_succeeds_while_streaming(sim_scope):

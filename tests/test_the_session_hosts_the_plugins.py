@@ -25,14 +25,14 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
-import modules.image_mode as image_mode
-from modules.caller import Caller
-import modules.stack_builder as stack_builder
-from modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
-from modules.protocol import Protocol
-from modules.scope_session import ScopeSession
+import _lumascope.modules.image_mode as image_mode
+from _lumascope.modules.caller import Caller
+import _lumascope.modules.stack_builder as stack_builder
+from _lumascope.modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
+from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_late_write_records_its_frame import _step
 from tests.settings_fixtures import complete_settings
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
@@ -114,7 +114,7 @@ def _one_scan_protocol(name='P1'):
 
 def _drain_lane(session):
     """Return once everything put on the post-processing lane before now has run."""
-    from modules.sequential_io_executor import IOTask
+    from _lumascope.modules.sequential_io_executor import IOTask
 
     session.post_processing.lane.call(IOTask(action=lambda: None), 'test.drain', WAIT_S)
 
@@ -319,7 +319,7 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
     def test_a_run_whose_images_did_not_all_save_is_handed_on_as_incomplete(
         self, tmp_path, monkeypatch
     ):
-        import modules.protocol_image_writer as protocol_image_writer
+        import _lumascope.modules.protocol_image_writer as protocol_image_writer
 
         def _fail(scope, **kwargs):
             raise OSError('the save drive went away')
@@ -377,7 +377,7 @@ class TestTheSessionIsThePluginsHost:
         assert [c[0] for c in unloaded_by_shutdown.calls] == ['register', 'unregister']
 
     def test_a_built_in_that_fails_to_register_is_reported(self, tmp_path, monkeypatch):
-        from modules.plugins.builtin import stitcher_plugin
+        from _lumascope.modules.plugins.builtin import stitcher_plugin
 
         def _raises(ctx):
             raise RuntimeError('the built-in broke')
@@ -410,7 +410,7 @@ class TestOneEngineeringMode:
         assert token in still[0].file.name, f'{still[0].file.name} carries no turret position'
 
     def test_the_application_context_holds_no_engineering_flag(self):
-        from modules.app_context import AppContext
+        from _lumascope.modules.app_context import AppContext
 
         with pytest.raises(TypeError):
             AppContext(engineering_mode=True)
@@ -457,7 +457,7 @@ class TestNoEngineering:
 
 def test_a_session_loads_its_plugins_once(tmp_path):
     """A second load would register every plugin again; it is refused, for good."""
-    from modules.exceptions import AlreadyStartedError, RefusalCause
+    from _lumascope.modules.exceptions import AlreadyStartedError, RefusalCause
 
     plugin = _plugin('once')
     session = ScopeSession.create(complete_settings(), simulate=True, no_engineering=True)

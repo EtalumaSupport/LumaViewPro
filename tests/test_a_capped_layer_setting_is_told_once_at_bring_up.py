@@ -9,8 +9,8 @@ value in one notice, the shape the load's replacements take, and the
 stored value stays what the person wrote.
 """
 
-from modules.exceptions import LayerSettingCappedNotice
-from modules.scope_session import ScopeSession
+from _lumascope.modules.exceptions import LayerSettingCappedNotice
+from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 

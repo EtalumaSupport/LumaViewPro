@@ -26,18 +26,18 @@ import threading
 import numpy as np
 import pytest
 
-import modules.protocol_image_writer as piw
-from modules.exceptions import FileWriterReplacedError
-from modules.notification_center import Severity, notifications
-from modules.protocol_image_writer import RunWriteBatch
-from modules.lumascope_api._lumascope import scope_lane_closed
-from modules.sequential_io_executor import (
+import _lumascope.modules.protocol_image_writer as piw
+from _lumascope.modules.exceptions import FileWriterReplacedError
+from _lumascope.modules.notification_center import Severity, notifications
+from _lumascope.modules.protocol_image_writer import RunWriteBatch
+from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
+from _lumascope.modules.sequential_io_executor import (
     ENQUEUED,
     IOTask,
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
-from modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record
 
 
@@ -377,8 +377,8 @@ def test_run_cleanup_surfaces_slow_write_warning(monkeypatch):
     blocked-wait total crossed the threshold, and stays silent otherwise."""
     from unittest.mock import MagicMock
 
-    from modules.notification_center import notifications as nc_notifications
-    from modules.protocol_cleanup import run_cleanup
+    from _lumascope.modules.notification_center import notifications as nc_notifications
+    from _lumascope.modules.protocol_cleanup import run_cleanup
     from tests.test_audit_fixes import _run_cleanup_kwargs
 
     captured = []
@@ -406,9 +406,9 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
 
     import pytest as _pytest
 
-    from modules.exceptions import ProtocolRunRefusedError
-    from modules.image_mode import ImageCaptureConfig
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from _lumascope.modules.exceptions import ProtocolRunRefusedError
+    from _lumascope.modules.image_mode import ImageCaptureConfig
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
     from tests.test_audit_fixes import _make_capture_runner
 
     runner = _make_capture_runner()

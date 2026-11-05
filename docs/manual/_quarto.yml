@@ -1,0 +1,35 @@
+project:
+  type: book
+quarto-required: "1.11.9"
+book:
+  title: "LumaViewPro Manual"
+  output-file: "LumaViewPro-Manual"
+  chapters:
+    - index.qmd
+    - setting-up.qmd
+    - installing.qmd
+    - tour.qmd
+    - settings.qmd
+    - channels.qmd
+    - focus.qmd
+    - getting-an-image.qmd
+    - protocols.qmd
+    - post-processing.qmd
+    - incubator.qmd
+    - integrators.qmd
+  appendices:
+    - sanitizing.qmd
+    - windows-timelapse.qmd
+    - extending.qmd
+    - custom-labware.qmd
+manual-version: "4.x"
+filters:
+  - style/guilabel.lua
+format:
+  typst:
+    toc: true
+    toc-depth: 2
+    papersize: us-letter
+    font-paths: [fonts]
+    template-partials:
+      - style/typst-show.typ

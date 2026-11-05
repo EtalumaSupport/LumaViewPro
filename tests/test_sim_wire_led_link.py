@@ -22,19 +22,19 @@ import time
 
 import pytest
 
-import drivers.sim_wire.backend as sim_backend
-from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
-from lib.lumascope_error import Fault
-from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api.bring_up import Part
-from modules.lumascope_api.illumination import (
+import _lumascope.drivers.sim_wire.backend as sim_backend
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError
+from _lumascope.lib.lumascope_error import Fault
+from _lumascope.modules.exceptions import HardwareCommandRefusedError
+from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.lumascope_api.illumination import (
     IlluminationAPI,
     LedState,
     LedTransition,
     LedTransitionCtx,
 )
-from modules.notification_center import Severity
-from modules.scope_session import ScopeSession
+from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.scope_session import ScopeSession
 from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings
 

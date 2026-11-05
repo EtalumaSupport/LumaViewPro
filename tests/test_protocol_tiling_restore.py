@@ -35,8 +35,8 @@ import ast
 import json
 import pathlib
 
-from modules.common_utils import build_step_name, parse_legacy_step_name
-from modules.tiling_config import TilingGrids, _row_label, _split_row_col
+from _lumascope.modules.common_utils import build_step_name, parse_legacy_step_name
+from _lumascope.modules.tiling_config import TilingGrids, _row_label, _split_row_col
 from tests.installation_fixtures import shipped_grids
 
 
