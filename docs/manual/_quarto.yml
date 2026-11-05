@@ -11,6 +11,7 @@ book:
     - tour.qmd
     - settings.qmd
     - channels.qmd
+    - focus.qmd
     - incubator.qmd
     - integrators.qmd
   appendices:

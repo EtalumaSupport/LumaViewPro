@@ -1,0 +1,8 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"press","path":"MotionSettings/objective_control_accordion_id","settle_s":2,"note":"the turret row: each slot button named for its objective, slot 1 in the light path"},
+  {"do":"wait","settle_s":1},
+  {"do":"shot","name":"../images/focus-objective-control-ls850t","path":"MotionSettings/objective_control_accordion_id","note":"the drawer alone"},
+  {"do":"quit"}
+]

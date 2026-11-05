@@ -1,0 +1,18 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"press","path":"MotionSettings/objective_control_accordion_id","settle_s":2,"note":"Objective Control on a scope without a turret: Assign Objective"},
+  {"do":"type","path":"VerticalControl/zstack_id/zstack_stepsize_id","text":"2"},
+  {"do":"type","path":"VerticalControl/zstack_id/zstack_range_id","text":"10","note":"floor(10 / 2) + 1 = 6 slices"},
+  {"do":"wait","settle_s":1},
+  {"do":"shot","name":"../images/focus-objective-control-ls850","path":"MotionSettings/objective_control_accordion_id","note":"the drawer alone"},
+  {"do":"press","path":"AccordionItemXyStageControl","settle_s":2},
+  {"do":"wait","settle_s":2},
+  {"do":"shot","name":"../images/focus-xy-stage-ls850","path":"AccordionItemXyStageControl","note":"the drawer alone, with the plate map's crosshair"},
+  {"do":"press","path":"MotionSettings/objective_control_accordion_id","settle_s":2},
+  {"do":"press","path":"VerticalControl/assign_objective_btn","settle_s":2,"note":"the objective question, asked at any time"},
+  {"do":"shot","name":"../images/focus-objective-question","path":"Popup","note":"the question alone"},
+  {"do":"press","path":"Popup/Spinner[text=20x Oly]","settle_s":2,"note":"the list open: each maker's name over its objectives"},
+  {"do":"shot","name":"../images/focus-objective-list","path":"_CappedDropDown","note":"the list alone"},
+  {"do":"quit"}
+]
