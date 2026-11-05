@@ -1,0 +1,6 @@
+[
+  {"do":"answer","button":"OK","optional":true,"timeout_s":15},
+  {"do":"wait","settle_s":3},
+  {"do":"shot","name":"../images/tour-window-ls850","note":"run at 1x (SDL_VIDEO_HIGHDPI_DISABLED=1): a whole window prints 6.5 in wide; LED off, the layout with no live image"},
+  {"do":"quit"}
+]

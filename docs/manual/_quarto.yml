@@ -8,6 +8,7 @@ book:
     - index.qmd
     - setting-up.qmd
     - installing.qmd
+    - tour.qmd
     - incubator.qmd
     - integrators.qmd
   appendices:
