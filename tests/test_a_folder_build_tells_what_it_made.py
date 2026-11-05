@@ -7,7 +7,9 @@ an existing ``results.csv`` with only a header (#765); a failed write was
 logged and swallowed. Quick Enhance's folder pass said "complete" with
 images skipped. Each now returns only a complete result: nothing to work
 on is a refusal that leaves the previous results alone, and a partial
-pass is a failure that carries what it did save.
+pass is a failure that carries what it did save. A cell count writes the
+method it counted by beside its results, and a folder never holds a
+method beside results it did not make.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from modules.cell_count_method import CellCountMethod
 from modules import post_derivation
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules import post_processing
 from modules.post_processing import PostProcessing
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 from modules.layer_record import release_color
@@ -96,6 +99,88 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
     assert seen[-1] == 100
 
 
+# Not the default, so a file holding the default method cannot pass.
+COUNTED_BY = CellCountMethod(pixels_per_um=2.5, fluorescent_mode=False, threshold_pct=35)
+
+
+def _old_method(folder):
+    post_processing.save_cell_count_method(
+        CellCountMethod(threshold_pct=60), folder / 'results_method.json'
+    )
+    return (folder / 'results_method.json').read_bytes()
+
+
+def test_a_count_writes_the_method_it_counted_by_beside_its_results(counter, tmp_path):
+    _write_tiff(tmp_path / 'a.tif')
+
+    result = counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    method_path = os.path.join(str(tmp_path), 'results_method.json')
+    assert result['method_path'] == method_path
+    assert post_processing.load_cell_count_method(method_path) == COUNTED_BY
+    assert method_path in result['message']
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        'a.tif',
+        'results.csv',
+        'results_method.json',
+    ]
+
+
+def test_a_method_that_cannot_be_written_keeps_the_previous_results_and_method(
+    counter, tmp_path, monkeypatch
+):
+    _old_results(tmp_path)
+    old_method = _old_method(tmp_path)
+    _write_tiff(tmp_path / 'a.tif')
+    real_open = open
+
+    # a stand-in by design: a disk that refuses one file, which no folder
+    # in a test produces portably (a read-only folder refuses both).
+    def refuse_the_method(file, *args, **kwargs):
+        if str(file).endswith('.tmp.json'):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), file)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(post_processing, 'open', refuse_the_method, raising=False)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    assert 'results_method.json' in str(raised.value)
+    assert raised.value.produced_paths == ()
+    assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
+    assert (tmp_path / 'results_method.json').read_bytes() == old_method
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        'a.tif',
+        'results.csv',
+        'results_method.json',
+    ]
+
+
+def test_a_method_that_cannot_take_its_place_leaves_no_method_beside_the_new_results(
+    counter, tmp_path, monkeypatch
+):
+    _old_results(tmp_path)
+    _old_method(tmp_path)
+    _write_tiff(tmp_path / 'a.tif')
+    real_replace = os.replace
+
+    # a stand-in by design: a rename that fails after the one before it
+    # succeeded, which no folder in a test produces.
+    def refuse_the_method(src, dst):
+        if str(dst).endswith('results_method.json'):
+            raise OSError(errno.EACCES, os.strerror(errno.EACCES), dst)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, 'replace', refuse_the_method)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+
+    assert raised.value.reason == 'post_processing_incomplete'
+    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+    assert 'a.tif' in (tmp_path / 'results.csv').read_text()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
+
+
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):
     _old_results(tmp_path)
     with pytest.raises(PostProcessingRefusedError):
@@ -116,7 +201,10 @@ def test_some_unreadable_images_make_the_count_incomplete_with_its_results(count
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
         counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
-    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+    assert raised.value.produced_paths == (
+        os.path.join(str(tmp_path), 'results.csv'),
+        os.path.join(str(tmp_path), 'results_method.json'),
+    )
     assert 'good.tif' in (tmp_path / 'results.csv').read_text()
 
 

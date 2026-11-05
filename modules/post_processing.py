@@ -397,11 +397,16 @@ class PostProcessing:
         method: CellCountMethod,
         on_progress: ProgressCallback | None = None,
     ) -> dict:
-        """Count the cells in every image in *path* and write ``results.csv`` there.
+        """Count the cells in every image in *path* and write ``results.csv`` there,
+        with the method counted by beside it as ``results_method.json``.
 
-        The results file replaces an existing one only once the new one is
-        complete on disk: a folder with nothing to count, or a write that
-        fails, leaves the previous results as they were.
+        The method file is the one ``save_cell_count_method`` writes, so
+        ``load_cell_count_method`` reads it back. The two replace earlier
+        ones only once both new ones are complete on disk: a folder with
+        nothing to count, or a write that fails, leaves the previous results
+        and method as they were. If the method alone cannot take its place
+        after the results have, the earlier method is removed, so no method
+        in the folder stands beside results it did not make.
 
         Each image is measured at ``cell_count_scale``'s answer for it: the
         method's override, else the scale the image states, else pixels. The
@@ -411,16 +416,18 @@ class PostProcessing:
         blank for an image that states none.
 
         Returns:
-            ``results_path``; ``counted``, how many images were analysed; and
-            ``message``, the outcome in words.
+            ``results_path``; ``method_path``; ``counted``, how many images
+            were analysed; and ``message``, the outcome in words.
 
         Raises:
             PostProcessingRefusedError: No image in the folder could be
                 analysed -- none there, or none readable.
-            PostProcessingFailedError: The results could not be written, or
-                some images could not be counted (unreadable, or a size
-                filter on an image with no scale); the file holds every image
-                that was, and the error names the rest.
+            PostProcessingFailedError: The results or the method could not
+                be written (with the results alone among its produced paths
+                when only the method could not take its place), or some
+                images could not be counted (unreadable, or a size filter on
+                an image with no scale); the results hold every image that
+                was, and the error names the rest.
         """
         fields = [
             'file',
@@ -481,32 +488,88 @@ class PostProcessing:
             )
 
         results_file_path = os.path.join(path, 'results.csv')
-        temp_path = os.path.join(path, f'.results.{uuid.uuid4().hex}.tmp.csv')
+        method_file_path = os.path.join(path, 'results_method.json')
+        results_temp = os.path.join(path, f'.results.{uuid.uuid4().hex}.tmp.csv')
+        method_temp = os.path.join(path, f'.results_method.{uuid.uuid4().hex}.tmp.json')
+
+        def discard_temps() -> None:
+            for temp in (results_temp, method_temp):
+                with contextlib.suppress(OSError):
+                    os.remove(temp)
+
+        # Both are written whole before either replaces an earlier one, so a
+        # failed write leaves the earlier results and method as a pair.
         try:
-            with open(temp_path, 'w', newline='', encoding='utf-8') as f:
+            with open(results_temp, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(fields)
                 for record in results:
                     writer.writerow(record.values())
-            os.replace(temp_path, results_file_path)
         except OSError as e:
-            with contextlib.suppress(OSError):
-                os.remove(temp_path)
+            discard_temps()
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
                 missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
+            ) from e
+        try:
+            save_cell_count_method(method, method_temp)
+        except OSError as e:
+            discard_temps()
+            raise PostProcessingFailedError(
+                operation=CELL_COUNT_OPERATION,
+                missing=f'The method could not be written to {method_file_path} ({e.strerror}).',
+            ) from e
+
+        # The results go first: a results.csv held open (a spreadsheet on
+        # Windows) blocks its replace, and failing there replaces nothing.
+        try:
+            os.replace(results_temp, results_file_path)
+        except OSError as e:
+            discard_temps()
+            raise PostProcessingFailedError(
+                operation=CELL_COUNT_OPERATION,
+                missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
+            ) from e
+        try:
+            os.replace(method_temp, method_file_path)
+        except OSError as e:
+            discard_temps()
+            # The earlier method describes the earlier results, not these.
+            stale = ''
+            try:
+                os.remove(method_file_path)
+            except FileNotFoundError:
+                pass
+            except OSError as removal:
+                stale = (
+                    f' The earlier {method_file_path} could not be removed'
+                    f' ({removal.strerror}) and is not the method of these results.'
+                )
+            raise PostProcessingFailedError(
+                operation=CELL_COUNT_OPERATION,
+                missing=(
+                    f'The method these results were counted by could not be written to'
+                    f' {method_file_path} ({e.strerror}).{stale}'
+                ),
+                produced_paths=(results_file_path,),
+                output_root=str(path),
+                errors=not_counted,
             ) from e
 
         if not_counted:
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
                 missing=f'{len(not_counted)} of {len(filenames)} image(s) could not be counted.',
-                produced_paths=(results_file_path,),
+                produced_paths=(results_file_path, method_file_path),
                 output_root=str(path),
                 errors=not_counted,
             )
         return {
             'results_path': results_file_path,
+            'method_path': method_file_path,
             'counted': len(results),
-            'message': f'Counted cells in {len(results)} image(s). Results: {results_file_path}',
+            'message': (
+                f'Counted cells in {len(results)} image(s). Results: {results_file_path};'
+                f' method: {method_file_path}'
+            ),
         }

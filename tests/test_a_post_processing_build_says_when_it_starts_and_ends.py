@@ -41,6 +41,7 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path, c
         lambda self, path, method, on_progress=None: {
             'message': 'Counted cells in 3 image(s).',
             'results_path': str(path / 'results.csv'),
+            'method_path': str(path / 'results_method.json'),
             'counted': 3,
         },
     )
@@ -82,7 +83,12 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
 
     @slow_task_budget(600.0)
     def count(self, path, method, on_progress=None):
-        return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
+        return {
+            'message': 'counted',
+            'results_path': str(path / 'results.csv'),
+            'method_path': str(path / 'results_method.json'),
+            'counted': 3,
+        }
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', count)
     lane = session.post_processing.lane

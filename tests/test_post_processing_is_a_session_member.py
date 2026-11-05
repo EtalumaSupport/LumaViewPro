@@ -209,7 +209,12 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     def record(self, path, method, on_progress=None):
         seen.update(path=path, method=method, on_progress=on_progress)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
-        return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
+        return {
+            'message': 'counted',
+            'results_path': str(path / 'results.csv'),
+            'method_path': str(path / 'results_method.json'),
+            'counted': 3,
+        }
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
     method = CellCountMethod(threshold_pct=35)
@@ -221,7 +226,12 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
 
     assert session.post_processing.count_cells(
         tmp_path, method=method, on_progress=progress
-    ) == CellCountResult(message='counted', results_path=tmp_path / 'results.csv', counted=3)
+    ) == CellCountResult(
+        message='counted',
+        results_path=tmp_path / 'results.csv',
+        method_path=tmp_path / 'results_method.json',
+        counted=3,
+    )
     assert seen['method'] is method
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')

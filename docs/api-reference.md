@@ -4280,23 +4280,24 @@ def count_cells(
 Route: `POST /api/v1/post_processing/count_cells`.
 
 Count the cells in every image in *folder* by *method*, writing
-`results.csv` into the folder.
+`results.csv` into the folder and *method* beside it as
+`results_method.json`.
 
 **Args**
 
-- `folder`: The folder of images to count; a `results.csv` already there is replaced only once the new one is written whole.
+- `folder`: The folder of images to count; a `results.csv` and `results_method.json` already there are replaced only once both new ones are written whole.
 - `method`: The cell-count method to count by.
 - `on_progress`: Called with a percentage and what the count is doing, from the thread it runs on; None for no progress.
 
 **Returns**
 
-The results table, how many images were counted, and the outcome in words.
+The results table, the method file, how many images were counted, and the outcome in words.
 
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; or the folder has nothing to count (reason `no_data`).
-- `PostProcessingFailedError`: the results could not be written, or some images could not be counted; the file holds every image that was, and the error names the rest.
+- `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
 **Refusals by REST status**
 
@@ -9504,6 +9505,7 @@ What a cell count wrote.
 
 - <a id="CellCountResult.counted"></a>`counted`: `int` -- How many images it counted.
 - <a id="CellCountResult.message"></a>`message`: `str` -- The outcome in words.
+- <a id="CellCountResult.method_path"></a>`method_path`: `pathlib.Path` -- The method it counted by, written beside the results as a method file `load_cell_count_method` reads.
 - <a id="CellCountResult.results_path"></a>`results_path`: `pathlib.Path` -- The results table it wrote.
 
 <a id="CellCountSizeScale"></a>

@@ -136,7 +136,7 @@ class EnhanceResult:
     created: tuple[EnhancedFile, ...]
 
 
-@api_fields('message', 'results_path', 'counted')
+@api_fields('message', 'results_path', 'method_path', 'counted')
 @dataclasses.dataclass(frozen=True)
 class CellCountResult:
     """What a cell count wrote.
@@ -144,11 +144,14 @@ class CellCountResult:
     Attributes:
         message: The outcome in words.
         results_path: The results table it wrote.
+        method_path: The method it counted by, written beside the results
+            as a method file ``load_cell_count_method`` reads.
         counted: How many images it counted.
     """
 
     message: str
     results_path: pathlib.Path
+    method_path: pathlib.Path
     counted: int
 
 
@@ -405,6 +408,7 @@ def _cell_count_result(answer: dict) -> CellCountResult:
     return CellCountResult(
         message=answer['message'],
         results_path=pathlib.Path(answer['results_path']),
+        method_path=pathlib.Path(answer['method_path']),
         counted=answer['counted'],
     )
 
@@ -1279,18 +1283,20 @@ class PostProcessingAPI:
         on_progress: ProgressCallback | None = None,
     ) -> CellCountResult:
         """Count the cells in every image in *folder* by *method*, writing
-        ``results.csv`` into the folder.
+        ``results.csv`` into the folder and *method* beside it as
+        ``results_method.json``.
 
         Args:
-            folder: The folder of images to count; a ``results.csv`` already
-                there is replaced only once the new one is written whole.
+            folder: The folder of images to count; a ``results.csv`` and
+                ``results_method.json`` already there are replaced only once
+                both new ones are written whole.
             method: The cell-count method to count by.
             on_progress: Called with a percentage and what the count is
                 doing, from the thread it runs on; None for no progress.
 
         Returns:
-            The results table, how many images were counted, and the
-            outcome in words.
+            The results table, the method file, how many images were
+            counted, and the outcome in words.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
@@ -1299,9 +1305,9 @@ class PostProcessingAPI:
                 *method* sent as its fields holds what ``CellCountMethod``
                 refuses; or the folder has nothing to count (reason
                 ``no_data``).
-            PostProcessingFailedError: the results could not be written, or
-                some images could not be counted; the file holds every image
-                that was, and the error names the rest.
+            PostProcessingFailedError: the results or the method could not
+                be written, or some images could not be counted; the results
+                hold every image that was, and the error names the rest.
         """
         from modules.post_processing import PostProcessing
 
