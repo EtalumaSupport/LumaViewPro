@@ -24,12 +24,16 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# Each shipped objective's token as the catalogue produced it before this
-# change, recorded as data: capture names must not move.
+# Each shipped objective's token, recorded as data: capture names must not
+# move.
 SHIPPED_TOKENS = {
     '1.25x Oly': '1.25xOly',
     '2x Oly': '2xOly',
     '2.5x Meiji': '2.5xMeiji',
+    '4x Meiji': '4xMeiji',
+    '10x Meiji': '10xMeiji',
+    '20x Meiji': '20xMeiji',
+    '40x Meiji': '40xMeiji',
     '4x Oly': '4xOly',
     '10x Oly': '10xOly',
     '10x Phase': '10xPhase',
