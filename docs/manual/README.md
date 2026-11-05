@@ -19,7 +19,8 @@ and check the download against `quarto-1.11.9-checksums.txt` from the same relea
 quarto render docs/manual --to typst
 ```
 
-The PDF is written to `docs/manual/_book/`, which git ignores.
+The PDF is written to `docs/manual/_book/LumaViewPro-Manual.pdf`, which git
+ignores. It is distributed as a separate download, not committed.
 
 ## Layout
 

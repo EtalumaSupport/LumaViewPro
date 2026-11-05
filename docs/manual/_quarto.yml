@@ -4,6 +4,7 @@ quarto-required: "1.11.9"
 book:
   title: "Lumascope Microscopes"
   subtitle: "Operator's Manual"
+  output-file: "LumaViewPro-Manual"
   chapters:
     - index.qmd
     - setting-up.qmd
