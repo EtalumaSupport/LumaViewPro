@@ -10416,6 +10416,24 @@ The centre of the well in column `i` and row `j`, in mm from the plate's top-lef
 
 Nothing.
 
+<a id="Labware.well_size_mm"></a>
+### `Labware.well_size_mm`
+
+```python
+well_size_mm: tuple[float, float]  # property
+```
+
+Marks: in-process; reads (changes nothing).
+
+A well's width and height in mm.
+
+Its diameter both ways, or, where the catalogue states none, its
+spacing on each axis, so each well fills its place in the grid.
+
+**Raises**
+
+Nothing.
+
 <a id="LayerCameraRequest"></a>
 ## `lumascope.LayerCameraRequest`
 

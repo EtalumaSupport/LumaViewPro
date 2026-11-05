@@ -42,6 +42,21 @@ class Labware:
     well_diameter_mm: float | None
     standard: str
 
+    @api(in_process=True, reads=True)
+    @property
+    def well_size_mm(self) -> tuple[float, float]:
+        """A well's width and height in mm.
+
+        Its diameter both ways, or, where the catalogue states none, its
+        spacing on each axis, so each well fills its place in the grid.
+
+        Raises:
+            Nothing.
+        """
+        if self.well_diameter_mm is None:
+            return self.spacing_x_mm, self.spacing_y_mm
+        return self.well_diameter_mm, self.well_diameter_mm
+
     def get_positions_with_labels(self) -> list[tuple[float, float, str]]:
         """Every well's centre and label, row by row from the top, each row
         the reverse of the one before so the stage snakes across the plate."""

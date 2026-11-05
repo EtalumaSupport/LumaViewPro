@@ -82,7 +82,7 @@ class _Plate:
     def __init__(self):
         self.spacing_x_mm = 9
         self.spacing_y_mm = 9
-        self.well_diameter_mm = 6
+        self.well_size_mm = (6, 6)
         self.width_mm = 127.76
         self.height_mm = 85.48
 

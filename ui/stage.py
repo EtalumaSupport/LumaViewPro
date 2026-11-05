@@ -321,17 +321,9 @@ class Stage(Widget):
             cols = labware.columns
             rows = labware.rows
 
-            well_spacing_x = labware.spacing_x_mm
-            well_spacing_y = labware.spacing_y_mm
-
-            well_diameter = labware.well_diameter_mm
-            if well_diameter is None:
-                well_radius_pixel_x = well_spacing_x
-                well_radius_pixel_y = well_spacing_y
-            else:
-                well_radius = well_diameter / 2
-                well_radius_pixel_x = well_radius * scale_x
-                well_radius_pixel_y = well_radius * scale_y
+            well_width_mm, well_height_mm = labware.well_size_mm
+            well_radius_pixel_x = well_width_mm / 2 * scale_x
+            well_radius_pixel_y = well_height_mm / 2 * scale_y
 
             Color(0.4, 0.4, 0.4, 0.5)
             for i in range(cols):
@@ -515,20 +507,9 @@ class Stage(Widget):
         scale_x = w / labware.width_mm
         scale_y = h / labware.height_mm
 
-        well_spacing_x = labware.spacing_x_mm
-        well_spacing_y = labware.spacing_y_mm
-
-        well_spacing_pixel_x = well_spacing_x
-        well_spacing_pixel_y = well_spacing_y
-
-        well_diameter = labware.well_diameter_mm
-        if well_diameter is None:
-            well_radius_pixel_x = well_spacing_pixel_x
-            well_radius_pixel_y = well_spacing_pixel_y
-        else:
-            well_radius = well_diameter / 2
-            well_radius_pixel_x = well_radius * scale_x
-            well_radius_pixel_y = well_radius * scale_y
+        well_width_mm, well_height_mm = labware.well_size_mm
+        well_radius_pixel_x = well_width_mm / 2 * scale_x
+        well_radius_pixel_y = well_height_mm / 2 * scale_y
 
         # Draw static labware elements using FBO (only on full redraw)
         if full_redraw:
