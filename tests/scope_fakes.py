@@ -712,3 +712,22 @@ def stock_unit():
 def refuse_a_report(notice):
     """An identity reporter for a resolve that has nothing to report."""
     raise AssertionError(f'the identity resolve reported {notice!r}')
+
+
+def simulated_camera_on_a_real_scope(monkeypatch):
+    """Give a real scope's bring-up the simulated camera in place of a real one.
+
+    A real scope (``simulate=False``) asks the camera registry for a real
+    camera, and the suite opens none: the registry's ``create`` builds the
+    simulated one by name instead, the real boards' path otherwise
+    unchanged. A test that also answers the boards null builds a real scope
+    with nothing on the host's bus.
+    """
+    import modules.lumascope_api._lumascope as lumascope_module
+
+    real_camera_create = lumascope_module.camera_registry.create
+    monkeypatch.setattr(
+        lumascope_module.camera_registry,
+        'create',
+        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
+    )

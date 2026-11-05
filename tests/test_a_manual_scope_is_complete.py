@@ -22,7 +22,7 @@ from modules.layer_record import load_scope_models, model_axes
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 MODELS = load_scope_models()
@@ -118,9 +118,9 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
+    simulated_camera_on_a_real_scope(monkeypatch)
     scope = build_scope(
         simulate=False,
-        camera_type='sim',
         warn_pre_release=False,
         register_atexit=False,
     )
@@ -146,9 +146,9 @@ def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullMotionBoard(), None),
     )
+    simulated_camera_on_a_real_scope(monkeypatch)
     scope = build_scope(
         simulate=False,
-        camera_type='sim',
         warn_pre_release=False,
         register_atexit=False,
     )

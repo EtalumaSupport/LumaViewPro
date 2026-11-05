@@ -21,7 +21,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverRegistry
 from tests.log_capture import records_of
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 
 
 class _NothingFound:
@@ -92,9 +92,9 @@ def test_the_scope_tells_the_probe_whether_its_model_has_a_motor_board(
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
+    simulated_camera_on_a_real_scope(monkeypatch)
     build_scope(
         simulate=False,
-        camera_type='sim',
         configured_model=model,
         warn_pre_release=False,
         register_atexit=False,

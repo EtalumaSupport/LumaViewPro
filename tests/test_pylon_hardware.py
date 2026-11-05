@@ -354,7 +354,7 @@ def pylon_scope():
     """A real scope over a connected Basler body, and the body's driver."""
     from tests.scope_fakes import build_scope
 
-    scope = build_scope(camera_type='pylon')
+    scope = build_scope()
     return scope, scope._camera_driver
 
 

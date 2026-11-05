@@ -34,6 +34,7 @@ from modules.lumascope_api import AxisState, TurretStatus
 from modules.scope_capabilities import ScopeCapabilities
 from modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.scope_fakes import simulated_camera_on_a_real_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
@@ -107,13 +108,8 @@ def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slo
             'create_with_fallback',
             lambda name='auto', null_board=null_board, **kwargs: (null_board(), None),
         )
-    real_camera_create = lumascope_module.camera_registry.create
-    # No real camera in the suite: the by-name path builds the simulated one.
-    monkeypatch.setattr(
-        lumascope_module.camera_registry,
-        'create',
-        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
-    )
+    # No real camera in the suite.
+    simulated_camera_on_a_real_scope(monkeypatch)
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), microscope='LS850T'),
         source_path=str(installation_of_its_own()),

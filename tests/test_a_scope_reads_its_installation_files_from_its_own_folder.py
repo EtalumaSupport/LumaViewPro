@@ -26,7 +26,7 @@ from drivers.null_motorboard import NullMotionBoard
 from modules import layer_record
 from modules.exceptions import InstallationFileError, ScopeModelUnknownError
 from modules.lumascope_api import Lumascope
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 from tests.settings_fixtures import installation_of_its_own
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
@@ -70,7 +70,9 @@ def _template_without_frame(data):
 
 
 def _stub_real_boards(monkeypatch):
-    # No real port is opened in the suite: both boards are answered null.
+    # No real port is opened in the suite: both boards are answered null,
+    # and the camera is the simulated one.
+    simulated_camera_on_a_real_scope(monkeypatch)
     monkeypatch.setattr(
         lumascope_module.motor_registry,
         'create_with_fallback',
@@ -99,7 +101,6 @@ def test_a_real_scope_takes_its_models_from_its_folder(monkeypatch):
 
     scope = build_scope(
         simulate=False,
-        camera_type='sim',
         configured_model='LS620',
         source_path=str(root),
         warn_pre_release=False,
@@ -151,7 +152,6 @@ class TestABadFileInTheScopesFolder:
         with pytest.raises(InstallationFileError, match=says) as refused:
             Lumascope(
                 simulate=False,
-                camera_type='sim',
                 configured_model='LS850T',
                 source_path=str(root),
                 warn_pre_release=False,

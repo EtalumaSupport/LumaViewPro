@@ -24,6 +24,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules.scope_session import ScopeSession
 from tests.log_capture import records_of
+from tests.scope_fakes import simulated_camera_on_a_real_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
 
@@ -65,19 +66,14 @@ def test_the_session_hands_the_setting_to_the_led_driver(monkeypatch, tmp_path, 
         asked.append(kwargs)
         return NullLEDBoard(), None
 
-    real_camera_create = lumascope_module.camera_registry.create
     monkeypatch.setattr(lumascope_module.led_registry, 'create_with_fallback', led_create)
     monkeypatch.setattr(
         lumascope_module.motor_registry,
         'create_with_fallback',
         lambda name='auto', **kwargs: (NullMotionBoard(), None),
     )
-    # No real camera in the suite: the by-name path builds the simulated one.
-    monkeypatch.setattr(
-        lumascope_module.camera_registry,
-        'create',
-        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
-    )
+    # No real camera in the suite.
+    simulated_camera_on_a_real_scope(monkeypatch)
 
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), fx2_debug_wire_enabled=enabled),

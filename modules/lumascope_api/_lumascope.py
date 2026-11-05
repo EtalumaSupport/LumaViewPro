@@ -675,7 +675,6 @@ class Lumascope:
     def __init__(
         self,
         simulate: bool = False,
-        camera_type: str = 'auto',
         register_atexit: bool = True,
         sim_model: str | None = None,
         warn_pre_release: bool = True,
@@ -697,14 +696,12 @@ class Lumascope:
                 objective catalogues from it once, here, and everything
                 that asks about plates or objectives reads those copies.
                 None (default) is the installation's own folder.
-            simulate: If True, use simulated hardware (no USB devices needed).
-            camera_type: Camera registry kind. 'auto' (default) tries the
-                registered real cameras in descending priority order
-                (Pylon -> IDS today). Accepted explicit values: 'pylon',
-                'ids', 'sim', or any other key registered in
-                `drivers/registry.py::camera_registry`. Post-B2 this is
-                the only parameter the caller needs to steer driver
-                selection -- motion and LED drivers always use 'auto'.
+            simulate: If True, use simulated hardware (no USB devices
+                needed). No caller names the camera's driver: a real scope
+                takes the registry's real cameras in priority order
+                (Pylon, then IDS); a simulated scope takes the simulated
+                camera, or on an FX2 model the FX2 driver over the
+                simulated FX2.
             register_atexit: If True (default), register a Python atexit
                 hook that turns off all LEDs and disconnects on
                 interpreter shutdown. Tests that construct Lumascope
@@ -1047,14 +1044,11 @@ class Lumascope:
             parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
 
         # ----- Camera -----
-        # Driver selection via camera_registry. `camera_type` accepts:
-        # 'auto' (tries pylon -> ids by priority), 'pylon', 'ids',
-        # 'sim', or any other registered camera kind. Default 'auto' is
-        # the right choice for most callers; legacy callers that need
-        # the prior "pylon" default pass camera_type='pylon' explicitly.
-        # _frame_buffer slot lives on ImagingAPI. _camera_driver slot
-        # defaulted to None in _init_minimal; the registry call below
-        # overrides it on a successful connect.
+        # The registry picks the camera for the scope's mode, in priority
+        # order; a driver named by the caller could be a real camera on a
+        # simulated scope. _frame_buffer slot lives on ImagingAPI.
+        # _camera_driver slot defaulted to None in _init_minimal; the
+        # registry call below overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
             camera_kwargs['timing'] = _camera_timing(sim_tier)
@@ -1093,7 +1087,7 @@ class Lumascope:
                 )
             else:
                 self._camera_driver = camera_registry.create(
-                    camera_type, simulate=simulate, **camera_kwargs
+                    'auto', simulate=simulate, **camera_kwargs
                 )
                 if simulate:
                     simulated_camera = self._camera_driver
