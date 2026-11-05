@@ -18,7 +18,7 @@ Copy budget:
 
 Threading model (Stage B1):
   - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()
-    blit textures posted from the worker as states (kivy_utils.schedule_ui_latest).
+    blit textures posted from the worker as states (ui_queue.schedule_ui_latest).
   - scope_display_thread (modules/scope_display_thread.py): owns the
     FPS-paced loop; calls _render_one_frame(...) per iteration.
   - Generation counter (owned by the thread; mirrored via _current_generation())
@@ -50,7 +50,7 @@ import modules.autofocus_functions as autofocus_functions
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 from modules.frame_validity import FrameValidity
-from modules.kivy_utils import schedule_ui_latest
+from modules.ui_queue import schedule_ui_latest
 
 logger = logging.getLogger('LVP.ui.scope_display')
 

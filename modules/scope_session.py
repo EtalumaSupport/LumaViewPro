@@ -36,7 +36,7 @@ from drivers.simulated_camera import SimulatedStall
 from lvp_logger import logger
 from modules import (
     common_utils,
-    kivy_utils,
+    ui_queue,
     live_work,
     path_utils,
     settings_paths,
@@ -87,7 +87,7 @@ from modules.exceptions import (
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
 )
-from modules.kivy_utils import UiDispatcher
+from modules.ui_queue import UiDispatcher
 from modules.live_work import LiveWork, WorkItem, WorkKind
 from modules.lumascope_api import AxisPosition, TurretStatus
 from modules.lumascope_api._constants import refuse_unless_turret_slot
@@ -1549,7 +1549,7 @@ class ScopeSession:
                 callback the dispatcher is delivering, since the swap waits
                 for that delivery to finish.
         """
-        kivy_utils._set_ui_dispatcher(dispatcher)
+        ui_queue._set_ui_dispatcher(dispatcher)
 
     @api(in_process=True)
     @classmethod

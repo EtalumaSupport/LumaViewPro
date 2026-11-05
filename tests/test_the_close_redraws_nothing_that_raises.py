@@ -24,7 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 import modules.app_context as _app_ctx
-from modules.kivy_utils import UiDispatcher
+from modules.ui_queue import UiDispatcher
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings

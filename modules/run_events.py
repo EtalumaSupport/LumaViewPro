@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from modules.api_surface import api_fields, event_metadata
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 from modules.run_outcome import FilesOutcome
 
 if TYPE_CHECKING:

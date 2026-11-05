@@ -31,7 +31,7 @@ from collections.abc import Callable
 
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
-from modules.kivy_utils import schedule_ui, ui_thread
+from modules.ui_queue import schedule_ui, ui_thread
 from modules.scheduler import Scheduler
 
 

@@ -5,8 +5,8 @@ Twenty-one cross-thread posts called ``Clock`` directly. They worked only
 because the dispatcher was also ``Clock.schedule_once``: they joined no
 order with the dispatcher's posts, held no bound, and a Qt GUI would have
 had to find every one. Every post from another thread now goes through
-``kivy_utils``' queue (``schedule_ui`` for an event, ``schedule_ui_latest``
-for a state). What remains on ``Clock`` is the UI thread's own deferrals,
+the one queue in ``ui_queue`` (``schedule_ui`` for an event,
+``schedule_ui_latest`` for a state). What remains on ``Clock`` is the UI thread's own deferrals,
 triggers and intervals, which stay Kivy's.
 
 This walk counts every ``Clock.schedule_once`` / ``schedule_interval`` /
@@ -125,7 +125,7 @@ def test_every_raw_clock_post_is_classified_as_the_ui_threads_own():
     ]
     assert unclassified == [] and stale == [], (
         'a raw Clock post is not the classified count; a post from another thread goes '
-        'through kivy_utils.schedule_ui (an event) or schedule_ui_latest (a state), and a '
+        'through ui_queue.schedule_ui (an event) or schedule_ui_latest (a state), and a '
         "UI thread's own deferral is classified here with its reason:\n"
         + '\n'.join(unclassified + [f'{site}: classified, no longer found' for site in stale])
     )

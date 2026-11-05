@@ -12,7 +12,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

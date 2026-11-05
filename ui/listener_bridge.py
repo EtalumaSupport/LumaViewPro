@@ -25,7 +25,7 @@ Two things earn a class here rather than a set of closures per listener at the
 registration site. Each listener posts a state under a key of the bridge's
 (``(bridge, 'led', address)``), so a burst of events leaves one UI update
 waiting per key. Each handler reaches the UI thread through the process's
-one UI dispatcher (``kivy_utils.schedule_ui_latest``) rather than an
+one UI dispatcher (``ui_queue.schedule_ui_latest``) rather than an
 imported ``Clock``, so a test, which sets none, drives the handlers
 synchronously and asserts what they wrote.
 
@@ -48,7 +48,7 @@ from collections.abc import Callable
 from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.kivy_utils import schedule_ui, schedule_ui_latest
+from modules.ui_queue import schedule_ui, schedule_ui_latest
 from modules.lumascope_api.illumination import LedState
 
 

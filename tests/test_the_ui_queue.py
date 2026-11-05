@@ -4,7 +4,7 @@
 The live display posted each update to the UI thread as a fresh callback,
 so a UI thread held up for four days held every one of them: 8.7 GB,
 replayed in full when it ran again. The dispatcher's queue
-(``modules/kivy_utils.py``) holds two kinds of entry: an event
+(``modules/ui_queue.py``) holds two kinds of entry: an event
 (``schedule_ui``) runs once, in post order; a state (``schedule_ui_latest``)
 keeps one entry per key, moved to the back with its newest value, so a
 held-up UI thread holds one entry per state however long it waits, and a
@@ -18,7 +18,7 @@ import threading
 import pytest
 
 from modules.exceptions import BlockingCallRefusedError
-from modules.kivy_utils import UiDispatcher, schedule_ui, schedule_ui_latest, ui_backlog
+from modules.ui_queue import UiDispatcher, schedule_ui, schedule_ui_latest, ui_backlog
 from modules.scope_session import ScopeSession
 
 

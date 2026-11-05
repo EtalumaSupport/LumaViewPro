@@ -462,7 +462,7 @@ else:
 
 from lib.build_files import build_file
 from modules import gui_logger, live_work
-from modules.kivy_utils import schedule_ui, schedule_ui_latest
+from modules.ui_queue import schedule_ui, schedule_ui_latest
 from modules.app_config import (
     load_mode as _load_mode,
 )
@@ -1020,7 +1020,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Kivy runs on.
         from kivy.clock import Clock
 
-        from modules.kivy_utils import UiDispatcher
+        from modules.ui_queue import UiDispatcher
 
         ScopeSession.set_ui_dispatcher(
             UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())

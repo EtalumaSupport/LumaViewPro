@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import kivy_utils
+from modules import ui_queue
 from modules.scope_session import ScopeSession
 
 
@@ -45,7 +45,7 @@ def test_headless_callback_failure_is_logged_with_traceback(monkeypatch):
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw)))
 
-    kivy_utils.schedule_ui(_boom)
+    ui_queue.schedule_ui(_boom)
 
     assert [(type(ex), kw['solicited']) for ex, kw in reported] == [(RuntimeError, False)], (
         'a callback that raised on the headless branch was not reported; '
@@ -56,13 +56,13 @@ def test_headless_callback_failure_is_logged_with_traceback(monkeypatch):
 def test_headless_callback_failure_does_not_reach_the_caller():
     # Loud-log, not raise: the GUI branch does not crash its caller, and
     # a headless caller that suddenly does would be a new failure mode.
-    kivy_utils.schedule_ui(_boom)
+    ui_queue.schedule_ui(_boom)
 
 
 def test_a_healthy_headless_callback_still_runs_and_logs_nothing(caplog):
     called = MagicMock()
 
-    kivy_utils.schedule_ui(called)
+    ui_queue.schedule_ui(called)
 
     called.assert_called_once_with(0)
     assert not [r for r in caplog.records if r.exc_info], (

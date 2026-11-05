@@ -13,7 +13,7 @@ from ui.hover_behavior import HoverBehavior
 from ui.ui_helpers import run_reported
 import modules.app_context as _app_ctx
 from modules import gui_logger, image_utils
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 

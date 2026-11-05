@@ -14,7 +14,7 @@ reason: it would hold the UI thread for up to its whole timeout.
 
 import pytest
 
-from modules import kivy_utils
+from modules import ui_queue
 from modules.exceptions import BlockingCallRefusedError
 from modules.scope_session import ScopeSession
 from tests.test_a_wait_returns_after_its_own_callbacks import _DeferringDispatcher
@@ -26,7 +26,7 @@ from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _protocol, _
 def ui():
     stand_in = _DeferringDispatcher()
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
+        ui_queue.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
     )
     yield stand_in
     ScopeSession.set_ui_dispatcher(None)

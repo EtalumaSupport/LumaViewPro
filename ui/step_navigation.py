@@ -11,7 +11,7 @@ module directly.
 
 import logging
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.ui_queue import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 

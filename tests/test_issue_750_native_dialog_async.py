@@ -33,7 +33,7 @@ import pathlib
 import time
 import typing
 
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 
 _SRC_PATH = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'file_dialogs.py'
 _SRC = _SRC_PATH.read_text()

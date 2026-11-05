@@ -4,7 +4,7 @@
 Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_state_machine
   - run_events
-  - kivy_utils
+  - ui_queue
   - protocol_cleanup
   - protocol_image_writer
 """
@@ -198,7 +198,7 @@ class TestRunEventsHaveNoAutofocusRestore:
 
 
 # ===========================================================================
-# kivy_utils.py
+# ui_queue.py
 # ===========================================================================
 
 
@@ -206,7 +206,7 @@ class TestScheduleUI:
     """Test schedule_ui falls back to direct call when no Kivy event loop."""
 
     def test_schedule_ui_calls_directly_without_kivy(self):
-        from modules.kivy_utils import schedule_ui
+        from modules.ui_queue import schedule_ui
 
         called_with = []
         schedule_ui(lambda dt: called_with.append(dt))
@@ -214,7 +214,7 @@ class TestScheduleUI:
 
     def test_schedule_ui_passes_dt_zero(self):
         """schedule_ui passes dt=0 to the function (matching Clock convention)."""
-        from modules.kivy_utils import schedule_ui
+        from modules.ui_queue import schedule_ui
 
         received_dt = []
         schedule_ui(lambda dt: received_dt.append(dt))
@@ -222,7 +222,7 @@ class TestScheduleUI:
 
     def test_schedule_ui_multiple_calls(self):
         """schedule_ui can be called multiple times."""
-        from modules.kivy_utils import schedule_ui
+        from modules.ui_queue import schedule_ui
 
         count = []
         for _ in range(5):

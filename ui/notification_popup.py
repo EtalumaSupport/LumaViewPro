@@ -15,7 +15,7 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.widget import Widget
 
 from modules import gui_logger
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 
 if typing.TYPE_CHECKING:
     from modules.objectives_loader import Objective

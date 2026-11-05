@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
 # Executors must be GUI-agnostic. No Kivy imports here.
-# UI callbacks are dispatched via kivy_utils.schedule_ui(), the process's
+# UI callbacks are dispatched via ui_queue.schedule_ui(), the process's
 # one UI dispatcher, read at the moment a callback is dispatched; with
 # none set (tests, headless, REST) a callback runs on the worker.
 
@@ -15,7 +15,7 @@ import queue
 from collections.abc import Callable, Iterator, Sequence
 from lvp_logger import logger
 from lib import profile_trace
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 from modules.notification_center import notifications
 from modules.activity_claim import (
     ActivityClaim,

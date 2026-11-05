@@ -26,7 +26,7 @@ import time
 
 import pytest
 
-from modules import kivy_utils
+from modules import ui_queue
 from modules.exceptions import RunCleanupFailedError
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
@@ -91,7 +91,7 @@ class _DeferringDispatcher:
 def deferred():
     dispatcher = _DeferringDispatcher()
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=dispatcher.schedule, thread=dispatcher.thread)
+        ui_queue.UiDispatcher(schedule=dispatcher.schedule, thread=dispatcher.thread)
     )
     yield dispatcher
     ScopeSession.set_ui_dispatcher(None)
@@ -363,7 +363,7 @@ class TestTheFilesSettleWhenCleanupRaised:
 
 def test_the_stand_in_dispatcher_delivers_on_its_own_thread(deferred):
     seen = []
-    kivy_utils.schedule_ui(lambda dt: seen.append(threading.current_thread()))
+    ui_queue.schedule_ui(lambda dt: seen.append(threading.current_thread()))
     deadline = time.monotonic() + BOUND_S
     while not seen and time.monotonic() < deadline:
         time.sleep(0.01)

@@ -316,7 +316,7 @@ def test_a_background_builds_outcome_lands_behind_its_progress(record):
     """The proxy a build thread writes through puts the outcome up after the progress it follows."""
     import ui.progress_popup as progress_popup
 
-    from modules.kivy_utils import UiDispatcher
+    from modules.ui_queue import UiDispatcher
     from modules.scope_session import ScopeSession
 
     queued = []

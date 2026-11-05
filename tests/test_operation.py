@@ -21,7 +21,7 @@ import threading
 
 import pytest
 
-from modules import kivy_utils
+from modules import ui_queue
 from modules.exceptions import BlockingCallRefusedError
 from modules.notification_center import notifications
 from modules.operation import Operation, settling
@@ -36,7 +36,7 @@ BOUND_S = 10.0
 def ui():
     stand_in = _DeferringDispatcher()
     ScopeSession.set_ui_dispatcher(
-        kivy_utils.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
+        ui_queue.UiDispatcher(schedule=stand_in.schedule, thread=stand_in.thread)
     )
     yield stand_in
     ScopeSession.set_ui_dispatcher(None)

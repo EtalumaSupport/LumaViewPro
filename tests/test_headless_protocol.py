@@ -9,7 +9,7 @@ the import and runtime level:
      ui/image_utils_kivy.py per Rule 15).
   2. A full protocol can be executed through SequencedCaptureRunner
      without any Kivy module loaded in sys.modules.
-  3. kivy_utils.schedule_ui() falls back to direct invocation when no
+  3. ui_queue.schedule_ui() falls back to direct invocation when no
      GUI dispatcher has been set.
 
 This complements test_integration.py, which mocks Kivy out -- here we
@@ -58,7 +58,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
-from modules.kivy_utils import schedule_ui
+from modules.ui_queue import schedule_ui
 from modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
@@ -106,7 +106,7 @@ class TestHeadlessImports:
             import modules.lumascope_api  # noqa: F401 -- loaded for the no-kivy assertion below
             import modules.sequenced_capture_runner  # noqa: F401 -- loaded for the no-kivy assertion below
             import modules.protocol  # noqa: F401 -- loaded for the no-kivy assertion below
-            import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
+            import modules.ui_queue  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
             # Verify no kivy module is in sys.modules
             kivy_loaded = [

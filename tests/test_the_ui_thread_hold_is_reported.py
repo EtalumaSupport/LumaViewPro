@@ -18,7 +18,7 @@ import threading
 import pytest
 
 import modules.metrics_logger as metrics_logger_module
-from modules.kivy_utils import UiDispatcher, ui_backlog
+from modules.ui_queue import UiDispatcher, ui_backlog
 from modules.scope_session import ScopeSession
 from tests.log_capture import messages, records_of
 

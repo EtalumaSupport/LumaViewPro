@@ -12,7 +12,7 @@ import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules import gui_logger, path_utils
 from modules.config_helpers import camera_max_gain_for_ui
-from modules.kivy_utils import schedule_ui_latest
+from modules.ui_queue import schedule_ui_latest
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
 from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat

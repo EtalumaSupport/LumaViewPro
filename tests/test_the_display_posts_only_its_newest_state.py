@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from lib.build_files import build_file
-from modules.kivy_utils import UiDispatcher, ui_backlog
+from modules.ui_queue import UiDispatcher, ui_backlog
 from modules.lumascope_api._lumascope import Lumascope
 from modules.scope_session import ScopeSession
 from ui.scope_display import ScopeDisplay

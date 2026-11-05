@@ -38,7 +38,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
-from modules import kivy_utils
+from modules import ui_queue
 from modules.api_surface import api, api_fields
 from modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedError
 from modules.finite_number import refuse_unless_wait_s
@@ -131,7 +131,7 @@ def refuse_waiting_on_ui_thread(member: str) -> None:
         BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
             thread.
     """
-    if threading.current_thread() is kivy_utils.ui_thread():
+    if threading.current_thread() is ui_queue.ui_thread():
         raise BlockingCallRefusedError('wait_on_ui_thread', member)
 
 

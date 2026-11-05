@@ -14,7 +14,7 @@ import threading
 
 import pytest
 
-from modules.kivy_utils import UiDispatcher
+from modules.ui_queue import UiDispatcher
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope

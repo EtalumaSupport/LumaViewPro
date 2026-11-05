@@ -17,7 +17,7 @@ from kivy.uix.textinput import TextInput
 from modules import gui_logger, live_work
 from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, calling
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.ui_queue import schedule_ui as _schedule_ui
 from modules.run_events import VideoPhase
 
 import modules.app_context as _app_ctx

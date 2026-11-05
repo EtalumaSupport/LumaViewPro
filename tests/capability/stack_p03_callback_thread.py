@@ -13,7 +13,7 @@ import traceback
 
 import harness
 from harness import check, figure, report
-from modules.kivy_utils import UiDispatcher
+from modules.ui_queue import UiDispatcher
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings

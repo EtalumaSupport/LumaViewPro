@@ -9,7 +9,7 @@ from kivy.lang import Builder
 
 from lvp_logger import logger
 from modules import gui_logger
-from modules.kivy_utils import schedule_ui, schedule_ui_latest
+from modules.ui_queue import schedule_ui, schedule_ui_latest
 
 
 class _PopupProxy:
