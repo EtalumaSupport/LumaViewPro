@@ -120,6 +120,85 @@ class SensorExposure:
     pixel_size_um: float | None
 
 
+@dataclass(frozen=True)
+class _DrawingRegisters:
+    """The registers a frame's drawing reads, as they stood when the frame was handed over.
+
+    The drawing runs on the delivery thread, after the frame is numbered and
+    off the camera's lock, so a register written meanwhile -- the test
+    pattern and the focal plane can be written while streaming -- never
+    reaches a frame numbered before the write.
+
+    Attributes:
+        height: The frame's height in post-binning pixels.
+        width: The frame's width in post-binning pixels.
+        pixel_format: The format the frame is drawn in.
+        binning: The binning it is drawn at.
+        test_pattern: What it shows (``set_test_pattern``).
+        focal_z_um: Where the sample is in focus (``set_focal_z``).
+    """
+
+    height: int
+    width: int
+    pixel_format: str
+    binning: int
+    test_pattern: str
+    focal_z_um: float
+
+
+# A frame the sensor has numbered, on its way to the delivery thread: the
+# handler that numbered it, its hand-over, what it was exposed under, the
+# registers it is drawn from, its depth, and its chunks.
+_Numbered = tuple[
+    ImageHandlerBase, HandOver, SensorExposure, _DrawingRegisters, int, dict[str, int | float]
+]
+
+
+class _Stream:
+    """One start-to-stop of a simulated camera's stream: its stop, its two
+    threads, and the numbered frames between them.
+
+    Each start makes its own, so a stop ends only the stream it was made
+    for: a stream stopped and restarted from a frame callback, on the
+    delivery thread, leaves the old stream's threads to end on its event
+    while the new stream runs, and a drawing that outlives the stop's join
+    stores nothing.
+    """
+
+    # Numbered frames waiting to be drawn. Past it the oldest is dropped, its
+    # number left unused, as a camera's buffer pool overwrites a buffer the
+    # host has not taken: a delivery that falls behind drops frames and
+    # never holds back the sensor.
+    QUEUE_FRAMES = 2
+
+    def __init__(self) -> None:
+        self.stop = threading.Event()
+        self.threads: tuple[threading.Thread, ...] = ()
+        self._numbered: collections.deque[_Numbered] = collections.deque(maxlen=self.QUEUE_FRAMES)
+        self._ready = threading.Condition()
+
+    def put(self, numbered: _Numbered) -> None:
+        """Queue a numbered frame for the delivery thread, dropping the oldest past the bound."""
+        with self._ready:
+            self._numbered.append(numbered)
+            self._ready.notify()
+
+    def take(self) -> _Numbered | None:
+        """The oldest numbered frame, waiting for one; None once the stream is stopped."""
+        with self._ready:
+            while not self._numbered and not self.stop.is_set():
+                self._ready.wait()
+            if self.stop.is_set():
+                return None
+            return self._numbered.popleft()
+
+    def end(self) -> None:
+        """Stop the stream: both its threads end at their next look at it."""
+        self.stop.set()
+        with self._ready:
+            self._ready.notify_all()
+
+
 class _SensorInput:
     """A value the simulated sensor applies to the exposures started after it changes.
 
@@ -155,7 +234,7 @@ class _SensorInput:
 class _SimImageHandler(ImageHandlerBase):
     """The real drivers' frame buffer, with a wait for the next stored frame.
 
-    The simulator's acquisition thread stores into it exactly as a real
+    The simulator's delivery thread stores into it exactly as a real
     driver's SDK thread does, so the frame count, the buffered frame and the
     per-frame callbacks all come from the one implementation every driver
     shares. The wait is what ``grab_new_capture`` needs: a frame stored after
@@ -241,7 +320,7 @@ class SimulatedCamera(Camera):
     # rest of the pipeline at the ceiling's period. Measured on this
     # camera with no other lag, at most two frames delivered after a write
     # still show the old state at this depth (the second when the
-    # acquisition loop starts an exposure late, at the time it was due):
+    # sensor loop starts an exposure late, at the time it was due):
     # the shipped count, the a2A3536's measured LED and gain counts. At two,
     # three did, which no shipped count covers.
     SENSOR_PIPELINE_FRAMES = 1
@@ -420,13 +499,14 @@ class SimulatedCamera(Camera):
 
         # A real camera free-runs: while it is grabbing, frames arrive on the
         # SDK's own thread whether or not anyone reads them, and a reader gets
-        # the latest one. The simulator does the same on this acquisition
-        # thread, storing each frame in the shared image handler. A simulator
-        # that made a frame only when one was read showed a frame count that
-        # stood still while nothing read it, so a stream that had died and a
-        # stream nobody was watching looked the same.
-        self._acquisition_thread: threading.Thread | None = None
-        self._acquisition_stop = threading.Event()
+        # the latest one. The simulator does the same on its stream's two
+        # threads: the sensor thread starts and numbers each frame on the
+        # camera's own schedule, and the delivery thread draws it and stores
+        # it in the shared image handler. A simulator that made a frame only
+        # when one was read showed a frame count that stood still while
+        # nothing read it, so a stream that had died and a stream nobody was
+        # watching looked the same. None while not streaming.
+        self._stream: _Stream | None = None
         # A stretch of host steady time (ns) in which the stream delivers
         # nothing while the camera stays connected and grabbing: the silent
         # stall a real camera's USB link or grab loop can fall into. None
@@ -444,7 +524,11 @@ class SimulatedCamera(Camera):
         # scale and the frame are unchanged; and each source's last defocused
         # frame, reused while Z, the objective, the frame and where it was cut
         # are unchanged. Each cache entry is a (key, value) pair, rebuilt when
-        # its key changes.
+        # its key changes. The drawing, on the delivery thread, is their
+        # writer; ``_disconnect`` and ``set_focal_z`` also rebind them to an
+        # empty dict from other threads, which never changes the dict a
+        # drawing holds, and a defocused entry's key carries its blur, so a
+        # stale entry is never served.
         self._specimen = the_slide(slide)
         self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
@@ -560,9 +644,9 @@ class SimulatedCamera(Camera):
             _cam_log.info('sim Disconnected')
             logger.info('[CAM Sim   ] Disconnected')
         # Stop acquisition OUTSIDE self._lock (mirroring stop_grabbing): the
-        # acquisition loop generates frames under self._lock, so joining it
-        # while holding that lock stalls the full join timeout whenever it is
-        # mid-frame.
+        # sensor thread starts and numbers frames under self._lock, so joining
+        # it while holding that lock stalls the full join timeout whenever a
+        # frame is due to start or leave.
         self._stop_acquisition()
         # Reset base lifecycle state OUTSIDE self._lock too:
         # _reset_lifecycle_state takes _lifecycle_lock, and holding sim's _lock
@@ -633,29 +717,37 @@ class SimulatedCamera(Camera):
         self._stop_acquisition()
 
     def _start_acquisition(self) -> None:
-        """Spawn the acquisition thread if not already running."""
-        if self._acquisition_thread is not None and self._acquisition_thread.is_alive():
+        """Start a stream, its sensor and delivery threads, unless one is running."""
+        if self._stream is not None and not self._stream.stop.is_set():
             return
-        self._acquisition_stop.clear()
-        self._acquisition_thread = threading.Thread(
-            target=self._acquisition_loop,
-            name='SimCameraAcquisition',
-            daemon=True,
+        stream = _Stream()
+        stream.threads = (
+            threading.Thread(
+                target=self._sensor_loop, args=(stream,), name='SimCameraSensor', daemon=True
+            ),
+            threading.Thread(
+                target=self._delivery_loop, args=(stream,), name='SimCameraDelivery', daemon=True
+            ),
         )
-        self._acquisition_thread.start()
+        self._stream = stream
+        for thread in stream.threads:
+            thread.start()
 
     def _stop_acquisition(self) -> None:
-        """Signal the acquisition thread to exit and join with a short timeout.
+        """Stop the running stream and join its two threads, each with a short timeout.
 
         A listener that stops grabbing from inside its own frame callback runs
-        on the acquisition thread, which cannot join itself; the stop flag
-        alone ends the loop once the callback returns.
+        on the delivery thread, which cannot join itself; the stream's own
+        stop ends it once the callback returns, and stores nothing more.
         """
-        self._acquisition_stop.set()
-        t = self._acquisition_thread
-        if t is not None and t is not threading.current_thread():
-            t.join(timeout=2.0)
-        self._acquisition_thread = None
+        stream = self._stream
+        self._stream = None
+        if stream is None:
+            return
+        stream.end()
+        for thread in stream.threads:
+            if thread is not threading.current_thread():
+                thread.join(timeout=2.0)
 
     def leave_bus(self) -> None:
         """The camera leaves the bus, as a real one is marked when its
@@ -791,11 +883,12 @@ class SimulatedCamera(Camera):
         self._backlog_frames = frames
 
     def withhold_chunk(self, name: str, frames: int) -> None:
-        """Hand over the next ``frames`` frames without their ``name`` chunk.
+        """Deliver the next ``frames`` frames stored without their ``name`` chunk.
 
         As a Basler frame arrives whose chunk the driver could not read: the
-        frame is delivered, and only that one fact of it is missing. 0 takes
-        back a withholding no frame has met yet.
+        frame is delivered, and only that one fact of it is missing. A frame
+        dropped on its way to the store is not one of them. 0 takes back a
+        withholding no frame has met yet.
         """
         if name not in self.CHUNKS:
             raise ValueError(f'{name!r} is not one of {self.CHUNKS}')
@@ -828,28 +921,32 @@ class SimulatedCamera(Camera):
             return None
         return link_info(transport='USB3')
 
-    def _acquisition_loop(self) -> None:
-        """Store one new frame per frame interval while grabbing.
+    def _sensor_loop(self, stream: _Stream) -> None:
+        """Start, expose and number one frame per frame interval while grabbing.
+
+        The camera's side of the stream: it keeps the sensor's schedule and
+        hands each numbered frame to the delivery thread (``_delivery_loop``),
+        which draws and stores it. It never draws, carries or stores a frame
+        and never waits on the delivery thread, so however long the host takes
+        to draw a frame, a frame is numbered on the camera's own time, as a
+        camera's is: a slow drawing delays when a frame is stored, or drops
+        it, and never when it was numbered.
 
         The interval is the exposure, never shorter than the delivery
-        ceiling's period (``_MAX_DELIVERY_FPS``). Frames start on a
-        fixed schedule on the host's steady clock, so the host time spent
-        generating and delivering a frame comes out of the interval rather
-        than adding to it -- a real camera's frame period does not include
-        host work. A frame is started at the time it was due, however late
-        the thread reaches it: its exposure start and the settings it is
-        made under are read at that time, so two exposures never start
-        less than an interval apart on the camera's clock. A loop that
-        falls a whole interval behind starts the next frame at the time it
-        found itself late and re-anchors there, never starting every frame
-        it missed.
+        ceiling's period (``_MAX_DELIVERY_FPS``). Frames start on a fixed
+        schedule on the host's steady clock. A frame is started at the time
+        it was due, however late the thread reaches it: its exposure start
+        and the settings it is made under are read at that time, so two
+        exposures never start less than an interval apart on the camera's
+        clock. A loop that falls a whole interval behind starts the next
+        frame at the time it found itself late and re-anchors there, never
+        starting every frame it missed.
 
         A frame leaves the pipeline its own frame interval after it starts,
         plus ``SENSOR_PIPELINE_FRAMES - 1`` of the ceiling's periods, as the
         camera hands a frame over on its own time. It is numbered as it
-        leaves, before its image is made and carried, then goes through the
-        image handler's ``_store_frame``, which counts it, buffers it with
-        its depth and fires the per-frame callbacks.
+        leaves (``hand_over``), with its chunks and the registers it is drawn
+        from taken at the same moment under the camera's lock.
 
         A frame is exposed under the settings in force when it starts
         (``SensorExposure``), and the frames started and not yet out of the
@@ -862,19 +959,24 @@ class SimulatedCamera(Camera):
         the frame is tagged, so the chunk leads the content as it does on
         the bench.
         """
+        try:
+            self._run_sensor(stream)
+        finally:
+            # A sensor that has stopped -- grabbing ended, the camera left
+            # the bus -- ends its stream, so the delivery thread does not
+            # wait on frames that will never come.
+            stream.end()
+
+    def _run_sensor(self, stream: _Stream) -> None:
         next_due = host_clock.steady_ns()
         stalled = False
-        # Frames handed over and on their way to the store, oldest first
-        # (delay_delivery).
-        on_the_way: collections.deque = collections.deque()
         # The frames started and not yet out of the pipeline, oldest first,
         # each with the time it leaves.
         in_flight: collections.deque = collections.deque()
         readout_ns = round((self.SENSOR_PIPELINE_FRAMES - 1) * 1e9 / self._MAX_DELIVERY_FPS)
-        while not self._acquisition_stop.is_set():
+        while True:
             handler = self.cam_image_handler
-            # A camera off the bus delivers nothing, as a removed one does.
-            if handler is None or not self._grabbing or self.is_device_removed():
+            if handler is None or not self._delivering(stream):
                 return
             held = self._held_window
             now = host_clock.steady_ns()
@@ -884,7 +986,7 @@ class SimulatedCamera(Camera):
                 if not stalled:
                     stalled = True
                     logger.info('[CAM Sim   ] simulated stall: frames stopped')
-                if self._acquisition_stop.wait(
+                if stream.stop.wait(
                     min(self._frame_interval_s(self._exposure_us), (held[1] - now) / 1e9)
                 ):
                     return
@@ -913,41 +1015,58 @@ class SimulatedCamera(Camera):
                 continue
             if not in_flight or in_flight[0][1] > now:
                 wake_at = next_due if not in_flight else min(next_due, in_flight[0][1])
-                if self._acquisition_stop.wait((wake_at - now) / 1e9):
+                if stream.stop.wait((wake_at - now) / 1e9):
                     return
                 continue
             with self._lock:
                 exposure, _ = in_flight.popleft()
                 # The frame is numbered and timed as it leaves the pipeline,
-                # as a camera hands a frame over on its own time, before the
-                # host makes and carries it. A write waits on this lock while
-                # the image is made and can land in the transfer, so a frame
-                # numbered after them would be placed after a change it
-                # predates, and the count a change needs would grow with the
-                # host's image time.
+                # as a camera hands a frame over on its own time, and a write
+                # is placed in the stream by the same count: a frame started
+                # before a write is numbered before it.
                 handed_over = handler.hand_over()
-                image = self._generate_image(exposure)
+                registers = self._drawing_registers()
                 # The depth is the format the frame was made under, as a real
                 # camera's comes from its grab result; never a read of the
                 # camera's node, which an injected read fault replaces.
-                bits = self.significant_bits_for_format(self._pixel_format)
+                bits = self.significant_bits_for_format(registers.pixel_format)
                 chunks = {
                     'FrameID': exposure.frame_id,
                     'Timestamp': exposure.started_ticks,
                     'ExposureTime': self._exposure_us,
                     'Gain': self._gain,
                 }
-                for name, left in list(self._withheld_chunks.items()):
-                    del chunks[name]
-                    if left > 1:
-                        self._withheld_chunks[name] = left - 1
-                    else:
-                        del self._withheld_chunks[name]
+            stream.put((handler, handed_over, exposure, registers, bits, chunks))
+
+    def _delivering(self, stream: _Stream) -> bool:
+        """Whether ``stream`` may still number and store frames: it is not
+        stopped, and the camera is grabbing and on the bus. A camera off the
+        bus delivers nothing, as a removed one does: neither a frame it would
+        number nor one already numbered and on its way to the store."""
+        return not stream.stop.is_set() and self._grabbing and not self.is_device_removed()
+
+    def _delivery_loop(self, stream: _Stream) -> None:
+        """Draw, carry and store each frame the sensor numbers, in number order.
+
+        The host's side of the stream, where a real host's SDK and driver do
+        their work: the frame is drawn off the camera's lock from what it was
+        exposed under and the registers it was numbered with, carried (the
+        realistic preset's transfer), and stored through the image handler's
+        ``_store_frame``, which counts it, buffers it with its depth and fires
+        the per-frame callbacks on this thread. Nothing is stored once the
+        stream is stopped or the camera has left the bus (``_delivering``).
+        """
+        # Frames drawn and on their way to the store, oldest first
+        # (delay_delivery).
+        on_the_way: collections.deque = collections.deque()
+        while (numbered := stream.take()) is not None:
+            handler, handed_over, exposure, registers, bits, chunks = numbered
+            image = self._generate_image(exposure, registers)
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being numbered and made and the host storing it.
-            if self._grab_delay > 0:
-                time.sleep(self._grab_delay)
+            if self._grab_delay > 0 and stream.stop.wait(self._grab_delay):
+                return
             # A stall that began while this frame was being made holds it
             # too: it had not reached the host, and nothing reaches the host
             # during a stall. Without this, the one frame in the making when
@@ -962,6 +1081,8 @@ class SimulatedCamera(Camera):
             # backlog taken back releases every frame it held.
             on_the_way.append((handed_over, image, bits, chunks, exposure))
             while len(on_the_way) > self._backlog_frames:
+                if not self._delivering(stream):
+                    return
                 self._deliver(handler, *on_the_way.popleft())
 
     # ------------------------------------------------------------------
@@ -976,8 +1097,20 @@ class SimulatedCamera(Camera):
         chunks: dict[str, int | float],
         exposure: SensorExposure,
     ) -> None:
-        """Store one handed-over frame, and keep what it was exposed under."""
+        """Store one handed-over frame, and keep what it was exposed under.
+
+        A withheld chunk (``withhold_chunk``) is taken off here, as the host
+        has the frame: a driver fails to read a chunk of a frame that reaches
+        it, so a frame dropped before the store spends no withholding.
+        """
         with self._lock:
+            chunks = dict(chunks)
+            for name, left in list(self._withheld_chunks.items()):
+                del chunks[name]
+                if left > 1:
+                    self._withheld_chunks[name] = left - 1
+                else:
+                    del self._withheld_chunks[name]
             self._exposure_records[exposure.frame_id] = exposure
             while len(self._exposure_records) > self.EXPOSURE_RECORDS_KEPT:
                 self._exposure_records.popitem(last=False)
@@ -1376,7 +1509,7 @@ class SimulatedCamera(Camera):
         return target
 
     def _specimen_frame(
-        self, h: int, w: int, exposure: SensorExposure
+        self, exposure: SensorExposure, registers: _DrawingRegisters
     ) -> tuple[np.ndarray, str, tuple]:
         """The in-focus specimen as this frame sees it, which drift step it is, and where it was cut.
 
@@ -1387,7 +1520,7 @@ class SimulatedCamera(Camera):
         """
         step = self._drift_index % len(DRIFT_STEPS)
         self._drift_index += 1
-        b = self._binning
+        h, w, b = registers.height, registers.width, registers.binning
         place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
         cached = self._specimen_cut.get(step)
         if cached is None or cached[0] != place:
@@ -1421,7 +1554,7 @@ class SimulatedCamera(Camera):
 
         Args:
             started_ns: The host steady time the frame was due to start,
-                earlier than now when the acquisition loop runs late.
+                earlier than now when the sensor loop runs late.
         """
         self._read_scope_inputs()
         x_um, y_um = self._input_at('stage_xy', started_ns)
@@ -1448,25 +1581,30 @@ class SimulatedCamera(Camera):
             pixel_size_um=um_per_px,
         )
 
-    def _blur_sigma_px(self, exposure: SensorExposure) -> float:
+    def _blur_sigma_px(self, exposure: SensorExposure, registers: _DrawingRegisters) -> float:
         """The defocus blur ``exposure`` was made with, as a sigma in pixels."""
         if exposure.z_um is None or exposure.depth_of_field_um is None:
             # No focus axis to read (a manual scope is focused by hand), or
             # no objective known: there is no focus to model.
             return 0.0
         dof = exposure.depth_of_field_um
-        defocus = abs(exposure.z_um - self._focal_z)
+        defocus = abs(exposure.z_um - registers.focal_z_um)
         # A binned pixel is larger, so the same blur spans fewer of them.
-        return self._BLUR_PX_PER_DOF * defocus / dof / self._binning
+        return self._BLUR_PX_PER_DOF * defocus / dof / registers.binning
 
     def _defocus(
-        self, sharp: np.ndarray, source: str, place: tuple | None, exposure: SensorExposure
+        self,
+        sharp: np.ndarray,
+        source: str,
+        place: tuple | None,
+        exposure: SensorExposure,
+        registers: _DrawingRegisters,
     ) -> np.ndarray:
         """``sharp``, cut at ``place``, as the objective imaged it for ``exposure``."""
-        sigma = self._blur_sigma_px(exposure)
+        sigma = self._blur_sigma_px(exposure, registers)
         if sigma < 0.3:
             return sharp
-        key = (sharp.shape, self._binning, round(sigma, 2), place)
+        key = (sharp.shape, registers.binning, round(sigma, 2), place)
         cached = self._defocused.get(source)
         if cached is not None and cached[0] == key:
             return cached[1]
@@ -1483,6 +1621,7 @@ class SimulatedCamera(Camera):
         max_val: int,
         brightness: float,
         exposure: SensorExposure,
+        registers: _DrawingRegisters,
     ) -> np.ndarray:
         """A sample frame: defocused, scaled to ``dtype`` and lit.
 
@@ -1493,7 +1632,7 @@ class SimulatedCamera(Camera):
         """
         if brightness <= 0.0:
             return np.zeros(sharp.shape, dtype=dtype)
-        img = self._defocus(sharp, source, place, exposure)
+        img = self._defocus(sharp, source, place, exposure, registers)
         if dtype == np.uint16:
             scaled = img.astype(np.float32) * (max_val / 255.0 * brightness)
             return np.minimum(scaled, max_val).astype(dtype)
@@ -1527,26 +1666,42 @@ class SimulatedCamera(Camera):
         exposure_s = exposure.exposure_us / 1_000_000.0
         return exposure_s * 10.0 ** (exposure.gain_db / 20.0) * exposure.light
 
-    def _generate_image(self, exposure: SensorExposure) -> np.ndarray:
-        """Generate a synthetic image as ``exposure`` made it, at the current geometry and pattern."""
-        h = self._height
-        w = self._width
+    def _drawing_registers(self) -> _DrawingRegisters:
+        """The registers a frame's drawing reads, as they stand now. Call with ``_lock`` held."""
+        return _DrawingRegisters(
+            height=self._height,
+            width=self._width,
+            pixel_format=self._pixel_format,
+            binning=self._binning,
+            test_pattern=self._test_pattern,
+            focal_z_um=self._focal_z,
+        )
 
-        if self._pixel_format in ('Mono10', 'Mono12'):
+    def _generate_image(self, exposure: SensorExposure, registers: _DrawingRegisters) -> np.ndarray:
+        """Generate a synthetic image as ``exposure`` made it, at ``registers``' geometry and pattern.
+
+        Reads no writable register of the camera's own, so it runs off the
+        camera's lock while writes land.
+        """
+        h = registers.height
+        w = registers.width
+        pattern = registers.test_pattern
+
+        if registers.pixel_format in ('Mono10', 'Mono12'):
             dtype = np.uint16
-            max_val = 4095 if self._pixel_format == 'Mono12' else 1023
+            max_val = 4095 if registers.pixel_format == 'Mono12' else 1023
         else:
             dtype = np.uint8
             max_val = 255
 
         brightness = self._brightness(exposure)
-        if self._test_pattern == 'black':
+        if pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
-        elif self._test_pattern == 'white':
+        elif pattern == 'white':
             img = np.full((h, w), max_val, dtype=dtype)
-        elif self._test_pattern == 'noise':
+        elif pattern == 'noise':
             img = np.random.randint(0, int(max_val * min(1.0, brightness)) + 1, (h, w), dtype=dtype)
-        elif self._test_pattern == 'focus_target':
+        elif pattern == 'focus_target':
             img = self._render_sample(
                 self._make_focus_target(h, w),
                 'focus_target',
@@ -1555,16 +1710,18 @@ class SimulatedCamera(Camera):
                 max_val,
                 brightness,
                 exposure,
+                registers,
             )
         else:
             # No specific pattern was asked for: the specimen.
-            if self._test_pattern != 'specimen':
+            if pattern != 'specimen':
                 logger.warning(
-                    f'[SimCamera ] Unknown test pattern '
-                    f'{self._test_pattern!r} -- rendering the specimen field'
+                    f'[SimCamera ] Unknown test pattern {pattern!r} -- rendering the specimen field'
                 )
-            frame, source, place = self._specimen_frame(h, w, exposure)
-            img = self._render_sample(frame, source, place, dtype, max_val, brightness, exposure)
+            frame, source, place = self._specimen_frame(exposure, registers)
+            img = self._render_sample(
+                frame, source, place, dtype, max_val, brightness, exposure, registers
+            )
 
         if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale
@@ -1577,7 +1734,7 @@ class SimulatedCamera(Camera):
     def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Wait for a frame stored after this call, then return it.
 
-        The acquisition thread is the only producer, as a real camera's SDK
+        The delivery thread is the only producer, as a real camera's SDK
         thread is, so a still capture waits for the stream rather than making
         a frame of its own: the frame it gets is one the stream delivered,
         counted once, under the settings in effect when it was made.

@@ -2,7 +2,7 @@
 """The simulated camera's frame fields all describe the same frame.
 
 The simulator free-runs as a real camera does: while it is grabbing, its
-acquisition thread stores one frame per interval in the image handler every
+stream stores one frame per interval in the image handler every
 driver shares, whether or not anything reads it. The handler writes pixels,
 timestamp, depth and arrival ordinal under one lock, so a reader gets all
 four from the same frame.
@@ -48,13 +48,13 @@ def _cam():
 def _poll_across_ten_stores(cam, poll):
     """Call ``poll`` back to back until the camera has stored ten more frames.
 
-    The polls interleave with the acquisition thread's stores for exactly
+    The polls interleave with the delivery thread's stores for exactly
     as long as ten stores take; the bound is the owner's own frame wait,
     whose timeout is the failure, never a fixed window. ``poll`` runs at
     least ten times.
     """
     handler = cam.cam_image_handler
-    tenth = handler.frames_delivered + 9
+    tenth = handler.delivered_counts[0] + 9
     stored = threading.Event()
     reached = []
 
@@ -99,10 +99,18 @@ class TestTheOrdinalAdvancesWithTheFrame:
         assert seq2 > seq1, 'a newer frame must not reuse the previous number'
 
     def test_the_ordinal_a_poll_returns_is_the_one_the_gate_reads(self):
+        """A frame's number is the gate's count of frames handed over: a frame
+        made after a read of the count carries a number past it and no
+        further than the count reads after. Not equal to the count: a frame
+        numbered and not yet stored, or dropped, has taken a number too."""
         cam = _cam()
-        grab_a_frame_made_after_now(cam)
-        cam.stop_grabbing()
-        assert cam.grab().seq == cam.frames_delivered
+        try:
+            before = cam.frames_delivered
+            seq = grab_a_frame_made_after_now(cam).seq
+            after = cam.frames_delivered
+        finally:
+            cam.stop_grabbing()
+        assert before < seq <= after
 
     def test_callback_frames_are_the_counted_frames(self):
         cam = _cam()
@@ -160,14 +168,15 @@ class TestFieldsSurviveConcurrentStores:
 
         cam = SimulatedCamera(width=32, height=24)
         cam.exposure_t(1.0)  # the delivery ceiling: as many stores as it makes
-        # Stamp each generated frame's own serial into a pixel, so the PIXELS
-        # say which frame they are. The nth frame generated carries stamp n and
-        # must be handed out as ordinal n, however reads and stores interleave.
-        counter = itertools.count(1)
 
-        def stamped(_exposure_us):
+        # Stamp each frame's camera counter into a pixel, so the PIXELS say
+        # which frame they are. The sensor numbers every frame it counts, so
+        # within a stream a frame's ordinal is its counter plus one offset,
+        # however reads and stores interleave and whichever frames are
+        # dropped on the way to the store.
+        def stamped(exposure, _registers):
             frame = np.zeros((24, 32), dtype=np.uint8)
-            frame[0, 0] = next(counter) % 251
+            frame[0, 0] = exposure.frame_id % 251
             return frame
 
         monkeypatch.setattr(cam, '_generate_image', stamped)
@@ -176,11 +185,14 @@ class TestFieldsSurviveConcurrentStores:
         try:
             grab_a_frame_made_after_now(cam)
 
+            first = cam.grab()
+            offset = first.seq - first.chunks['FrameID']
+
             def poll():
                 nonlocal polls
                 frame = cam.grab()
                 img, seq = frame.image, frame.seq
-                assert img[0, 0] == seq % 251, (
+                assert img[0, 0] == (seq - offset) % 251, (
                     f'frame stamped {img[0, 0]} was handed out as ordinal {seq}'
                 )
                 polls += 1
@@ -205,7 +217,7 @@ class TestFieldsSurviveConcurrentStores:
             while len(set(seen)) < 10:
                 seq = cam.grab().seq
                 if seen and seq == seen[-1]:
-                    assert handler.wait_for_frame_after(seq, 5.0), (
+                    assert handler.wait_for_frame_after(handler.delivered_counts[0], 5.0), (
                         'the camera stopped storing frames'
                     )
                 seen.append(seq)

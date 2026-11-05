@@ -123,7 +123,7 @@ def test_a_capture_records_the_frame_it_returns_when_a_newer_one_arrives_during_
 
     def measure_then_wait_for_a_newer_frame(image, significant_bits):
         answer = measure(image, significant_bits)
-        assert handler.wait_for_frame_after(handler.frames_delivered, 5.0)
+        assert handler.wait_for_frame_after(handler.delivered_counts[0], 5.0)
         newer.set()
         return answer
 

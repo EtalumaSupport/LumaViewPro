@@ -213,7 +213,7 @@ class TestSimPostBinningContract:
 
     def _grab_shape(self, cam):
         return cam._generate_image(
-            cam._start_exposure(host_clock.steady_ns())
+            cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
         ).shape  # (height, width)
 
     def test_set_frame_size_is_post_binning(self):

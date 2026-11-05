@@ -987,7 +987,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_test_pattern(enabled=False)
         frames = [
             np.asarray(
-                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+                cam._generate_image(
+                    cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
+                ),
+                dtype=float,
             )
             for _ in range(4)
         ]
@@ -999,7 +1002,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera(width=480, height=300)
         frames = [
             np.asarray(
-                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+                cam._generate_image(
+                    cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
+                ),
+                dtype=float,
             )
             for _ in range(4)
         ]
@@ -1012,7 +1018,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_test_pattern(enabled=True, pattern='NotAPattern')
         caplog.clear()
         img = np.asarray(
-            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            cam._generate_image(
+                cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
+            ),
+            dtype=float,
         )
 
         assert img.std() > 0, 'a bad name must still produce a usable frame'
@@ -1032,7 +1041,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_test_pattern(enabled=False)
         cam._pixel_format = 'Mono12'
         img = np.asarray(
-            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            cam._generate_image(
+                cam._start_exposure(host_clock.steady_ns()), cam._drawing_registers()
+            ),
+            dtype=float,
         )
         assert img.max() > 255, (
             f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
@@ -1962,11 +1974,11 @@ class TestTheCamerasFaultDoors:
         cam.open_and_start()
         try:
             handler = cam.cam_image_handler
-            assert handler.wait_for_frame_after(handler.frames_delivered, 2.0)
+            assert handler.wait_for_frame_after(handler.delivered_counts[0], 2.0)
             cam.leave_bus()
             # A frame already on its way when the camera left may still land.
-            handler.wait_for_frame_after(handler.frames_delivered, 0.1)
-            assert not handler.wait_for_frame_after(handler.frames_delivered, 0.5)
+            handler.wait_for_frame_after(handler.delivered_counts[0], 0.1)
+            assert not handler.wait_for_frame_after(handler.delivered_counts[0], 0.5)
         finally:
             cam.stop_grabbing()
 

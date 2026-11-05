@@ -428,7 +428,7 @@ def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
     handler = cam.cam_image_handler
     deadline = time.monotonic() + timeout_s
     while True:
-        seen = handler.frames_delivered
+        seen = handler.delivered_counts[0]
         remaining = deadline - time.monotonic()
         assert remaining > 0 and handler.wait_for_frame_after(seen, remaining), (
             f'the camera stored no frame exposed after the change within {timeout_s} s'

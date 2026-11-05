@@ -6522,7 +6522,7 @@ signature is `cb(frame)`, the camera's `Frame` record
 `timestamp`, `arrived_ns`, `significant_bits`, `chunks`);
 runs on the SDK
 callback thread (Pylon `PylonImageGrab` / IDS grab loop /
-simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
+simulated delivery thread). Listeners MUST NOT block -- heavy work belongs
 on an executor.
 
 **Args**

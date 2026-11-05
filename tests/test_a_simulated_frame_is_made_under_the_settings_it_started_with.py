@@ -214,12 +214,12 @@ def test_a_frame_leaves_the_pipeline_its_own_period_after_it_starts():
     )
 
 
-def test_a_late_acquisition_thread_never_starts_two_exposures_less_than_a_period_apart():
+def test_a_late_sensor_thread_never_starts_two_exposures_less_than_a_period_apart():
     """However late the host reaches a frame's start, the exposures start a frame period apart.
 
     A sensor starts its exposures on its own clock; the host thread that
-    simulates it can be held past a start, by a slow callback or by the
-    other threads of a loaded process. A frame started when the thread got
+    simulates it can be held past a start, by a write holding the camera's
+    lock or by the other threads of a loaded process. A frame started when the thread got
     there, rather than when it was due, would start the next one at once to
     re-anchor, two exposures a fraction of a millisecond apart, which no
     camera makes and which puts frames before a change that a camera's would
@@ -234,9 +234,11 @@ def test_a_late_acquisition_thread_never_starts_two_exposures_less_than_a_period
     def on_frame(frame):
         stamps.append(frame.chunks['Timestamp'])
         if len(stamps) in (3, 8):
-            # The callback runs on the camera's thread: holding it here is a
-            # host that reaches the next start more than a period late.
-            time.sleep(2 * period_ns / 1e9)
+            # The sensor thread starts each frame under the camera's lock:
+            # holding the lock here is a host that reaches the next start
+            # more than a period late.
+            with cam._lock:
+                time.sleep(2 * period_ns / 1e9)
         if len(stamps) == 14:
             enough.set()
 
@@ -265,7 +267,9 @@ def test_each_frame_carries_its_counter_and_its_exposure_start_on_the_cameras_cl
 
     ids = [f.chunks['FrameID'] for f in frames]
     starts = [f.chunks['Timestamp'] for f in frames]
-    assert ids == list(range(ids[0], ids[0] + 4))
+    # Rising, not consecutive: a frame the host drops on its way to the
+    # store has taken its number, as on a camera.
+    assert ids == sorted(ids) and len(set(ids)) == 4
     assert starts == sorted(starts) and len(set(starts)) == 4
     # The first frame delivered after ``before`` was started ahead of it:
     # the sensor had it in its pipeline.

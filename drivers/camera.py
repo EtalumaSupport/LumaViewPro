@@ -280,7 +280,7 @@ class ImageHandlerBase:
         Callback signature: ``cb(frame)``, the stored ``Frame``. Runs on the
         worker thread that processes SDK callbacks (Pylon
         ``PylonImageGrabWorker`` for Stage B of the OnImageGrabbed split
-        / IDS grab loop / simulated acquisition thread). The Pylon SDK's native grab
+        / IDS grab loop / simulated delivery thread). The Pylon SDK's native grab
         thread (``PylonImageGrab``) only enqueues to Stage B and does
         not fire callbacks directly. Callbacks MUST NOT block -- they
         share the worker thread with the next frame. Heavy work (file IO,
