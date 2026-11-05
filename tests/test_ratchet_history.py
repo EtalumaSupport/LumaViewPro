@@ -215,3 +215,49 @@ def test_each_point_is_on_the_trunks_own_line(monkeypatch, tmp_path):
     points = dict(rh.sample_points('2026-09-01', '2026-09-04', 1, 'trunk'))
 
     assert points == {'2026-09-01': a[:8], '2026-09-02': b[:8], '2026-09-04': m[:8]}
+
+
+_BODY_PIN = (
+    'from pathlib import Path\n'
+    '\n'
+    'def test_a():\n'
+    "    assert 'x' in Path('modules/x.py').read_text()\n"
+)
+
+
+def test_a_tree_from_before_a_move_is_measured_in_the_instruments_layout(monkeypatch, tmp_path):
+    """A sampled tree holding a moved folder at its old path is measured as if
+    it held it at the new one, so the two sides of the move compare.
+
+    The move is ``old_guards`` -> ``tests/deep/guards``, a path the
+    instrument tracks: two folders below ``tests/``, which the first commit
+    lacks, so the move must create every folder above the new path, as
+    ``src/_lumascope/modules`` will need. The second commit holds a
+    different file at the new path, so a move from the first sample left in
+    the scratch tree would abort the second checkout or be counted in it.
+    """
+    import subprocess
+
+    instrument = tmp_path / 'instrument'
+    (instrument / 'tests' / 'deep' / 'guards').mkdir(parents=True)
+    (instrument / 'tests' / 'deep' / 'guards' / 'test_kept.py').write_text('')
+    _track(instrument)
+    sampled = tmp_path / 'sampled'
+    sampled.mkdir()
+    subprocess.run(['git', 'init', '-q', '-b', 'trunk'], cwd=sampled, check=True)
+    (sampled / 'old_guards').mkdir()
+    (sampled / 'old_guards' / 'test_before.py').write_text(_BODY_PIN)
+    subprocess.run(['git', 'add', '.'], cwd=sampled, check=True)
+    before = _commit(sampled, 'before the move', '2026-09-01')
+    subprocess.run(['git', 'rm', '-q', '-r', 'old_guards'], cwd=sampled, check=True)
+    (sampled / 'tests' / 'deep' / 'guards').mkdir(parents=True)
+    (sampled / 'tests' / 'deep' / 'guards' / 'test_after.py').write_text(_BODY_PIN)
+    subprocess.run(['git', 'add', '.'], cwd=sampled, check=True)
+    after = _commit(sampled, 'after the move', '2026-09-02')
+    monkeypatch.setattr(rh, 'REPO', instrument)
+    monkeypatch.setattr(rh, 'LAYOUT_MOVES', (('old_guards', 'tests/deep/guards'),))
+
+    rows = rh.run([('2026-09-01', before[:8]), ('2026-09-02', after[:8])], 'trunk', repo=sampled)
+
+    assert [row['fragile src pins'] for row in rows] == [1, 1], rows
+    assert [row['layout moved'] for row in rows] == [['old_guards -> tests/deep/guards'], []]

@@ -189,18 +189,49 @@ def measure_tree(worktree):
     return row
 
 
-def run(points, branch):
+# (old path, new path): a folder the code has moved. A sampled tree that
+# tracks the old path, and nothing under the new, has the old path moved to
+# the new before it is measured, whenever the instrument (REPO) itself
+# tracks the new path, so a tree from before a move is measured in the
+# layout today's detectors read and the two sides of the move compare.
+# Read from the two trees, not from a commit id: until the move lands the
+# instrument tracks nothing under the new path and nothing moves.
+LAYOUT_MOVES = (('modules', 'src/_lumascope/modules'),)
+
+
+def _tracks(root, folder):
+    return bool(_seams.tracked_files(pattern=f'{folder}/**', root=root))
+
+
+def _bring_to_instrument_layout(tree):
+    """Move each LAYOUT_MOVES old path to its new one in `tree`'s index and
+    disk, creating every folder above the new path; returns the moves made."""
+    moved = []
+    for old, new in LAYOUT_MOVES:
+        if _tracks(REPO, new) and _tracks(tree, old) and not _tracks(tree, new):
+            pathlib.Path(tree, new).parent.mkdir(parents=True, exist_ok=True)
+            _git('mv', old, new, cwd=tree)
+            moved.append(f'{old} -> {new}')
+    return moved
+
+
+def run(points, branch, repo=REPO):
+    """Measure each (date, sha) of `repo`'s `branch` with this checkout's
+    instrument. The scratch worktree is reset before each checkout, so a
+    move made in one sample is never carried into the next."""
     worktree = pathlib.Path(tempfile.mkdtemp(prefix='ratchet_history_'))
     rows = []
     try:
-        _git('worktree', 'add', '-q', '--detach', str(worktree), branch)
+        _git('worktree', 'add', '-q', '--detach', str(worktree), branch, cwd=repo)
         for date, sha in points:
+            _git('reset', '--hard', '-q', cwd=worktree)
             _git('checkout', '--detach', '-q', sha, cwd=worktree)
-            rows.append({'date': date, 'sha': sha, **measure_tree(worktree)})
+            moved = _bring_to_instrument_layout(worktree)
+            rows.append({'date': date, 'sha': sha, 'layout moved': moved, **measure_tree(worktree)})
             print(f'  measured {date} {sha}', file=sys.stderr, flush=True)
     finally:
         with contextlib.suppress(Exception):
-            _git('worktree', 'remove', '--force', str(worktree))
+            _git('worktree', 'remove', '--force', str(worktree), cwd=repo)
         shutil.rmtree(worktree, ignore_errors=True)
     return rows
 
