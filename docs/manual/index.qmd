@@ -14,6 +14,7 @@ what each model has.
 | LS850-0 | yes | yes | no | Brightfield |
 | LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast |
 | LS560 | no | no | no | BF-Phase, 488 nm |
+| LS460 | no | no | no | BF-Phase |
 | LS620 | no | no | no | BF-Phase, 405 nm, 488 nm, 589 nm |
 | LS720 | yes | yes | no | BF-Phase, 405 nm, 488 nm, 589 nm |
 

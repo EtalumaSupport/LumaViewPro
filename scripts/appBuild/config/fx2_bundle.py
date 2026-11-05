@@ -1,4 +1,4 @@
-"""What the Windows release build carries for the FX2 (LS560, LS620, LS720).
+"""What the Windows release build carries for the FX2 (LS460, LS560, LS620, LS720).
 
 Three kinds of file, each where the frozen app or the installer looks for it:
 

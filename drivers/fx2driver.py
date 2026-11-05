@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""FX2 driver for Lumascope Classic (LS620 / LS560 / LS720).
+"""FX2 driver for Lumascope Classic (LS620 / LS560 / LS460 / LS720).
 
 Cypress FX2 USB2 chip + Aptina MT9P031 image sensor, with LED control via
 I2C through the same USB device. One physical device, two LumaViewPro
@@ -305,7 +305,7 @@ class _Fx2Gate(NamedTuple):
             reads it; None where it is not in use or there is no libusb1.
         available: The FX2 drivers register.
         unavailable_reason: Why not, in a few words, for the registry to
-            carry beside the drivers it declines: an LS560 / LS620 / LS720
+            carry beside the drivers it declines: an LS460 / LS560 / LS620 / LS720
             whose camera is not found then says which driver did not load.
     """
 
@@ -408,7 +408,7 @@ def fx2_readiness_line() -> str:
         for name, present in fx2_readiness().items()
     )
     verdict = 'ready' if _FX2_GATE.available else 'NOT ready'
-    line = f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
+    line = f'FX2 (LS460/LS560/LS620/LS720) support: {verdict} -- {terms}'
     if _FX2_GATE.has_usb and _FX2_GATE.library_path is None:
         line += f' ({_FX2_GATE.library_refusal})'
     return line

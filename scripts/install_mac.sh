@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
-# FX2 scopes (LS560/LS620/LS720) run on the libusb that requirements.txt
+# FX2 scopes (LS460/LS560/LS620/LS720) run on the libusb that requirements.txt
 # installs (libusb-package); nothing outside pip is needed. The driver's own
 # availability gate reports whether it loaded, so the installer never guesses.
 fx2_driver_py() {
@@ -21,7 +21,7 @@ fx2_driver_py() {
 
 setup_fx2_usb() {
     echo ""
-    echo "Checking USB support for FX2 scopes (LS560/LS620/LS720)..."
+    echo "Checking USB support for FX2 scopes (LS460/LS560/LS620/LS720)..."
     # A driver that fails to import aborts the install here (set -e) rather
     # than printing a readiness line it could not compute.
     fx2_driver_py 'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'

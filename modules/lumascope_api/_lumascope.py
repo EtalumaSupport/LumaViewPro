@@ -17,7 +17,7 @@ from modules.lumascope_api._constants import SIMULATOR_TIERS
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 
-# FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
+# FX2 (Lumaview Classic LS460/LS560/LS620/LS720) -- the import side-effect is
 # the entire point: it fires the @camera_registry.register('fx2') and
 # @led_registry.register('fx2') decorators inside the module. Nothing
 # in this file references fx2driver names directly; the registry
@@ -1862,7 +1862,7 @@ class Lumascope:
     def motion_expected(self) -> bool:
         """Whether this scope's model has a motor board at all.
 
-        False for a manual scope (an LS620 or LS560): it is complete
+        False for a manual scope (an LS620, LS560 or LS460): it is complete
         without one, so its absence is not a disconnection. Set from the
         model's catalogue entry by ``initialize()``; True before that.
 

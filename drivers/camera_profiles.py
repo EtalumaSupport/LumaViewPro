@@ -276,7 +276,7 @@ _simulated = replace(
 _simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 
 
-# Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
+# Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS460 / LS720 via Cypress FX2
 # Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
 # window. The gain range is the driver's, set at connect from the gain
 # settings it writes (0-42.144 dB, DS Table 15). The static max
@@ -326,8 +326,8 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     # entry above this one once characterized.
     ('U3-34Lx', _U3_34L0XCP_M),
     ('SimulatedCamera', _simulated),
-    # FX2Camera sets model_name='MT9P031-LS620' on every Classic model (LS560,
-    # LS620, LS720 share the sensor), so the sensor name is the one key.
+    # FX2Camera sets model_name='MT9P031-LS620' on every Classic model (LS460,
+    # LS560, LS620, LS720 share the sensor), so the sensor name is the one key.
     ('MT9P031', _MT9P031_LS620),
 ]
 

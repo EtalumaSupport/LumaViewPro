@@ -36,7 +36,7 @@ uvicorn==0.54.0
 pydantic==2.14.0
 starlette==1.7.0
 
-# FX2 (LVC LS560/LS620/LS720) USB driver bindings and the native
+# FX2 (LVC LS460/LS560/LS620/LS720) USB driver bindings and the native
 # libusb-1.0 they run on. All three are gated at runtime by
 # drivers/fx2driver.py:_FX2_AVAILABLE -- present without FX2 hardware,
 # the driver no-ops with a single INFO log. libusb-package carries the

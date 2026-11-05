@@ -310,6 +310,28 @@
                 }
             ],
             "Filterset": "488"
+        },
+        "LS460": {
+            "Focus": false,
+            "XYStage": false,
+            "Turret": false,
+            "LEDBoard": "FX2",
+            "Optics": {
+                "LensFocalLength": 32.3,
+                "PixelSize": 2.2
+            },
+            "MaxFrame": {
+                "width": 1700,
+                "height": 1700
+            },
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "BF-Phase",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                }
+            ]
         }
     }
 }

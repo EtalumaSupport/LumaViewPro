@@ -4,7 +4,7 @@
 A move on an axis the scope lacks does nothing and says nothing, so a run
 whose steps sit at different places on that axis completes: every image is
 taken at one place and saved under its own step's name and coordinates. A
-manual scope (an LS620 or LS560) lacks every axis; a Z-only scope (an LS820)
+manual scope (an LS620, LS560 or LS460) lacks every axis; a Z-only scope (an LS820)
 lacks X and Y. prepare() refuses such a run before anything is captured.
 
 Steps at one place on a missing axis ask for nothing there and are admitted:

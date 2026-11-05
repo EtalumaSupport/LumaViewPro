@@ -243,7 +243,7 @@ Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
 each with a timestamp, and stops if any file fails to sign. Its receipt says
 `Signed: yes (<thumbprint>)`, or `Signed: NO`.
 
-#### FX2 WinUSB Driver (Lumascope Classic: LS560 / LS620 / LS720)
+#### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 
 Nothing to drop in, and in a signed build only. The driver package is
 `scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` in the repo: it

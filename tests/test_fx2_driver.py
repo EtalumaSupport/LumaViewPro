@@ -14,7 +14,7 @@ being monkeypatched to return a ``MagicMock``. Tests cover:
 - LEDBoardProtocol duck-type conformance
 - **Thin-translator regression**: FX2LEDController must return sentinels
   from state queries even after ``led_on``, proving no client-side state
-- ``CameraProfile`` lookup for MT9P031 / LS620 / LS560 / LS720
+- ``CameraProfile`` lookup for MT9P031 / LS620 / LS560 / LS460 / LS720
 - ``scopes.json`` shape for the two Classic models added in Stage 3
 
 The test file mocks heavy dependencies (kivy, lvp_logger, pyusb, libusb1)

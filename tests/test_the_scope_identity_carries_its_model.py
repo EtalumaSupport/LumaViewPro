@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The scope's identity carries its model, and a model change applies at the next start.
 
-An FX2 scope (LS560, LS620, LS720) cannot report its own model, so the
+An FX2 scope (LS460, LS560, LS620, LS720) cannot report its own model, so the
 operator's selection is its identity. The resolver settled on a model and
 threw it away: the capabilities asked the motor board, which on an FX2 scope
 is the null board and answers nothing, and a saved image recorded the same

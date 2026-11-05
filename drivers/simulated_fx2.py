@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A simulated Lumascope Classic FX2: the device behind the real FX2 drivers.
 
-A simulated LS620, LS560 or LS720 runs the production ``FX2Camera`` and
+A simulated LS620, LS560, LS460 or LS720 runs the production ``FX2Camera`` and
 ``FX2LEDController`` over this device, so what an integrator sees is the
 FX2's: the MT9P031's window, exposure and gain as its registers hold them,
 LED commands as the peripheral receives them, frames at the sensor's period

@@ -2,7 +2,7 @@
 """A manual scope's startup says its missing motor board was expected.
 
 Bring-up probes for a motor board on every model, so a board that is
-plugged in can correct a wrongly selected model. On an LS620 or LS560 the
+plugged in can correct a wrongly selected model. On an LS620, LS560 or LS460 the
 probe finds nothing, as it should, and the registry used to log that at
 WARNING on every start, the same line a motorized scope with an unplugged
 board gets. The scope now tells the registry when its model has no motor

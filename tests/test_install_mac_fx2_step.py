@@ -91,7 +91,10 @@ def test_the_step_prints_the_real_drivers_readiness_line(tmp_path):
 
 def test_a_not_ready_gate_is_reported_and_homebrew_is_never_called(tmp_path):
     python = tmp_path / 'fake_python'
-    _stub(python, 'echo "FX2 (LS560/LS620/LS720) support: NOT ready -- libusb-package missing"\n')
+    _stub(
+        python,
+        'echo "FX2 (LS460/LS560/LS620/LS720) support: NOT ready -- libusb-package missing"\n',
+    )
 
     result = _run_step(tmp_path, python)
 
@@ -109,4 +112,4 @@ def test_a_driver_that_fails_to_import_aborts_without_installing(tmp_path):
     assert result.returncode != 0
     assert 'ImportError: boom' in result.stderr
     assert _brew_calls(tmp_path) == []
-    assert 'FX2 (LS560/LS620/LS720) support' not in result.stdout
+    assert 'FX2 (LS460/LS560/LS620/LS720) support' not in result.stdout

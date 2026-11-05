@@ -1,4 +1,4 @@
-"""The FX2 driver package the Windows installer carries (LS560, LS620, LS720).
+"""The FX2 driver package the Windows installer carries (LS460, LS560, LS620, LS720).
 
 The INF lives in the repo with its ``DriverVer`` a placeholder, and the build
 stamps it with the build's date and the installer version. Windows ranks

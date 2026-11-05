@@ -69,6 +69,7 @@ print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 | LS850T-0 | yes | yes | yes | BF, PC | EL-0940 |
 | Lumi | yes | -- | -- | BF, PC, DF, Lumi | EL-0940 |
 | LS560 | -- | -- | -- | BF, Ex488 | FX2 |
+| LS460 | -- | -- | -- | BF | FX2 |
 | LS620 | -- | -- | -- | BF, Ex405, Ex488, Ex589 | FX2 |
 | LS720 | yes | yes | -- | BF, Ex405, Ex488, Ex589 | FX2, with a TMCM-6110 motor board |
 
@@ -81,8 +82,8 @@ print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 - **EL-0940 models** have one mainboard carrying the LED controller and the
   motor controller, and a Basler or IDS camera.
 - **FX2 models** have one USB device that serves both the camera and the LEDs.
-  The LS720 adds a TMCM-6110 motor board for X, Y and focus; the LS560 and LS620
-  have no motion.
+  The LS720 adds a TMCM-6110 motor board for X, Y and focus; the LS460, LS560
+  and LS620 have no motion, and present identically, so the user selects which.
 
 ## Examples
 
