@@ -1197,6 +1197,9 @@ class ProtocolSettings(FloatLayout):
         def _ended(*_ended):
             self.reset_autofocus_ui()
             sync_layer_widgets_from_settings()
+            # The scan wrote each step's Z into the panel's protocol before
+            # run_ended, so the stage and the step editor show the new focus.
+            self._draw_protocol_steps()
 
         events = RunEvents(
             frame_captured=show_captured_frame,

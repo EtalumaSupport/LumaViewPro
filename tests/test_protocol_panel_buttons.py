@@ -16,6 +16,7 @@ import types
 from types import SimpleNamespace
 from unittest.mock import DEFAULT, MagicMock
 
+import pandas as pd
 import pytest
 
 
@@ -50,7 +51,8 @@ for _name, _attr in (
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
-from modules import live_work
+from modules import common_utils, live_work
+from modules.coord_transformations import PlateLocation
 from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.live_work import LiveWork, WorkItem
@@ -58,6 +60,7 @@ from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
+from tests.protocol_fixtures import protocol_of
 
 
 class _Button:
@@ -551,3 +554,72 @@ def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, engine, 
         False,
         True,
     )
+
+
+def _one_step_protocol(z_um):
+    """A real protocol of one BF step at *z_um*."""
+    protocol = protocol_of(config={'steps': pd.DataFrame(), 'custom_step_count': 0})
+    protocol.insert_step(
+        channel_group_id=protocol.new_channel_group_id(),
+        turret_slot=-1,
+        step_name=None,
+        layer='BF',
+        layer_config={
+            'autofocus': False,
+            'false_color': False,
+            'illumination_ma': 100.0,
+            'gain_db': 0.0,
+            'auto_gain': False,
+            'exposure_ms': 10.0,
+            'sum': 1,
+            'acquire': 'image',
+            'video_config': {},
+            'focus': None,
+        },
+        plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=z_um),
+        objective_id='10x Oly',
+        stim_configs={},
+        after_step_index=-1,
+    )
+    return protocol
+
+
+def test_the_step_editor_shows_the_focus_an_autofocus_scan_wrote(
+    app_ctx, engine, session, monkeypatch
+):
+    """When Autofocus All Steps ends, the selected step's Focus line is the Z
+    the scan wrote into the panel's protocol, not the Z it had before."""
+    protocol = _one_step_protocol(z_um=5005.0)
+    panel = _Panel()
+    panel._protocol = protocol
+    panel.curr_step = 0
+    panel.ids.update(
+        step_number_input=SimpleNamespace(text=''),
+        step_total_input=SimpleNamespace(text=''),
+        step_name_input=SimpleNamespace(text='', hint_text=''),
+        step_focus_z_label=SimpleNamespace(text=''),
+    )
+    # A stand-in by design: Kivy's Clock trigger, which here draws at once.
+    panel._update_step_ui_trigger = lambda: panel._do_update_step_ui(0)
+    # Stand-ins by design: the stage's plate map and every layer's drawer,
+    # widgets the run's end draws but this test does not observe.
+    drawer = MagicMock(ids={'autofocus': SimpleNamespace(state='normal')})
+    monkeypatch.setattr(app_ctx, 'stage', MagicMock(), raising=False)
+    monkeypatch.setattr(
+        app_ctx, 'image_settings', SimpleNamespace(layer_lookup=lambda layer: drawer), raising=False
+    )
+    for layer in common_utils.get_layers():
+        app_ctx.settings[layer] = {'autofocus': False}
+    engine.start.return_value = _run(engine).operation
+    panel.update_step_ui()
+    assert panel.ids['step_focus_z_label'].text == '5005 um'
+
+    panel.run_autofocus_scan_from_ui()
+    events = session.protocol_runner().start_autofocus_all_steps.call_args.kwargs['events']
+    # The scan's write, as the runner makes it before run_ended is sent.
+    scanned = protocol.copy_for_execution()
+    scanned.modify_step_z_height(step_index=0, z=4991.0)
+    protocol.adopt_focus_from(scanned)
+    events.run_ended(MagicMock(), None, protocol)
+
+    assert panel.ids['step_focus_z_label'].text == '4991 um'
