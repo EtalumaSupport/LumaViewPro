@@ -170,7 +170,9 @@ void main (void) {
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ShaderViewer.__init__()')
-        self.canvas = RenderContext()
+        # The window's projection, read at every draw: a copy taken once went
+        # stale on the next resize and drew the view at the old window's size.
+        self.canvas = RenderContext(use_parent_projection=True)
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
         self.white = 1.0
@@ -385,7 +387,6 @@ void main (void) {
         """Show the view in ``color``: each plane's white point is the view's
         white times the colour's weight on that plane (``GREY`` shows mono)."""
         c = self.canvas
-        c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = (self.black,) * 4
