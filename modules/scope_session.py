@@ -1692,6 +1692,12 @@ class ScopeSession:
         # record of the old channel blocks it renamed, for the bring-up to
         # place by the unit.
         old_channel_blocks = settings_init.take_old_channel_blocks(settings)
+        from lib import log_helpers
+
+        # This session's bring-up starts here, whatever an earlier session in
+        # the process left: its trace logs are written at VERBOSE until its
+        # own startup motion ends.
+        log_helpers.begin_bring_up()
         _apply_logging(settings)
         _apply_profile_trace(settings)
         _apply_memory_profile(settings)

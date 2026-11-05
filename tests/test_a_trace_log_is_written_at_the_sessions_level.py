@@ -69,6 +69,23 @@ def test_bring_up_is_written_at_verbose_and_after_it_the_sessions_level(trace_lo
     assert file.lines() == [('VERBOSE', 'FULLINFO -> answered'), ('INFO', 'port reset')]
 
 
+def test_each_session_in_a_process_writes_its_own_bring_up_at_verbose(trace_log):
+    traced, file = trace_log
+    first = _session(level='INFO')
+    try:
+        first.run_application_session()
+    finally:
+        first.shutdown()
+    second = _session(level='INFO')
+    try:
+        traced.log(VERBOSE, 'FULLINFO -> answered')
+        second.run_application_session()
+        traced.log(VERBOSE, 'move -> answered')
+    finally:
+        second.shutdown()
+    assert file.lines() == [('VERBOSE', 'FULLINFO -> answered')]
+
+
 def test_a_written_level_reaches_the_trace_logs(trace_log):
     traced, file = trace_log
     session = _session(level='INFO')

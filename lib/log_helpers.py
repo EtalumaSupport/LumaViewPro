@@ -130,7 +130,9 @@ _trace_files: dict[logging.Logger, logging.Handler] = {}
 # Whether bring-up is still running: until the startup motion has ended, the
 # trace logs are written at VERBOSE whatever the session's level (DEBUG under
 # debug_mode), so a field log holds the board and camera exchanges of every
-# bring-up. A bring-up that never reaches its startup motion leaves it open.
+# bring-up. Each session opens it when it is created (begin_bring_up), so a
+# process that builds a second session writes that bring-up at VERBOSE too;
+# a bring-up that never reaches its startup motion leaves it open.
 _bring_up_running = True
 _session_level = logging.INFO
 _levels_lock = threading.Lock()
@@ -166,6 +168,14 @@ def apply_session_level(level: int | str) -> None:
         for trace_logger, file_handler in _trace_files.items():
             trace_logger.setLevel(min(level, VERBOSE))
             file_handler.setLevel(written)
+
+
+def begin_bring_up() -> None:
+    """Write the trace logs at VERBOSE until bring-up ends; a session is being brought up."""
+    global _bring_up_running
+    with _levels_lock:
+        _bring_up_running = True
+    apply_session_level(_session_level)
 
 
 def end_bring_up() -> None:
