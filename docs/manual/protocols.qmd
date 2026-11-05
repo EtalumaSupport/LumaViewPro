@@ -1,0 +1,298 @@
+# Protocols {#sec-protocols}
+
+A protocol takes images automatically: at many positions, in several
+channels, and again at a set interval over hours or days. It is a list of
+steps. Each step is one image, or one video, in one channel at one
+position. A scan takes every step once, in order; a time-lapse repeats the
+scan.
+
+Protocols are built, saved, loaded and run in the [Protocol]{.guilabel}
+drawer of the left panel (@fig-protocol-panel). The panel is longer than
+most screens; scroll it to reach the controls below the plate map.
+
+::: {#fig-protocol-panel layout-ncol=2}
+![Its top: the time settings, the labware, the file buttons and the plate map](images/protocol-panel-top-ls850.png){#fig-protocol-panel-top width=62%}
+
+![Scrolled down: the step editor, tiling and Z-stacking](images/protocol-panel-steps-ls850.png){#fig-protocol-panel-steps width=62%}
+
+The Protocol drawer on an LS850, with a 6-well plate tiled 2x2
+:::
+
+## A time-lapse of a plate {#sec-protocol-quick-start}
+
+1. Set up each channel you want to image, as for a still image
+   (@sec-image-still), and click [Save Focus]{.guilabel} in each.
+2. In each of those channels' drawers, set
+   [Acquire Settings]{.guilabel} to [Image]{.guilabel}
+   (@sec-channel-acquire). To autofocus before each image of a channel,
+   switch on its [Auto Focus]{.guilabel} (@sec-channel-protocol-settings).
+3. Open the [Protocol]{.guilabel} drawer. On a scope with a motorized XY
+   stage, select the labware, and the tiling if you want more than one
+   image per well (@sec-protocol-tiling).
+4. Set [Interval]{.guilabel} and [Duration]{.guilabel}
+   (@sec-protocol-time).
+5. Click [New]{.guilabel}. The number of steps is the number of channels
+   times the number of wells, tiles and Z-stack slices.
+6. Step through a few steps with the arrow buttons and check the image at
+   each (@sec-protocol-steps).
+7. Click [Save]{.guilabel} and name the protocol.
+8. Click [Run One Scan]{.guilabel} to check one pass, then
+   [Run Full Protocol]{.guilabel}.
+
+## Time Settings {#sec-protocol-time}
+
+- [Interval]{.guilabel}: the time from the start of one scan to the start
+  of the next, in minutes. Default: 20 minutes.
+- [Duration]{.guilabel}: the length of the whole protocol, in hours.
+  Default: 48 hours.
+
+A full run takes Duration divided by Interval scans, rounded down: 48 hours
+at 20 minutes is 144 scans. An interval of 0, or a duration shorter than
+the interval, gives a single scan, and LumaViewPro says so when the run
+starts ("Single Scan"). An interval shorter than 1 second, other than 0, is
+refused.
+
+If a scan takes longer than the interval, the next scan starts as soon as
+it ends; no scan is skipped, so the protocol ends later than its duration.
+
+## The labware {#sec-protocol-labware}
+
+Requires: a motorized XY stage.
+
+The list below [Time Settings]{.guilabel} selects the labware the
+protocol images: Blank, Center Plate, Four-Slide Holder, or a 6, 12, 24,
+48, 96, 384 or 1536 well microplate. Default: 96 well microplate. The
+labware's wells are drawn on the plate map below the buttons; the plate map
+works as the one in [XY Stage Control]{.guilabel} (@sec-plate-map).
+
+- A plate gives one position for each well.
+- Center Plate gives one position, at the center of the labware holder.
+- Blank has no wells: [New]{.guilabel} makes no steps, and every step is
+  added with [Add]{.guilabel} (@sec-protocol-add).
+
+On a scope without a motorized XY stage the list is not shown. The
+labware is Center Plate, and you position the sample by hand; the plate
+map shows the plate but does not move anything.
+
+## Making a protocol with New {#sec-protocol-new}
+
+[New]{.guilabel} replaces the current protocol with a new one: one step for
+each channel set to [Image]{.guilabel} or [Video]{.guilabel}, at every well
+of the labware, with the current objective, tiled as [Tiling]{.guilabel}
+is set, and Z-stacked if [Enable Z-Stack]{.guilabel} is checked. Each
+step takes its channel's settings and its channel's saved focus as its
+focus, or the current focus for a channel with no saved focus.
+
+At each well, the channels follow one another in the order their drawers
+are listed. The wells are taken row by row, each row in the opposite
+direction to the one before, so the stage does not travel back across the
+plate between rows: A1, A2, A3, then B3, B2, B1 on a 6-well plate.
+
+New is refused when no channel is set to [Image]{.guilabel} or
+[Video]{.guilabel} ("No Channel Set to Acquire"), when the objective is not
+known, and when a tile would lie outside the stage's travel.
+
+Each step is named for its well and channel, then its tile and its
+Z-stack slice, if it has them: `A1_BF` is the brightfield image of well A1,
+`A1_BF_TA2` its tile A2, and `A1_BF_TA2_Z0` the lowest slice of that
+tile's Z-stack.
+
+If a protocol would have more than 10,000 steps, a note below the file
+buttons gives its size and the space its images will take.
+
+## The steps {#sec-protocol-steps}
+
+Below the plate map:
+
+- [Protocol]{.guilabel}: the protocol's file name, once it is saved or
+  loaded.
+- [Root]{.guilabel}: text added to the front of every image file name the
+  protocol saves (@sec-protocol-files). Only letters, digits, `-` and `_`
+  are kept. The root is saved in the protocol.
+- [Step Name]{.guilabel}: the selected step's name. Type a new name and
+  press Enter to rename the step. Only letters, digits, `-` and `_` are
+  kept; a blank name keeps the old one.
+- [Step]{.guilabel}: the selected step's number and the number of steps.
+  The arrow buttons select the previous and the next step; type a number to
+  go to that step.
+- [Focus]{.guilabel}: the selected step's focus, in micrometers. Shown on
+  a scope with a focus motor.
+
+Selecting a step moves the stage and the focus to the step's position and
+opens the step's channel with the step's settings. To light the step's LED
+as you step through, switch on [Preview LED when stepping]{.guilabel} in
+Advanced Settings (@sec-advanced-protocol). On a scope with a motorized XY
+stage, right-click the plate map to go to the step nearest that point, and
+[Show step locations]{.guilabel} in Advanced Settings marks every step on
+the map.
+
+### Changing a step {#sec-protocol-change}
+
+To change a step, select it, then:
+
+1. Move to the new position, and focus.
+2. Open the step's channel and adjust its settings: the LED, gain,
+   exposure, auto gain, autofocus and the rest of the drawer.
+3. Click [Change]{.guilabel}.
+
+[Change]{.guilabel} rewrites the selected step from the channel shown and
+its settings, the current position and focus, the current objective, and
+the name in [Step Name]{.guilabel}. It is refused if the channel shown is
+not set to [Image]{.guilabel} or [Video]{.guilabel}, or while the stage or
+the focus is moving. A slice of a Z-stack keeps its channel: Change on a
+slice with another channel shown is refused.
+
+To change only a step's focus, select it, focus, and click
+[Save Focus]{.guilabel} in its channel's drawer (@sec-channel-focus).
+
+[Delete]{.guilabel} deletes the selected step and selects the one before
+it. To delete many steps at once, see @sec-protocol-file.
+
+### Adding steps {#sec-protocol-add}
+
+[Add]{.guilabel} adds steps after the selected step, at the current
+position: one for each channel set to [Image]{.guilabel} or
+[Video]{.guilabel}. Every added step takes the current focus, not its
+channel's saved focus. With [Enable Z-Stack]{.guilabel} checked, each
+added step is a Z-stack. Add is refused while the stage or the focus is
+moving, and while a position is not known.
+
+Added steps are named `custom` and a four-digit number that counts up, then
+the channel: `custom0000_BF`, `custom0001_BF`. Rename them in
+[Step Name]{.guilabel}.
+
+To build a protocol of chosen positions, select Center Plate or Blank,
+click [New]{.guilabel}, then move to each position, focus, and click
+[Add]{.guilabel}.
+
+## Tiling {#sec-protocol-tiling}
+
+Requires: a motorized XY stage.
+
+Tiling images a square grid of fields at each position instead of one
+field, from 1x1 (one field, the default) to 10x10. The grid is centered on
+the position. Select its size in the [Tiling]{.guilabel} list, then:
+
+- click [New]{.guilabel} to make a protocol tiled at every well; or
+- click [Apply]{.guilabel} beside the list to tile every step of the
+  current protocol, for example a protocol of added steps.
+
+A protocol is tiled once. When any of its steps is tiled, [Apply]{.guilabel}
+is refused ("Protocol Already Tiled"); to change the tiling, make the
+protocol again with [New]{.guilabel}, or load the untiled protocol.
+
+Tiles are named by row and column: `TA1` is the first row's first tile,
+`TA2` the tile beside it, and `TB1` the first tile of the second row. A
+tiled image's name keeps the step's name before it, so the tiles of a well
+or of an added step stay together for stitching.
+
+The tiles are placed from the frame size, the binning and the objective in
+use when the grid is made, and do not move when these are changed
+afterwards (@sec-frame-size). The overlap between neighboring tiles is
+[Tiling Overlap]{.guilabel} in Advanced Settings
+(@sec-advanced-protocol).
+
+## Z-stacks in a protocol {#sec-protocol-zstack}
+
+Requires: a focus motor.
+
+A step can be a Z-stack: a series of slices of one channel at evenly
+spaced focus positions, set up under [Acquire Z Stack]{.guilabel} in
+[Objective Control]{.guilabel} (@sec-zstack). Each slice is a step of its
+own, named with `Z` and its number, counting from the lowest.
+
+- [Enable Z-Stack]{.guilabel}: checked, [New]{.guilabel} and
+  [Add]{.guilabel} make every step a Z-stack.
+- [Apply]{.guilabel} beside [Z-Stacking]{.guilabel}: makes every step that
+  is not yet in a Z-stack into one, placed against the step's focus as
+  the stack's top, center or bottom is set in [Objective Control]{.guilabel}.
+
+Both are refused when the step size or the range is not greater than 0, or
+when a slice would lie outside the focus travel.
+
+## Autofocus All Steps {#sec-protocol-autofocus-all}
+
+Requires: a focus motor.
+
+[Autofocus All Steps]{.guilabel} runs an autofocus at every step and saves
+the focus found as that step's focus. No images are saved. While it runs,
+the button reads "Running Autofocus Scan"; click it to stop. A scan that
+is stopped, or does not finish, changes no step, and nor does a scan
+during which the protocol was changed ("Focus Not Saved"). A finished scan
+cannot be undone: save the protocol first to keep the old focus.
+
+A Z-stack is focused once, at its first slice, and the whole stack is
+moved to center on the focus found, its slices keeping their spacing.
+
+## Saving and loading {#sec-protocol-save}
+
+- [Save]{.guilabel} saves the protocol to its file; a protocol not yet
+  saved asks for a name, as Save As does.
+- [Save As]{.guilabel} saves it under a new name.
+- [Load]{.guilabel} opens a saved protocol and sets each channel to the
+  protocol's channel settings.
+
+A protocol is a `.tsv` file; another file type is refused. The protocol
+last saved or loaded opens again the next time LumaViewPro starts.
+
+### Editing the file {#sec-protocol-file}
+
+A protocol file is tab-separated text: a header with the interval, the
+duration, the labware and the root; the channels' settings; and the steps,
+one row for each step, with its well in the `Well` column. To delete many
+steps at once, for example every step of one well, delete their rows in a
+text editor or a spreadsheet, keep the file tab-separated with its `.tsv`
+name, and load it again.
+
+## Running a protocol {#sec-protocol-run}
+
+Under [Execute Protocol]{.guilabel}:
+
+- [Run One Scan]{.guilabel} takes every step once. While it runs, the
+  button reads "Abort One Scan"; click it to stop.
+- [Run Full Protocol]{.guilabel} runs the whole time-lapse: a scan every
+  [Interval]{.guilabel} for [Duration]{.guilabel}. While it runs, the
+  button shows the scans and the time remaining; click it to stop the
+  run.
+
+A stopped run keeps the images it has saved. When a run ends while
+images are still being written to disk, its button reads "Writing Files..."
+with the number left until they are written. The toolbar's
+[STOP]{.guilabel} button also ends a run.
+
+At each step the stage and focus move to the step's position, the step's
+channel is shown with its settings, an autofocus runs if the channel's
+[Auto Focus]{.guilabel} is on, and the image or video is taken. A
+Z-stack is autofocused once, at its first slice, and its slices are
+moved with the focus found, keeping their spacing. With
+[Keep LED on across moves]{.guilabel} in Advanced Settings, the LED stays
+on between steps of the same channel (@sec-advanced-protocol).
+
+A run is refused before it starts, with the reason, when the protocol has
+no steps ("No Steps"), another run, a composite or post-processing is in
+progress, files from an earlier acquisition are still being written, the
+microscope or the camera is not ready, a position is not known, or the
+destination folder cannot be written to.
+
+While a run is in progress, the protocol, the channel drawers and the
+other acquisition controls cannot be changed (@sec-showing-a-channel).
+
+## The files a run saves {#sec-protocol-files}
+
+Each run saves into a new folder in the destination folder, named for the
+date and time the run started: `ProtocolData/20261104_221030/`. It holds:
+
+- one image for each step of each scan, named for the root, the step and
+  the scan, counting from 0000: `plate1_A1_BF_TA1_0000.tiff` is the root
+  `plate1`, the step `A1_BF_TA1`, and the first scan. On a scope with a
+  turret, the name also gives the objective;
+- one video for each video step of each scan, its name ending in `_video`;
+- a copy of the protocol as it ran, under its file name, or
+  `unsaved_protocol.tsv` if it was not saved;
+- `protocol_record.tsv`, which lists each file saved, with its step, its
+  scan and the time it was taken.
+
+Images are saved in the [Sequenced Image Format]{.guilabel}
+(@sec-sequenced-format). With [Save channels in separate folders]{.guilabel}
+on in Advanced Settings, each channel's images are saved in a folder of
+their own inside the run's folder (@sec-advanced-protocol).
