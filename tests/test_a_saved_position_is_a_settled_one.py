@@ -129,4 +129,6 @@ def test_once_the_move_has_ended_each_save_keeps_where_the_axis_stopped(session)
 
     assert session.save_bookmark(('Z',)).z_um == pytest.approx(at_rest.position_um, abs=0.01)
     assert session.get_current_plate_position().z_um == pytest.approx(at_rest.position_um, abs=0.01)
-    assert session.scope.protocols.focus_z_um(then='save the focus') == at_rest.position_um
+    assert session.scope.protocols.focus_z_um(then='save the focus') == pytest.approx(
+        at_rest.position_um, abs=0.01
+    )

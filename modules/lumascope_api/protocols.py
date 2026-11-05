@@ -566,6 +566,9 @@ class ProtocolsAPI:
     def focus_z_um(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
+        Rounded to the precision every kept Z is stored at, so a focus and a
+        bookmark saved at one Z store one number.
+
         Args:
             then: What the user does once Z knows its position, ending the
                 refusal (e.g. ``'save the focus'``).
@@ -586,7 +589,8 @@ class ProtocolsAPI:
                 is a place it is passing through.
         """
         self._refuse_no_focus_axis(then)
-        return self._scope.motion.positions_to_keep(('Z',), then=then)['Z']
+        z = self._scope.motion.positions_to_keep(('Z',), then=then)['Z']
+        return round(z, common_utils.max_decimal_precision('z'))
 
     def check_focus_z(self, z_um: float, *, then: str) -> float:
         """A given Z, as a focus to save into a layer: one this scope's Z can reach.

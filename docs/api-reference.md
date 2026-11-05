@@ -2504,8 +2504,9 @@ Route: `POST /api/v1/save_bookmark`.
 Save where the stage is on `axes` as the bookmark, as the bookmark buttons do.
 
 X and Y are stored in plate millimetres on the selected plate, Z in
-micrometres: the frame the go-to-bookmark moves read them in. The one
-writer of `bookmark`.
+micrometres: the frame the go-to-bookmark moves read them in. The
+writer of `bookmark`'s X and Y; `save_all_bookmarks` also writes
+its Z.
 
 **Args**
 
