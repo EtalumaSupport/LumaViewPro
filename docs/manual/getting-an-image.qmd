@@ -23,7 +23,7 @@ automatically, at many positions or over time, use a protocol.
 
 For a transmitted-light or fluorescence channel:
 
-1. On a scope with a motorized XY stage, move to the sample, or to the
+1. On a Lumascope with a motorized XY stage, move to the sample, or to the
    first well of a plate: click the point on the plate map in
    [XY Stage Control]{.guilabel} (@sec-plate-map).
 2. Open the channel's drawer in the right panel, for example
@@ -35,16 +35,16 @@ For a transmitted-light or fluorescence channel:
    [Exp (ms)]{.guilabel} until the image is bright without being
    saturated: the histogram (@sec-histogram) should have most of its
    pixels away from either end.
-6. On a scope with a focus motor, click [Save Focus]{.guilabel} to save
+6. On a Lumascope with a focus motor, click [Save Focus]{.guilabel} to save
    this focus for the channel (@sec-channel-focus). To come back to this
    place later, click [Set Z]{.guilabel} in [Objective Control]{.guilabel}
-   and, on a scope with a motorized XY stage, [Set X]{.guilabel} and
+   and, on a Lumascope with a motorized XY stage, [Set X]{.guilabel} and
    [Set Y]{.guilabel} in [XY Stage Control]{.guilabel}.
 7. Click the toolbar's Capture button.
 
 The image is saved in the `Manual` folder of the destination folder, named
 for the channel shown, with a number that counts up with each capture, for
-example `live_BF_000001.tiff`. On a scope with a motorized XY stage, the
+example `live_BF_000001.tiff`. On a Lumascope with a motorized XY stage, the
 name also gives the well the image was taken in, as in
 `live_D6_BF_000001.tiff`. The file records the channel, the LED current,
 the gain, the exposure, the objective and the stage position.

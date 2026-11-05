@@ -75,7 +75,7 @@ upper back wall.
 ### The microscope is not found {#sec-not-found}
 
 When LumaViewPro starts, it looks for the microscope's camera, its LED board
-and, on a scope with motors, its motor controller. If nothing is found it
+and, on a Lumascope with motors, its motor controller. If nothing is found it
 says so once, "No hardware detected", and offers to go on in software-only
 mode: you can design protocols and see the controls, but nothing is
 captured. If one part is missing it names that part, for example "Camera not
@@ -115,7 +115,7 @@ Scale.
 When asking Etaluma for help, attach a support report. In the
 [Microscope Settings]{.guilabel} panel, [Generate Support Report]{.guilabel}
 tests the microscope and saves a zip of the results and LumaViewPro's logs
-to your desktop. On a scope with motors it homes and moves the stage, so
+to your desktop. On a Lumascope with motors it homes and moves the stage, so
 take any sample off the stage first. It can take a few minutes.
 [Zip Logs Only]{.guilabel} saves the logs alone, quickly, and moves nothing.
 

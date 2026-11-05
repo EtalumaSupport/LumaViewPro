@@ -109,7 +109,7 @@ inside the recording's own folder, named for the folder:
 
 ## Stitch {#sec-pp-stitch}
 
-Requires: a motorized XY stage. On a scope without one, the
+Requires: a motorized XY stage. On a Lumascope without one, the
 [Stitch]{.guilabel} item is not shown.
 
 Stitch joins the tiles of each tiled step (@sec-protocol-tiling) into one
@@ -235,7 +235,7 @@ The controls:
 - [Pixel Ratio]{.guilabel}: the camera pixels in one micrometer of the
   sample. Leave it blank ("image"): each image is then measured at the
   scale saved in its own file, which every image LumaViewPro takes on a
-  scope with known optics records. Type a value only for images that state
+  Lumascope with known optics records. Type a value only for images that state
   no scale, or to override it. An image with no scale and no Pixel Ratio
   is measured in pixels, and an [Area]{.guilabel} or
   [Perimeter]{.guilabel} limit on it is refused.

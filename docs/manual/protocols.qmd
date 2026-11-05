@@ -26,7 +26,7 @@ The Protocol drawer on an LS850, with a 6-well plate tiled 2x2
    [Acquire Settings]{.guilabel} to [Image]{.guilabel}
    (@sec-channel-acquire). To autofocus before each image of a channel,
    switch on its [Auto Focus]{.guilabel} (@sec-channel-protocol-settings).
-3. Open the [Protocol]{.guilabel} drawer. On a scope with a motorized XY
+3. Open the [Protocol]{.guilabel} drawer. On a Lumascope with a motorized XY
    stage, select the labware, and the tiling if you want more than one
    image per well (@sec-protocol-tiling).
 4. Set [Interval]{.guilabel} and [Duration]{.guilabel}
@@ -70,7 +70,7 @@ works as the one in [XY Stage Control]{.guilabel} (@sec-plate-map).
 - Blank has no wells: [New]{.guilabel} makes no steps, and every step is
   added with [Add]{.guilabel} (@sec-protocol-add).
 
-On a scope without a motorized XY stage the list is not shown. The
+On a Lumascope without a motorized XY stage the list is not shown. The
 labware is Center Plate, and you position the sample by hand; the plate
 map shows the plate but does not move anything.
 
@@ -116,12 +116,12 @@ Below the plate map:
   The arrow buttons select the previous and the next step; type a number to
   go to that step.
 - [Focus]{.guilabel}: the selected step's focus, in micrometers. Shown on
-  a scope with a focus motor.
+  a Lumascope with a focus motor.
 
 Selecting a step moves the stage and the focus to the step's position and
 opens the step's channel with the step's settings. To light the step's LED
 as you step through, switch on [Preview LED when stepping]{.guilabel} in
-Advanced Settings (@sec-advanced-protocol). On a scope with a motorized XY
+Advanced Settings (@sec-advanced-protocol). On a Lumascope with a motorized XY
 stage, right-click the plate map to go to the step nearest that point, and
 [Show step locations]{.guilabel} in Advanced Settings marks every step on
 the map.
@@ -285,7 +285,7 @@ date and time the run started: `ProtocolData/20261104_221030/`. It holds:
 
 - one image for each step of each scan, named for the root, the step and
   the scan, counting from 0000: `plate1_A1_BF_TA1_0000.tiff` is the root
-  `plate1`, the step `A1_BF_TA1`, and the first scan. On a scope with a
+  `plate1`, the step `A1_BF_TA1`, and the first scan. On a Lumascope with a
   turret, the name also gives the objective;
 - one video for each video step of each scan, its name ending in `_video`;
 - a copy of the protocol as it ran, under its file name, or

@@ -2,7 +2,7 @@
 
 The [Objective Control]{.guilabel} drawer in the left panel holds the focus,
 autofocus, the objective in use, the turret and Z-stacks
-(@fig-objective-control). On a scope with a motorized XY stage, the
+(@fig-objective-control). On a Lumascope with a motorized XY stage, the
 [XY Stage Control]{.guilabel} drawer moves the stage (@sec-xy-stage). Which
 of these your microscope has is shown in @tbl-models.
 
@@ -25,7 +25,7 @@ the scale bar, the size of each focus and stage step, and the range an
 autofocus searches.
 
 LumaViewPro asks which objective is installed when it first starts with a
-microscope, and, on a scope with a turret, whenever the turret position in
+microscope, and, on a Lumascope with a turret, whenever the turret position in
 the light path has no objective assigned (@fig-objective-question). It asks
 again after the model is changed between one with a turret and one
 without. Select the objective in the list, where the objectives are grouped
@@ -43,9 +43,9 @@ The objective question
 captures are refused, and so are the focus and stage arrows, autofocus and
 Z-stacks.
 
-On a scope without a turret, the button below [Autofocus]{.guilabel} shows
+On a Lumascope without a turret, the button below [Autofocus]{.guilabel} shows
 the objective's name, or [Assign Objective]{.guilabel} while none is
-known. Click it to change the objective. On a scope with a turret, each
+known. Click it to change the objective. On a Lumascope with a turret, each
 turret position has its own objective (@sec-turret). The objective cannot
 be changed while a protocol runs or a video records.
 

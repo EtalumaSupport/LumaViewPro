@@ -8,9 +8,9 @@ its own chapter.
 
 Start LumaViewPro from its desktop or Start menu shortcut, with the
 microscope connected and powered (@sec-connecting). LumaViewPro finds the
-microscope, starts its camera and LEDs and, on a scope with motors, homes
+microscope, starts its camera and LEDs and, on a Lumascope with motors, homes
 them: the focus is lowered completely, and the XY stage and the turret are
-driven to their home positions. While the scope homes, "System Homing..."
+driven to their home positions. While the Lumascope homes, "System Homing..."
 is shown over the middle of the window. Wait for it to clear before you
 use the microscope.
 
@@ -45,9 +45,9 @@ closes. When LumaViewPro starts, [Microscope Settings]{.guilabel} is open.
   formats images and videos are saved in, the image mode, the display
   switches, [Advanced Settings]{.guilabel}, and the support report buttons.
 - [Objective Control]{.guilabel}: focus, autofocus, Z-stacks, the objective
-  in use and, on a scope with a turret, the turret.
+  in use and, on a Lumascope with a turret, the turret.
 - [XY Stage Control]{.guilabel}: moving the XY stage, and the plate map.
-  Shown only on a scope with a motorized XY stage; an LS820 or a Lumi has no
+  Shown only on a Lumascope with a motorized XY stage; an LS820 or a Lumi has no
   such drawer.
 - [Protocol]{.guilabel}: building, saving, loading and running protocols.
 - [Post Processing]{.guilabel}: stitching, composites, Z-projection, video
@@ -82,7 +82,7 @@ histogram of the live image's brightness. @fig-tour-right shows the
 
 The toolbar's buttons are pictures (@fig-tour-toolbar). From left to right:
 
-![The toolbar on a scope with motors](images/tour-toolbar-ls850.png){#fig-tour-toolbar width=60%}
+![The toolbar on a Lumascope with motors](images/tour-toolbar-ls850.png){#fig-tour-toolbar width=60%}
 
 | Button | What it does |
 |:---|:---|
@@ -94,7 +94,7 @@ The toolbar's buttons are pictures (@fig-tour-toolbar). From left to right:
 | Record | Records the live image as a video, until it is pressed again or the time limit is reached ([Video Time Limit (s)]{.guilabel} in [Advanced Settings]{.guilabel}, 300 seconds unless changed). |
 | Fit | Fits the whole live image to the window. |
 | 1:1 | Shows the live image at one camera pixel to one screen pixel. |
-| [STOP]{.guilabel} | Stops every motor at once and ends a running protocol. Shown only on a scope with motors. |
+| [STOP]{.guilabel} | Stops every motor at once and ends a running protocol. Shown only on a Lumascope with motors. |
 
 : The toolbar's buttons {#tbl-toolbar tbl-colwidths="[22,78]"}
 
@@ -112,6 +112,6 @@ back. With Ctrl held, the mouse wheel moves the focus instead.
 The line along the bottom of the window shows two frame rates: Capture, the
 frames per second the camera delivers, and Display, the frames per second
 the screen shows. With the mouse pointer over the live image it also shows
-the camera pixel under the pointer, as Pixel (x, y), and, on a scope with a
+the camera pixel under the pointer, as Pixel (x, y), and, on a Lumascope with a
 motorized XY stage and a known objective, that point's position on the
 plate, as Plate (x, y) mm.
