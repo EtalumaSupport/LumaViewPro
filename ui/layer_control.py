@@ -842,7 +842,7 @@ class LayerControl(BoxLayout):
         gui_logger.display(f'LAYER_PANEL_{self.layer}', 'settings')
         self._initializing = True
         try:
-            if self.layer in common_utils.get_fluorescence_layers():
+            if 'composite_brightness_threshold' in layer_settings:
                 show_on_slider(
                     self.ids['composite_threshold_slider'],
                     layer_settings['composite_brightness_threshold'],

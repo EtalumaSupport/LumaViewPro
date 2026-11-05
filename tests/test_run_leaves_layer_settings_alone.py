@@ -43,6 +43,9 @@ from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- 
     stepnav_env,
 )
 from tests.stock_channels import LED1
+from modules.common_utils import get_luminescence_layers
+
+(LUMI,) = get_luminescence_layers()
 
 
 GREEN_LAYER_SETTINGS = {
@@ -363,11 +366,14 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         for retired in ('init_autofocus', 'init_acquire', 'sync_camera_widgets_from_settings'):
             assert not hasattr(layer_control.LayerControl, retired), retired
 
-    @pytest.mark.parametrize('layer', ['BF', LED1])
+    @pytest.mark.parametrize('layer', ['BF', LED1, LUMI])
     def test_sync_widgets_from_settings_sets_every_widget(self, monkeypatch, layer):
-        """BF ships with a None stim_config; LED 1 carries one. Both sync
-        without raising, every widget carries the settings value, the
-        auto_gain box carries the effective auto-gain, and the settings
+        """Each layer in its shipped shape: BF with a None stim_config and no
+        composite threshold, LED 1 with both, Lumi with a threshold and no
+        stim_config. Each syncs without raising, every widget carries the
+        settings value -- the CBT slider the stored threshold of every layer
+        that stores one, so Lumi's drawer shows what its composite uses --
+        the auto_gain box carries the effective auto-gain, and the settings
         were read once under the settings lock."""
         from ui.layer_control import LayerControl
 
@@ -384,7 +390,12 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
             LED1: _layer_settings(
                 auto_gain=False, acquire=None, stim_config=stim, video_config={'duration': 12}
             ),
+            LUMI: _layer_settings(auto_gain=False, acquire=None, sum=4),
         }
+        # Shipped settings store no composite threshold on a transmitted
+        # layer and no stim_config on Lumi.
+        del settings['BF']['composite_brightness_threshold']
+        del settings[LUMI]['stim_config']
         lock = _CountingLock()
         monkeypatch.setattr(
             'modules.app_context.ctx',
@@ -413,6 +424,11 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         if layer == 'BF':
             assert ids['acquire_image'].active is True
             assert ids['composite_threshold_slider'].value is None, 'BF has no composite threshold'
+            assert ids['stim_enable_btn'].active is None, 'no stim_config: stim widgets untouched'
+            assert stand.visibility_calls == 0
+        elif layer == LUMI:
+            assert ids['acquire_none'].active is True
+            assert ids['composite_threshold_slider'].value == 60
             assert ids['stim_enable_btn'].active is None, 'no stim_config: stim widgets untouched'
             assert stand.visibility_calls == 0
         else:
