@@ -10,7 +10,7 @@ Defense-in-depth, two layers:
    the in-app rename that is the remedy. The data-loss gate is
    ``validate_for_run`` at run start.
 
-2. Write-time defense in ``Lumascope.generate_image_save_path`` -- a
+2. Write-time defense in ``image_save.generate_image_save_path`` -- a
    ``tail_id_mode="if_collision"`` mode that uses the plain filename
    when no file exists and only adds a numeric suffix on actual
    collision. ``protocol_image_writer.py`` passes this mode so a
@@ -44,12 +44,9 @@ from tests.log_capture import records_of
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
     # Write-time defense against duplicate filenames (#636): the plain
     # name when free, a numeric suffix only on actual collision.
-    from types import SimpleNamespace
-
     from modules import image_save
 
     kwargs = {
-        'scope': SimpleNamespace(),
         'save_folder': tmp_path,
         'file_root': 'step_',
         'append': 'BF',
@@ -308,14 +305,6 @@ def test_load_accepts_unique_steps(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-class _MinimalScope:
-    """Bare-bones scope stand-in for generate_image_save_path tests.
-
-    `generate_image_save_path` hands the scope through to the collision
-    helper, which does not read it either, so a bare object is enough.
-    """
-
-
 def _image_save_lines(caplog) -> list:
     """(level name, message) of each line ``image_save`` logged."""
     from modules import image_save
@@ -337,7 +326,6 @@ def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
 
     with caplog.at_level(logging.INFO):
         path = generate_image_save_path(
-            scope=_MinimalScope(),
             save_folder=tmp_path,
             file_root='_PC_TA1',
             append='',
@@ -367,7 +355,6 @@ def test_if_collision_no_warning_when_no_collision(tmp_path, caplog):
 
     with caplog.at_level(logging.INFO):
         path = generate_image_save_path(
-            scope=_MinimalScope(),
             save_folder=tmp_path,
             file_root='_PC_TA1',
             append='',

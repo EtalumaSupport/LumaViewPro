@@ -13,16 +13,11 @@ import pytest
 from tests.stock_channels import LED0
 
 
-class _MinimalScope:
-    """The collision helper keeps a scope parameter and never reads it."""
-
-
 @pytest.mark.parametrize('output_format', ['TIFF', 'OME-TIFF', 'JPG'])
 def test_increment_collision_returns_a_path(tmp_path, output_format):
     from modules.image_save import generate_image_save_path
 
     kwargs = {
-        'scope': _MinimalScope(),
         'save_folder': tmp_path,
         'file_root': 'live_',
         'append': f'A1_{LED0}',
@@ -41,6 +36,6 @@ def test_increment_collision_returns_a_path(tmp_path, output_format):
 def test_next_save_path_returns_a_path(tmp_path):
     from modules.image_save import get_next_save_path
 
-    nxt = get_next_save_path(_MinimalScope(), tmp_path / f'live_A1_{LED0}_000001.ome.tiff')
+    nxt = get_next_save_path(tmp_path / f'live_A1_{LED0}_000001.ome.tiff')
 
     assert nxt == tmp_path / f'live_A1_{LED0}_000002.ome.tiff'

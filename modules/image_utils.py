@@ -1855,9 +1855,7 @@ def videowriter_color(*, is_color_native: bool = False, **kwargs):
     raise NotImplementedError('Phase 2 activation pending')
 
 
-def add_false_color(
-    array: np.ndarray, color: Color, output: np.ndarray | None = None
-) -> np.ndarray:
+def add_false_color(array: np.ndarray, color: Color) -> np.ndarray:
     """Bake ``color`` into a mono frame at a save boundary; a colour frame,
     or a grey colour, is returned as it is.
 
@@ -1867,7 +1865,7 @@ def add_false_color(
     """
     if image_utils.is_color_image(array) or color == GREY:
         return array
-    return mono_to_rgb_falsecolor(array, color, output=output)
+    return mono_to_rgb_falsecolor(array, color)
 
 
 def image_file_to_image(image_file):
@@ -2195,7 +2193,6 @@ def maybe_apply_false_color(
     data: np.ndarray,
     color: Color,
     use_false_color_16bit: bool,
-    output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
     """Widen single-channel 16-bit fluorescence to 3-channel RGB when the
     false-color setting is on; pass other inputs through unchanged.
@@ -2214,7 +2211,7 @@ def maybe_apply_false_color(
     8-bit inputs and a grey colour always pass through.
     """
     if data.dtype == np.uint16 and use_false_color_16bit:
-        return add_false_color(data, color, output=output_buf)
+        return add_false_color(data, color)
     return data
 
 
@@ -2366,8 +2363,6 @@ def write_tiff(
     save_encoding: str,
     white_bits: int | None,
     extratags: list | None = None,
-    false_color_buf: np.ndarray | None = None,
-    rgb_buf: np.ndarray | None = None,
 ) -> None:
     # The white travels with the depth, for the same reason: a sum is tagged at
     # the bits it can reach and shown against one frame's white, and a file
@@ -2414,7 +2409,6 @@ def write_tiff(
         data=data,
         color=color,
         use_false_color_16bit=use_false_color_16bit,
-        output_buf=false_color_buf,
     )
 
     kwargs = {}

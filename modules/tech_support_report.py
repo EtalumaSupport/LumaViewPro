@@ -726,12 +726,11 @@ def _collect_device_manager_full():
 # ---------------------------------------------------------------------------
 
 
-def validate_motorconfig(config_data, source_label=''):
+def validate_motorconfig(config_data: bytes | str | dict) -> dict:
     """Validate motorconfig.json for syntax and sanity.
 
     Args:
         config_data: bytes, str, or dict.
-        source_label: description of where it came from (for the report).
 
     Returns dict: {'valid': bool, 'warnings': [], 'errors': [], 'parsed': dict|None}
     """
@@ -1843,7 +1842,7 @@ class TechSupportReport:
 
                 # Validate motorconfig.json
                 if safe_name.lower() == 'motorconfig.json':
-                    validation = validate_motorconfig(content, f'{label}/{safe_name}')
+                    validation = validate_motorconfig(content)
                     with open(
                         d / f'{label}_motorconfig_validation.txt', 'w', encoding='utf-8'
                     ) as f:

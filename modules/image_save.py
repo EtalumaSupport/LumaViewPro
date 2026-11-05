@@ -141,16 +141,13 @@ def write_recorded_frame(
     )
 
 
-def get_next_save_path(scope: Lumascope, path: pathlib.Path | str) -> pathlib.Path:
+def get_next_save_path(path: pathlib.Path | str) -> pathlib.Path:
     """Get the next save path given an existing save path.
 
     Increments the trailing numeric ID component on the filename and
     returns the new path string.
 
     Args:
-        scope: Kept for signature uniformity with the other image_save
-            free functions; not read by this function. Phase 8+ may
-            decompose to discrete args.
         path: Path of the format
             ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
 
@@ -177,7 +174,6 @@ def get_next_save_path(scope: Lumascope, path: pathlib.Path | str) -> pathlib.Pa
 
 
 def generate_image_save_path(
-    scope: Lumascope,
     save_folder: pathlib.Path | str,
     file_root: str | None,
     append: str,
@@ -191,9 +187,6 @@ def generate_image_save_path(
     ``None`` returns the bare path).
 
     Args:
-        scope: Handed through to ``get_next_save_path``, which keeps it
-            for signature uniformity with the other free functions here;
-            not read by this one either.
         save_folder: Directory to save into (str or Path).
         file_root: Filename prefix.
         append: String appended to filename (e.g. color label).
@@ -228,7 +221,7 @@ def generate_image_save_path(
 
         # Obtain next save path if current path already exists
         while os.path.exists(path):
-            path = get_next_save_path(scope, path)
+            path = get_next_save_path(path)
 
     elif tail_id_mode == 'if_collision':
         # Write-time defense for duplicate step Names (#636). Use the
@@ -585,7 +578,7 @@ def prepare_image_for_saving(
     the true depth carried in the SignificantBits tag instead.
 
     Args:
-        scope: Passed to generate_image_metadata + generate_image_save_path.
+        scope: Passed to generate_image_metadata.
         array: Raw image array from drivers.
         save_folder: Directory to save into.
         file_root: Filename prefix.
@@ -644,7 +637,6 @@ def prepare_image_for_saving(
     array = _apply_save_orientation(array)
 
     path = generate_image_save_path(
-        scope,
         save_folder=save_folder,
         file_root=file_root,
         append=append,
@@ -676,8 +668,6 @@ def save_image(
     plate_x_mm: float | None = None,
     plate_y_mm: float | None = None,
     stage_z_um: float | None = None,
-    false_color_buf: np.ndarray | None = None,
-    rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
     significant_bits: int,
     white_bits: int | None,
@@ -690,7 +680,7 @@ def save_image(
     """Save an image array to a TIFF file with metadata.
 
     Args:
-        scope: Passed to prepare_image_for_saving for path / metadata.
+        scope: Passed to prepare_image_for_saving for metadata.
         array: Image array to save.
         save_folder: Directory to save into.
         file_root: Filename prefix.
@@ -716,8 +706,6 @@ def save_image(
             and keyword-only: it is the single value that drives the save
             shape, so no call site can omit the image mode and silently store
             a scaled payload right-aligned (dark).
-        false_color_buf: Preallocated false-color buffer.
-        rgb_buf: Preallocated RGB buffer.
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
         significant_bits: Payload depth the frame was captured at.
@@ -777,7 +765,6 @@ def save_image(
         image = None
         metadata = None
         file_loc = generate_image_save_path(
-            scope,
             save_folder=save_folder,
             file_root=file_root,
             append=append,
@@ -840,8 +827,6 @@ def save_image(
                 significant_bits=metadata['significant_bits'],
                 save_encoding=save_encoding,
                 white_bits=white_bits,
-                false_color_buf=false_color_buf,
-                rgb_buf=rgb_buf,
             )
 
         logger.debug(f'[SCOPE API ] Saving Image to {file_loc}')

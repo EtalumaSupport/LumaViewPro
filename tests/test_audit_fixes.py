@@ -2108,108 +2108,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
 
 
-class TestPIW6_PF3_FalseColorRgbPreallocated:
-    """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
-
-    Before:
-      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        -- PF-3
-      - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
-        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               -- PIW-6
-
-    After (final, post-e2ef49e):
-      - add_false_color(data, color, output=false_color_buf) reuses caller buf
-        AND returns the canonical RGB ordering directly -- PF-3 + #657 fix.
-      - write_tiff no longer needs a BGR->RGB conversion step; the stride-
-        reverse anti-pattern is gone and the cv2.cvtColor intermediate was
-        retired by e2ef49e once add_false_color became RGB-native.
-
-    Post mono-native: maybe_apply_false_color is a pass-through that ignores
-    caller-supplied buffers, so ProtocolImageWriter no longer pre-allocates
-    them -- it passes None and the downstream save lazily allocates only when
-    actually needed. The write_tiff / save_image false_color_buf + rgb_buf
-    params are retained as the color-audit enforcement surface (cv2_channel_tiff_write
-    whitelist); only the dead pre-allocation in the protocol writer was
-    removed.
-    """
-
-    def test_write_tiff_signature_includes_buffers(self):
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'modules/image_utils.py',
-            'write_tiff',
-            has_params=['false_color_buf', 'rgb_buf'],
-            msg='PF-3 + PIW-6: write_tiff should accept the reusable '
-            'false_color_buf and rgb_buf params.',
-        )
-
-    def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
-        # Post mono-native, maybe_apply_false_color ignores caller buffers,
-        # so the protocol writer's old (H,W,3) false-color + RGB pre-alloc
-        # was pure dead weight (~6x a mono frame per shape change). It was
-        # removed; the writer passes None and the downstream save lazily
-        # allocates only when needed. Lock the removal so it does not creep
-        # back in.
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        assert '_get_false_color_bufs' not in src, (
-            'PF-3 + PIW-6: the dead false-color buffer pre-allocation helper '
-            'should not be re-introduced; maybe_apply_false_color ignores it.'
-        )
-        assert 'self._false_color_buf' not in src, (
-            'PF-3: protocol writer should not hold a pre-allocated false_color_buf.'
-        )
-        assert 'self._rgb_buf' not in src, (
-            'PIW-6: protocol writer should not hold a pre-allocated rgb_buf.'
-        )
-
-    def test_save_image_signature_includes_buffers(self):
-        # Post mono-native these params are pass-throughs retained as the
-        # color-audit enforcement surface (see class docstring); the
-        # signature seam is the contract until that surface retires.
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'modules/image_save.py',
-            'save_image',
-            has_params=['false_color_buf', 'rgb_buf'],
-            msg='save_image must accept the false_color_buf / rgb_buf color-audit surface params.',
-        )
-
-    def test_add_false_color_uses_output_buffer(self):
-        """Functional: add_false_color writes into the supplied output buffer.
-        Channel layout is RGB (index 0=Red, 1=Green, 2=Blue) post-e2ef49e.
-        """
-        import numpy as np
-        from modules.image_utils import add_false_color
-
-        src = np.full((4, 4), 100, dtype=np.uint16)
-        buf = np.full((4, 4, 3), 999, dtype=np.uint16)
-        result = add_false_color(src, release_color(LED0), output=buf)
-        assert result is buf, 'PF-3: add_false_color should return the supplied buffer.'
-        np.testing.assert_array_equal(result[:, :, 2], src)
-        assert np.all(result[:, :, 1] == 0), 'PF-3: green channel should be zeroed.'
-        assert np.all(result[:, :, 0] == 0), 'PF-3: red channel should be zeroed.'
-
-    def test_cv2_cvtColor_dst_writes_in_place(self):
-        """Functional: cv2.cvtColor with dst= writes BGR->RGB in-place."""
-        import numpy as np
-        import cv2
-
-        bgr = np.zeros((2, 3, 3), dtype=np.uint16)
-        bgr[:, :, 0] = 1
-        bgr[:, :, 1] = 2
-        bgr[:, :, 2] = 3
-        rgb_buf = np.empty_like(bgr)
-        cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)
-        assert np.all(rgb_buf[:, :, 0] == 3), 'cv2.cvtColor: R channel'
-        assert np.all(rgb_buf[:, :, 1] == 2), 'cv2.cvtColor: G channel'
-        assert np.all(rgb_buf[:, :, 2] == 1), 'cv2.cvtColor: B channel'
-
-
 class TestPIW1_NoTheatricalDelCapturedImage:
     """PIW-1: write_capture had `del captured_image` after save_image() completes.
     The line is theatrical -- captured_image is passed as a kwarg in the IOTask
@@ -2710,7 +2608,6 @@ from tests.scope_fakes import (
     swap_lanes,
 )
 from tests.installation_fixtures import copy_installation_files
-from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from modules.lumascope_api.frame_record import CapturedStill
