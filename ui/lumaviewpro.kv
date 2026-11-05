@@ -3799,9 +3799,8 @@
 					on_release: root.log_histogram_scale()
 					size_hint_x: None
 					width: '30dp'
-					active: True
+					active: False
 					tooltip_text: 'Change X-axis of histogram to log scale'
-					state: 'normal'
 					disabled: False if self.visible else True
 					opacity: 1 if self.visible else 0
 					visible: True if root.show_camera_controls else False
