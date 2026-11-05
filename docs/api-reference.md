@@ -10378,9 +10378,10 @@ The (column, row) of the well centre nearest a plate position, each counted from
 
 None when that centre is outside the grid: the position is more
 than half a pitch beyond the outer well centres, off the plate's
-wells, or the plate has no wells at all (the Blank labware). No
-shipped plate states a well size, so within the grid a position
-names its nearest well whether or not it is inside it.
+wells, or the plate has no wells at all (the Blank labware).
+Within the grid a position names its nearest well whether or not
+it is inside it: the well is judged by the spacing, never the
+diameter.
 
 **Args**
 
