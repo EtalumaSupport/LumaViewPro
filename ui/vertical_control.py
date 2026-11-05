@@ -89,6 +89,22 @@ class VerticalControl(BoxLayout):
             return
         self.show_z(scope.motion.axis_positions()['Z'].position_um)
 
+    def show_z_travel(self) -> None:
+        """Span the focus slider over the scope's Z travel.
+
+        The travel is ``MotionAPI.get_axis_limits('Z')``, the one owner of
+        it; the slider's kv range is a placeholder until this runs at
+        bring-up. The range is display: a move past travel is the API's
+        refusal, whatever the slider offers.
+        """
+        scope = _app_ctx.ctx.lumaview.scope
+        if not scope.capabilities.has_focus:
+            return
+        travel = scope.motion.get_axis_limits('Z')
+        slider = self.ids['obj_position']
+        slider.min = travel.min_um
+        slider.max = travel.max_um
+
     def show_z(self, polled):
         """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
 

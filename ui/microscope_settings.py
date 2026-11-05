@@ -632,6 +632,7 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_focus_control_visibility(visible=caps.has_focus)
+        motion_settings.ids['verticalcontrol_id'].show_z_travel()
         ctx.lumaview.stage_has_motors = caps.has_xy_stage or caps.has_focus or caps.has_turret
 
         image_settings = ctx.image_settings
