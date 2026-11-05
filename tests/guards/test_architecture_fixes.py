@@ -11,6 +11,7 @@ tests/guards/test_the_lower_layers_import_nothing_above_them.py's):
 """
 
 import os
+import sys
 from typing import ClassVar
 
 from tests import ratchets as _ratchets
@@ -18,14 +19,10 @@ from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
 
 def _list_py_files(subdir):
-    """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
-    files like __init__.py.
-    """
-    return [
-        os.path.join(REPO_ROOT, rel)
-        for rel in tracked_files((subdir,), '*.py')
-        if not os.path.basename(rel).startswith('__')
-    ]
+    """Every tracked .py under <repo>/<subdir>/ at any depth, a package's
+    __init__.py included: a read added in a subpackage or an __init__ is a
+    read like any other, sorted."""
+    return [os.path.join(REPO_ROOT, rel) for rel in tracked_files((subdir,))]
 
 
 # ---------------------------------------------------------------------------
@@ -719,6 +716,29 @@ class TestGuiIsDisplayOnly:
             _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
+
+
+def test_the_modules_guards_read_every_file_at_every_depth(monkeypatch, tmp_path):
+    """A context read or a widget read in a subpackage, or in a package's
+    __init__.py, is counted: the lower layer reaching up is the same defect
+    one folder down."""
+    import subprocess
+
+    from tests import ast_seams
+
+    reads = 'def f(_app_ctx):\n    return _app_ctx.ctx.ids["w"]\n'
+    (tmp_path / 'modules' / 'pkg').mkdir(parents=True)
+    (tmp_path / 'modules' / 'pkg' / 'x.py').write_text(reads)
+    (tmp_path / 'modules' / 'pkg' / '__init__.py').write_text(reads)
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    # pointed at the tree as tools/ratchet_history points a sampled one
+    monkeypatch.setattr(ast_seams, 'REPO_ROOT', tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], 'REPO_ROOT', str(tmp_path))
+
+    expected = {'modules/pkg/__init__.py': 1, 'modules/pkg/x.py': 1}
+    assert _modules_context_read_counts() == expected
+    assert _modules_widget_read_counts() == expected
 
 
 class TestThePrivateReachCensusCountsReachesNotSpellings:
