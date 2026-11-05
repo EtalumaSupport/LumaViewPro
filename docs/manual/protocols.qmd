@@ -264,8 +264,8 @@ with the number left until they are written. The toolbar's
 At each step the stage and focus move to the step's position, the step's
 channel is shown with its settings, an autofocus runs if the channel's
 [Auto Focus]{.guilabel} is on, and the image or video is taken. A
-Z-stack is autofocused once, at its first slice, and its slices are
-moved with the focus found, keeping their spacing. With
+Z-stack is autofocused once, at its first slice, as in
+@sec-protocol-autofocus-all. With
 [Keep LED on across moves]{.guilabel} in Advanced Settings, the LED stays
 on between steps of the same channel (@sec-advanced-protocol).
 

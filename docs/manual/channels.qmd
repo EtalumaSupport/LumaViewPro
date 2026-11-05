@@ -53,10 +53,6 @@ fluorescence channels. A typed value may be higher than the slider's
 range, up to the LED board's maximum; a higher value is refused, and the
 setting keeps its previous value.
 
-The tooltip of [Auto Gain/Exp]{.guilabel} suggests an LED current of 10 to
-30 mA for the transmitted channels and 50 to 400 mA for the fluorescence
-channels.
-
 Defaults: [Brightfield]{.channel} 5 mA; [Phase Contrast]{.channel} and
 [Darkfield]{.channel} 50 mA; each fluorescence channel 250 mA.
 
@@ -95,6 +91,8 @@ the frame (half the width and half the height). While it is on, the
 [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} controls are disabled.
 The camera keeps the gain between 0 and 20 dB and the exposure at or below
 50 ms on a transmitted channel, 200 ms on a fluorescence channel.
+With Auto Gain/Exp on, set the LED to 10 to 30 mA on a transmitted channel
+and 50 to 400 mA on a fluorescence channel.
 
 The setting belongs to the channel, and each protocol step added in that
 channel takes it. A step's own setting can differ from the channel's: in a
@@ -198,7 +196,7 @@ runs.
 ## Display Properties {#sec-display-properties}
 
 - [False Color]{.guilabel}: shows the channel in its color, the color of
-  its swatch, instead of grey. Offered on the fluorescence channels and
+  its swatch, instead of gray. Offered on the fluorescence channels and
   the [Lumi]{.channel} channel; default: on. Images saved in the
   [RGB (full depth)]{.guilabel} image mode are saved in this color
   (@sec-image-mode).

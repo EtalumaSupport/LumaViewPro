@@ -19,7 +19,7 @@ Chlorine compounds are inexpensive, fast-acting disinfectants with a broad
 antimicrobial range. Hypochlorites, the most used, come as liquids (sodium
 hypochlorite, as in household bleach) and solids (calcium hypochlorite,
 sodium dichloroisocyanurate). Household bleach holds 5.25% available
-chlorine, 52,500 ppm. It is a strong oxidiser and loses strength quickly, so
+chlorine, 52,500 ppm. It is a strong oxidizer and loses strength quickly, so
 make it fresh and use it the day it is made.
 
 ## Hydrogen peroxide vapor (HPV) {#sec-hpv}

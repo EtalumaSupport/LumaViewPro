@@ -41,8 +41,8 @@ The images must be TIFF or OME-TIFF; a run saved as JPG or PNG is refused
 before anything is built.
 
 Click the tool's button and choose the folder. The folder picker starts in
-`ProtocolData`. On Windows and Linux the folder picker does not show the
-files inside the folders; this is how those systems' folder pickers work.
+`ProtocolData`. On Windows and Linux it shows folders only, not the files
+in them.
 
 While a tool runs, a window shows its progress. When it ends, the window
 says what was made, and names any images it left out. A run cannot be
@@ -92,6 +92,8 @@ run recorded are missing"), and builds nothing from them.
   requires multiple time points per scan position");
 - a recording saved as frames: one video of the recording.
 
+Its settings:
+
 - [Frames/Second]{.guilabel}: the speed the video plays at. Blank ("auto"),
   a recording plays at the rate it was recorded, and a protocol run at 5
   frames a second. A typed value must be a whole number of at least 1; a
@@ -113,7 +115,7 @@ Requires: a motorized XY stage. On a scope without one, the
 Stitch joins the tiles of each tiled step (@sec-protocol-tiling) into one
 image: one image for each well, channel, Z-slice and scan. It places each
 tile where the stage was when the tile was taken, read from the run's
-record; the tiles' names play no part. The tiles' own pixels and colors are
+record. The tiles' own pixels and colors are
 kept.
 
 - [Quality Stitch]{.guilabel}: where the tiles overlap, it fine-tunes each

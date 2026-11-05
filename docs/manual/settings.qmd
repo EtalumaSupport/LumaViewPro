@@ -5,9 +5,9 @@ in [Advanced Settings]{.guilabel}, once. A setting that needs particular
 hardware says so. Settings are saved and restored at the next start, except
 where this chapter states otherwise.
 
-A value outside a setting's range is refused and the setting keeps its
-previous value; LumaViewPro reports the reason. Out-of-range values are
-never adjusted to the nearest allowed value.
+A value outside a setting's range is refused, with the reason, and the
+setting keeps its previous value; it is never adjusted to the nearest
+allowed value.
 
 ## Microscope Settings {#sec-microscope-settings}
 
@@ -174,8 +174,8 @@ LumaViewPro, and a notice says so. A microscope whose motor board reports
 its model runs as that model regardless of this setting. The model cannot be
 changed while a protocol runs.
 
-An LS460, an LS560 and an LS620 present identically to LumaViewPro, which cannot tell
-them apart. On these models, select the correct model here and restart
+LumaViewPro cannot tell an LS460, an LS560 and an LS620 apart. On these
+models, select the correct model here and restart
 LumaViewPro; a wrong selection gives the wrong channels.
 
 #### Acceleration Max (%)

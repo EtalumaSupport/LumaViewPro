@@ -6,7 +6,7 @@ the camera is recognized the moment it is plugged in.
 
 ## Your computer {#sec-computer}
 
-LumaViewPro is installed on Windows 10 or 11. A desktop or a laptop will do.
+LumaViewPro runs on Windows 10 or 11. A desktop or a laptop will do.
 The monitor does not change the images LumaViewPro saves; a poor monitor
 only makes focus harder to judge by eye.
 
@@ -47,7 +47,7 @@ Documents named for the version, for example `Documents\LumaViewPro 4.0.0`.
 3. Plug the power supply's barrel connector into the port labeled
    **POWER INPUT 24V DC**, and the power supply into an AC outlet.
 
-Place the computer on a flat, stable surface within reach of the 3 metre
+Place the computer on a flat, stable surface within reach of the 3 meter
 USB cable.
 
 ::: {.callout-warning title="Use only the supplied USB cable"}

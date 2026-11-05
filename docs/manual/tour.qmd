@@ -98,10 +98,8 @@ The toolbar's buttons are pictures (@fig-tour-toolbar). From left to right:
 
 : The toolbar's buttons {#tbl-toolbar tbl-colwidths="[22,78]"}
 
-Everything is saved in the destination folder: what you take by hand
-(stills, composites, Z-stacks and videos) under `Manual`, and a protocol's
-images under `ProtocolData`, in a new folder named for the date and time of
-each run.
+Everything is saved under the destination folder: what you take by hand in
+`Manual`, and a protocol's images in `ProtocolData` (@sec-image-files).
 
 ## The live image {#sec-live-image}
 

@@ -6,8 +6,8 @@ autofocus, the objective in use, the turret and Z-stacks
 [XY Stage Control]{.guilabel} drawer moves the stage (@sec-xy-stage). Which
 of these your microscope has is shown in @tbl-models.
 
-While a protocol or another acquisition runs, the microscope homes, or a
-video records, the controls in these drawers are disabled.
+The controls in these drawers are disabled while a protocol or another
+acquisition runs, while the microscope homes, and while a video records.
 
 ::: {#fig-objective-control layout-ncol=2}
 ![On an LS850: the objective is named on [Assign Objective]{.guilabel}](images/focus-objective-control-ls850.png){#fig-objective-control-ls850 width=62%}
