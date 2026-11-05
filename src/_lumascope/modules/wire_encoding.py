@@ -158,7 +158,6 @@ PROJECT_PACKAGES = frozenset(
         'ui',
         'tools',
         'lumaviewpro',
-        'lvp_fx2_driver_step',
     }
 )
 

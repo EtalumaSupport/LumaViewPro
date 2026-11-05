@@ -249,7 +249,7 @@ exe = EXE(
 # elevated at install and uninstall: its own small executable, without the
 # app's splash, in the same folder so it shares the app's binaries.
 driver_step = Analysis(
-    ['lvp_fx2_driver_step.py'],
+    ['scripts\\appBuild\\build_exe\\fx2_driver\\lvp_fx2_driver_step.py'],
     pathex=['.', 'src'],
     binaries=[],
     datas=[],

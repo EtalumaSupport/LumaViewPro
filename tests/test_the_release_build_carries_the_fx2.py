@@ -165,7 +165,7 @@ def test_the_spec_runs_the_gate_and_reads_no_dll_from_the_environment():
     assert 'fx2_bundle_entries(SPECPATH, _libusb_path)' in spec
     assert 'check_fx2_dist(_dist_root,' in spec
     assert 'FX2_LIBUSB_DLL' not in spec
-    assert "['lvp_fx2_driver_step.py']" in spec
+    assert "['scripts\\\\appBuild\\\\build_exe\\\\fx2_driver\\\\lvp_fx2_driver_step.py']" in spec
     assert "name='lvp_fx2_driver_step'" in spec
 
 
