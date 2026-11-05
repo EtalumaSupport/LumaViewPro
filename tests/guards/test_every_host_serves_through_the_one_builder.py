@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every host serves REST through ``_lumascope.rest.server.build_server``, the one place a uvicorn server is configured.
 
-The GUI, ``python -m _lumascope.rest`` and a program serving its own session each get
+The GUI, ``python -m lumascope.rest`` and a program serving its own session each get
 the judge of ``rest_api``, the caller-thread bind and the one configuration
 only by serving through it. No production module but ``src/_lumascope/rest/server.py``
 calls ``uvicorn.Config`` or ``uvicorn.run``, and no published document tells

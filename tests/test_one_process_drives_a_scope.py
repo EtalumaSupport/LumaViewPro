@@ -3,7 +3,7 @@
 
 ``_lumascope.modules.lvp_lock.take_instance_lock`` is a host's take, made before the
 GUI or the REST server loads anything that opens the scope: another
-process's take is answered None, so ``python -m _lumascope.rest`` (``_lumascope.rest.__main__``)
+process's take is answered None, so ``python -m lumascope.rest`` (``_lumascope.rest.headless``)
 refuses to start while one is held. Every real scope takes the same lock
 where its hardware opens (``take_scope_lock``, from ``_init_minimal``),
 however it is built: refused with ``ScopeInUseError`` while another process
@@ -294,7 +294,7 @@ def test_a_simulated_scope_takes_no_lock(no_hardware):
 
 def test_the_server_does_not_start_beside_a_holder(capsys):
     from _lumascope.modules.app_config import get_lvp_lock_port
-    from _lumascope.rest.__main__ import main
+    from _lumascope.rest.headless import main
 
     with _held_by_another_process(get_lvp_lock_port(get_source_root())):
         assert main(['--simulate']) == 1
@@ -302,7 +302,7 @@ def test_the_server_does_not_start_beside_a_holder(capsys):
 
 
 def test_the_server_takes_no_host():
-    from _lumascope.rest.__main__ import main
+    from _lumascope.rest.headless import main
 
     with pytest.raises(SystemExit) as refused:
         main(['--host', '0.0.0.0'])

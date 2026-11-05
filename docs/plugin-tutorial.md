@@ -55,7 +55,7 @@ contract end-to-end.
 
 ### Directory layout
 
-```
+```text
 hello_postproc/
     pyproject.toml
     hello_postproc/
@@ -76,7 +76,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from _lumascope.modules.plugins import PluginSpec, ProcessorResult
+from lumascope import PluginSpec, ProcessorResult
 
 
 __version__ = "0.1.0"
@@ -87,7 +87,7 @@ spec = PluginSpec(
     version=__version__,
     requires_lvp_version=">=4.0.0",
     description="Lists TIFFs in a capture folder and writes a summary.",
-    capabilities=("_lumascope.modules.image_save",),
+    capabilities=("scope.imaging",),
     author="Your Name",
     url="https://example.com/hello_postproc",
 )
@@ -150,7 +150,7 @@ def unregister(ctx: Any) -> None:
 | `version` | yes | Your plugin's version. Free-form; not parsed by the host. |
 | `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
 | `description` | yes | One sentence saying what the plugin does. |
-| `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `_lumascope.modules.image_save`). A declaration only: not read, and not sandbox-enforced, in 4.x. |
+| `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `scope.camera`). A declaration only: not read, and not sandbox-enforced, in 4.x. |
 | `author` | no | Free-form. |
 | `url` | no | Free-form. |
 | `auto_run_on_protocol_complete` | no | `post_processing` only. `True` hands your processor the folder of every Full Protocol run; see **After a protocol**. Defaults to `False`. |
@@ -206,7 +206,7 @@ importable module that exposes `spec`, `register`, and optionally
 
 Install into the same Python environment LumaViewPro runs in:
 
-```
+```text
 pip install -e /path/to/hello_postproc
 ```
 
@@ -221,12 +221,13 @@ together, once, each with its reason.
 
 ## Testing your plugin
 
-Use the `harness_ctx` fixture in `tests/plugin_test_harness.py`. It
-builds a fresh stand-in for the session with a real `PluginRegistry`
-and a mocked scope and post-processing, so your `register(ctx)` runs
-against the production registry code without spinning up Kivy or
-hardware. It has only what a session has, so a plugin that reaches for
-anything else fails in your tests as it would in LumaViewPro.
+LumaViewPro hands `register(ctx)` its session. A test hands it a stand-in
+that holds only what a post-processor's `register` uses, a real
+`PluginRegistry` from `lumascope`, so your registration runs against the
+production registry code without LumaViewPro, Kivy or hardware. The
+registry is built with no scope, which a post-processor needs none of. The
+stand-in has nothing else, so a plugin that reaches for anything more fails
+in your test with `AttributeError`.
 
 Place this in `tests/test_hello_postproc.py`:
 
@@ -234,22 +235,29 @@ Place this in `tests/test_hello_postproc.py`:
 """Tests for hello_postproc. Run with: pytest tests/test_hello_postproc.py"""
 from __future__ import annotations
 
-import os
-import tempfile
+import types
 
-from tests.plugin_test_harness import harness_ctx  # noqa: F401
+import pytest
+
+from lumascope import PluginRegistry
 
 import hello_postproc
 
 
-def test_registers_in_post_processing_namespace(harness_ctx):
-    hello_postproc.register(harness_ctx)
-    assert "hello_postproc" in harness_ctx.plugins.post_processing.names()
+@pytest.fixture
+def ctx():
+    """A fresh stand-in for the session per test: registrations do not leak across tests."""
+    return types.SimpleNamespace(plugins=PluginRegistry(None))
 
 
-def test_processor_writes_summary(harness_ctx, tmp_path):
-    hello_postproc.register(harness_ctx)
-    processor = harness_ctx.plugins.post_processing.get("hello_postproc")
+def test_registers_in_post_processing_namespace(ctx):
+    hello_postproc.register(ctx)
+    assert "hello_postproc" in ctx.plugins.post_processing.names()
+
+
+def test_processor_writes_summary(ctx, tmp_path):
+    hello_postproc.register(ctx)
+    processor = ctx.plugins.post_processing.get("hello_postproc")
 
     input_dir = tmp_path / "capture"
     input_dir.mkdir()
@@ -268,23 +276,13 @@ def test_processor_writes_summary(harness_ctx, tmp_path):
     assert "tiff_count: 2" in summary
 
 
-def test_unregister_does_not_raise(harness_ctx):
-    hello_postproc.register(harness_ctx)
-    hello_postproc.unregister(harness_ctx)
+def test_unregister_does_not_raise(ctx):
+    hello_postproc.register(ctx)
+    hello_postproc.unregister(ctx)
 ```
 
-The fixture gives you a fresh `ctx` per test; registrations do not
-leak across tests. If you need multiple isolated contexts in one
-test (e.g. to assert two contexts don't share state), use the
-`harness_ctx_factory` fixture instead.
-
-The harness re-exports `PluginSpec`, `ProcessorResult`, and
-`PluginRegistrationError` so test files can construct specs without
-importing from `_lumascope.modules.plugins` directly:
-
-```python
-from tests.plugin_test_harness import PluginSpec, ProcessorResult
-```
+Run them with the Python LumaViewPro's install script set up, which
+imports `lumascope` from any folder.
 
 ---
 
@@ -439,14 +437,14 @@ whose change concerns only Etaluma's own tools says so.
 | level 5 | A plugin's `register`, `unregister` and `on_settings_changed` are handed the session (see "Lifecycle and namespaces"); `on_settings_changed` is told changes made since load; auto-run fires for every Full Protocol starter, on the post-processing lane, after the hyperstack build. |
 | level 6 | `imaging.set_binning_size`, `set_pixel_format`, `set_conversion_gain_mode` and `set_line_noise_reduction`, and the Session's `set_image_mode`, `set_high_conversion_gain` and `set_line_noise_reduction`, return `None`: every failure raises, a camera gone before the body with `not_connected`; a toggle's mode on a camera without it raises `CameraSettingUnsupportedError`, its off is satisfied. |
 | level 7 | Nothing a plugin outside Etaluma relies on. |
-| level 8 | Every `Refusal` and `Quiet` type states its cause (`RefusalCause`, `_lumascope.modules.exceptions`), as `cause` or, where its reasons differ, as `causes` keyed by reason: a plugin's own refusal type that states neither is refused at import, and one built with a reason its `causes` lacks raises `TypeError`. |
+| level 8 | Every `Refusal` and `Quiet` type states its cause (`lumascope.RefusalCause`), as `cause` or, where its reasons differ, as `causes` keyed by reason: a plugin's own refusal type that states neither is refused at import, and one built with a reason its `causes` lacks raises `TypeError`. |
 | level 9 | The session saves every accepted settings write itself (`ScopeSession.create(settings_file=...)`), and `save_settings`, `SettingsSaveRefusedError` and `on_settings_changed` are gone; `PluginSpec.subscribes_to` is accepted empty, and a spec naming keys is not loaded, its reason naming level 8 as the last that told a plugin of a settings change. |
 | level 10 | LED state is by address: `get_led_state` (a layer name or an address) answers an `LedReading` (`address`, `name`, `state`, `illumination_ma`), `get_led_states` a tuple of them for every address of the board, `save_led_state` an `LedSnapshot`; the LED listener is called with `(address, name, state, illumination_ma)`; `get_led_state` of a layer the identity gives no LED raises `not_on_this_scope`; the drivers' `ch2color`, `color2ch`, `available_colors` and `led_ma` are gone, and the EL-0940 board addresses 0-7; an LED write the active lease does not permit raises `exclusive_activity_running`, and `led_on` always returns the commanded current. |
 | level 11 | A run returns its `Operation` (`start_move_absolute`, `start_move_relative` and `start_home` return one too), and `ProtocolRunner`'s run members start it: `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps` and `run_zstack` are `start_single_scan`, `start_protocol`, `start_autofocus`, `start_autofocus_all_steps` and `start_zstack`. |
 | level 12 | A capture returns a frame or raises: `capture_and_wait` and `get_image` raise `CaptureFailedError` (`no_frame`, `deadline_expired`, `chunk_rejected` with its `setting`) for no frame and `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) for a camera gone or not streaming, and never answer None; `capture_failure_cause` and the failure flags of `last_capture_info` (`not_ready`, `drain_failed`, `deadline_expired`, `chunk_rejected`) are gone. |
 | level 13 | A frame listener is called `cb(frame)` with the camera's read-only `Frame` record (`image`, `seq`, `timestamp`, `arrived_ns`, `significant_bits`, `chunks`), where it was called `cb(image, timestamp, chunks)`; the image a capture returns (`capture_and_wait`, `get_image`) is read-only. |
 | level 14 | `imaging.judge_frame(frame)` answers whether a frame counts for each source's last recorded change (a `Judgment` per change, carrying its `Change` and the `Credit` of each frame counted toward it), and `frame_validity.count_frame` takes who counted (`by=Counter`); a capture's `frame_record` carries `judgments`, and its saved file `frame_validity`. |
-| level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`ClockMapping`, `_lumascope.modules.lumascope_api.frame_record`), None on a camera without a latch. |
+| level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`lumascope.ClockMapping`), None on a camera without a latch. |
 | level 16 | Nothing a plugin outside Etaluma relies on. |
 | level 17 | A capture's `frame_record` carries `saturated_fraction` (measured when `all_ones_check` is asked) and `dark` (judged when an LED is lit and `accept_dark` is not), each None when not measured, and answers `blown`; `last_capture_info` no longer carries `dark_saved`. A blown or dark frame is not logged as a warning by the capture; a run's outcome counts them (`captures.saturated`, `captures.dark`, each a tuple of `TakenCapture`). |
 | level 18 | A capture's `frame_record` carries `held_layer`, the layer whose stored settings the camera held (None after a raw camera write), and its saved file `camera_held_a_layer` (and `camera_held_layer` when one was). A manual still has the camera hold its name's layer for its frame, and is refused while a manual recording runs when that would change the camera. |
@@ -466,7 +464,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 32 | A move is asked for by what it moves: `move_xy(x_um, y_um)` / `start_move_xy` and `move_xy_by(dx_um, dy_um)` / `start_move_xy_by` move X and Y as one request, every axis given refused before either drives, an axis given as None left as it is and not read; `move_z(z_um)` / `start_move_z` and `move_z_by(dz_um)` / `start_move_z_by` move Z, a move to a place approaching from below and a move by a distance not, unless `overshoot_enabled` (None, the API's approach, by default) says otherwise. `move_absolute`, `move_relative`, `start_move_absolute` and `start_move_relative` are gone, with no alias. |
 | level 33 | A channel is a `channel` on the whole surface: `scope.channel_identity` (`ChannelIdentity`, its `channels` of `ChannelRecord`), `ScopeModel.channels`, `ShownChannel.channel` and `FrameRecord.held_channel`; `set_channel_acquire` / `channel_acquire`, `set_channel_auto_gain` / `channel_auto_gain` / `channel_auto_gain_lock`, `save_channel_focus`, `apply_focus_to_channel_steps` and `apply_channel_settings`; every member that takes a channel takes `channel` (`channels` on `add_step`); the reasons `channel_unknown` and `no_channel_selected`. The old names are gone, with no alias. |
 | level 34 | A quantity's unit is the last part of its name: the camera's limits are `capabilities.camera_limits.gain_min_db`, `gain_max_db`, `analog_gain_max_db`, `exposure_min_ms` and `exposure_max_ms`; `scope.camera.read_frame_rate_fps()` and `read_exposure_min_ms()`. The old names are gone, with no alias. |
-| level 35 | The image mode is an `ImageMode` (`_lumascope.modules.image_mode`: `EIGHT_BIT`, `SCIENTIFIC`, `SCALED`, `FALSE_COLOR_RGB`): `scope.camera.set_image_mode` takes a member or its plain string and refuses any other value `not_offered` (`ArgumentRefusedError`) before anything is applied; `scope.camera.image_mode` answers a member. |
+| level 35 | The image mode is a `lumascope.ImageMode` (`EIGHT_BIT`, `SCIENTIFIC`, `SCALED`, `FALSE_COLOR_RGB`): `scope.camera.set_image_mode` takes a member or its plain string and refuses any other value `not_offered` (`ArgumentRefusedError`) before anything is applied; `scope.camera.image_mode` answers a member. |
 | level 36 | Nothing a plugin outside Etaluma relies on. |
 | level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). |
 | level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`). `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
@@ -542,7 +540,7 @@ registered before the exception -- nothing of the plugin is mounted,
 run or called -- and then called your `unregister(ctx)` for any other
 cleanup.
 Read the log for the full traceback; common causes are typos in the
-spec (e.g. `capabilities=("_lumascope.modules.image_save",)` vs `capabilities="_lumascope.modules.image_save"`), or
+spec (e.g. `capabilities=("scope.imaging",)` vs `capabilities="scope.imaging"`), or
 your processor closing over a missing module-level binding.
 
 ### `TypeError` when host invokes your processor

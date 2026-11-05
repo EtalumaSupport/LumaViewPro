@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A saved z-stack, over REST: z_stack_saved.py's stack,
 # on a simulated LumaViewPro serving the API -- the installed app or
-# `python -m _lumascope.rest --simulate`; how to start one and run this: README.md here.
+# `python -m lumascope.rest --simulate`; how to start one and run this: README.md here.
 # The scope has already run the startup motion.
 # Each line's comment is the status it answers.
 

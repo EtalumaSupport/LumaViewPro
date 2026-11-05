@@ -422,9 +422,15 @@ _PROJECT_MODULES = tuple(sorted(p.replace('/', '.') for p in _PROJECT_PACKAGES))
 _PROSE_PATH = re.compile(r'`(_lumascope\.(?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)')
 
 
+# What a reader imports names from: the public module, which every published
+# doc teaches, and the project packages, which a doc must not (the docs'
+# import guard) but whose names are still judged here if one does.
+_IMPORTED_FROM = ('lumascope', *_PROJECT_MODULES)
+
+
 def _in_project(module):
-    """Whether the module name ``module`` is a project package's or one of its modules."""
-    return any(module == p or module.startswith(f'{p}.') for p in _PROJECT_MODULES)
+    """Whether the module name ``module`` is the public module, a project package's, or one of theirs."""
+    return any(module == p or module.startswith(f'{p}.') for p in _IMPORTED_FROM)
 
 
 def why_not_api(obj):
@@ -634,6 +640,8 @@ class TestLumascopeSkillsTeachesOnlyApi:
             'settings_init.current_json_path(".")\n'
             'from _lumascope.modules.scope_session import ScopeSession\n'
             'ScopeSession.user_settings_file(".", "extra")\n'
+            'from lumascope import ScopeSession as Public\n'
+            'Public.user_settings_file(".", "extra")\n'
             '```\n'
             '\n'
             'Prose naming `_lumascope.modules.post_processing.with_pixels_per_um`.\n'
@@ -647,8 +655,9 @@ class TestLumascopeSkillsTeachesOnlyApi:
             'planted:2  _lumascope.modules.image_save.save_image  -> an unmarked function',
             'planted:5  _lumascope.modules.settings_init.current_json_path  -> an unmarked function',
             'planted:7  _lumascope.modules.scope_session.ScopeSession.user_settings_file(...)',
-            'planted:10  _lumascope.modules.post_processing.with_pixels_per_um',
-            'planted:13  the fence does not parse',
+            'planted:9  lumascope.ScopeSession.user_settings_file(...)',
+            'planted:12  _lumascope.modules.post_processing.with_pixels_per_um',
+            'planted:15  the fence does not parse',
         ):
             assert expected in reported, reported
 

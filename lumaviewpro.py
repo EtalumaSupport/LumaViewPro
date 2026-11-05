@@ -1455,7 +1455,7 @@ class LumaViewProApp(TooltipMixin, App):
         """Serve the API beside the window, on its own session, unless ``rest_api.enabled`` is false.
 
         On ``rest_api.address`` and ``rest_api.port`` (shipped this computer
-        only), on a thread and loop of its own; ``python -m _lumascope.rest`` is the
+        only), on a thread and loop of its own; ``python -m lumascope.rest`` is the
         headless way. Where it serves is logged, and shown in Advanced
         Settings.
         Only false leaves it off: any other value is the server's to judge,

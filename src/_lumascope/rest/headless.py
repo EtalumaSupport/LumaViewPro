@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The headless REST server: ``python -m _lumascope.rest [--simulate]``.
+"""The headless REST server, run as ``python -m lumascope.rest [--simulate]``.
 
 Brings the scope up as the GUI does -- the single-instance lock, the
 prepared settings, ``ScopeSession.create``, the startup motion, the
@@ -18,10 +18,10 @@ import argparse
 import sys
 
 
-def main(argv: list[str] | None = None, *, prog: str = 'python -m _lumascope.rest') -> int:
-    """Run the server until it is closed; *prog* is the command its usage names."""
+def main(argv: list[str] | None = None) -> int:
+    """Run the server until it is closed."""
     parser = argparse.ArgumentParser(
-        prog=prog,
+        prog='python -m lumascope.rest',
         description='Serve the Lumascope API over HTTP, where rest_api in the settings says.',
     )
     parser.add_argument(
@@ -50,10 +50,8 @@ def main(argv: list[str] | None = None, *, prog: str = 'python -m _lumascope.res
         print(message, file=sys.stderr)
         return 1
 
-    # Imported after the lock: a second launch exits before it loads the
-    # server's dependencies, and, run as ``python -m _lumascope.rest``, the
-    # scope's modules too (``python -m lumascope.rest`` has loaded the API
-    # before this runs).
+    # Imported at the call, after the lock. ``python -m lumascope.rest`` has
+    # loaded the whole API, the server's dependencies with it, before this runs.
     from _lumascope.modules.exceptions import RestServerNotStartedError
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.rest.server import build_server
@@ -97,7 +95,3 @@ def main(argv: list[str] | None = None, *, prog: str = 'python -m _lumascope.res
         raise
     finally:
         instance_lock.close()
-
-
-if __name__ == '__main__':
-    sys.exit(main())

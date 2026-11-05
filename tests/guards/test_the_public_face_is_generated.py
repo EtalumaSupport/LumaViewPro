@@ -18,7 +18,8 @@ A user writes ``from lumascope import X`` for every published name
    module imports ``lumascope``, and importing an internal module does not
    load it.
 
-And ``python -m lumascope.rest`` names itself so in its usage.
+And ``python -m lumascope.rest`` names itself so in its usage, and is the one
+command: ``python -m _lumascope.rest`` runs nothing.
 """
 
 from __future__ import annotations
@@ -210,3 +211,17 @@ def test_the_rest_command_names_itself_in_its_usage() -> None:
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.startswith('usage: python -m lumascope.rest ')
+
+
+def test_the_internal_package_is_no_command() -> None:
+    done = subprocess.run(
+        [sys.executable, '-m', '_lumascope.rest', '--help'],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=60,
+    )
+    assert done.returncode == 1, done.stdout
+    assert "'_lumascope.rest' is a package and cannot be directly executed" in done.stderr, (
+        done.stderr
+    )

@@ -352,7 +352,7 @@ def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkey
     # its instance lock, held here on a port this test's settings name.
     from _lumascope.modules import path_utils
     from _lumascope.modules.lvp_lock import LvpLock
-    from _lumascope.rest.__main__ import main
+    from _lumascope.rest.headless import main
 
     documents = tmp_path / 'Documents'
     # platformdirs and lvp_logger are conftest stand-ins.

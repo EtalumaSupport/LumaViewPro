@@ -1,12 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Plugin author's test harness.
+"""LumaViewPro's own test harness for its plugins.
 
-Pytest fixtures that give a plugin author "a configured ctx" without
-spinning up Kivy / LumaViewPro / hardware. Use these to assert that
-your plugin's register/unregister hooks behave
-correctly in isolation.
+Pytest fixtures that give a test of a built-in plugin, or of the plugin
+platform, "a configured ctx" without spinning up Kivy / LumaViewPro /
+hardware. It is this suite's, not published: a plugin author's tests build
+their own stand-in over ``lumascope.PluginRegistry``, as
+``docs/plugin-tutorial.md`` teaches.
 
-Usage in your plugin's test file:
+Usage in a test file of this suite:
 
     from tests.plugin_test_harness import harness_ctx
 
@@ -41,8 +42,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Re-export PluginSpec / ProcessorResult so plugin authors can build
-# specs in their tests without importing _lumascope.modules.plugins directly.
+# Re-exported so a test can build specs from the harness's one import.
 from _lumascope.modules.plugins import (
     PluginRegistry,
     PluginSpec,

@@ -52,9 +52,10 @@ from _lumascope.modules.api_surface import HOST_WIRING_ATTRIBUTE, fields_of, hos
 
 # The clients walked: each a directory of them, or one module.
 _CLIENTS = Packages({'ui', 'tools', 'scripts', 'docs/api_examples', 'lumaviewpro'})
-# The package an annotation or an import is resolved in, by the head of the
-# module's name; a client's own modules (ui, tools) are never imported here.
-_PROJECT = Packages({'_lumascope'}, under='src')
+# The packages an annotation or an import is resolved in, by the head of the
+# module's name: the API's and its public face, which the examples import
+# from; a client's own modules (ui, tools) are never imported here.
+_PROJECT = Packages({'_lumascope', 'lumascope'}, under='src')
 # The classes whose members are read through as forwarders: the GUI's
 # context holds the session and forwards to it.
 _FORWARDERS = (app_context.AppContext,)
@@ -675,6 +676,18 @@ def test_the_walk_resolves_a_parameters_annotation_by_the_files_imports():
 
         def f(scope: Lumascope):
             scope.camera.active
+        """
+    ) == ['CameraAPI.active']
+
+
+def test_the_walk_resolves_a_name_imported_from_the_public_module():
+    """The examples import from ``lumascope``: a read through its names is counted as one through ``_lumascope``'s."""
+    assert _reads(
+        """
+        from lumascope import ScopeSession
+
+        def f(session: ScopeSession):
+            session.scope.camera.active
         """
     ) == ['CameraAPI.active']
 

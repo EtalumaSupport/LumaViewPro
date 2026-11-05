@@ -13,13 +13,7 @@ Run it in a LumaViewPro source folder (how, step by step: README.md here):
 The same still over REST is ``first_still.sh``.
 """
 
-import pathlib
-import sys
-
-# The installation folder, importable when the script is run by its path.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
-
-from _lumascope.modules.scope_session import ScopeSession
+from lumascope import ScopeSession
 
 
 def main():

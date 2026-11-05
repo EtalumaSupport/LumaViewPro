@@ -24,12 +24,13 @@ suite runs every example, both forms, and checks what it leaves.
 
 ## Running a Python example
 
-A Python example needs LumaViewPro's source: it imports the API, which the
-installed app keeps inside its program file.
+A Python example needs LumaViewPro's source: it imports the API from
+`lumascope`, which the installed app keeps inside its program file.
 
 1. Get the source and install its Python packages, as LumaViewPro's
    [README](https://github.com/EtalumaSupport/LumaViewPro#getting-started) says (Python 3.12 or
-   3.13).
+   3.13). Its install scripts also make `lumascope` importable by the Python
+   they installed into, and that Python runs the examples.
 2. Open a terminal in the LumaViewPro folder, the one holding
    `lumaviewpro.py`. If you installed into a virtual environment, activate it.
 3. Run the example by its path:
@@ -72,7 +73,7 @@ installed app, or a server started from the source. You need `bash`, `curl`
    - **From the source.** In the LumaViewPro folder:
 
      ```
-     python -m _lumascope.rest --simulate
+     python -m lumascope.rest --simulate
      ```
 
      It serves until you press Ctrl-C.

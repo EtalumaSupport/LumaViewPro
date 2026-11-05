@@ -3,20 +3,20 @@
 
 ``docs/plugin-tutorial.md`` is the plugin contract's one worked example: a
 plugin author copies its package and its test file. Both are taken from the
-document here, the package imported as a plugin author would install it, and
-each of the tutorial's tests called with the fixtures it asks for, so an
-example the contract no longer takes fails here, not in an author's hands.
+document into a folder of their own, and the test file is run there by
+pytest in a fresh interpreter, as an author runs it: its imports, its own
+fixture and its tests are the tutorial's, with nothing from this checkout's
+``tests`` on the path, so an example the contract no longer takes fails here,
+not in an author's hands.
 """
 
 from __future__ import annotations
 
-import importlib
-import inspect
+import os
 import pathlib
 import re
+import subprocess
 import sys
-
-from tests.plugin_test_harness import _make_ctx
 
 _TUTORIAL = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'plugin-tutorial.md'
 
@@ -28,32 +28,41 @@ def _block_after(text: str, marker: str) -> str:
     return found.group(1)
 
 
-def test_the_tutorials_plugin_passes_the_tutorials_tests(tmp_path, monkeypatch):
+def test_the_tutorials_plugin_passes_the_tutorials_tests(tmp_path):
     text = _TUTORIAL.read_text(encoding='utf-8')
-    package = tmp_path / 'src' / 'hello_postproc'
-    package.mkdir(parents=True)
+    package = tmp_path / 'hello_postproc'
+    package.mkdir()
     (package / '__init__.py').write_text(
         _block_after(text, '### `hello_postproc/__init__.py`'), encoding='utf-8'
     )
-    (tmp_path / 'src' / 'test_hello_postproc.py').write_text(
+    (tmp_path / 'tests').mkdir()
+    (tmp_path / 'tests' / 'test_hello_postproc.py').write_text(
         _block_after(text, 'Place this in `tests/test_hello_postproc.py`'), encoding='utf-8'
     )
-    monkeypatch.syspath_prepend(str(tmp_path / 'src'))
-    for name in ('hello_postproc', 'test_hello_postproc'):
-        monkeypatch.delitem(sys.modules, name, raising=False)
-    tests = importlib.import_module('test_hello_postproc')
-
-    ran = []
-    for name, test in inspect.getmembers(tests, inspect.isfunction):
-        if not name.startswith('test_'):
-            continue
-        fixtures = {'harness_ctx': _make_ctx(), 'tmp_path': tmp_path / name}
-        (tmp_path / name).mkdir()
-        test(**{arg: fixtures[arg] for arg in inspect.signature(test).parameters})
-        ran.append(name)
-
-    assert ran == [
+    # The author's folder holds the plugin; lumascope comes from the
+    # PYTHONPATH the suite exports, as the .pth gives it to an author.
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(tmp_path), os.environ['PYTHONPATH']])}
+    proc = subprocess.run(
+        [
+            sys.executable,
+            '-m',
+            'pytest',
+            '-p',
+            'no:cacheprovider',
+            '-v',
+            '-rA',
+            'tests/test_hello_postproc.py',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=tmp_path,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-2000:]
+    passed = sorted(re.findall(r'^PASSED tests/test_hello_postproc\.py::(\w+)', proc.stdout, re.M))
+    assert passed == [
         'test_processor_writes_summary',
         'test_registers_in_post_processing_namespace',
         'test_unregister_does_not_raise',
-    ]
+    ], proc.stdout[-3000:]

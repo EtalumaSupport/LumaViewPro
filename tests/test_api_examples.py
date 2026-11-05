@@ -86,7 +86,7 @@ def _run_example(name):
 def served(prepared_settings):
     """Runs an example's REST twin on a simulated server; answers its client and its run.
 
-    The server is the one ``python -m _lumascope.rest --simulate`` serves: a session
+    The server is the one ``python -m lumascope.rest --simulate`` serves: a session
     brought up from the prepared settings, its startup motion run.
     """
     from fastapi.testclient import TestClient

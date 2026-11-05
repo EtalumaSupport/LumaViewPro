@@ -4,7 +4,7 @@
 A ``rest_api`` the server cannot use is refused with
 ``RestServerNotStartedError`` naming each value, before anything is bound
 or started, from every host: the builder a program calls, the GUI's
-``serve_beside``, and ``python -m _lumascope.rest``, which prints it and exits 1. The
+``serve_beside``, and ``python -m lumascope.rest``, which prints it and exits 1. The
 load neither judges nor replaces the section, so a session comes up on it
 and a save writes back what the user wrote.
 """
@@ -121,7 +121,7 @@ def _installation_with(rest_api: dict):
 
 def test_the_headless_server_prints_it_and_exits_1(monkeypatch, capsys):
     import _lumascope.modules.path_utils
-    from _lumascope.rest.__main__ import main
+    from _lumascope.rest.headless import main
 
     root = _installation_with({**_SERVABLE, 'enabled': False, 'port': 70000})
     monkeypatch.setattr(_lumascope.modules.path_utils, 'get_source_root', lambda *_args: root)

@@ -36,7 +36,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 - **Simulate Mode** -- run without hardware using `python lumaviewpro.py --simulate`
 - **API** -- the scope driven from Python through a `ScopeSession`, or over REST, with or without the GUI
 
-The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md).
+The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md). A program that uses the API imports it from one module, `lumascope` (`from lumascope import ScopeSession`), and is run with the Python the install scripts set up, from any folder.
 
 ## Getting Started
 
@@ -84,7 +84,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 
 ### Quick Install
 
-Install scripts are provided in the `scripts/` folder. They check your Python version and install all dependencies:
+Install scripts are provided in the `scripts/` folder. They check your Python version, install all dependencies, and make the API (`lumascope`) importable by the Python they installed into:
 
 | Platform | Script | Usage |
 |----------|--------|-------|
@@ -119,7 +119,10 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
    ```
    cd path\to\LumaViewPro
    pip install -r requirements.txt
+   python scripts\install_lumascope_pth.py
    ```
+
+   The second line makes the API (`lumascope`) importable by that Python.
 
 5. **Run LumaViewPro**
    ```
@@ -151,6 +154,7 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
 4. **Install Python dependencies**
    ```bash
    pip install -r requirements.txt
+   python3 scripts/install_lumascope_pth.py
    ```
 
    Or use a virtual environment:
@@ -158,7 +162,10 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
+   python scripts/install_lumascope_pth.py
    ```
+
+   The `install_lumascope_pth.py` line makes the API (`lumascope`) importable by that Python.
 
 5. **Run LumaViewPro**
    ```bash
@@ -199,6 +206,7 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
 4. **Install Python dependencies**
    ```bash
    pip install -r requirements.txt
+   python3 scripts/install_lumascope_pth.py
    ```
 
    Or use a virtual environment:
@@ -206,7 +214,10 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
+   python scripts/install_lumascope_pth.py
    ```
+
+   The `install_lumascope_pth.py` line makes the API (`lumascope`) importable by that Python.
 
 5. **USB device permissions** (required for microscope communication)
    ```bash
@@ -239,7 +250,7 @@ git pull
 pip install -r requirements.txt
 ```
 
-**From source (ZIP):** Download and extract the latest version from GitHub and re-run `pip install -r requirements.txt`.
+**From source (ZIP):** Download and extract the latest version from GitHub and re-run `pip install -r requirements.txt` and `python scripts/install_lumascope_pth.py` in its folder, so the API imported is the new copy's.
 
 ## License
 
