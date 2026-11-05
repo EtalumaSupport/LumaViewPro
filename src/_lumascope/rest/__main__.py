@@ -18,9 +18,10 @@ import argparse
 import sys
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, prog: str = 'python -m _lumascope.rest') -> int:
+    """Run the server until it is closed; *prog* is the command its usage names."""
     parser = argparse.ArgumentParser(
-        prog='python -m _lumascope.rest',
+        prog=prog,
         description='Serve the Lumascope API over HTTP, where rest_api in the settings says.',
     )
     parser.add_argument(
@@ -50,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # Imported after the lock: a second launch exits before it loads the
-    # scope's modules and the server's dependencies.
+    # server's dependencies, and, run as ``python -m _lumascope.rest``, the
+    # scope's modules too (``python -m lumascope.rest`` has loaded the API
+    # before this runs).
     from _lumascope.modules.exceptions import RestServerNotStartedError
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.rest.server import build_server

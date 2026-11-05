@@ -58,6 +58,9 @@ hiddenimports = [
     'usb.util',
     'usb.backend.libusb1',
     'usb1',
+    # The public face (src/lumascope/__init__.py): nothing first-party imports
+    # it, and a plugin's `from lumascope import PluginSpec` needs it in the app.
+    'lumascope',
 ]
 
 # imagecodecs keeps the licence text of each codec library it links in its
@@ -380,7 +383,7 @@ for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
                 _os.path.join(_dirpath, _fname), _dist_root))
 
 # Source-folder gate. The two files in datas are what the app opens from
-# disk; everything else under _lumascope/ and ui/ runs from the
+# disk; everything else under _lumascope/, lumascope/ and ui/ runs from the
 # frozen archive. A loose .py under those folders at the app root means a
 # datas entry grew back, and would let a string-built import the analysis
 # missed resolve from disk instead of failing the build.
@@ -396,7 +399,7 @@ for _rel in _opened_from_disk:
         )
 _loose_py = [
     _os.path.relpath(_os.path.join(_dirpath, _fname), _dist_root)
-    for _folder in ('_lumascope', 'ui')
+    for _folder in ('_lumascope', 'lumascope', 'ui')
     for _dirpath, _dirnames, _filenames in _os.walk(_os.path.join(_dist_root, _folder))
     for _fname in _filenames
     if _fname.endswith('.py')

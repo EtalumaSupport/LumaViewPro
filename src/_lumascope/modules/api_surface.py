@@ -87,6 +87,10 @@ each signature exists. A callback with one argument that is itself a
 record declares that record; a callback with no arguments declares the
 record its host reads when the event is sent.
 
+A module constant cannot carry a mark, so the module that defines a
+published one names it in ``CONSTANTS_ATTRIBUTE``, a tuple beside the
+definition (``constants_of``).
+
 No project imports: every module that declares API imports this one.
 """
 
@@ -132,6 +136,8 @@ ENGINEERING_ATTRIBUTE = '_lvp_api_engineering'
 IN_PROCESS_ARGUMENTS_ATTRIBUTE = '_lvp_api_in_process_arguments'
 # The attribute the doors a member enters are recorded under.
 ADMITTED_BY_ATTRIBUTE = '_lvp_api_admitted_by'
+# The module attribute a module's published constants are named under.
+CONSTANTS_ATTRIBUTE = '_lvp_api_constants'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -633,6 +639,11 @@ def mark_of(member: object) -> str | None:
 def fields_of(cls: type) -> tuple[str, ...]:
     """The data attributes *cls* itself publishes."""
     return vars(cls).get(FIELDS_ATTRIBUTE, ())
+
+
+def constants_of(module: types.ModuleType) -> tuple[str, ...]:
+    """The names of the constants *module* publishes."""
+    return vars(module).get(CONSTANTS_ATTRIBUTE, ())
 
 
 def host_wiring_of(cls: type) -> tuple[str, ...]:

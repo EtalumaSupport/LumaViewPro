@@ -26,9 +26,13 @@ TOOL = REPO / 'scripts' / 'install_lumascope_pth.py'
 
 @pytest.fixture(scope='module')
 def env(tmp_path_factory):
-    """A fresh virtual environment: its Python and its site-packages."""
+    """A fresh virtual environment over the suite's Python: its Python and its site-packages.
+
+    It sees the suite's site-packages, as the install scripts' environment
+    holds the requirements, since importing ``lumascope`` loads the API.
+    """
     root = tmp_path_factory.mktemp('venv')
-    venv.create(root, with_pip=False)
+    venv.create(root, with_pip=False, system_site_packages=True)
     python = str(root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
     site = subprocess.run(
         [python, '-c', "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
@@ -62,8 +66,10 @@ def test_a_user_folder_imports_the_api_and_keeps_its_own_packages(env, tmp_path)
     (tmp_path / 'lib').mkdir()
     (tmp_path / 'lib' / '__init__.py').write_text("WHOSE = 'theirs'\n")
     probe = (
-        'import importlib.util, json, _lumascope, lib, tests.helpers\n'
-        'print(json.dumps([_lumascope.__file__, lib.WHOSE, tests.helpers.WHOSE,\n'
+        'import importlib.util, json, lib, tests.helpers\n'
+        'from lumascope import ScopeSession\n'
+        'import lumascope\n'
+        'print(json.dumps([lumascope.__file__, lib.WHOSE, tests.helpers.WHOSE,\n'
         '    {n: importlib.util.find_spec(n) is not None\n'
         "     for n in ('ui', 'tools', 'modules', 'drivers', 'rest', 'lvp_logger')}]))\n"
     )
@@ -71,7 +77,7 @@ def test_a_user_folder_imports_the_api_and_keeps_its_own_packages(env, tmp_path)
 
     assert done.returncode == 0, done.stderr
     api, lib, helpers, found = json.loads(done.stdout)
-    assert pathlib.Path(api).resolve().parent == (REPO / 'src' / '_lumascope').resolve()
+    assert pathlib.Path(api).resolve().parent == (REPO / 'src' / 'lumascope').resolve()
     assert (lib, helpers) == ('theirs', 'theirs')
     assert found == dict.fromkeys(
         ('ui', 'tools', 'modules', 'drivers', 'rest', 'lvp_logger'), False

@@ -35,7 +35,7 @@ import tempfile
 
 PTH = 'lumascope.pth'
 SRC = pathlib.Path(__file__).resolve().parents[1] / 'src'
-PACKAGE = '_lumascope'
+PACKAGE = 'lumascope'
 
 
 class RefusedError(Exception):

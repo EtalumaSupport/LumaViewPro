@@ -20,6 +20,7 @@ NOT_IMPORTED = {
     'tests': 'the suite',
     'docs': "the shipped examples, a client's own code",
     'scripts': "the release build's and the installers' own",
+    'lumascope': "the user's way in, over _lumascope; no first-party code imports it",
 }
 
 

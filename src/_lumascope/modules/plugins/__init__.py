@@ -75,6 +75,8 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
 PLUGIN_API_LEVEL = 73
+# Published: ``from lumascope import PLUGIN_API_LEVEL`` (api_surface.CONSTANTS_ATTRIBUTE).
+_lvp_api_constants = ('PLUGIN_API_LEVEL',)
 
 
 class UIMountPoint(enum.StrEnum):

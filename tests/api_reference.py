@@ -613,13 +613,53 @@ def _owners(
     return classes, modules, outcomes
 
 
-def render(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
-    """The reference's text for the declared API *marked*, over the classes it can name."""
+@dataclasses.dataclass(frozen=True)
+class Declared:
+    """The reference's sections, built once from the declared API: what ``render`` writes and ``published`` names."""
+
+    index: _Index
+    classes: list[_Owner]
+    modules: list[_Owner]
+    outcome_owners: dict[str, _Owner]
+    closed: list[type[enum.Enum]]
+
+
+def declared(
+    marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]
+) -> Declared:
+    """The reference's sections for the declared API *marked*, over the classes it can name."""
     # Left out before anything is indexed, so no other member's entry links to one.
     marked = {k: m for k, m in marked.items() if m.field or not is_engineering(m.value)}
     index = _index(marked, universe, aliases)
     classes, modules, outcome_owners = _owners(marked, index)
-    closed = _closed_sets(index)
+    return Declared(index, classes, modules, outcome_owners, _closed_sets(index))
+
+
+def published(sections: Declared) -> dict[str, object]:
+    """Every name the reference has a section for, and the root it names only as a base, each by its object.
+
+    A class's section and an outcome's are the class; a module's section
+    is its functions, each under its own name.
+
+    Raises:
+        ValueError: Two sections name different objects by one name, so one
+            namespace cannot hold both.
+    """
+    found: dict[str, object] = {'LumascopeError': LumascopeError}
+    entries = [(o.name, o.owner) for o in sections.classes]
+    entries += [(item.member, item.value) for o in sections.modules for item in o.items]
+    entries += [(c.__name__, c) for c in sections.closed]
+    entries += sorted(sections.index.outcomes.items())
+    for name, value in entries:
+        if found.setdefault(name, value) is not value:
+            raise ValueError(f'two published objects are named {name}: {found[name]!r}, {value!r}')
+    return found
+
+
+def render(sections: Declared) -> str:
+    """The reference's text for the declared API's *sections*."""
+    index, classes, modules = sections.index, sections.classes, sections.modules
+    outcome_owners, closed = sections.outcome_owners, sections.closed
     contents = ['## Contents', '']
     contents += [f'- [`{o.name}`](#{o.name})' for o in classes]
     contents += [f'- [`{o.name}`](#{o.name})' for o in modules]

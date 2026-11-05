@@ -100,7 +100,14 @@ import pytest
 
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import API, api, entries_of
-from tests.api_reference import REFERENCE, REGENERATE, WRITE, member_function, render
+from tests.api_reference import (
+    REFERENCE,
+    REGENERATE,
+    WRITE,
+    declared,
+    member_function,
+    render,
+)
 from tests.ast_seams import RetiredNames, Words
 from tests.marked_set import (
     Marked,
@@ -145,7 +152,7 @@ def marked(universe: dict[str, type]) -> dict[str, Marked]:
 @pytest.fixture(scope='module')
 def rendered(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
     """The reference's text, rendered now from the marks and the docstrings."""
-    return render(marked, universe, aliases)
+    return render(declared(marked, universe, aliases))
 
 
 def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
