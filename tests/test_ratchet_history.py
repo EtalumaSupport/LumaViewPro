@@ -149,6 +149,22 @@ def test_a_sampled_tree_without_a_folder_a_detector_reads_records_none_naming_it
     assert "'ui'" in row['except handlers (why)'], row['except handlers (why)']
 
 
+def test_a_sampled_tree_without_a_size_folder_records_none_naming_it(tmp_path):
+    """A size folder the tree lacks has no size: not 0 lines, which reads as
+    a folder emptied. A folder the tree has is counted at every depth."""
+    (tmp_path / 'tests' / 'nested').mkdir(parents=True)
+    (tmp_path / 'tests' / 'nested' / 'test_x.py').write_text('def test_x():\n    pass\n')
+    _track(tmp_path)
+    folder_of = {files_key: folder for folder, files_key, _lines_key in rh.SIZE_FOLDERS}
+    row = rh.measure_tree(tmp_path)
+    for files_key, lines_key in (('ui_files', 'ui_lines'), ('modules_files', 'modules_lines')):
+        assert row[files_key] is None, row
+        assert row[lines_key] is None, row
+        assert repr(folder_of[files_key]) in row[f'{files_key} (why)'], row
+    assert row['tests_files'] == 1
+    assert row['tests_lines'] == 2
+
+
 def _track(tree):
     """Make ``tree`` the git tree ``ratchet_history`` samples, every file tracked."""
     import subprocess

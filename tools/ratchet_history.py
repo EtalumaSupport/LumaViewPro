@@ -124,14 +124,42 @@ def sample_points(since, until, every_days, branch):
     return points
 
 
-def tree_size(root):
-    """Lines and files under ui/, modules/ and tests/ -- the denominators."""
-    out = {}
-    for sub in ('ui', 'modules', 'tests'):
-        files = sorted(pathlib.Path(root, sub).rglob('*.py'))
-        out[f'{sub}_files'] = len(files)
-        out[f'{sub}_lines'] = sum(len(p.read_text(errors='replace').splitlines()) for p in files)
-    return out
+# (folder, files column, lines column): the size denominators, read by
+# SIZE_COLUMNS and `render`. The column keys are spelled out rather than
+# built from the folder, so a folder that moves keeps its columns' names and
+# a series spanning the move stays one series.
+SIZE_FOLDERS = (
+    ('ui', 'ui_files', 'ui_lines'),
+    ('modules', 'modules_files', 'modules_lines'),
+    ('tests', 'tests_files', 'tests_lines'),
+)
+
+
+def _file_count(folder):
+    def count():
+        return dict.fromkeys(_seams.tracked_files((folder,)), 1)
+
+    return count
+
+
+def _line_count(folder):
+    def count():
+        return {
+            rel: len((_seams.REPO_ROOT / rel).read_text(errors='replace').splitlines())
+            for rel in _seams.tracked_files((folder,))
+        }
+
+    return count
+
+
+# The size cells, each shaped as a detector and measured as one, so a folder
+# the sampled tree lacks records None naming it, as a detector's missing
+# folder does: counted as 0 lines it would read as a folder emptied.
+SIZE_COLUMNS = tuple(
+    column
+    for folder, files_key, lines_key in SIZE_FOLDERS
+    for column in ((files_key, _file_count(folder)), (lines_key, _line_count(folder)))
+)
 
 
 def measure_tree(worktree):
@@ -149,7 +177,7 @@ def measure_tree(worktree):
     for module, name, kind in ROOTS:
         setattr(module, name, kind(worktree))
     try:
-        for label, fn in DETECTORS:
+        for label, fn in (*DETECTORS, *SIZE_COLUMNS):
             try:
                 row[label] = sum(fn().values())
             except Exception as exc:
@@ -158,8 +186,6 @@ def measure_tree(worktree):
     finally:
         for module, name, value in previous:
             setattr(module, name, value)
-    with contextlib.suppress(Exception):
-        row.update(tree_size(worktree))
     return row
 
 
@@ -194,10 +220,10 @@ def render(rows):
             for lab in labels
         )
         lines += ['-' * len(head), f'{"net":<12}{"":<10}{deltas}']
-        for sub in ('ui', 'modules', 'tests'):
-            a, b = first.get(f'{sub}_lines'), last.get(f'{sub}_lines')
+        for folder, _files_key, lines_key in SIZE_FOLDERS:
+            a, b = first.get(lines_key), last.get(lines_key)
             if a and b:
-                lines.append(f'{sub}/ lines {a} -> {b}  ({(b / a - 1) * 100:+.0f}%)')
+                lines.append(f'{folder}/ lines {a} -> {b}  ({(b / a - 1) * 100:+.0f}%)')
     return '\n'.join(lines)
 
 
