@@ -2234,8 +2234,8 @@ class Lumascope:
         Each term is the one the matching single-board question asks, so
         a run gate and a per-board gate cannot disagree about the same
         hardware. Each term reads its driver's own flags, with no exchange
-        with the board or the camera (``src/_lumascope/drivers/protocols.py``,
-        ``Camera.is_connected``).
+        with the board or the camera (each board's and the camera's
+        ``is_connected``).
 
         A scope whose model has no motor board is not asked for one: a
         manual scope is complete without it.

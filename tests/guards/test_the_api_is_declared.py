@@ -66,7 +66,9 @@ path (``_lumascope.rest.app.build_app``):
 10. **Nothing private in the reference.** No code span of the render
     outside a signature names a private member (``_name``, ``owner._name``):
     a reader cannot call it, so a published docstring says what it would
-    have pointed to.
+    have pointed to. No line of it names a private path (``_lumascope``, a
+    file under ``src/``): every name a reader is shown is imported from
+    ``lumascope``, as its heading says (``lumascope.ScopeSession``).
 11. **Every parameter is described.** Every parameter of a marked member
     has an entry in its docstring's ``Args:`` section.
 
@@ -101,10 +103,12 @@ import pytest
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import API, api, entries_of
 from tests.api_reference import (
+    PRIVATE_PATH,
     REFERENCE,
     REGENERATE,
     WRITE,
     declared,
+    entry_key,
     member_function,
     render,
 )
@@ -233,6 +237,21 @@ def test_the_reference_names_nothing_private(rendered: str) -> None:
         'the reference sends its reader to a name that is not API; say in the published '
         'docstring what the private one does:\n'
         + ''.join(f'  {entry}: {sorted(names)}\n' for entry, names in sorted(named.items()))
+    )
+
+
+def test_the_reference_names_no_private_path(rendered: str) -> None:
+    """Every name the reference shows is imported from ``lumascope``: no
+    heading, link or published docstring sends its reader to ``_lumascope``
+    or to a file under ``src/``, which a user cannot import or open."""
+    entry, named = 'the preface', []
+    for line in rendered.splitlines():
+        entry = (_ANCHOR.findall(line) or [entry])[-1]
+        if PRIVATE_PATH.search(line):
+            named.append(f'  {entry}: {line.strip()[:120]}')
+    assert not named, (
+        'the reference names a private path; name the home, `lumascope`, or say what '
+        'the private code does:\n' + '\n'.join(named)
     )
 
 
@@ -493,7 +512,9 @@ def test_every_marked_class_is_in_the_table(universe: dict[str, type]) -> None:
 
 def test_the_walk_is_not_vacuous(marked: dict[str, Marked], rendered: str) -> None:
     assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
-    unrendered = sorted(name for name in NOT_VACUOUS if f'<a id="{name}"></a>' not in rendered)
+    unrendered = sorted(
+        name for name in NOT_VACUOUS if f'<a id="{entry_key(marked[name])}"></a>' not in rendered
+    )
     assert not unrendered, f'reference entries not found: {unrendered}'
 
 

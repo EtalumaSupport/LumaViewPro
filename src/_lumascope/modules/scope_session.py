@@ -5379,7 +5379,7 @@ class ScopeSession:
     def plugin_api_level(self) -> int:
         """What this LumaViewPro does that a plugin may rely on.
 
-        ``_lumascope.modules.plugins.PLUGIN_API_LEVEL``; each level's additions are
+        ``lumascope.PLUGIN_API_LEVEL``; each level's additions are
         listed in plugin-tutorial.md, "The plugin API level".
 
         Raises:

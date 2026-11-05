@@ -21,7 +21,9 @@ over a simulated session builds:
   for every annotation that names it; two project classes of one name are
   refused by the table every answer is read from (``wire_encoding.closure``);
 - every enum an answer or argument reaches crosses as its name, a
-  ``StrEnum`` as its value: what ``encode`` sends is what is declared.
+  ``StrEnum`` as its value: what ``encode`` sends is what is declared;
+- no string in the description names a private path (``_lumascope``, a
+  file under ``src/``), which a client can neither import nor open.
 """
 
 from __future__ import annotations
@@ -210,6 +212,30 @@ def test_every_route_is_described_in_its_own_words(built):
     assert not wrong, '\n'.join(wrong)
     columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
     assert columns['description'].startswith('The columns of the steps table'), columns
+
+
+def test_the_description_names_no_private_path(built):
+    """A REST client reads the description's words as the reference's: no
+    string in it names ``_lumascope`` or a file under ``src/``, which a
+    client can neither import nor open."""
+    from tests.api_reference import PRIVATE_PATH
+
+    described, _routes, _events, _records = built
+    named = []
+
+    def walk(value: object, where: str) -> None:
+        if isinstance(value, str):
+            if PRIVATE_PATH.search(value):
+                named.append(f'  {where}: {value[:120]!r}')
+        elif isinstance(value, dict):
+            for key, inner in value.items():
+                walk(inner, f'{where}/{key}')
+        elif isinstance(value, list):
+            for i, inner in enumerate(value):
+                walk(inner, f'{where}/{i}')
+
+    walk(described, '')
+    assert not named, 'the OpenAPI description names a private path:\n' + '\n'.join(named)
 
 
 def test_a_route_that_is_not_json_declares_what_it_is(built):

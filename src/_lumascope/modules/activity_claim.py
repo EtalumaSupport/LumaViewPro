@@ -71,7 +71,7 @@ class ControlSession:
 
     Attributes:
         name: The name the client took it with, for the person at the scope.
-        taken_by: The host the take came through (``_lumascope.modules.caller``).
+        taken_by: The host the take came through.
         taken_at_epoch_s: When it was taken, as ``time.time()``.
     """
 

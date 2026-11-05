@@ -27,6 +27,7 @@ import collections
 import dataclasses
 import enum
 import inspect
+import re
 import sys
 import types
 import typing
@@ -65,13 +66,18 @@ WRITE = 'LVP_WRITE_API_REFERENCE'
 REGENERATE = f'{WRITE}=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference'
 # A signature longer than this is written one parameter a line.
 _LINE = 88
+# A path a user cannot import or open: the private package, or the
+# checkout's source folder. What a reader is told to use is ``lumascope``.
+PRIVATE_PATH = re.compile(r'\b_lumascope\b|(?<![\w/.])src/')
 
 _PREFACE = f"""\
 # LumaViewPro API reference
 
 <!-- Generated from the code; do not edit. Regenerate: {REGENERATE} -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`src/_lumascope/modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+
+Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 """
@@ -270,7 +276,8 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
         lambda: collections.defaultdict(list)
     )
     delivers: dict[str, list[str]] = collections.defaultdict(list)
-    for key, item in sorted(marked.items()):
+    for item in (marked[k] for k in sorted(marked)):
+        key = entry_key(item)
         for edge, text in _edges(item):
             for used in sorted(_names(text) & universe.keys()):
                 if key not in named_by[used][edge]:
@@ -309,6 +316,11 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
         handed_out=handed_out,
         delivers=delivers,
     )
+
+
+def entry_key(item: Marked) -> str:
+    """An item's name in the reference: a function by its own name, which is its name in ``lumascope``; a member or field by its class's."""
+    return item.member if item.at_top_level else f'{item.owner_name}.{item.member}'
 
 
 def _anchor(key: str) -> str:
@@ -395,7 +407,7 @@ def _refusals(doc: str, item: Marked, index: _Index) -> str:
 
 
 def _member(item: Marked, index: _Index) -> str:
-    key = f'{item.owner_name}.{item.member}'
+    key = entry_key(item)
     value = item.value
     function = member_function(value)
     if isinstance(value, property):
@@ -410,7 +422,8 @@ def _member(item: Marked, index: _Index) -> str:
             else None
         )
         code = signature_text(item.member, function, decorator=decorator)
-    parts = [f'{_anchor(key)}\n### `{key}`', f'```python\n{code}\n```']
+    heading = f'## `lumascope.{key}`' if item.at_top_level else f'### `{key}`'
+    parts = [f'{_anchor(key)}\n{heading}', f'```python\n{code}\n```']
     facts = []
     marks = _marks(item)
     if marks:
@@ -473,7 +486,7 @@ def _reasons(cls: type) -> str:
 def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
     cls = owner.owner
     level = '###' if outcome else '##'
-    parts = [f'{_anchor(owner.name)}\n{level} `{owner.name}`']
+    parts = [f'{_anchor(owner.name)}\n{level} `lumascope.{owner.name}`']
     facts = []
     if outcome:
         bases = ', '.join(
@@ -498,16 +511,6 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
     return '\n\n'.join(parts)
 
 
-def _module(owner: _Owner, index: _Index) -> str:
-    parts = [
-        f'{_anchor(owner.name)}\n## `{owner.name}`',
-        "Functions of the module; each is in-process, since the wire routes only a class's members.",
-    ]
-    for item in owner.items:
-        parts.append(_member(item, index))
-    return '\n\n'.join(parts)
-
-
 def _closed_sets(index: _Index) -> list[type[enum.Enum]]:
     """Every enum a marked annotation names, by name."""
     found = [index.universe[n] for n in index.named_by if n in index.universe]
@@ -515,7 +518,7 @@ def _closed_sets(index: _Index) -> list[type[enum.Enum]]:
 
 
 def _closed_set(cls: type[enum.Enum], index: _Index) -> str:
-    parts = [f'{_anchor(cls.__name__)}\n### `{cls.__name__}`']
+    parts = [f'{_anchor(cls.__name__)}\n### `lumascope.{cls.__name__}`']
     facts = _reached(cls, index)
     if facts:
         parts.append('  \n'.join(facts))
@@ -576,7 +579,7 @@ def _file_facts_table() -> str:
         for key, fact in FILE_FACTS.items()
     ]
     return (
-        "Every fact a saved file's record can state, by its key (`src/_lumascope/modules/image_utils.FILE_FACTS`), "
+        "Every fact a saved file's record can state, by its key, "
         'in the order the writer writes them: what it describes (a derived file states a `capture` '
         "fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs "
         "state it), its key in the file's Plane block, the unit written beside it, whether a "
@@ -662,13 +665,14 @@ def render(sections: Declared) -> str:
     outcome_owners, closed = sections.outcome_owners, sections.closed
     contents = ['## Contents', '']
     contents += [f'- [`{o.name}`](#{o.name})' for o in classes]
-    contents += [f'- [`{o.name}`](#{o.name})' for o in modules]
+    functions = sorted((item for o in modules for item in o.items), key=lambda i: i.member)
+    contents += [f'- [`{i.member}`](#{i.member})' for i in functions]
     contents += ['- [Closed sets](#closed-sets)']
     contents += ['- [Outcomes](#outcomes)', '- [Routes](#routes)', '- [Events](#events)']
     contents += ['- [Saved-file facts](#saved-file-facts)']
     sections = [_PREFACE.rstrip('\n'), '\n'.join(contents)]
     sections += [_class(o, index) for o in classes]
-    sections += [_module(o, index) for o in modules]
+    sections += [_member(i, index) for i in functions]
     sections.append(
         "## Closed sets\n\nA closed set crosses the wire as its value, and in Python equals its value's string."
     )

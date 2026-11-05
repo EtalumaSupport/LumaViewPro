@@ -1182,7 +1182,7 @@ _ADDRESS_NOT_HERE = frozenset(
 class RestServerNotStartedError(Fault, Exception):
     """The REST server was not started: a ``rest_api`` setting cannot be used, or its port could not be taken.
 
-    Raised by ``_lumascope.rest.server.build_server``, through which every host serves,
+    Raised by ``build_server``, through which every host serves,
     before anything is served. A setting that cannot be used is named with
     why; a port that could not be taken is chained from the ``OSError`` of
     the bind, so the words name the address and the operating system's own
@@ -1237,10 +1237,10 @@ class UnfitArgument(NamedTuple):
 class ServerRefusedError(Refusal, Exception):
     """A request the REST server itself answers: it never reached a member.
 
-    Raised by ``src/_lumascope/rest/`` for a request it answers itself: from its request
+    Raised by the REST server for a request it answers itself: from its request
     reader, its handle and job stores, its idempotency keys, its live view
     and its close. What the refusal is lives here; how it is sent -- each
-    reason's status, the ``Retry-After`` header -- is ``_lumascope.rest.problems``'s,
+    reason's status, the ``Retry-After`` header -- is the server's,
     read from this record.
 
     Attributes:
@@ -2036,11 +2036,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             in flight), or None when the refusal is not holder-shaped
             (validation, hardware, file drain).
         holder_trigger: Who started the run that holds the scope --
-            ``'gui'``, ``'rest'`` or ``'api'``
-            (``_lumascope.modules.caller``); for a file-drain refusal the just-finished
-            run's, for an autofocus sweep the run that dispatched it. None
-            when no run is behind the holder -- a recording's kind IS the
-            holder.
+            ``'gui'``, ``'rest'`` or ``'api'``; for a file-drain refusal the
+            just-finished run's, for an autofocus sweep the run that
+            dispatched it. None when no run is behind the holder -- a
+            recording's kind IS the holder.
         remedy: The action that answers this refusal, or None. A stalled
             file writer has one (recover it); a writer still making
             progress does not, since its files will land.

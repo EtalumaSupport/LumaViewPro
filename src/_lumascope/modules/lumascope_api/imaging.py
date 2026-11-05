@@ -2781,7 +2781,7 @@ class ImagingAPI:
         over-budget or raising invocations remove it, reported once as a
         ``FrameHandlerRemovedError`` warning). Callback
         signature is ``cb(frame)``, the camera's ``Frame`` record
-        (``_lumascope.modules.lumascope_api.Frame``: ``image``, ``seq``,
+        (``Frame``: ``image``, ``seq``,
         ``timestamp``, ``arrived_ns``, ``significant_bits``, ``chunks``);
         runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /

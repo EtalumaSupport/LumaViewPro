@@ -220,7 +220,7 @@ def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Ser
     """The one way to serve *session*'s API: judged, bound and configured here, served by ``run()``.
 
     Every host serves through it -- the GUI (``serve_beside``),
-    ``python -m _lumascope.rest``, and a program serving a session it brought up
+    ``python -m lumascope.rest``, and a program serving a session it brought up
     itself. Where it serves and whom it admits are *session*'s
     ``rest_api`` settings, judged first: one address of this computer, and
     when ``allowed_clients`` lists any, only a client at an address in it
