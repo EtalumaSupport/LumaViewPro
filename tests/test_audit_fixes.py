@@ -682,11 +682,14 @@ class TestPositionCache:
     reads from cache with zero hardware calls.
     """
 
-    def test_initial_cache_is_zero(self, sim_scope):
-        """Cache starts at 0 for all axes before any moves."""
-        assert sim_scope.motion.get_target_positions()['X'] == 0.0
-        assert sim_scope.motion.get_target_positions()['Y'] == 0.0
-        assert sim_scope.motion.get_target_positions()['Z'] == 0.0
+    def test_a_homed_cache_holds_where_the_home_left_the_stage(self, sim_scope):
+        """Before any move, the cache holds the position the home sent the
+        stage to, which is the board's position after home, not zero."""
+        targets = sim_scope.motion.get_target_positions()
+        for axis in ('X', 'Y', 'Z'):
+            assert targets[axis] == pytest.approx(
+                sim_scope.motion.get_actual_position(axis), abs=0.1
+            )
 
     def test_move_z_updates_cache(self, sim_scope):
         """move_z should push the new position into the cache."""
@@ -695,9 +698,10 @@ class TestPositionCache:
 
     def test_move_z_only_updates_its_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
+        before = sim_scope.motion.get_target_positions()
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.get_target_positions()['X'] == 0.0
-        assert sim_scope.motion.get_target_positions()['Y'] == 0.0
+        assert sim_scope.motion.get_target_positions()['X'] == before['X']
+        assert sim_scope.motion.get_target_positions()['Y'] == before['Y']
 
     def test_move_xy_by_updates_cache(self, sim_scope):
         """move_xy_by should accumulate into the cache."""

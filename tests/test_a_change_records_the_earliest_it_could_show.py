@@ -69,8 +69,10 @@ def test_an_led_writes_change_is_earliest_at_the_writes_start():
 def test_a_moves_change_is_earliest_at_the_last_read_that_saw_it_moving():
     scope = home_sim_scope(build_scope(simulate=True, register_atexit=False))
     try:
+        # Up from where the home left Z, a move of one leg.
+        z = scope.motion.get_current_position('Z')
         halted = scope.simulation.hold_axis('Z')
-        handle = scope.motion.start_move_z(500.0)
+        handle = scope.motion.start_move_z(z + 500.0)
         assert halted.wait(10.0), 'the held move never halted'
         # The monitor tells the position listeners after each poll: one
         # after the halt has read the held axis still moving.

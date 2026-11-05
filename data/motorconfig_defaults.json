@@ -25,6 +25,11 @@
         "Z": 14,
         "T": 360
     },
+    "Initial Position after home": {
+        "X": 1221838,
+        "Y": 818342,
+        "Z": 682666
+    },
     "Axis antibacklash": {
         "X": 0,
         "Y": 0,

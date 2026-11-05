@@ -171,13 +171,19 @@ class TestSimulatedMotorBoard:
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         assert board.has_turret() is False
 
-    def test_homing_xyz(self):
+    @pytest.mark.parametrize('command', ['HOME', 'CENTER'])
+    def test_a_home_leaves_the_stage_where_the_firmwares_does(self, command):
+        """The firmware's HOME, and its CENTER, which is the same routine,
+        zero every axis and then send the stage to the board's
+        "Initial Position after home"; the reply comes once it is there.
+        The numbers are the shipped LS850 board's, read back off a bench
+        home as TARGET_R."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
-        board.home()
+        assert board.exchange_command(command) == 'XYZ home complete'
         assert board.has_homed() is True
-        assert board.current_pos('X') == 0
-        assert board.current_pos('Y') == 0
-        assert board.current_pos('Z') == 0
+        for axis, usteps in (('X', 1221838), ('Y', 818342), ('Z', 682666)):
+            assert board.exchange_command(f'TARGET_R{axis}') == str(usteps)
+            assert board.exchange_command(f'ACTUAL_R{axis}') == str(usteps)
 
     def test_zhome(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
@@ -594,20 +600,6 @@ class TestAllModels:
         for pos in range(1, 5):
             usteps = mc.turret_position_usteps(pos)
             assert isinstance(usteps, int)
-
-    @pytest.mark.parametrize('model', ALL_MODELS)
-    def test_center_command(self, model):
-        """CENTER should move to stage center for all models."""
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
-        resp = board.exchange_command('CENTER')
-        assert resp is not None
-        x = board.current_pos('X')
-        y = board.current_pos('Y')
-        mc = board.motorconfig
-        expected_x = mc.travel_limit_um('X') / 2
-        expected_y = mc.travel_limit_um('Y') / 2
-        assert abs(x - expected_x) < 1
-        assert abs(y - expected_y) < 1
 
 
 class TestMotorConfigDefaults:

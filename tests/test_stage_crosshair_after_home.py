@@ -21,7 +21,14 @@ import ui.stage as stage_module
 from tests.scope_fakes import home_sim_scope
 from ui.stage import Stage
 
-HOME = (0.0, 0.0)
+
+def _where_a_home_lands(scope):
+    """The X and Y a home sends the stage to: the board's position after home."""
+    driver = scope._motion_driver
+    return tuple(
+        driver.steps_to_position(axis, driver.motorconfig.position_after_home_usteps(axis))
+        for axis in 'XY'
+    )
 
 
 class _DrawnError(Exception):
@@ -35,12 +42,13 @@ def _refuse_to_draw():
 @pytest.fixture
 def stage(gui_ctx, monkeypatch):
     """The stage map over an unhomed simulated session; the crosshair was last
-    drawn where a home lands, the simulated stage's origin."""
+    drawn where a home lands, the board's position after home."""
     monkeypatch.setattr(gui_ctx.scope.runtime_state, 'get_labware', _refuse_to_draw)
     built = Stage.__new__(Stage)
     built._protocol_step_redraw = False
-    built._prev_x_target, built._prev_y_target = HOME
-    built._prev_x_current, built._prev_y_current = HOME
+    home = _where_a_home_lands(gui_ctx.scope)
+    built._prev_x_target, built._prev_y_target = home
+    built._prev_x_current, built._prev_y_current = home
     return built
 
 
@@ -49,7 +57,8 @@ def _home(scope):
     motion = scope.motion
     landed = [motion.get_target_positions()[a] for a in 'XY']
     landed += [motion.get_current_position(a) for a in 'XY']
-    assert landed == [*HOME, *HOME], 'the home lands where the crosshair was last drawn'
+    home = _where_a_home_lands(scope)
+    assert landed == [*home, *home], 'the home lands where the crosshair was last drawn'
 
 
 def test_an_unchanged_known_position_is_not_redrawn(stage, gui_ctx):

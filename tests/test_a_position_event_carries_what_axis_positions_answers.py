@@ -87,8 +87,9 @@ def test_a_poll_tells_its_listeners_once_every_moving_axis_is_read(scope):
             seen.append((axis, now['X'].position_um, now['Y'].position_um))
 
     motion.add_position_listener(listener)
-    x = motion.start_move_xy(x_um=60000.0)
-    y = motion.start_move_xy(y_um=40000.0)
+    # Both far from where the home leaves the stage, so both travel long.
+    x = motion.start_move_xy(x_um=10000.0)
+    y = motion.start_move_xy(y_um=10000.0)
     x.result()
     y.result()
 

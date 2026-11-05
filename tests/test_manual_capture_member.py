@@ -510,7 +510,8 @@ class TestAStillReturnsItsRecord:
 
         assert ended['status'] == 'completed', ended
         (still,) = ended['result']
-        assert still['file']['name'] == 'Manual/live_BF_000001.tiff'
+        # The homed stage stands over E7 of the default plate.
+        assert still['file']['name'] == 'Manual/live_E7_BF_000001.tiff'
         assert still['channel'] == 'BF'
         assert still['frame']['frames_summed'] == 1
         assert set(still['statistics']) == {

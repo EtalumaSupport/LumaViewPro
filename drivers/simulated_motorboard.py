@@ -563,9 +563,10 @@ class SimulatedMotorBoard:
             sn = self._fullinfo['serial_number']
             return f'Model: {model} Serial: {sn} Firmware: SIMULATED'
 
-        if cmd == 'HOME':
-            # The firmware's HOME homes Z and T, then answers that an absent
-            # X or Y is not present before it touches XY.
+        if cmd in ('HOME', 'CENTER'):
+            # The firmware's CENTER is its HOME. Its HOME homes Z and T,
+            # then answers that an absent X or Y is not present before it
+            # touches XY.
             absent = [axis for axis in ('X', 'Y') if axis not in self._axes]
             if absent:
                 self._do_home('Z')
@@ -575,6 +576,15 @@ class SimulatedMotorBoard:
             self._do_home('X', 'Y', 'Z')
             if self._has_turret:
                 self._do_home('T')
+            # As the 3.0 firmware: once zeroed, the stage goes to the
+            # position after home, and the reply waits until it is there.
+            for axis in ('X', 'Y', 'Z'):
+                self._set_target(axis, self.motorconfig.position_after_home_usteps(axis))
+            remaining = (
+                max(self._move_end_time[axis] for axis in ('X', 'Y', 'Z')) - time.monotonic()
+            )
+            if remaining > 0:
+                time.sleep(remaining)
             self.initial_homing_complete = True
             return 'XYZ home complete'
 
@@ -589,55 +599,13 @@ class SimulatedMotorBoard:
             self.initial_t_homing_complete = True
             return 'T home successful'
 
-        if cmd == 'CENTER':
-            mid_x = self.xy_um2ustep(self.motorconfig.travel_limit_um('X') / 2)
-            mid_y = self.xy_um2ustep(self.motorconfig.travel_limit_um('Y') / 2)
-            self._actual['X'] = mid_x
-            self._target['X'] = mid_x
-            self._actual['Y'] = mid_y
-            self._target['Y'] = mid_y
-            return 'CENTER complete'
-
         # TARGET_W<axis><value>
         if cmd.startswith('TARGET_W'):
             axis = cmd[8]
             value = int(cmd[9:])
             if value >= 0x80000000:
                 value -= 0x100000000
-            hold = self._holds.get(axis)
-            if hold is not None:
-                if hold._bound:
-                    # A new target ends the held move.
-                    del self._holds[axis]
-                else:
-                    hold._bound = True
-            self._move_start_pos[axis] = self._actual[axis]
-            self._move_start_time[axis] = time.monotonic()
-            self._target[axis] = value
-
-            if axis in self._holds:
-                # A held move halts on its first read, whatever the timing;
-                # on the timings with no travel there is no share to wait for.
-                self._move_end_time[axis] = (
-                    time.monotonic()
-                    + self._calc_move_duration(axis, self._move_start_pos[axis], value)
-                    if self._simulate_move_duration and self._fast_move_duration == 0
-                    else time.monotonic()
-                )
-            elif self._simulate_move_duration:
-                if self._fast_move_duration > 0:
-                    # Fast mode: position updates instantly but target_status
-                    # returns False for a brief period so the motion monitor
-                    # can detect the MOVING->IDLE transition.
-                    self._actual[axis] = value
-                    self._move_end_time[axis] = time.monotonic() + self._fast_move_duration
-                else:
-                    # Realistic mode: trapezoidal ramp calculation with interpolation
-                    duration = self._calc_move_duration(axis, self._move_start_pos[axis], value)
-                    self._move_end_time[axis] = time.monotonic() + duration
-            else:
-                self._actual[axis] = value
-                self._move_end_time[axis] = 0.0
+            self._set_target(axis, value)
             return str(value)
 
         # TARGET_R<axis>, ACTUAL_R<axis>, STATUS_R<axis>. The firmware
@@ -789,6 +757,42 @@ class SimulatedMotorBoard:
             # Full trapezoidal
             t_cruise = (distance_usteps - s_accel - s_decel) / vmax
             return t_accel + t_cruise + t_decel
+
+    def _set_target(self, axis, value):
+        """Start the move to ``value`` microsteps, as the firmware's write_target."""
+        hold = self._holds.get(axis)
+        if hold is not None:
+            if hold._bound:
+                # A new target ends the held move.
+                del self._holds[axis]
+            else:
+                hold._bound = True
+        self._move_start_pos[axis] = self._actual[axis]
+        self._move_start_time[axis] = time.monotonic()
+        self._target[axis] = value
+
+        if axis in self._holds:
+            # A held move halts on its first read, whatever the timing;
+            # on the timings with no travel there is no share to wait for.
+            self._move_end_time[axis] = (
+                time.monotonic() + self._calc_move_duration(axis, self._move_start_pos[axis], value)
+                if self._simulate_move_duration and self._fast_move_duration == 0
+                else time.monotonic()
+            )
+        elif self._simulate_move_duration:
+            if self._fast_move_duration > 0:
+                # Fast mode: position updates instantly but target_status
+                # returns False for a brief period so the motion monitor
+                # can detect the MOVING->IDLE transition.
+                self._actual[axis] = value
+                self._move_end_time[axis] = time.monotonic() + self._fast_move_duration
+            else:
+                # Realistic mode: trapezoidal ramp calculation with interpolation
+                duration = self._calc_move_duration(axis, self._move_start_pos[axis], value)
+                self._move_end_time[axis] = time.monotonic() + duration
+        else:
+            self._actual[axis] = value
+            self._move_end_time[axis] = 0.0
 
     def _do_home(self, *axes):
         # A home takes its timing's time as a move does: the fast timing's

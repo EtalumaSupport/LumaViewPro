@@ -141,6 +141,9 @@ def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monke
 
     assert started.result(timeout=HOME_S) is None
     assert not (motion.axes_without_position().keys() - {'T'})
-    # The home leaves Z at the floor; the sample plane is millimetres above.
-    assert session.scope._camera_driver.get_nominal_focal_z() > 1000.0
-    assert motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0)
+    # Z stands where the home left it, the board's position after home, not
+    # at the simulated sample plane the startup motion would have placed it.
+    driver = session.scope._motion_driver
+    homed_z = driver.steps_to_position('Z', driver.motorconfig.position_after_home_usteps('Z'))
+    assert session.scope._camera_driver.get_nominal_focal_z() != pytest.approx(homed_z, abs=1.0)
+    assert motion.get_current_position('Z') == pytest.approx(homed_z, abs=1.0)

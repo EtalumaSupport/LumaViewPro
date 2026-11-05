@@ -65,15 +65,16 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     running on its old timeline."""
     motion = session.scope.motion
     driver = motion._driver
+    start = driver.current_pos('X')
     held = session.scope.simulation.hold_axis('X')
-    handle = motion.start_move_xy(x_um=60000.0)
+    handle = motion.start_move_xy(x_um=20000.0)
     assert held.wait(_HOLD_WAIT_S), 'the move never got part of the way'
     motion.stop_motion()
 
     assert _reason(handle) == 'stopped'
     assert motion.get_axis_state('X') == AxisState.IDLE
     stopped_at = driver.current_pos('X')
-    assert 0.0 < stopped_at < 60000.0
+    assert 20000.0 < stopped_at < start
     time.sleep(0.3)
     assert driver.current_pos('X') == stopped_at
     assert motion.get_current_position('X') == pytest.approx(stopped_at, abs=0.1)
@@ -146,6 +147,7 @@ def test_a_stop_before_the_write_withholds_it(session, monkeypatch):
     went out: the write went out anyway and the stage travelled."""
     motion = session.scope.motion
     driver = motion._driver
+    start = driver.current_pos('X')
     sent = _wire(driver)
     real_send = motion._send_drive
 
@@ -158,7 +160,7 @@ def test_a_stop_before_the_write_withholds_it(session, monkeypatch):
 
     assert _reason(handle) == 'stopped'
     assert not [c for c in sent if c.startswith('TARGET_WX')], sent
-    assert driver.current_pos('X') == pytest.approx(0.0, abs=0.1)
+    assert driver.current_pos('X') == pytest.approx(start, abs=0.1)
     assert motion.get_axis_state('X') == AxisState.IDLE
 
 

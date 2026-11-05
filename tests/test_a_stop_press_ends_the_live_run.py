@@ -165,6 +165,8 @@ def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
     """The turret leg: Z parked, T turning. The change ends with Z left parked
     and the step's X and Y never driven."""
     session = turret_session
+    position = session.scope.motion.get_current_position
+    before_xy = (position(axis='X'), position(axis='Y'))
     held = session.scope.simulation.hold_axis('T')
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([{**_steps(60.0)[0], 'Objective': '4x Oly'}]),
@@ -178,9 +180,8 @@ def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
     assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
     assert outcome.captures.captured == 0
     assert len(_told_stopped(centre_posts)) == 1
-    position = session.scope.motion.get_current_position
     assert position(axis='Z') == 0.0, 'Z was driven back up after the STOP'
-    assert (position(axis='X'), position(axis='Y')) == (0.0, 0.0), 'the step was driven to'
+    assert (position(axis='X'), position(axis='Y')) == before_xy, 'the step was driven to'
     assert session.scope.motion.turret_status().slot is None
 
 

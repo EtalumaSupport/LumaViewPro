@@ -100,6 +100,7 @@ class MotorConfig:
             'Axis antibacklash',
             'Axis Offset',
             'Axis Timeout',
+            'Initial Position after home',
         }
     )
     # Sections read by key: a board value that is not a mapping cannot be
@@ -188,6 +189,18 @@ class MotorConfig:
 
     def antibacklash_um(self, axis: str) -> int:
         return int(self._axis_lookup('Axis antibacklash', axis, default=0))
+
+    def position_after_home_usteps(self, axis: str) -> int:
+        """Where the firmware's HOME leaves ``axis``, in microsteps.
+
+        The firmware homes, sets the new zero, then sets these targets, so
+        a homed stage stands here, not at zero.
+
+        Raises:
+            KeyError: ``axis`` has no position after home (T: the turret
+                stays where its home leaves it).
+        """
+        return int(self._config['Initial Position after home'][axis.upper()])
 
     # --- Motion ramp parameters (TMC5072 6-point ramp) ---
 
