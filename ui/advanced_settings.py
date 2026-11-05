@@ -462,7 +462,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Lumascope Model'
-                        tooltip_text: 'Lumi, LS820, LS850, and LS850T'
+                        tooltip_text: 'The model this installation runs as;\\na change takes effect at the next start'
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'
@@ -653,7 +653,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Video Time Limit (s)'
-                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged.'
+                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner).'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
