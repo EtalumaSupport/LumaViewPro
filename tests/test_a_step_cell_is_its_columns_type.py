@@ -21,6 +21,7 @@ blank and refuses any other cell its column cannot hold.
 import ast
 import pathlib
 
+import pandas as pd
 import pytest
 
 from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
@@ -121,6 +122,36 @@ def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
 
     assert 'step 2' in str(refused.value)
     assert column in str(refused.value)
+
+
+def test_a_frame_refusal_shows_the_cell_as_the_frame_holds_it():
+    """The refusal's words show the cell as the frame holds it, here a numpy float.
+
+    A number column of a caller's frame holds numpy scalars, and the words
+    are the cell's repr: a reader handed the column as Python values would
+    word the same refusal ``has Illumination inf``.
+    """
+    with pytest.raises(ProtocolFormatError) as refused:
+        _build_protocol(
+            [_make_step(), {**_make_step(name='A2_BF', well='A2'), 'Illumination': float('inf')}]
+        )
+
+    assert str(refused.value) == (
+        'step 2 (A2_BF) has Illumination np.float64(inf), which is not a number.'
+    )
+
+
+def test_a_refused_cell_names_its_step_by_position_not_by_the_frames_index():
+    """A caller's frame may carry any index; the step is counted from 1 by position."""
+    frame = pd.DataFrame(
+        [_make_step(), {**_make_step(name='A2_BF', well='A2'), 'Exposure': 'ten'}],
+        index=[7, 3],
+    )
+
+    with pytest.raises(ProtocolFormatError) as refused:
+        _build_protocol(frame)
+
+    assert str(refused.value).startswith("step 2 (A2_BF) has Exposure 'ten'"), refused.value
 
 
 WRITES = {

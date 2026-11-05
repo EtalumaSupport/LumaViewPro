@@ -277,6 +277,34 @@ class TestTheProtocolsOneFocusWriter:
         assert refused.value.title == 'Focus Not Saved'
         assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM]
 
+    def test_the_refusal_names_the_first_step_and_its_first_identity_that_differ(self):
+        """Step 1's position and objective and step 2's position differ: step 1's position is named."""
+        protocol = _two_steps()
+        scanned = self._scanned(protocol)
+        # Behind the writers: the protocol has no one-cell writer for these.
+        protocol._config['steps'].at[0, 'Objective'] = '4x Oly'
+        protocol._config['steps'].at[0, 'Y'] = 40.0
+        protocol._config['steps'].at[1, 'X'] = 40.0
+
+        with pytest.raises(FocusNotWrittenError) as refused:
+            protocol.adopt_focus_from(scanned)
+
+        assert "step 1's position changed" in str(refused.value), refused.value
+
+    def test_a_step_with_no_position_matches_one_with_none_and_not_one_with_a_position(self):
+        protocol = _two_steps()
+        # Behind the writers: step 1 is made a step with no stage position.
+        protocol._config['steps'].loc[0, ['X', 'Y']] = float('nan')
+        scanned = self._scanned(protocol)
+
+        protocol.adopt_focus_from(scanned)
+        assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
+
+        protocol._config['steps'].at[0, 'X'] = 20.0
+        with pytest.raises(FocusNotWrittenError) as refused:
+            protocol.adopt_focus_from(scanned)
+        assert "step 1's position changed" in str(refused.value), refused.value
+
     def test_a_different_number_of_steps_refuses_and_changes_nothing(self):
         protocol = _two_steps()
         scanned = self._scanned(protocol)

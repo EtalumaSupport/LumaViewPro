@@ -629,21 +629,43 @@ _STEP_CELLS = {
 }
 
 
-def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
-    """The step at ``position``'s ``column`` cell, read as its column's type.
+def _cells_differ(now: np.ndarray, then: np.ndarray) -> np.ndarray:
+    """Per step, whether two columns' cells differ: neither equal nor both missing."""
+    equal = np.asarray(now == then, dtype=bool)
+    return ~(equal | (pd.isna(now) & pd.isna(then)))
+
+
+def _read_step_column(df: pd.DataFrame, column: str, *, blank_kept: bool = False) -> list:
+    """Every step's ``column`` cell, read as its column's type, in step order.
+
+    The column is taken from the frame once and walked as the frame holds
+    it: fetching each cell by position costs a pandas lookup per cell, about
+    25 times the readers' own work on a large protocol. The walk is over the
+    column's numpy values, so a refused cell is worded as the frame holds it.
+
+    Args:
+        blank_kept: a blank text cell stays blank instead of being read, as
+            a file's cell pass keeps it; a position is read either way.
 
     Raises:
-        ProtocolFormatError: the cell is not of its column's type; the words
+        ProtocolFormatError: a cell is not of its column's type; the words
             name the step and the column.
     """
-    cell = df[column].iloc[position]
-    try:
-        return _STEP_CELLS[column](cell)
-    except ValueError as e:
-        name = df['Name'].iloc[position]
-        raise ProtocolFormatError(
-            f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
-        ) from None
+    reader = _STEP_CELLS[column]
+    blank_kept = blank_kept and column not in _POSITION_COLUMNS
+    cells = []
+    for position, cell in enumerate(df[column].to_numpy()):
+        if blank_kept and cell == '':
+            cells.append(cell)
+            continue
+        try:
+            cells.append(reader(cell))
+        except ValueError as e:
+            name = df['Name'].iloc[position]
+            raise ProtocolFormatError(
+                f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
+            ) from None
+    return cells
 
 
 @api_fields('duration_s')
@@ -2116,7 +2138,7 @@ class Protocol:
         dtypes = cls._create_empty_steps_df().dtypes
         columns = {
             column: pd.Series(
-                [_read_step_cell(df, column, position) for position in range(len(df))],
+                _read_step_column(df, column),
                 index=df.index,
                 dtype=dtypes[column],
             )
@@ -2427,11 +2449,21 @@ class Protocol:
             raise FocusNotWrittenError(
                 f'the protocol has {len(mine)} steps, not the {len(theirs)} the scan focused'
             )
-        for idx in range(len(mine)):
-            for column, words in self._FOCUS_IDENTITY:
-                now, then = mine.iloc[idx][column], theirs.iloc[idx][column]
-                if not (now == then or (pd.isna(now) and pd.isna(then))):
-                    raise FocusNotWrittenError(f"step {idx + 1}'s {words} changed")
+        # Compared a column at a time: a row fetched per step costs a pandas
+        # row build each, over a second on a large protocol, on the run's
+        # thread. The refusal names the first step that differs and, within
+        # it, the first identity in _FOCUS_IDENTITY's order.
+        differs = np.column_stack(
+            [
+                _cells_differ(mine[column].to_numpy(), theirs[column].to_numpy())
+                for column, _ in self._FOCUS_IDENTITY
+            ]
+        )
+        changed = differs.any(axis=1).nonzero()[0]
+        if len(changed):
+            step = int(changed[0])
+            words = self._FOCUS_IDENTITY[int(differs[step].argmax())][1]
+            raise FocusNotWrittenError(f"step {step + 1}'s {words} changed")
         mine['Z'] = theirs['Z'].to_numpy()
 
     def focus_sweep_step(self, step_index: int) -> int | None:
@@ -3989,12 +4021,7 @@ class Protocol:
             if column in protocol_df.columns and column not in _DICT_COLUMNS:
                 try:
                     protocol_df[column] = pd.Series(
-                        [
-                            ''
-                            if cell == '' and column not in _POSITION_COLUMNS
-                            else _read_step_cell(protocol_df, column, position)
-                            for position, cell in enumerate(protocol_df[column])
-                        ],
+                        _read_step_column(protocol_df, column, blank_kept=True),
                         index=protocol_df.index,
                         dtype=object,
                     ).infer_objects()
