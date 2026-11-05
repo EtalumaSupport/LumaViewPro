@@ -96,7 +96,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`PluginHealth`](#PluginHealth)
 - [`PluginNotLoaded`](#PluginNotLoaded)
 - [`PluginRegistry`](#PluginRegistry)
-- [`PluginRuntimeError`](#PluginRuntimeError)
+- [`PluginRuntimeFailure`](#PluginRuntimeFailure)
 - [`PluginSpec`](#PluginSpec)
 - [`PluginStatus`](#PluginStatus)
 - [`PositionChanged`](#PositionChanged)
@@ -10608,7 +10608,7 @@ Per-namespace snapshot for tech-support + diagnostic probes.
 
 **Fields**
 
-- <a id="NamespaceHealth.last_runtime_errors"></a>`last_runtime_errors`: `tuple[PluginRuntimeError, ...]` -- (no description)
+- <a id="NamespaceHealth.last_runtime_failures"></a>`last_runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- (no description)
 - <a id="NamespaceHealth.loaded"></a>`loaded`: `tuple[PluginStatus, ...]` -- (no description)
 - <a id="NamespaceHealth.namespace"></a>`namespace`: `str` -- (no description)
 
@@ -11003,27 +11003,27 @@ Lifecycle:
 - <a id="PluginRegistry.rest"></a>`rest`: `RESTRegistry` -- Reserved: a plugin cannot add REST routes in this release.
 - <a id="PluginRegistry.ui"></a>`ui`: `UIRegistry` -- Widgets at the window's mount points.
 
-<a id="PluginRuntimeError"></a>
-## `PluginRuntimeError`
+<a id="PluginRuntimeFailure"></a>
+## `PluginRuntimeFailure`
 
 A record: it crosses the wire as its data.  
-Held in: [`NamespaceHealth.last_runtime_errors`](#NamespaceHealth.last_runtime_errors).
+Held in: [`NamespaceHealth.last_runtime_failures`](#NamespaceHealth.last_runtime_failures).
 
-A runtime error caught from a plugin handler.
+The record of an exception caught from a plugin handler; a record, never raised.
 
 Distinct from a load failure: the plugin loaded fine, but failed
 while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
 PluginRegistry.record_runtime_error and kept in
-NamespaceHealth.last_runtime_errors so diagnostic probes can
+NamespaceHealth.last_runtime_failures so diagnostic probes can
 attribute fault to the right plugin.
 
 **Fields**
 
-- <a id="PluginRuntimeError.exc_type"></a>`exc_type`: `str` -- (no description)
-- <a id="PluginRuntimeError.hook"></a>`hook`: `str` -- (no description)
-- <a id="PluginRuntimeError.message"></a>`message`: `str` -- (no description)
-- <a id="PluginRuntimeError.namespace"></a>`namespace`: `str` -- (no description)
-- <a id="PluginRuntimeError.plugin_name"></a>`plugin_name`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.exc_type"></a>`exc_type`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.hook"></a>`hook`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.message"></a>`message`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.namespace"></a>`namespace`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.plugin_name"></a>`plugin_name`: `str` -- (no description)
 
 <a id="PluginSpec"></a>
 ## `PluginSpec`

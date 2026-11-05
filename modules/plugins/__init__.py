@@ -74,7 +74,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 71
+PLUGIN_API_LEVEL = 72
 
 
 class UIMountPoint(enum.StrEnum):
@@ -192,13 +192,13 @@ class PluginNotLoaded:
 
 @api_fields('plugin_name', 'namespace', 'hook', 'exc_type', 'message')
 @dataclass(frozen=True)
-class PluginRuntimeError:
-    """A runtime error caught from a plugin handler.
+class PluginRuntimeFailure:
+    """The record of an exception caught from a plugin handler; a record, never raised.
 
     Distinct from a load failure: the plugin loaded fine, but failed
     while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
     PluginRegistry.record_runtime_error and kept in
-    NamespaceHealth.last_runtime_errors so diagnostic probes can
+    NamespaceHealth.last_runtime_failures so diagnostic probes can
     attribute fault to the right plugin.
     """
 
@@ -209,14 +209,14 @@ class PluginRuntimeError:
     message: str
 
 
-@api_fields('namespace', 'loaded', 'last_runtime_errors')
+@api_fields('namespace', 'loaded', 'last_runtime_failures')
 @dataclass(frozen=True)
 class NamespaceHealth:
     """Per-namespace snapshot for tech-support + diagnostic probes."""
 
     namespace: str
     loaded: tuple[PluginStatus, ...]
-    last_runtime_errors: tuple[PluginRuntimeError, ...]
+    last_runtime_failures: tuple[PluginRuntimeFailure, ...]
 
 
 @api_fields('namespaces', 'not_loaded')
@@ -264,13 +264,13 @@ class _BaseNamespace:
         # from it, so a plugin is listed as loaded exactly while its
         # registration is held.
         self._entries: dict[str, tuple[PluginSpec, Any]] = {}
-        self._runtime_errors: list[PluginRuntimeError] = []
+        self._runtime_failures: list[PluginRuntimeFailure] = []
 
     def _record_runtime_error(
         self, plugin_name: str, hook: str, exc_type: str, message: str
     ) -> None:
-        self._runtime_errors.append(
-            PluginRuntimeError(
+        self._runtime_failures.append(
+            PluginRuntimeFailure(
                 plugin_name=plugin_name,
                 namespace=self.NAMESPACE,
                 hook=hook,
@@ -287,7 +287,7 @@ class _BaseNamespace:
                     PluginStatus(name=spec.name, version=spec.version, namespace=self.NAMESPACE)
                     for spec, _registered in self._entries.values()
                 ),
-                last_runtime_errors=tuple(self._runtime_errors),
+                last_runtime_failures=tuple(self._runtime_failures),
             )
 
     def _assert_unique(self, spec: PluginSpec) -> None:

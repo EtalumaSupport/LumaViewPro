@@ -519,7 +519,7 @@ def test_all_health_returns_four_namespaces(harness_ctx):
 def test_all_health_initial_state_empty(harness_ctx):
     for ns in harness_ctx.plugins.all_health():
         assert ns.loaded == ()
-        assert ns.last_runtime_errors == ()
+        assert ns.last_runtime_failures == ()
     assert harness_ctx.plugins.not_loaded() == ()
 
 
