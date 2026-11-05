@@ -79,16 +79,32 @@ def _literal_texts(node):
 
 def _ui_labels():
     """Every literal ``text`` or ``title`` the UI sets, ``\\n`` read as a
-    space, and the label tables' values."""
+    space, and the label tables' values. Kv rules are read from the ``.kv``
+    files and from the kv strings a module hands ``Builder.load_string``
+    (Advanced Settings is one)."""
     labels = set()
     kv_line = re.compile(r'^\s*(?:text|title)\s*:\s*(\'[^\']*\'|"[^"]*")\s*$')
-    for kv in _files('ui', '**/*.kv'):
-        for line in kv.read_text(encoding='utf-8').splitlines():
+
+    def read_kv(source):
+        for line in source.splitlines():
             m = kv_line.match(line)
             if m:
                 labels.add(ast.literal_eval(m.group(1)))
+
+    for kv in _files('ui', '**/*.kv'):
+        read_kv(kv.read_text(encoding='utf-8'))
     for py in _files('ui', '**/*.py'):
         for node in ast.walk(ast.parse(py.read_text(encoding='utf-8'))):
+            loads_kv = (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'load_string'
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            )
+            if loads_kv:
+                read_kv(node.args[0].value)
             sets_a_label = (isinstance(node, ast.keyword) and node.arg in ('text', 'title')) or (
                 isinstance(node, ast.Assign)
                 and any(
