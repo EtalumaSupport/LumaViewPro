@@ -381,7 +381,7 @@ def _add_still_route(
     async def still(request: fastapi.Request, asked: StillAsked | None = None) -> fastapi.Response:
         """A still at the camera's own depth, with the camera as set: its record, then its pixels.
 
-        ``ScopeSession.capture_still`` with no layer held and no 8-bit
+        ``ScopeSession.capture_still`` with no channel held and no 8-bit
         conversion, reached as every write is: on a call thread, as a REST
         client, in the control session the ``Control-Session`` header names.
         The body is the still's ``FrameRecord`` as UTF-8 JSON, then the
