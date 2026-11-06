@@ -169,12 +169,12 @@ class TestCatalogue:
         with a dark background.
         """
         fluorescence = [LED0, LED1, 'Ex550', LED2, 'Ex640']
-        assert common_utils.get_layers() == ['BF', 'PC', 'DF', *fluorescence, 'Lumi']
-        assert common_utils.get_transmitted_layers() == ['BF', 'PC', 'DF']
-        assert common_utils.get_fluorescence_layers() == fluorescence
-        assert common_utils.get_luminescence_layers() == ['Lumi']
-        assert common_utils.get_image_layers() == [*fluorescence, 'Lumi']
-        assert common_utils.get_layers_with_led() == ['BF', 'PC', 'DF', *fluorescence]
+        assert common_utils.get_channels() == ['BF', 'PC', 'DF', *fluorescence, 'Lumi']
+        assert common_utils.get_transmitted_channels() == ['BF', 'PC', 'DF']
+        assert common_utils.get_fluorescence_channels() == fluorescence
+        assert common_utils.get_luminescence_channels() == ['Lumi']
+        assert common_utils.get_image_channels() == [*fluorescence, 'Lumi']
+        assert common_utils.get_channels_with_led() == ['BF', 'PC', 'DF', *fluorescence]
 
 
 def _refuses(colour):

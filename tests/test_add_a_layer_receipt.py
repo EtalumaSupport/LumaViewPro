@@ -76,7 +76,7 @@ def added_layer_release(tmp_path, monkeypatch):
 
 
 def test_vocabulary_and_validation_accept_an_added_layer(added_layer_release):
-    assert 'Ex780' in common_utils.get_layers()
+    assert 'Ex780' in common_utils.get_channels()
     assert 'Ex780' in Protocol.valid_colors()
 
 
@@ -106,11 +106,11 @@ def test_shipped_categories_partition_the_shipped_catalogue():
     """On the REAL release data the category functions cover the whole
     catalogue with no overlap -- the partition holds by construction
     because every function filters the same derived list."""
-    layers = common_utils.get_layers()
+    layers = common_utils.get_channels()
     union = (
-        common_utils.get_transmitted_layers()
-        + common_utils.get_fluorescence_layers()
-        + common_utils.get_luminescence_layers()
+        common_utils.get_transmitted_channels()
+        + common_utils.get_fluorescence_channels()
+        + common_utils.get_luminescence_channels()
     )
     assert sorted(union) == sorted(layers)
     assert len(union) == len(set(union))

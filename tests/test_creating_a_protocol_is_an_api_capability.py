@@ -56,8 +56,8 @@ class TestTheSessionBuilds:
 class TestOnePredicate:
     @pytest.mark.parametrize('acquire', [None, '', 'none', 'off'])
     def test_a_layer_not_set_to_image_or_video_does_not_acquire(self, acquire):
-        assert Protocol.layer_acquires({'acquire': acquire}) is False
+        assert Protocol.channel_acquires({'acquire': acquire}) is False
 
     @pytest.mark.parametrize('acquire', ['image', 'video'])
     def test_image_and_video_acquire(self, acquire):
-        assert Protocol.layer_acquires({'acquire': acquire}) is True
+        assert Protocol.channel_acquires({'acquire': acquire}) is True

@@ -1106,7 +1106,7 @@ class ProtocolImageWriter:
             # the failures are the disconnect's, not a missing
             # channel, and keep the camera wording.
             undrivable = (
-                step_color in common_utils.get_layers_with_led()
+                step_color in common_utils.get_channels_with_led()
                 and self._scope.led_connected
                 and self._scope.illumination.led_address_of(step_color) is None
             )

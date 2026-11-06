@@ -172,8 +172,8 @@ _COUNTED_WORK_NAMES = {
 
 # A protocol's ChannelSettings field and the layer-settings key it is saved
 # from and restored into; acquire and stim_enabled are handled apart. The
-# file's columns are the protocol's to map (protocol._LAYER_SETTINGS_CELLS).
-_LAYER_SETTINGS_KEYS = (
+# file's columns are the protocol's to map (protocol._CHANNEL_SETTINGS_CELLS).
+_CHANNEL_SETTINGS_KEYS = (
     ('illumination_ma', 'illumination_ma'),
     ('gain_db', 'gain_db'),
     ('auto_gain', 'auto_gain'),
@@ -714,7 +714,7 @@ class ScopeSession:
         # go_to_step and a run's steps write it. Whether it is lit is the
         # LED store's, read at each read, never kept here. The GUI opens on
         # BF, and so does the store.
-        self._shown_channel = common_utils.DEFAULT_LAYER
+        self._shown_channel = common_utils.DEFAULT_CHANNEL
         self._shown_channel_listeners: list = []
         # The layer shown as a run's first lit step found it, shown again
         # once the run's cleanup has restored the camera; None outside a run
@@ -2453,7 +2453,7 @@ class ScopeSession:
         """
         present = self._channels_on_scope()
         with self.settings_lock:
-            for name in common_utils.get_layers():
+            for name in common_utils.get_channels():
                 if name in present or self.settings[name].get('acquire') is None:
                     continue
                 logger.warning(
@@ -2474,7 +2474,7 @@ class ScopeSession:
         acquiring and stimulating; each layer the protocol names then takes
         its acquire mode and every value its row holds. A blank value leaves
         that layer's control as it was. A layer this release does not know
-        (not in ``common_utils.get_layers()``), or this scope does not have,
+        (not in ``common_utils.get_channels()``), or this scope does not have,
         is logged and dropped.
 
         Args:
@@ -2487,9 +2487,9 @@ class ScopeSession:
                 each named by layer, column and bound; no layer is changed.
                 A loaded protocol was refused at load.
         """
-        self.scope.protocols.refuse_layer_settings_out_of_range(protocol)
+        self.scope.protocols.refuse_channel_settings_out_of_range(protocol)
         rows = protocol.channel_settings()
-        layers = common_utils.get_layers()
+        layers = common_utils.get_channels()
         present = self._channels_on_scope()
         with self.settings_lock:
             for name in layers:
@@ -2511,7 +2511,7 @@ class ScopeSession:
                     )
                     continue
                 self._store_setting(f'{name}.acquire', row.acquire)
-                for field, key in _LAYER_SETTINGS_KEYS:
+                for field, key in _CHANNEL_SETTINGS_KEYS:
                     if getattr(row, field) is not None:
                         self._store_setting(f'{name}.{key}', getattr(row, field))
                 stim = self.settings[name].get('stim_config')
@@ -2549,14 +2549,14 @@ class ScopeSession:
         path = pathlib.Path(file_path)
         records = {}
         with self.settings_lock:
-            for name in common_utils.get_layers():
+            for name in common_utils.get_channels():
                 layer = self.settings[name]
                 if layer['acquire'] is None:
                     continue
                 stim = layer.get('stim_config')
                 records[name] = ChannelSettings(
                     acquire=layer['acquire'],
-                    **{field: layer[key] for field, key in _LAYER_SETTINGS_KEYS},
+                    **{field: layer[key] for field, key in _CHANNEL_SETTINGS_KEYS},
                     stim_enabled=(
                         stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else None
                     ),
@@ -2965,9 +2965,9 @@ class ScopeSession:
             if seconds is not None:
                 config[key] = schedule_from_units(key, seconds, judged=False, unit='seconds')
         channel_configs = config['channel_configs']
-        self.scope.protocols.refuse_no_acquiring_layer(channel_configs)
+        self.scope.protocols.refuse_no_acquiring_channel(channel_configs)
         if any(
-            Protocol.layer_acquires(cfg) and cfg['focus'] is None
+            Protocol.channel_acquires(cfg) and cfg['focus'] is None
             for cfg in channel_configs.values()
         ):
             self.scope.motion.refuse_unknown_positions(
@@ -3856,7 +3856,7 @@ class ScopeSession:
         """The IO-lane task of going to a step, and the operation of its moves."""
         from _lumascope.modules.protocol import (
             refuse_values_out_of_range,
-            step_layer_values_refused,
+            step_channel_values_refused,
         )
 
         step = protocol.step_row(step_index=step_index)
@@ -3870,17 +3870,17 @@ class ScopeSession:
         )
         stim_configs = step.get('Stim_Config')
         if isinstance(stim_configs, dict):
-            unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))
+            unknown = sorted(set(stim_configs) - set(common_utils.get_channels()))
             if unknown:
                 raise ArgumentRefusedError(
                     'channel_unknown',
                     argument="the step's stimulation channel",
                     value=unknown[0],
-                    offered=tuple(common_utils.get_layers()),
+                    offered=tuple(common_utils.get_channels()),
                 )
         # Before the lane starts a move: the lane stores the step's values
         # into its layers once the moves are under way.
-        refuse_values_out_of_range(step_layer_values_refused(step), f'Step {step_index + 1}')
+        refuse_values_out_of_range(step_channel_values_refused(step), f'Step {step_index + 1}')
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         moves = self.io_executor.call(
@@ -3991,7 +3991,7 @@ class ScopeSession:
         if (
             address is None
             and self.scope.led_connected
-            and layer in common_utils.get_layers_with_led()
+            and layer in common_utils.get_channels_with_led()
         ):
             logger.warning(
                 f"[Session  ] This scope has no '{layer}' LED channel; preview will not light."
@@ -5164,7 +5164,7 @@ class ScopeSession:
         lane's bound and a camera that leaves are kept on the camera's part
         of the bring-up record and told once, and the scope comes up.
         """
-        layer = common_utils.DEFAULT_LAYER
+        layer = common_utils.DEFAULT_CHANNEL
         self._show_channel(layer)
         if not self.scope.camera_connected:
             logger.info(f'[Session  ] bring-up: no camera, so {layer} is not applied to it')
@@ -5517,7 +5517,7 @@ class ScopeSession:
         snapshot = self.get_settings_snapshot()
         snapshot['objective_id'] = objective_id
         self._read_autofocus_as_off_without_z(
-            snapshot[layer] for layer in common_utils.get_layers()
+            snapshot[layer] for layer in common_utils.get_channels()
         )
         return snapshot
 

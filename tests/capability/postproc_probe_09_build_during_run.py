@@ -101,7 +101,7 @@ def _refuse_video_layers(session):
 
     settings = session.get_settings_snapshot()
     video = [
-        layer for layer in common_utils.get_layers() if settings[layer].get('acquire') == 'video'
+        layer for layer in common_utils.get_channels() if settings[layer].get('acquire') == 'video'
     ]
     if video:
         print(

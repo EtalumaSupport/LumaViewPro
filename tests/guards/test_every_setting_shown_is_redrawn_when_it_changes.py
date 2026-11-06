@@ -16,7 +16,7 @@ from ui import listener_bridge
 
 def test_every_template_leaf_is_routed_or_named_as_not_shown():
     routed = {prefix for prefix, _ in listener_bridge.SHOWN_SETTINGS}
-    layers = set(common_utils.get_layers())
+    layers = set(common_utils.get_channels())
 
     def covered(path: str, table) -> bool:
         first = path.split('.')[0]

@@ -1234,7 +1234,7 @@ class SequencedCaptureRunner:
             # A composite has one transmitted plane; capturing two would end
             # in a composite refused after both were taken.
             transmitted = sorted(
-                set(protocol.steps()['channel']) & set(common_utils.get_transmitted_layers())
+                set(protocol.steps()['channel']) & set(common_utils.get_transmitted_channels())
             )
             if len(transmitted) > 1:
                 self._refuse(
@@ -1360,7 +1360,7 @@ class SequencedCaptureRunner:
         # A step on a layer this scope lacks cannot be taken as the step
         # says. The load refuses it on the same rule; a protocol built in
         # memory meets it only here.
-        self._scope.protocols.refuse_absent_layers(protocol)
+        self._scope.protocols.refuse_absent_channels(protocol)
         # And a step stimulating one: a load keeps a file's stimulation as
         # saved, so this is the one place it is judged.
         self._scope.protocols.refuse_absent_stimulation(protocol)

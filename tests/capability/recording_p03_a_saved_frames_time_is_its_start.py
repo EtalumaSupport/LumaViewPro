@@ -248,7 +248,7 @@ def main():
         layer = args.layer
         session.update_settings(f'{layer}.exposure_ms', _EXPOSURE_MS)
         session.update_settings('video.max_fps', 0.0)
-        for other in common_utils.get_layers():
+        for other in common_utils.get_channels():
             if other != layer:
                 session.set_channel_acquire(other, None)
         session.set_channel_acquire(layer, AcquireMode.IMAGE)

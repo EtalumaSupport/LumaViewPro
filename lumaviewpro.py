@@ -1243,7 +1243,7 @@ class LumaViewProApp(TooltipMixin, App):
                     logger.warning(f'[INIT      ] Z slider sync failed: {e}')
 
                 settings = ctx.settings
-                for layer in common_utils.get_layers():
+                for layer in common_utils.get_channels():
                     ls = settings[layer]
                     logger.info(
                         f'[INIT      ] {layer:6s}: gain={ls["gain_db"]:>6}, '

@@ -184,7 +184,7 @@ NOT_SHOWN: frozenset[str] = frozenset(
 def _routed(path: str) -> list[tuple[Callable[[object, str], None], str | None]]:
     """The redraws *path* routes to, each with the layer it names (None for a panel's own)."""
     first = path.split('.')[0]
-    keyed = f'<layer>{path[len(first) :]}' if first in common_utils.get_layers() else path
+    keyed = f'<layer>{path[len(first) :]}' if first in common_utils.get_channels() else path
     return [
         (redraw, first if prefix == '<layer>' else None)
         for prefix, redraw in SHOWN_SETTINGS
@@ -358,7 +358,7 @@ class UIListenerBridge:
                 for r in self._scope.illumination.get_led_states() or ()
                 if r.state == LedState.LIT
             }
-            for color in common_utils.get_layers_with_led():
+            for color in common_utils.get_channels_with_led():
                 self._write_led_button(color, lit=color in lit)
 
         schedule_ui(_reconcile)

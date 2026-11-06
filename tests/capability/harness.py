@@ -362,7 +362,7 @@ def headless_session(live_folder, acquiring=('BF', LED0), **extra):
 
     _refuse_hardware()
     overrides = {'live_folder': str(live_folder), 'stage_offset': {'x': 0.0, 'y': 0.0}}
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         overrides[layer] = {
             # 'image' / 'none' is the stored vocabulary; a bool reads as 'off'.
             'acquire': 'image' if layer in acquiring else None,

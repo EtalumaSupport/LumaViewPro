@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from _lumascope.modules import settings_init
-from _lumascope.modules.common_utils import get_layers
+from _lumascope.modules.common_utils import get_channels
 from _lumascope.modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
@@ -79,19 +79,19 @@ def _from_config(cfg, capabilities):
 def test_the_template_saves_no_focus_for_any_layer():
     template = shipped_template()
 
-    assert {layer: template[layer]['focus'] for layer in get_layers()} == dict.fromkeys(
-        get_layers()
+    assert {layer: template[layer]['focus'] for layer in get_channels()} == dict.fromkeys(
+        get_channels()
     )
 
 
 def test_a_stored_shipped_focus_is_read_as_never_saved():
-    stored = {layer: {'focus': 4950.0} for layer in get_layers()}
+    stored = {layer: {'focus': 4950.0} for layer in get_channels()}
     stored['BF']['focus'] = 5998.6357435197815
 
     forgotten = settings_init.forget_shipped_focus(stored)
 
     assert stored['BF']['focus'] == 5998.6357435197815
-    assert forgotten == [layer for layer in get_layers() if layer != 'BF']
+    assert forgotten == [layer for layer in get_channels() if layer != 'BF']
     assert all(stored[layer]['focus'] is None for layer in forgotten)
 
 

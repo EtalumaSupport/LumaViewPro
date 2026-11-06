@@ -160,15 +160,15 @@ class TestLayersWithLedSemantics:
     """The predicate source of truth: which channels drive an LED."""
 
     def test_luminescence_layers_have_no_led(self):
-        with_led = common_utils.get_layers_with_led()
-        for lumi_layer in common_utils.get_luminescence_layers():
+        with_led = common_utils.get_channels_with_led()
+        for lumi_layer in common_utils.get_luminescence_channels():
             assert lumi_layer not in with_led
 
     def test_transmitted_and_fluorescence_layers_have_leds(self):
-        with_led = common_utils.get_layers_with_led()
+        with_led = common_utils.get_channels_with_led()
         for layer in (
-            *common_utils.get_transmitted_layers(),
-            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_transmitted_channels(),
+            *common_utils.get_fluorescence_channels(),
         ):
             assert layer in with_led
 
@@ -243,7 +243,7 @@ class TestDarkFloorKeysOnLedDrivability:
         # recreate the settings/commanded divergence.
         src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
         assert (
-            "layer in common_utils.get_layers_with_led() and channel_configs[layer]['illumination_ma'] > 0"
+            "layer in common_utils.get_channels_with_led() and channel_configs[layer]['illumination_ma'] > 0"
         ) not in src, 'the settings-store dark-floor predicate must stay retired'
 
 

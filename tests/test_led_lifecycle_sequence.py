@@ -374,7 +374,7 @@ def _run_protocol(
 # because production never invokes the AF runner when Auto_Focus is False.
 # ---------------------------------------------------------------------------
 
-ALL_COLORS = common_utils.get_layers_with_led()
+ALL_COLORS = common_utils.get_channels_with_led()
 
 
 def _recorded_run(

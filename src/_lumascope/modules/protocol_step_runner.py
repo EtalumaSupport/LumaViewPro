@@ -752,7 +752,7 @@ class ProtocolStepRunner:
             # the sample at cancel time.
             return
         address = p._scope.illumination.led_address_of(step['channel'])
-        if address is None and step['channel'] in common_utils.get_layers_with_led():
+        if address is None and step['channel'] in common_utils.get_channels_with_led():
             # The layer is one that drives an LED, so an unresolvable name
             # here means this unit's identity has no such layer: the step
             # will capture dark, deterministically, every scan. Say so per step -- a

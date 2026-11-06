@@ -133,17 +133,17 @@ class TestExposureFloorBehavior:
         )
 
     def test_pc_uses_transmitted_floor(self, leave):
-        """PC is in the transmitted class (not in get_image_layers).
+        """PC is in the transmitted class (not in get_image_channels).
         Must use the 0.1 floor, not the 1.0 floor."""
         assert leave('PC', 0.050) == 0.1
 
     def test_df_uses_transmitted_floor(self, leave):
-        """DF is in the transmitted class (not in get_image_layers).
+        """DF is in the transmitted class (not in get_image_channels).
         Must use the 0.1 floor, not the 1.0 floor."""
         assert leave('DF', 0.050) == 0.1
 
     @pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)
     def test_lumi_uses_fluorescence_floor(self, leave):
-        """Lumi (luminescence) is in get_image_layers; must use the 1.0
+        """Lumi (luminescence) is in get_image_channels; must use the 1.0
         floor like fluorescence, not the 0.1 transmitted floor."""
         assert leave('Lumi', 0.5) == 1.0

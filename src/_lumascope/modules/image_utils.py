@@ -2623,9 +2623,9 @@ def generate_tiff_data(
         # stored old name is its stock key's kind.
         identity_channel = metadata['channel']
         identity_key = stored_key(identity_channel)
-        if identity_key in common_utils.get_transmitted_layers():
+        if identity_key in common_utils.get_transmitted_channels():
             modality = identity_channel
-        elif identity_key in common_utils.get_image_layers():
+        elif identity_key in common_utils.get_image_channels():
             modality = 'MIF'
         elif identity_channel == 'Unknown':
             # A derived output whose source channel could not be determined

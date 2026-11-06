@@ -141,7 +141,7 @@ def test_a_scope_runs_the_lumi_steps_its_own_layers_include(lumi, tmp_path):
     loaded = lumi.load_protocol(path)
 
     assert set(loaded.steps()['channel']) == {'BF', 'Lumi'}
-    lumi.scope.protocols.refuse_absent_layers(loaded)
+    lumi.scope.protocols.refuse_absent_channels(loaded)
 
 
 def test_a_run_with_a_step_on_a_layer_this_scope_lacks_is_refused(executor, scope, tmp_path):
@@ -162,7 +162,7 @@ def test_a_scope_whose_layers_could_not_be_resolved_says_so(ls850, monkeypatch):
     monkeypatch.setattr(ls850.scope, 'channel_identity', UNRESOLVED)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        ls850.scope.protocols.refuse_absent_layers(protocol)
+        ls850.scope.protocols.refuse_absent_channels(protocol)
     assert 'could not be resolved' in str(refused.value)
     assert 'has no BF' not in str(refused.value)
 

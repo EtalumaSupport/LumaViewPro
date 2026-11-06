@@ -149,7 +149,7 @@ def _refuse_unless_tiling_offered(tiling_grids: TilingGrids, tiling: str) -> Non
 
 # What a layer's settings must hold for the build to make its step; a layer
 # that acquires nothing is read for its acquire mode only.
-_ACQUIRING_LAYER_KINDS: tuple[tuple[str, str, bool], ...] = (
+_ACQUIRING_CHANNEL_KINDS: tuple[tuple[str, str, bool], ...] = (
     ('focus', 'number', True),
     ('autofocus', 'bool', False),
     ('false_color', 'bool', False),
@@ -232,7 +232,7 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
         if acquire is None:
             continue
         refuse_unless_offered(AcquireMode, acquire, key_path(layer_path, 'acquire'))
-        for key, kind, nullable in _ACQUIRING_LAYER_KINDS:
+        for key, kind, nullable in _ACQUIRING_CHANNEL_KINDS:
             read(channel_config, key, kind, layer_path, nullable=nullable)
 
     positions = config.get('positions')
@@ -939,7 +939,7 @@ class ChannelSettings:
 # for it and the type its cell is read as: the one place a column maps to a
 # field. Every cell but Acquire may be blank, read as None: the channel's
 # control keeps what it holds.
-_LAYER_SETTINGS_CELLS = (
+_CHANNEL_SETTINGS_CELLS = (
     ('Acquire', 'acquire', _acquire_cell),
     ('Illumination', 'illumination_ma', _float_cell),
     ('Gain', 'gain_db', _float_cell),
@@ -954,12 +954,12 @@ _LAYER_SETTINGS_CELLS = (
 def _channel_settings_cells(record: ChannelSettings) -> list[str]:
     """A record's Layer Settings cells after 'Layer', in column order; None is blank.
 
-    The writer's half of ``_LAYER_SETTINGS_CELLS``: what it writes,
+    The writer's half of ``_CHANNEL_SETTINGS_CELLS``: what it writes,
     ``_channel_settings`` reads back as the same record.
     """
     return [
         '' if getattr(record, field) is None else str(getattr(record, field))
-        for _, field, _ in _LAYER_SETTINGS_CELLS
+        for _, field, _ in _CHANNEL_SETTINGS_CELLS
     ]
 
 
@@ -979,7 +979,7 @@ def _channel_settings(row: dict) -> ChannelSettings:
         raise ProtocolFormatError(f'a Layer Settings row names no channel: {row!r}')
     layer = layer.strip()
     typed = {}
-    for column, field, read in _LAYER_SETTINGS_CELLS:
+    for column, field, read in _CHANNEL_SETTINGS_CELLS:
         cell = row.get(column)
         if isinstance(cell, str):
             cell = cell.strip()
@@ -996,7 +996,7 @@ def _channel_settings(row: dict) -> ChannelSettings:
 
 
 # Each step column a layer range holds, and the layer setting it is stored as.
-_STEP_LAYER_VALUES = (
+_STEP_CHANNEL_VALUES = (
     ('Exposure', 'exposure_ms'),
     ('Illumination', 'illumination_ma'),
     ('Gain', 'gain_db'),
@@ -1007,19 +1007,19 @@ _VIDEO_KEYS = ('duration',)
 _STIM_KEYS = ('frequency', 'pulse_width', 'pulse_count', 'illumination_ma')
 
 
-def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
+def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
     """Each of a step's values the layer ranges refuse, with the column that holds it.
 
     The rules a write of them to the layer's settings holds
-    (``settings_paths.refused_layer_values``): the step's exposure,
+    (``settings_paths.refused_channel_values``): the step's exposure,
     illumination, gain and sum, its video's length (required when it
     records video), and each stimulation config it carries.
     """
     # Deferred: settings_paths imports this module.
-    from _lumascope.modules.settings_paths import refused_layer_values
+    from _lumascope.modules.settings_paths import refused_channel_values
 
-    columns = {key: column for column, key in _STEP_LAYER_VALUES}
-    values = {key: step[column] for column, key in _STEP_LAYER_VALUES}
+    columns = {key: column for column, key in _STEP_CHANNEL_VALUES}
+    values = {key: step[column] for column, key in _STEP_CHANNEL_VALUES}
     video = step.get('Video Config')
     if isinstance(video, dict) or step['Acquire'] == AcquireMode.VIDEO:
         video = video if isinstance(video, dict) else {}
@@ -1029,7 +1029,7 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
                 columns[f'video_config.{part}'] = f'Video Config {part}'
     refused = [
         (columns[r.path.partition('.')[2]], r)
-        for r in refused_layer_values(step['channel'], values)
+        for r in refused_channel_values(step['channel'], values)
     ]
     stims = step.get('Stim_Config')
     for stim_layer, stim in stims.items() if isinstance(stims, dict) else ():
@@ -1038,7 +1038,7 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
         stim_values = {f'stim_config.{key}': stim[key] for key in _STIM_KEYS if key in stim}
         refused.extend(
             (f'Stim_Config {stim_layer} {r.path.rpartition(".")[2]}', r)
-            for r in refused_layer_values(stim_layer, stim_values)
+            for r in refused_channel_values(stim_layer, stim_values)
         )
     return refused
 
@@ -1052,20 +1052,20 @@ def channel_settings_values_refused(
     a caller will apply. A blank cell holds no value and is not judged.
     """
     # Deferred: settings_paths imports this module.
-    from _lumascope.modules.settings_paths import refused_layer_values
+    from _lumascope.modules.settings_paths import refused_channel_values
 
-    columns = {key: column for column, key in _STEP_LAYER_VALUES}
-    fields = {column: field for column, field, _ in _LAYER_SETTINGS_CELLS}
+    columns = {key: column for column, key in _STEP_CHANNEL_VALUES}
+    fields = {column: field for column, field, _ in _CHANNEL_SETTINGS_CELLS}
     refused = []
     for name, row in rows.items():
         values = {
             key: getattr(row, fields[column])
-            for column, key in _STEP_LAYER_VALUES
+            for column, key in _STEP_CHANNEL_VALUES
             if getattr(row, fields[column]) is not None
         }
         refused.extend(
             (f'{name} {columns[r.path.partition(".")[2]]}', r)
-            for r in refused_layer_values(name, values)
+            for r in refused_channel_values(name, values)
         )
     return refused
 
@@ -1073,7 +1073,7 @@ def channel_settings_values_refused(
 def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], what: str) -> None:
     """Refuse a call that would store ``refused``, naming each value; nothing has changed.
 
-    ``refused`` is what ``step_layer_values_refused`` or
+    ``refused`` is what ``step_channel_values_refused`` or
     ``channel_settings_values_refused`` found; ``what`` names what holds the
     values, as a person reads it.
 
@@ -1374,10 +1374,10 @@ class Protocol:
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
     # blank for transmitted layers) are still valid as long as the leading
     # required columns are present. The cells after 'Layer' are
-    # _LAYER_SETTINGS_CELLS', the one map of a column to its field.
-    LAYER_SETTINGS_COLUMNS: ClassVar[list] = [
+    # _CHANNEL_SETTINGS_CELLS', the one map of a column to its field.
+    CHANNEL_SETTINGS_COLUMNS: ClassVar[list] = [
         'Layer',
-        *(column for column, _, _ in _LAYER_SETTINGS_CELLS),
+        *(column for column, _, _ in _CHANNEL_SETTINGS_CELLS),
     ]
 
     # Counts the changes to which steps this protocol holds and in what
@@ -1573,7 +1573,7 @@ class Protocol:
             return self._channel_settings_inferred_from_steps()
         return dict(records)
 
-    def has_saved_layer_settings(self) -> bool:
+    def has_saved_channel_settings(self) -> bool:
         """Whether the protocol carries its own Layer Settings block.
 
         False for a v5 file or a protocol built in memory, whose
@@ -1604,7 +1604,7 @@ class Protocol:
                 'acquire': AcquireMode.VIDEO if video else AcquireMode.IMAGE,
                 'stim_enabled': None,
             }
-            for column, field, read in _LAYER_SETTINGS_CELLS:
+            for column, field, read in _CHANNEL_SETTINGS_CELLS:
                 if field in fields:
                     continue
                 cell = first.get(column)
@@ -1717,7 +1717,7 @@ class Protocol:
                 # breaking any v5-aware downstream tooling.
                 if channel_settings:
                     fp.write('\nLayer Settings\n')
-                    csvwriter.writerow(self.LAYER_SETTINGS_COLUMNS)
+                    csvwriter.writerow(self.CHANNEL_SETTINGS_COLUMNS)
                     for name, record in channel_settings.items():
                         csvwriter.writerow([name, *_channel_settings_cells(record)])
 
@@ -1816,12 +1816,12 @@ class Protocol:
         import-time constant would freeze the vocabulary at whatever the
         catalogue said when this module first loaded.
         """
-        from _lumascope.modules.common_utils import get_layers
+        from _lumascope.modules.common_utils import get_channels
 
-        return set(get_layers())
+        return set(get_channels())
 
     @staticmethod
-    def layer_acquires(channel_config: dict) -> bool:
+    def channel_acquires(channel_config: dict) -> bool:
         """Whether a layer's settings make it a step: acquire is image or video.
 
         The one answer for the builder, the step add and the refusal that
@@ -1927,7 +1927,7 @@ class Protocol:
             # judged here is whether the value is one the run can use, by the
             # layer ranges the settings hold. The camera's own floor is
             # checked when the run is prepared, against the connected body.
-            for column, refused in step_layer_values_refused(step):
+            for column, refused in step_channel_values_refused(step):
                 errors.append(f'{label}: {column}: {refused.detail}')
 
             # The LED cap is the connected board's, not a range.
@@ -2531,7 +2531,7 @@ class Protocol:
             )
         return len(members)
 
-    def apply_focus_all_layer_steps(self, layer: str, z: float) -> int:
+    def apply_focus_all_channel_steps(self, layer: str, z: float) -> int:
         """Set Z on EVERY step of the layer, unconditionally.
 
         A slice of a z-stack is set to ``z`` plus its offset from its
@@ -3309,7 +3309,7 @@ class Protocol:
         # The objective is stamped into every step; a protocol with none --
         # an empty one -- is built with no objective (None), since there may
         # be none in the light path to name. A named one is the catalogue's.
-        acquiring = any(cls.layer_acquires(cfg) for cfg in channel_configs.values())
+        acquiring = any(cls.channel_acquires(cfg) for cfg in channel_configs.values())
         if objective_id is None:
             if acquiring:
                 _refuse_build(
@@ -3370,7 +3370,7 @@ class Protocol:
         # are built over these by apply_tiling and apply_zstacking.
         for pos in actual_positions:
             for layer_name, channel_config in channel_configs.items():
-                if not cls.layer_acquires(channel_config):
+                if not cls.channel_acquires(channel_config):
                     continue
 
                 # Each axis as given: one of X and Y without the other is

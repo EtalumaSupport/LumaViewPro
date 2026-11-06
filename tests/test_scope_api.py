@@ -56,10 +56,10 @@ def _make_layer_settings(**overrides):
 
 def _make_settings(layers=None, with_stim=False):
     """Build a minimal settings dict with the standard layers."""
-    from _lumascope.modules.common_utils import get_layers
+    from _lumascope.modules.common_utils import get_channels
 
     if layers is None:
-        layers = get_layers()
+        layers = get_channels()
 
     settings = {}
     for layer in layers:
@@ -160,9 +160,9 @@ class TestGetLayerConfigs:
     def test_returns_all_layers(self):
         settings = _make_settings()
         configs = config_helpers.get_channel_configs(settings)
-        from _lumascope.modules.common_utils import get_layers
+        from _lumascope.modules.common_utils import get_channels
 
-        assert set(configs.keys()) == set(get_layers())
+        assert set(configs.keys()) == set(get_channels())
 
     def test_specific_layers_filter(self):
         settings = _make_settings()
@@ -500,9 +500,9 @@ class TestScopeSession:
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
         configs = session.get_channel_configs()
-        from _lumascope.modules.common_utils import get_layers
+        from _lumascope.modules.common_utils import get_channels
 
-        assert set(configs.keys()) == set(get_layers())
+        assert set(configs.keys()) == set(get_channels())
 
     def test_get_layer_configs_with_filter(self):
         session = self._make_session()

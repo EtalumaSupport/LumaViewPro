@@ -66,7 +66,7 @@ class TestTheControlFollowsTheScopesAnswer:
         try:
             controls = {
                 layer: SimpleNamespace(camera_autogain_support=None)
-                for layer in common_utils.get_layers()
+                for layer in common_utils.get_channels()
             }
             panel = ImageSettings.__new__(ImageSettings)
             panel._drawers = {

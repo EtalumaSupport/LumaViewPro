@@ -173,9 +173,9 @@ WRITES = {
         'Z',
         lambda p, v: p.apply_zstack_group_focus(reference_step_idx=0, z=v),
     ),
-    'apply_focus_all_layer_steps': (
+    'apply_focus_all_channel_steps': (
         'Z',
-        lambda p, v: p.apply_focus_all_layer_steps(layer='BF', z=v),
+        lambda p, v: p.apply_focus_all_channel_steps(layer='BF', z=v),
     ),
     'modify_step': (
         'Exposure',
@@ -231,7 +231,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol.modify_autofocus_all_steps',
         'Protocol.modify_step_z_height',
         'Protocol.apply_zstack_group_focus',
-        'Protocol.apply_focus_all_layer_steps',
+        'Protocol.apply_focus_all_channel_steps',
         'Protocol.modify_step',
         'Protocol.modify_name',
         'Protocol._regenerate_step_name',

@@ -49,7 +49,7 @@ def _drawers_after_apply(scope, monkeypatch):
         layer: SimpleNamespace(
             stimulation_support=None, show_stim_controls=None, show_camera_controls=None, ids={}
         )
-        for layer in common_utils.get_fluorescence_layers()
+        for layer in common_utils.get_fluorescence_channels()
     }
     monkeypatch.setattr(
         _app_ctx,

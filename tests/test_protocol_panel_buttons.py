@@ -608,7 +608,7 @@ def test_the_step_editor_shows_the_focus_an_autofocus_scan_wrote(
     monkeypatch.setattr(
         app_ctx, 'image_settings', SimpleNamespace(layer_lookup=lambda layer: drawer), raising=False
     )
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         app_ctx.settings[layer] = {'autofocus': False}
     engine.start.return_value = _run(engine).operation
     panel.update_step_ui()

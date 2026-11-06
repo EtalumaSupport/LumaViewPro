@@ -459,7 +459,7 @@ def is_valid_binning_size(value) -> bool:
     return isinstance(value, numbers.Real) and value >= 1
 
 
-def get_layers() -> list[str]:
+def get_channels() -> list[str]:
     """The release's layer key names, in display order.
 
     Derived from the release catalogue rather than authored here, so the
@@ -479,40 +479,40 @@ def get_stored_channel_names() -> list[str]:
     return list(stored_channel_names())
 
 
-def _layers_of_modality(modality: 'Modality') -> list[str]:
+def _channels_of_modality(modality: 'Modality') -> list[str]:
     from _lumascope.modules.channel_record import release_channels
 
     return [layer.key for layer in release_channels() if layer.modality == modality]
 
 
-def get_transmitted_layers() -> list[str]:
+def get_transmitted_channels() -> list[str]:
     from _lumascope.modules.channel_record import Modality
 
-    return _layers_of_modality(Modality.TRANSMITTED)
+    return _channels_of_modality(Modality.TRANSMITTED)
 
 
-def get_fluorescence_layers() -> list[str]:
+def get_fluorescence_channels() -> list[str]:
     from _lumascope.modules.channel_record import Modality
 
-    return _layers_of_modality(Modality.FLUORESCENCE)
+    return _channels_of_modality(Modality.FLUORESCENCE)
 
 
-def get_luminescence_layers() -> list[str]:
+def get_luminescence_channels() -> list[str]:
     from _lumascope.modules.channel_record import Modality
 
-    return _layers_of_modality(Modality.LUMINESCENCE)
+    return _channels_of_modality(Modality.LUMINESCENCE)
 
 
-def get_image_layers() -> list[str]:
+def get_image_channels() -> list[str]:
     """Fluorescence + luminescence layers (false-color, displayed as colored images)."""
-    return get_fluorescence_layers() + get_luminescence_layers()
+    return get_fluorescence_channels() + get_luminescence_channels()
 
 
-def get_layers_with_led() -> list[str]:
-    return get_transmitted_layers() + get_fluorescence_layers()
+def get_channels_with_led() -> list[str]:
+    return get_transmitted_channels() + get_fluorescence_channels()
 
 
-DEFAULT_LAYER = 'BF'
+DEFAULT_CHANNEL = 'BF'
 
 
 class Light(NamedTuple):

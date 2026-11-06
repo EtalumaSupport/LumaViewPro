@@ -250,7 +250,7 @@ class MicroscopeSettings(BoxLayout):
         # Kivy slider clamps the displayed value to its max). A stored value
         # above the cap stays in the store and is pinned on the slider; the
         # box keeps the real number.
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             ctx.image_settings.layer_lookup(layer=layer).ids['gain_slider'].max = max_gain
         ctx.image_settings.set_layer_exposure_ranges()
 
@@ -263,7 +263,7 @@ class MicroscopeSettings(BoxLayout):
         # (ScopeSession.configure_scope applies BF).
         ctx.image_settings.reconcile_layers_to_camera_caps()
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
 
         self.set_ui_features_for_scope()
@@ -513,8 +513,8 @@ class MicroscopeSettings(BoxLayout):
         )
 
         # Update all layer controls
-        for layer in common_utils.get_layers():
-            if layer in common_utils.get_fluorescence_layers():
+        for layer in common_utils.get_channels():
+            if layer in common_utils.get_fluorescence_channels():
                 layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
                 if layer_obj:
                     if stimulation_enabled:

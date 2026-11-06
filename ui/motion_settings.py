@@ -70,7 +70,7 @@ class MotionSettings(BoxLayout):
     def enable_ui_features_for_engineering_mode(self):
         ENGINEERING_MODE = _app_ctx.ctx.session.engineering_mode
         if ENGINEERING_MODE:
-            # for layer in common_utils.get_layers():
+            # for layer in common_utils.get_channels():
             ps = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
             ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
             ps.ids['protocol_disable_image_saving_box_id'].height = '30dp'

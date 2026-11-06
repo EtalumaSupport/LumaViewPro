@@ -450,7 +450,7 @@ once `load_protocol` has accepted the plate. Every layer stops
 acquiring and stimulating; each layer the protocol names then takes
 its acquire mode and every value its row holds. A blank value leaves
 that layer's control as it was. A layer this release does not know
-(not in `common_utils.get_layers()`), or this scope does not have,
+(not in `common_utils.get_channels()`), or this scope does not have,
 is logged and dropped.
 
 **Args**

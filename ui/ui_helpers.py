@@ -435,7 +435,7 @@ def sync_layer_widgets_from_settings():
     per run, every layer.
     """
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
 
 
@@ -850,7 +850,7 @@ def draw_shared_run_displays(lock, work) -> None:
 
 def reset_acquire_ui():
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         layer_obj._initializing = True
         try:
@@ -868,7 +868,7 @@ def reset_stim_ui():
     # Display only: a loaded protocol's stimulation was turned off by the
     # Session (``ScopeSession.apply_channel_settings``), which writes it.
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         if 'stim_config' in ctx.settings[layer] and ctx.settings[layer]['stim_config'] is not None:
             layer_obj._initializing = True

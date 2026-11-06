@@ -110,7 +110,7 @@ def _video_step(session, runner, layer, live):
 
     # The run's one step is this layer's video: every other layer the
     # installation acquires is set to nothing, on the session alone.
-    for other in common_utils.get_layers():
+    for other in common_utils.get_channels():
         if other != layer:
             session.set_channel_acquire(other, None)
     session.set_channel_acquire(layer, AcquireMode.VIDEO)

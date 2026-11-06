@@ -67,7 +67,7 @@ class TestApplyFocusAllLayerSteps:
                 {'Name': f'A1_{LED0}', 'channel': LED0, 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
-        count = proto.apply_focus_all_layer_steps(layer='BF', z=5000.0)
+        count = proto.apply_focus_all_channel_steps(layer='BF', z=5000.0)
         assert count == 2
         steps = proto.steps()
         assert steps.loc[0, 'Z'] == 5000.0
@@ -76,7 +76,7 @@ class TestApplyFocusAllLayerSteps:
 
     def test_empty_protocol_returns_zero(self):
         proto = _make_protocol_with_steps([])
-        assert proto.apply_focus_all_layer_steps(layer='BF', z=5000.0) == 0
+        assert proto.apply_focus_all_channel_steps(layer='BF', z=5000.0) == 0
 
     def test_takes_no_previous_z_parameter(self):
         # The inference has no representation left: the bulk write cannot
@@ -87,7 +87,7 @@ class TestApplyFocusAllLayerSteps:
         sys.path.insert(0, str(REPO))
         from _lumascope.modules.protocol import Protocol
 
-        params = list(inspect.signature(Protocol.apply_focus_all_layer_steps).parameters)
+        params = list(inspect.signature(Protocol.apply_focus_all_channel_steps).parameters)
         assert params == ['self', 'layer', 'z']
 
 

@@ -57,7 +57,7 @@ RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 # Per-layer keys a load renames or drops, exempt on EVERY layer rather
 # than under one named entry the way RUNTIME_ONLY_PER_LAYER works -- all seven
 # layers carry them. A current.json of any age may still hold the old
-# spellings until its next clean shutdown; migrate_layer_key_names_dict moves
+# spellings until its next clean shutdown; migrate_channel_key_names_dict moves
 # them at load, and normalize_loaded_settings drops the retired ones. Like
 # MIGRATED_TOP_LEVEL they must never come back in settings.json, where they
 # would resurrect the retired schema:

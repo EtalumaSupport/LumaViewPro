@@ -50,7 +50,7 @@ def _legacy_current(data_dir):
     # catalogue added since.
     for old in release_old_names():
         current[old.name] = current.pop(old.stock_key)
-    for key in set(common_utils.get_fluorescence_layers()) - set(STOCK_FLUORESCENCE):
+    for key in set(common_utils.get_fluorescence_channels()) - set(STOCK_FLUORESCENCE):
         current.pop(key)
 
     current['image_output_format']['sequenced'] = 'ImageJ Hyperstack'

@@ -75,7 +75,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # The container is stated first and for every format, as it always
         # was: the step's code names the file, so a composite already built
         # keeps its name.
-        transmitted = common_utils.get_transmitted_layers()
+        transmitted = common_utils.get_transmitted_channels()
         blended = group['channel'].isin(transmitted).any()
         thresholds = kwargs['brightness_thresholds_percent']
         settings = [('format', output_format)]
@@ -210,7 +210,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # plane: two of them, or two of one channel, have no one answer, and
         # keeping one would discard an acquired image behind a composite
         # that looks complete.
-        transmitted = group['channel'].isin(common_utils.get_transmitted_layers())
+        transmitted = group['channel'].isin(common_utils.get_transmitted_channels())
         return group['channel'].where(~transmitted, 'transmitted')
 
     @staticmethod
@@ -246,10 +246,10 @@ class CompositeGeneration(ProtocolPostProcessor):
         # Nothing below writes a layer's name.
         df = df.assign(channel=df['channel'].map(channel_record.stored_key))
 
-        allowed_BF_layers = common_utils.get_transmitted_layers()
+        allowed_BF_layers = common_utils.get_transmitted_channels()
         allowed_layers = [
-            *common_utils.get_fluorescence_layers(),
-            *common_utils.get_luminescence_layers(),
+            *common_utils.get_fluorescence_channels(),
+            *common_utils.get_luminescence_channels(),
         ]
         img = None
 
@@ -292,7 +292,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 layer
                 for layer in df['channel']
                 if layer != BF_channel
-                and layer in common_utils.get_image_layers()
+                and layer in common_utils.get_image_channels()
                 and layer not in brightness_thresholds_percent
             )
             if missing:
@@ -315,7 +315,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 (layer, brightness_thresholds_percent[layer])
                 for layer in df['channel']
                 if layer != BF_channel
-                and layer in common_utils.get_image_layers()
+                and layer in common_utils.get_image_channels()
                 and not _is_valid_threshold_percent(brightness_thresholds_percent[layer])
             )
             if out_of_range:
@@ -365,7 +365,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                     continue
 
                 # Skip non-fluorescence layers
-                if layer not in common_utils.get_image_layers():
+                if layer not in common_utils.get_image_channels():
                     continue
 
                 f_image = images[row['Filepath']]

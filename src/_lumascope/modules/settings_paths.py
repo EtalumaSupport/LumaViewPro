@@ -493,7 +493,7 @@ def _pattern_for(patterns: typing.Collection[str], path: str) -> str | None:
     block, _, _key = path.rpartition('.')
     for pattern in (
         path,
-        f'*.{rest}' if rest and layer in common_utils.get_layers() else None,
+        f'*.{rest}' if rest and layer in common_utils.get_channels() else None,
         f'{block}.*' if block else None,
     ):
         if pattern in patterns:
@@ -528,7 +528,7 @@ def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
     return _NULLABLE_KINDS[pattern] if pattern else None
 
 
-def refused_layer_values(
+def refused_channel_values(
     layer: str, values: typing.Mapping[str, object]
 ) -> list[SettingRefusedError]:
     """Every one of a layer's values the layer rules refuse, each as its refusal.
@@ -598,7 +598,7 @@ def _kind(value: object) -> str:
 def member_for(path: str) -> SettingMember | None:
     """The member that owns the setting at ``path``, or None."""
     segments = path.split('.')
-    layers = common_utils.get_layers()
+    layers = common_utils.get_channels()
     for owned, member in SETTINGS_WITH_A_MEMBER.items():
         owned_segments = owned.split('.')
         if len(segments) < len(owned_segments):
@@ -672,7 +672,7 @@ def check_write(
 def is_led_current(path: str) -> bool:
     """Whether ``path`` is a layer's illumination or stimulation current."""
     layer, _, rest = path.partition('.')
-    return layer in common_utils.get_layers() and rest in (
+    return layer in common_utils.get_channels() and rest in (
         'illumination_ma',
         'stim_config.illumination_ma',
     )

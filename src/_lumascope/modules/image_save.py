@@ -365,10 +365,10 @@ def generate_image_metadata(
     # an index, or a rendering value: past here it is written verbatim and read
     # back forever as a claim about what was imaged. The caller set stops being
     # enumerable the moment this ships, so the vocabulary is checked, not assumed.
-    if channel not in common_utils.get_layers() and channel != 'Composite':
+    if channel not in common_utils.get_channels() and channel != 'Composite':
         raise ValueError(
             f'unknown channel {channel!r} for image metadata; expected one of '
-            f"{common_utils.get_layers()} or 'Composite'"
+            f"{common_utils.get_channels()} or 'Composite'"
         )
 
     objective = scope.objective_helper.get_objective_info(objective_id=objective_id)

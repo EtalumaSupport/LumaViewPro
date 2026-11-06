@@ -170,7 +170,7 @@ class ProtocolsAPI:
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
                 and save but never perform. ``'channel_unknown'``, a step
-                names a channel no release has (``refuse_absent_layers``).
+                names a channel no release has (``refuse_absent_channels``).
                 ``'values_out_of_range'``, its Layer Settings block holds a
                 value no channel setting takes, each named: applying them
                 would be refused. A file with no block (v5) has its rows
@@ -190,11 +190,11 @@ class ProtocolsAPI:
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
-        self.refuse_absent_layers(protocol)
+        self.refuse_absent_channels(protocol)
         # The file's own block alone: rows inferred from its steps are the
         # steps' values, lenient here and told below.
-        if protocol.has_saved_layer_settings():
-            self.refuse_layer_settings_out_of_range(protocol)
+        if protocol.has_saved_channel_settings():
+            self.refuse_channel_settings_out_of_range(protocol)
         self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
@@ -390,14 +390,16 @@ class ProtocolsAPI:
         from _lumascope.modules.protocol import Protocol
 
         objective_id = self._recordable_objective(verb='add')
-        self.refuse_no_acquiring_layer(channel_configs)
+        self.refuse_no_acquiring_channel(channel_configs)
 
         ordered = [layer for layer in (channel_order or []) if layer in channel_configs]
         ordered += [layer for layer in channel_configs if layer not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
         if before_step_index is None and after_step_index is None:
             after_step_index = protocol.num_steps() - 1
-        acquiring = [layer for layer in ordered if Protocol.layer_acquires(channel_configs[layer])]
+        acquiring = [
+            layer for layer in ordered if Protocol.channel_acquires(channel_configs[layer])
+        ]
         if zstack_params is not None:
             Protocol.refuse_unbuildable_zstack(
                 zstack_params,
@@ -531,7 +533,7 @@ class ProtocolsAPI:
         if stim_config is not None and stim_config['enabled']:
             layer = step['channel']
 
-        if not Protocol.layer_acquires(channel_configs[layer]):
+        if not Protocol.channel_acquires(channel_configs[layer]):
             self._refuse(
                 reason='no_acquiring_channel',
                 message=(
@@ -654,7 +656,7 @@ class ProtocolsAPI:
         Raises:
             ProtocolError: ``z`` is not a number (raised by the protocol).
         """
-        return protocol.apply_focus_all_layer_steps(layer=layer, z=z)
+        return protocol.apply_focus_all_channel_steps(layer=layer, z=z)
 
     def delete_step(self, protocol: Protocol, step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
@@ -958,7 +960,7 @@ class ProtocolsAPI:
                 sc['enabled'] = False
         return stim_configs
 
-    def refuse_no_acquiring_layer(self, channel_configs: dict) -> None:
+    def refuse_no_acquiring_channel(self, channel_configs: dict) -> None:
         """Refuse a step add or a protocol build when no layer is set to acquire.
 
         A layer whose ``acquire`` is neither image nor video contributes no
@@ -975,7 +977,7 @@ class ProtocolsAPI:
         """
         from _lumascope.modules.protocol import Protocol
 
-        if not any(Protocol.layer_acquires(cfg) for cfg in channel_configs.values()):
+        if not any(Protocol.channel_acquires(cfg) for cfg in channel_configs.values()):
             self._refuse(
                 reason='no_acquiring_channel',
                 message=(
@@ -984,7 +986,7 @@ class ProtocolsAPI:
                 ),
             )
 
-    def refuse_layer_settings_out_of_range(self, protocol: Protocol) -> None:
+    def refuse_channel_settings_out_of_range(self, protocol: Protocol) -> None:
         """Refuse a protocol whose Layer Settings hold a value no channel setting takes.
 
         Judged by the settings' layer ranges, for the rows a session applies:
@@ -1013,7 +1015,7 @@ class ProtocolsAPI:
             channel_settings_values_refused(rows), "The protocol's Layer Settings"
         )
 
-    def refuse_absent_layers(self, protocol: Protocol) -> None:
+    def refuse_absent_channels(self, protocol: Protocol) -> None:
         """Refuse a protocol with a step on a layer this scope does not have.
 
         Asked where steps arrive that this scope's settings did not build: a
@@ -1037,7 +1039,7 @@ class ProtocolsAPI:
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
         steps = protocol.steps()
-        unknown = steps.loc[~steps['channel'].isin(common_utils.get_layers())]
+        unknown = steps.loc[~steps['channel'].isin(common_utils.get_channels())]
         if not unknown.empty:
             self._refuse(
                 reason='channel_unknown',

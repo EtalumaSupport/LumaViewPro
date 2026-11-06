@@ -264,7 +264,7 @@ class LayerControl(BoxLayout):
         settings = ctx.settings
 
         if (
-            self.layer in common_utils.get_fluorescence_layers()
+            self.layer in common_utils.get_fluorescence_channels()
             and settings['stimulation_enabled']
             and ctx.scope.capabilities.has_firmware_stim
         ):

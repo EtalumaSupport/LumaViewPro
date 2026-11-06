@@ -173,7 +173,7 @@ def main():
         session.update_settings('video_as_frames', True)
         session.update_settings('video.max_fps', 0.0)
         session.update_settings(f'{layer}.video_config.duration', 1.0)
-        for other in common_utils.get_layers():
+        for other in common_utils.get_channels():
             if other != layer:
                 session.set_channel_acquire(other, None)
         session.set_channel_acquire(layer, AcquireMode.VIDEO)

@@ -84,7 +84,7 @@ def test_the_apps_own_draw_is_not_recorded_as_a_pick_and_asks_nothing(monkeypatc
     import _lumascope.modules.common_utils as common_utils
     from ui.image_settings import ImageSettings
 
-    layers = common_utils.get_layers()
+    layers = common_utils.get_channels()
     drawers = {}
     for layer in layers:
         drawers[layer] = _item()

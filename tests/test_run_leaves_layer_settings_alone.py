@@ -43,9 +43,9 @@ from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- 
     stepnav_env,
 )
 from tests.stock_channels import LED1
-from _lumascope.modules.common_utils import get_luminescence_layers
+from _lumascope.modules.common_utils import get_luminescence_channels
 
-(LUMI,) = get_luminescence_layers()
+(LUMI,) = get_luminescence_channels()
 
 
 GREEN_LAYER_SETTINGS = {
@@ -354,7 +354,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         import ui.layer_control as layer_control
         from ui.ui_helpers import sync_layer_widgets_from_settings
 
-        layers = {layer: MagicMock() for layer in common_utils.get_layers()}
+        layers = {layer: MagicMock() for layer in common_utils.get_channels()}
         ctx = SimpleNamespace(
             image_settings=SimpleNamespace(layer_lookup=lambda layer: layers[layer]),
         )

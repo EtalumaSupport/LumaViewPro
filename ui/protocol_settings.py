@@ -1266,7 +1266,7 @@ class ProtocolSettings(FloatLayout):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
             layer_obj._initializing = True
             try:

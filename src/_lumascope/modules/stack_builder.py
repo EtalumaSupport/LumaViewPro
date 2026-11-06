@@ -477,7 +477,7 @@ class StackBuilder(ProtocolPostProcessor):
                     image = image_utils.rgb_image_to_gray(
                         image=image,
                         baked=channel_record.stored_key(row['channel'])
-                        in common_utils.get_layers(),
+                        in common_utils.get_channels(),
                     )
 
                 # Each plane must share the hyperstack's canvas; a per-plane

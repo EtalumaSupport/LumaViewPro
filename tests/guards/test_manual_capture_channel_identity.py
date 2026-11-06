@@ -195,7 +195,7 @@ def test_both_manual_outputs_share_the_resolver():
     for rel in _production_modules():
         for n in ast.walk(parse_module(rel)):
             if isinstance(n, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == 'DEFAULT_LAYER' for t in n.targets
+                isinstance(t, ast.Name) and t.id == 'DEFAULT_CHANNEL' for t in n.targets
             ):
                 defined_in.append(rel)
             if isinstance(n, ast.FunctionDef) and n.name == 'get_opened_layer_obj':
@@ -274,7 +274,7 @@ def _first_open_scan_loops():
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for loop in ast.walk(fn):
-                if not (isinstance(loop, ast.For) and 'get_layers(' in ast.unparse(loop.iter)):
+                if not (isinstance(loop, ast.For) and 'get_channels(' in ast.unparse(loop.iter)):
                     continue
                 body = ast.unparse(loop)
                 if 'accordion_item_lookup' in body and '.collapse' in body:

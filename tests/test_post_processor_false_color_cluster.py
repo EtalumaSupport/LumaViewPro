@@ -88,7 +88,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
 
 class TestPostProcessorSkipsFalseColorForTransmitted:
     """Transmitted layers (BF/PC/DF) must stay grayscale -- they are not
-    in ``common_utils.get_image_layers()`` so the gate must pass
+    in ``common_utils.get_image_channels()`` so the gate must pass
     through. Regression guard against widening the gate too far."""
 
     def test_zproject_bf_stays_grayscale(self, tmp_path):

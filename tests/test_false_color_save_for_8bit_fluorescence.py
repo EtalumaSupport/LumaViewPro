@@ -92,7 +92,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
         )
 
     def test_uint8_transmitted_layer_not_false_colored(self, tmp_tiff):
-        # BF / PC / DF are transmitted, not in get_image_layers(); even
+        # BF / PC / DF are transmitted, not in get_image_channels(); even
         # with the toggle on they must stay grayscale (false-color is
         # only meaningful for fluorescence and luminescence).
         data = _grayscale_image(np.uint8)

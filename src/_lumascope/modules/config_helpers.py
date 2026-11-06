@@ -81,7 +81,7 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     channel_configs = {}
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         if (specific_channels is not None) and (layer not in specific_channels):
             continue
 
@@ -298,9 +298,9 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
 
 
 def _ag_ae_channel_class(layer: str) -> Modality:
-    if layer in common_utils.get_transmitted_layers():
+    if layer in common_utils.get_transmitted_channels():
         return Modality.TRANSMITTED
-    if layer in common_utils.get_luminescence_layers():
+    if layer in common_utils.get_luminescence_channels():
         return Modality.LUMINESCENCE
     return Modality.FLUORESCENCE
 
@@ -1107,14 +1107,14 @@ def get_composite_channels(settings: dict) -> list:
     """
     transmitted = [
         layer
-        for layer in common_utils.get_transmitted_layers()
+        for layer in common_utils.get_transmitted_channels()
         if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
     others = [
         layer
         for layer in (
-            *common_utils.get_fluorescence_layers(),
-            *common_utils.get_luminescence_layers(),
+            *common_utils.get_fluorescence_channels(),
+            *common_utils.get_luminescence_channels(),
         )
         if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
@@ -1131,7 +1131,7 @@ def get_composite_blend_thresholds(settings: dict) -> dict:
     """
     return {
         layer: settings[layer]['composite_brightness_threshold']
-        for layer in common_utils.get_layers()
+        for layer in common_utils.get_channels()
         if 'composite_brightness_threshold' in settings[layer]
     }
 

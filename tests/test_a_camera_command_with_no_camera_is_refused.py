@@ -651,7 +651,7 @@ def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(gui_ctx, c
     from _lumascope.modules import common_utils
     from ui.image_settings import ImageSettings
 
-    layers = {layer: _CameraControls() for layer in common_utils.get_layers()}
+    layers = {layer: _CameraControls() for layer in common_utils.get_channels()}
     microscope = _CameraControls()
     gui_ctx.motion_settings = SimpleNamespace(ids={'microscope_settings_id': microscope})
     if not connected:

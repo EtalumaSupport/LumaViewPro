@@ -64,7 +64,7 @@ class SettingsFileError(Fault, ValueError):
 # Layer sub-keys whose names changed when the storage dict became the L2 API
 # surface. Old name -> new name. `stim_config.illumination` lives one level
 # down and is handled alongside; only the fluorescence channels carry a stim_config.
-_RENAMED_LAYER_KEYS = {
+_RENAMED_CHANNEL_KEYS = {
     'ill_ma': 'illumination_ma',
     'exp_ms': 'exposure_ms',
 }
@@ -96,7 +96,7 @@ def _migrate_renamed_keys(container: dict, mapping: dict) -> bool:
     return moved
 
 
-def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
+def migrate_channel_key_names_dict(settings_dict: dict) -> bool:
     """Carry per-layer illumination and exposure keys to their unit-suffixed names.
 
     `settings[layer]['ill_ma'/'exp_ms']` -> `illumination_ma`/`exposure_ms`,
@@ -109,9 +109,9 @@ def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
     would get the shipped illumination_ma = 5.0 merged in beside it and
     come up on the default while the real value sat unread.
 
-    Layers are found by SHAPE, not by importing get_layers: this runs during
+    Layers are found by SHAPE, not by importing get_channels: this runs during
     logger bootstrap, where importing _lumascope.modules.common_utils raises
-    `cannot import name 'get_layers' from partially initialized module`.
+    `cannot import name 'get_channels' from partially initialized module`.
 
     Returns:
         True when at least one key was moved.
@@ -120,7 +120,7 @@ def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
     for value in settings_dict.values():
         if not isinstance(value, dict):
             continue
-        if _migrate_renamed_keys(value, _RENAMED_LAYER_KEYS):
+        if _migrate_renamed_keys(value, _RENAMED_CHANNEL_KEYS):
             moved = True
         stim = value.get('stim_config')
         if isinstance(stim, dict) and _migrate_renamed_keys(stim, _RENAMED_STIM_KEYS):
@@ -175,7 +175,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     # support-report generator and app_config all go through this function.
     # Running before the caller's validation also means validation never
     # sees, or warns about, the old spellings.
-    if migrate_layer_key_names_dict(parsed) and logger is not None:
+    if migrate_channel_key_names_dict(parsed) and logger is not None:
         logger.info(f'[Settings ] {path}: carried layer keys to their unit-suffixed names')
     if logger is not None:
         logger.debug(f'[Settings ] read {path}')
@@ -217,7 +217,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
                     )
 
     # Validate layer settings have expected structure
-    from _lumascope.modules.common_utils import get_layers
+    from _lumascope.modules.common_utils import get_channels
 
     _REQUIRED_LAYER_FIELDS = {
         'illumination_ma': (int, float),
@@ -228,7 +228,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         'false_color': (bool, list),
         'focus': (int, float, type(None)),
     }
-    for layer in get_layers():
+    for layer in get_channels():
         if layer not in settings:
             logger.warning(f'[Settings ] {filepath}: missing layer "{layer}"')
             continue
@@ -377,7 +377,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # from this module at its module top (before _lumascope.lvp_logger.logger is defined),
     # and both of these import _lumascope.lvp_logger.logger at their own top.
     from _lumascope.modules import image_mode
-    from _lumascope.modules.common_utils import get_layers
+    from _lumascope.modules.common_utils import get_channels
     from _lumascope.modules.zstack_config import ZStackReference
 
     changed = False
@@ -497,7 +497,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
             protocol_settings['labware'] = folded_plate
             changed = True
 
-    for layer in get_layers():
+    for layer in get_channels():
         channel_config = settings_dict.get(layer)
         if not isinstance(channel_config, dict):
             continue
@@ -543,10 +543,10 @@ def forget_shipped_focus(settings_dict: dict) -> list[str]:
     Returns:
         The layers whose focus was set to None, in layer order.
     """
-    from _lumascope.modules.common_utils import get_layers
+    from _lumascope.modules.common_utils import get_channels
 
     forgotten = []
-    for layer in get_layers():
+    for layer in get_channels():
         channel_config = settings_dict.get(layer)
         if (
             isinstance(channel_config, dict)
@@ -679,7 +679,7 @@ def load_template(logger: logging.Logger, template_path: str) -> dict:
     missing = _missing_required_keys(template)
     if missing:
         raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
-    _give_every_layer_a_block(template, template_path)
+    _give_every_channel_a_block(template, template_path)
     _give_the_shipped_step_order(template, template_path)
     _validate_settings(template, template_path, logger)
     return template
@@ -712,7 +712,7 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
     ]
 
 
-def _give_every_layer_a_block(template: dict, template_path: str) -> None:
+def _give_every_channel_a_block(template: dict, template_path: str) -> None:
     """Every catalogue key's block: its own, else a copy of its modality's default.
 
     The file names a block only for a key with values of its own; every

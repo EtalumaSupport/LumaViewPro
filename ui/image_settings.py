@@ -79,7 +79,7 @@ class ImageSettings(BoxLayout):
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
         # One drawer per catalogue key, in display order; a drawer is in the
         # accordion while the unit has its layer (show_drawers).
-        self._drawers = {layer: ChannelDrawer(layer=layer) for layer in common_utils.get_layers()}
+        self._drawers = {layer: ChannelDrawer(layer=layer) for layer in common_utils.get_channels()}
         self._shown_layers: frozenset[str] = frozenset()
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
@@ -98,7 +98,7 @@ class ImageSettings(BoxLayout):
         change, and after a person's open in case the Session refused it.
         """
         layer = _app_ctx.ctx.session.shown_channel.channel
-        for a_layer in common_utils.get_layers():
+        for a_layer in common_utils.get_channels():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
             if layer == a_layer:
                 accordion_item_obj.collapse = False
@@ -156,7 +156,7 @@ class ImageSettings(BoxLayout):
         self._resort_accordion()
 
     def set_layer_focus_visibility(self, visible: bool) -> None:
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             self.layer_lookup(layer=layer).focus_support = visible
 
     def _resort_accordion(self):
@@ -186,7 +186,7 @@ class ImageSettings(BoxLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             self.accordion_item_lookup(layer=layer).person_opened = functools.partial(
                 self._show_channel_for_person, layer
             )
@@ -195,7 +195,7 @@ class ImageSettings(BoxLayout):
 
     def enable_image_stats_if_needed(self):
         if _app_ctx.ctx.session.engineering_mode:
-            for layer in common_utils.get_layers():
+            for layer in common_utils.get_channels():
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.ids['image_stats_mean_id'].height = '30dp'
                 layer_obj.ids['image_stats_stddev_id'].height = '30dp'
@@ -208,19 +208,19 @@ class ImageSettings(BoxLayout):
         disabled (set_camera_controls_support), so the slider keeps its own.
         """
         session = _app_ctx.ctx.session
-        for layer in common_utils.get_fluorescence_layers():
+        for layer in common_utils.get_fluorescence_channels():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
-        for layer in common_utils.get_luminescence_layers():
+        for layer in common_utils.get_luminescence_channels():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             maximum = session.channel_slider_maxima(layer).slider_max_exposure_ms
             if maximum is not None:
                 self.layer_lookup(layer=layer).ids['exp_slider'].max = maximum
@@ -236,7 +236,7 @@ class ImageSettings(BoxLayout):
         default-fallback pattern as exposure).
         """
         ctx = _app_ctx.ctx
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
@@ -248,7 +248,7 @@ class ImageSettings(BoxLayout):
         (set_layer_led_controller_support), so the slider keeps its own.
         """
         session = _app_ctx.ctx.session
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             maximum = session.channel_slider_maxima(layer).slider_max_illumination_ma
             if maximum is not None:
                 self.layer_lookup(layer=layer).ids['ill_slider'].max = maximum
@@ -273,7 +273,7 @@ class ImageSettings(BoxLayout):
         preference survives a swap to an AG-less body and back.
         """
         supported = _app_ctx.ctx.scope.capabilities.camera_supports_auto_gain
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported
 
@@ -284,7 +284,7 @@ class ImageSettings(BoxLayout):
         are synced.
         """
         present = _app_ctx.ctx.scope.capabilities.led_addresses is not None
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             self.layer_lookup(layer=layer).led_controller_support = present
 
     def set_camera_controls_support(self):
@@ -295,7 +295,7 @@ class ImageSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         connected = ctx.scope.camera_connected
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             self.layer_lookup(layer=layer).camera_connected = connected
         ctx.motion_settings.ids['microscope_settings_id'].camera_connected = connected
 
@@ -320,7 +320,7 @@ class ImageSettings(BoxLayout):
         the camera through each layer's apply, and that apply returns early on
         exactly this flag -- inside, it would render and push nothing.
         """
-        layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_layers()]
+        layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_channels()]
         for layer_obj in layer_objs:
             layer_obj._initializing = True
         try:
@@ -372,7 +372,7 @@ class ImageSettings(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         camera = ctx.lumaview.scope.camera
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_channels():
             gain = camera.applied_gain_db_for(settings[layer]['gain_db'])
             exposure = camera.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
@@ -398,7 +398,7 @@ class ImageSettings(BoxLayout):
         if self.ids['toggle_imagesettings'].state == 'normal':
             self.x = lumaview.width - self.tab_width
 
-            for layer in common_utils.get_layers():
+            for layer in common_utils.get_channels():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
                 Clock.unschedule(layer_obj.ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
@@ -406,7 +406,7 @@ class ImageSettings(BoxLayout):
             self.x = lumaview.width - self.settings_width
 
     def update_transmitted(self):
-        for layer in common_utils.get_transmitted_layers():
+        for layer in common_utils.get_transmitted_channels():
             layer_obj = self.layer_lookup(layer=layer)
 
             # Remove 'Colorize' option in transmitted channels control
@@ -444,7 +444,7 @@ class ImageSettings(BoxLayout):
 
 
 def set_histogram_layer(active_layer):
-    for layer in common_utils.get_layers():
+    for layer in common_utils.get_channels():
         layer_ref = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
         Clock.unschedule(layer_ref.ids['histo_id'].histogram)
 
