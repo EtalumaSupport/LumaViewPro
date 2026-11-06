@@ -180,7 +180,7 @@ def _insert_generated_step(protocol):
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
-        layer='BF',
+        channel='BF',
         channel_config=_add_layer_config(),
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',

@@ -334,7 +334,7 @@ class RunPlan:
     # the mode a headless session was built in -- so the engine never
     # reaches for the GUI's context to learn it.
     engineering_mode: bool
-    # Per-layer blend thresholds the post-run merge needs, snapshotted by
+    # Per-channel blend thresholds the post-run merge needs, snapshotted by
     # the caller that has the settings. Carried on the plan rather than
     # read at merge time: the merge runs on a worker thread after the run,
     # where reading live settings is both unavailable headless and a
@@ -372,10 +372,10 @@ class SequencedCaptureRunner:
         on_step_lit: typing.Callable[[str], None] | None = None,
         on_run_ending: typing.Callable[[], None] | None = None,
     ):
-        # Told the layer each step has lit, once its light is on: the
+        # Told the channel each step has lit, once its light is on: the
         # session's shown channel follows the run.
         self._on_step_lit = on_step_lit
-        # The Session's one read of every layer's colour. start() takes it
+        # The Session's one read of every channel's colour. start() takes it
         # once, so a run's captures, recordings and post-run builds are all
         # coloured as the run began, whatever changes while it runs.
         self._read_channel_colors = channel_colors
@@ -398,7 +398,7 @@ class SequencedCaptureRunner:
         # which is_live_run says it has ended.
         self._on_run_idle = on_run_idle
         # Called by the run's cleanup once the camera is restored, on the
-        # protocol thread under the run's taking: the session shows the layer
+        # protocol thread under the run's taking: the session shows the channel
         # it showed before the run, at its stored settings.
         self._on_run_ending = on_run_ending
         # Stateless, so the run keeps its own. The labware catalogue is the
@@ -1357,7 +1357,7 @@ class SequencedCaptureRunner:
         # Then which slot: a step that cannot say which of two slots holding
         # its objective it means would be imaged through either.
         self._scope.protocols.refuse_unchosen_turret_slots(protocol)
-        # A step on a layer this scope lacks cannot be taken as the step
+        # A step on a channel this scope lacks cannot be taken as the step
         # says. The load refuses it on the same rule; a protocol built in
         # memory meets it only here.
         self._scope.protocols.refuse_absent_channels(protocol)
@@ -2841,7 +2841,7 @@ class SequencedCaptureRunner:
                 led_end_policy=self._run_mode.led_end_policy,
                 original_led_states=self._original_led_states,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
-                show_pre_run_layer_fn=self._on_run_ending,
+                show_pre_run_channel_fn=self._on_run_ending,
                 return_to_position=self._return_to_position,
                 scope=self._scope,
                 apply_led_transition_fn=self._step_executor.apply_led_transition,

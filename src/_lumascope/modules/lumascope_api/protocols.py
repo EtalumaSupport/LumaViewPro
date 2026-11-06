@@ -415,7 +415,7 @@ class ProtocolsAPI:
             channel_config = channel_configs[channel]
             name = protocol.insert_step(
                 step_name=None,
-                layer=channel,
+                channel=channel,
                 channel_config=channel_config,
                 stim_configs=stim_configs,
                 plate_position=plate_position,
@@ -555,7 +555,7 @@ class ProtocolsAPI:
         protocol.modify_step(
             step_index=step_index,
             label=label,
-            layer=channel,
+            channel=channel,
             channel_config=channel_configs[channel],
             stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
@@ -656,7 +656,7 @@ class ProtocolsAPI:
         Raises:
             ProtocolError: ``z`` is not a number (raised by the protocol).
         """
-        return protocol.apply_focus_all_channel_steps(layer=channel, z=z)
+        return protocol.apply_focus_all_channel_steps(channel=channel, z=z)
 
     def delete_step(self, protocol: Protocol, step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``; the steps after it move up one.

@@ -563,7 +563,7 @@ def _one_step_protocol(z_um):
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
-        layer='BF',
+        channel='BF',
         channel_config={
             'autofocus': False,
             'false_color': False,

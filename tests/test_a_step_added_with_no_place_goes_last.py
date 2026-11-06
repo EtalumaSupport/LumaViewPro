@@ -63,7 +63,7 @@ def test_the_protocols_own_insert_names_its_place(session):
             channel_group_id=protocol.new_channel_group_id(),
             turret_slot=-1,
             step_name=None,
-            layer='BF',
+            channel='BF',
             channel_config=session.get_channel_configs()['BF'],
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],

@@ -27,7 +27,7 @@ class CompositeChannel(NamedTuple):
     in, and the scale it is shown at, carried together so no channel reaches
     the build without them.
 
-    The scale is the channel's own: the sum count is set per layer, so a
+    The scale is the channel's own: the sum count is set per channel, so a
     summed channel beside an unsummed one has its own depth and white, and
     one shared depth would show the shallower channel dark."""
 
@@ -117,7 +117,7 @@ def build_composite(
         brightness_thresholds = {}
 
     # Every channel (and the transmitted base) must share one canvas before they
-    # can be blended into RGB; a per-layer stitch divergence otherwise surfaces
+    # can be blended into RGB; a per-channel stitch divergence otherwise surfaces
     # as a cryptic numpy broadcast error mid-blend.
     labeled = [(name, channel.image) for name, channel in channels.items()]
     if transmitted is not None:

@@ -274,7 +274,7 @@ class ZProjector(ProtocolPostProcessor):
             return result
 
         # Route through write_tiff so the projected output carries the
-        # layer's PALETTE colormap plus the acquisition context its slices
+        # channel's PALETTE colormap plus the acquisition context its slices
         # agree on. The projection collapses Z, so slices at different Z
         # state none.
         output_file_loc_abs = path / output_file_loc

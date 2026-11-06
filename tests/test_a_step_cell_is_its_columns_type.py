@@ -175,14 +175,14 @@ WRITES = {
     ),
     'apply_focus_all_channel_steps': (
         'Z',
-        lambda p, v: p.apply_focus_all_channel_steps(layer='BF', z=v),
+        lambda p, v: p.apply_focus_all_channel_steps(channel='BF', z=v),
     ),
     'modify_step': (
         'Exposure',
         lambda p, v: p.modify_step(
             turret_slot=-1,
             step_index=0,
-            layer='BF',
+            channel='BF',
             channel_config={
                 'autofocus': False,
                 'false_color': False,
@@ -301,7 +301,7 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
             channel_group_id=copy.new_channel_group_id(),
             turret_slot=-1,
             step_name='added',
-            layer='BF',
+            channel='BF',
             channel_config={
                 'autofocus': 'maybe',
                 'false_color': False,

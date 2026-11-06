@@ -338,7 +338,7 @@ class StackBuilder(ProtocolPostProcessor):
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
-            sort_order = ['Scan Count', 'Z-Slice', 'Color Index']
+            sort_order = ['Scan Count', 'Z-Slice', 'Channel Index']
 
         # An empty frame set has no columns to read when it arrives as an
         # empty row list, and satisfies the rectangularity test below by
@@ -392,8 +392,8 @@ class StackBuilder(ProtocolPostProcessor):
                 )
             return {'status': False, 'error': error, 'metadata': {}}
 
-        _, color_idx_map = np.unique(df['channel'], return_inverse=True)
-        df['Color Index'] = color_idx_map
+        _, channel_idx_map = np.unique(df['channel'], return_inverse=True)
+        df['Channel Index'] = channel_idx_map
 
         df = df.sort_values(by=sort_order, ascending=True)
 
@@ -466,13 +466,13 @@ class StackBuilder(ProtocolPostProcessor):
             # values also builds rectangular wells whose scan counts are not a
             # dense 0..N-1 range.
             for _, row in df.iterrows():
-                t, z, c = row['Scan Count'], row['Z-Slice'], row['Color Index']
+                t, z, c = row['Scan Count'], row['Z-Slice'], row['Channel Index']
                 image, _, _ = image_utils.load_pixels(
                     path / row['Filepath'], collapse_legacy_false_color=False
                 )
 
                 if image_utils.is_color_image(image):
-                    # A layer's plane was baked in its colour; a composite's
+                    # A channel's plane was baked in its colour; a composite's
                     # is a colour image, read by luminance.
                     image = image_utils.rgb_image_to_gray(
                         image=image,

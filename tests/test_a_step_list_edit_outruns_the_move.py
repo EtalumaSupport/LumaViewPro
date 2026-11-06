@@ -104,7 +104,7 @@ def _insert(
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
-        layer='BF',
+        channel='BF',
         channel_config=channel_config,
         plate_position=PlateLocation(x_mm=x, y_mm=10.0, z_um=0.0),
         objective_id=objective,

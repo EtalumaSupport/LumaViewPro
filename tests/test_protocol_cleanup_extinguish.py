@@ -151,7 +151,7 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
         led_end_policy=LedEndPolicy.OFF,
         original_led_states=(),
         saved_camera_state={},
-        show_pre_run_layer_fn=None,
+        show_pre_run_channel_fn=None,
         return_to_position=None,
         scope=scope,
         apply_led_transition_fn=apply_led_transition_fn,

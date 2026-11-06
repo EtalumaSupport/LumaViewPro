@@ -11848,13 +11848,13 @@ Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus`.
 Autofocus once on *channel*, at the current stage position.
 
 The headless twin of the standalone autofocus button: a
-one-position, one-layer run with autofocus on, saving no images and
+one-position, one-channel run with autofocus on, saving no images and
 no run artifacts, that leaves the stage at the focus it found.
 
-The layer is named rather than discovered. A GUI reads it from
+The channel is named rather than discovered. A GUI reads it from
 whichever drawer is open, which is a fact about a running GUI and
 means nothing to a caller that has none, so this asks for it and
-has no default -- an autofocus on a layer nobody chose is not a
+has no default -- an autofocus on a channel nobody chose is not a
 useful answer.
 
 Everything else comes from the settings store, so this run and a
@@ -12099,14 +12099,14 @@ Capture a z-stack on *channel*, around the current stage position.
 
 The one implementation of a z-stack run, for a script and for the
 Acquire button on the z-stack panel alike: a one-position,
-one-layer run that expands into one step per slice. The slices are
+one-channel run that expands into one step per slice. The slices are
 its product, so unlike an autofocus this one saves its images
 unless the caller says otherwise.
 
 The stack's range, step size and reference -- whether the current
 position is the top, centre or bottom of the sweep -- come from the
 settings store, as does everything else about the capture, so this
-run and a click on the button resolve the same way. The layer is named by the
+run and a click on the button resolve the same way. The channel is named by the
 caller for the same reason start_autofocus asks for it: an open
 drawer is a fact about a running GUI.
 

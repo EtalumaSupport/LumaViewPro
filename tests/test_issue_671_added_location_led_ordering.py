@@ -156,7 +156,7 @@ def _add_3rd_location_via_insert_step(protocol):
             channel_group_id=protocol.new_channel_group_id(),
             turret_slot=-1,
             step_name=f'added_{color}',
-            layer=color,
+            channel=color,
             channel_config={
                 'autofocus': False,
                 'false_color': color != 'BF',

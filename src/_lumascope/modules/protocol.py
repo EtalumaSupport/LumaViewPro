@@ -63,7 +63,7 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     The step frame is declared with an explicit numpy dtype, which is what
     makes the vectorised column work possible -- so every value sitting in
     it is a numpy scalar. Those must not leave: callers copy step values
-    straight into the layer settings, and a Kivy NumericProperty does
+    straight into the channel settings, and a Kivy NumericProperty does
     EXACT type checks, so it rejects `np.float64` and takes the whole
     application down with it.
 
@@ -147,7 +147,7 @@ def _refuse_unless_tiling_offered(tiling_grids: TilingGrids, tiling: str) -> Non
         )
 
 
-# What a layer's settings must hold for the build to make its step; a layer
+# What a channel's settings must hold for the build to make its step; a channel
 # that acquires nothing is read for its acquire mode only.
 _ACQUIRING_CHANNEL_KINDS: tuple[tuple[str, str, bool], ...] = (
     ('focus', 'number', True),
@@ -175,7 +175,7 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
     Raises:
         ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
             ``'not_a_number'``, ``'not_offered'`` (the z-stack's reference
-            or a layer's acquire mode), ``'channel_unknown'``; each names the
+            or a channel's acquire mode), ``'channel_unknown'``; each names the
             key's path inside ``argument``.
     """
     refuse_unless_kind(config, 'dict', argument)
@@ -224,16 +224,16 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
 
     channel_configs = read(config, 'channel_configs', 'dict', argument)
     channel_configs_path = key_path(argument, 'channel_configs')
-    for layer, channel_config in channel_configs.items():
-        refuse_unknown_channel(layer, channel_configs_path)
-        layer_path = key_path(channel_configs_path, layer)
-        refuse_unless_kind(channel_config, 'dict', layer_path)
-        acquire = required(channel_config, 'acquire', layer_path)
+    for channel, channel_config in channel_configs.items():
+        refuse_unknown_channel(channel, channel_configs_path)
+        channel_path = key_path(channel_configs_path, channel)
+        refuse_unless_kind(channel_config, 'dict', channel_path)
+        acquire = required(channel_config, 'acquire', channel_path)
         if acquire is None:
             continue
-        refuse_unless_offered(AcquireMode, acquire, key_path(layer_path, 'acquire'))
+        refuse_unless_offered(AcquireMode, acquire, key_path(channel_path, 'acquire'))
         for key, kind, nullable in _ACQUIRING_CHANNEL_KINDS:
-            read(channel_config, key, kind, layer_path, nullable=nullable)
+            read(channel_config, key, kind, channel_path, nullable=nullable)
 
     positions = config.get('positions')
     if positions is not None:
@@ -850,13 +850,13 @@ def _stimulation_records(cell: dict, step_name: str) -> dict[str, Stimulation]:
         ProtocolFormatError: a channel's entry is not a config.
     """
     records = {}
-    for layer, entry in cell.items():
+    for channel, entry in cell.items():
         if not isinstance(entry, dict):
             raise ProtocolFormatError(
-                f'step {step_name} has a Stim_Config entry for {layer} that is not a config: '
+                f'step {step_name} has a Stim_Config entry for {channel} that is not a config: '
                 f'{entry!r}.'
             )
-        records[layer] = Stimulation(
+        records[channel] = Stimulation(
             enabled=entry.get('enabled'),
             illumination_ma=entry.get('illumination_ma'),
             frequency_hz=entry.get('frequency'),
@@ -972,12 +972,12 @@ def _channel_settings(row: dict) -> ChannelSettings:
 
     Raises:
         ProtocolFormatError: A cell is not of its column's type; the words
-            name the layer, the column and the cell.
+            name the channel, the column and the cell.
     """
-    layer = row.get('Layer')
-    if not isinstance(layer, str) or layer.strip() == '':
+    channel = row.get('Layer')
+    if not isinstance(channel, str) or channel.strip() == '':
         raise ProtocolFormatError(f'a Layer Settings row names no channel: {row!r}')
-    layer = layer.strip()
+    channel = channel.strip()
     typed = {}
     for column, field, read in _CHANNEL_SETTINGS_CELLS:
         cell = row.get(column)
@@ -990,12 +990,12 @@ def _channel_settings(row: dict) -> ChannelSettings:
             typed[field] = read(cell)
         except ValueError as e:
             raise ProtocolFormatError(
-                f'the Layer Settings {column} of {layer}, {cell!r}, {e}'
+                f'the Layer Settings {column} of {channel}, {cell!r}, {e}'
             ) from None
     return ChannelSettings(**typed)
 
 
-# Each step column a layer range holds, and the layer setting it is stored as.
+# Each step column a channel range holds, and the channel setting it is stored as.
 _STEP_CHANNEL_VALUES = (
     ('Exposure', 'exposure_ms'),
     ('Illumination', 'illumination_ma'),
@@ -1008,9 +1008,9 @@ _STIM_KEYS = ('frequency', 'pulse_width', 'pulse_count', 'illumination_ma')
 
 
 def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
-    """Each of a step's values the layer ranges refuse, with the column that holds it.
+    """Each of a step's values the channel ranges refuse, with the column that holds it.
 
-    The rules a write of them to the layer's settings holds
+    The rules a write of them to the channel's settings holds
     (``settings_paths.refused_channel_values``): the step's exposure,
     illumination, gain and sum, its video's length (required when it
     records video), and each stimulation config it carries.
@@ -1032,13 +1032,13 @@ def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefused
         for r in refused_channel_values(step['channel'], values)
     ]
     stims = step.get('Stim_Config')
-    for stim_layer, stim in stims.items() if isinstance(stims, dict) else ():
+    for stim_channel, stim in stims.items() if isinstance(stims, dict) else ():
         if not isinstance(stim, dict):
             continue
         stim_values = {f'stim_config.{key}': stim[key] for key in _STIM_KEYS if key in stim}
         refused.extend(
-            (f'Stim_Config {stim_layer} {r.path.rpartition(".")[2]}', r)
-            for r in refused_channel_values(stim_layer, stim_values)
+            (f'Stim_Config {stim_channel} {r.path.rpartition(".")[2]}', r)
+            for r in refused_channel_values(stim_channel, stim_values)
         )
     return refused
 
@@ -1046,7 +1046,7 @@ def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefused
 def channel_settings_values_refused(
     rows: Mapping[str, ChannelSettings],
 ) -> list[tuple[str, SettingRefusedError]]:
-    """Each Layer Settings value the layer ranges refuse, with the layer and column holding it.
+    """Each Layer Settings value the channel ranges refuse, with the channel and column holding it.
 
     ``rows`` are ``Protocol.channel_settings()``' records, or those of them
     a caller will apply. A blank cell holds no value and is not judged.
@@ -1300,9 +1300,9 @@ class Protocol:
         ],
         # v6: step columns unchanged from v5; the format-version bump
         # signals a new 'Layer Settings' block in the header preamble
-        # that persists per-layer UI state (acquire mode + illumination
+        # that persists per-channel UI state (acquire mode + illumination
         # + gain + exposure + false_color + sum + stim-enabled) so a
-        # protocol round-trips through the UI without losing per-layer
+        # protocol round-trips through the UI without losing per-channel
         # configuration. v5 files without the block fall back to
         # inference from the steps Color column (see channel_settings).
         6: [
@@ -1372,7 +1372,7 @@ class Protocol:
 
     # Header columns for the v6 'Layer Settings' block. Order is the
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
-    # blank for transmitted layers) are still valid as long as the leading
+    # blank for transmitted channels) are still valid as long as the leading
     # required columns are present. The cells after 'Layer' are
     # _CHANNEL_SETTINGS_CELLS', the one map of a column to its field.
     CHANNEL_SETTINGS_COLUMNS: ClassVar[list] = [
@@ -1809,9 +1809,9 @@ class Protocol:
     # Valid values for field validation
     @staticmethod
     def valid_colors() -> set:
-        """The layer names a protocol Color column may carry.
+        """The channel names a protocol Color column may carry.
 
-        Derived at call time from the release catalogue, so a layer added
+        Derived at call time from the release catalogue, so a channel added
         to the catalogue validates without touching this class -- an
         import-time constant would freeze the vocabulary at whatever the
         catalogue said when this module first loaded.
@@ -1822,7 +1822,7 @@ class Protocol:
 
     @staticmethod
     def channel_acquires(channel_config: dict) -> bool:
-        """Whether a layer's settings make it a step: acquire is image or video.
+        """Whether a channel's settings make it a step: acquire is image or video.
 
         The one answer for the builder, the step add and the refusal that
         guards both; a second spelling (``is not None``) once let a config
@@ -1925,7 +1925,7 @@ class Protocol:
 
             # Every cell is already its column's type (_set_steps); what is
             # judged here is whether the value is one the run can use, by the
-            # layer ranges the settings hold. The camera's own floor is
+            # channel ranges the settings hold. The camera's own floor is
             # checked when the run is prepared, against the connected body.
             for column, refused in step_channel_values_refused(step):
                 errors.append(f'{label}: {column}: {refused.detail}')
@@ -2531,11 +2531,11 @@ class Protocol:
             )
         return len(members)
 
-    def apply_focus_all_channel_steps(self, layer: str, z: float) -> int:
-        """Set Z on EVERY step of the layer, unconditionally.
+    def apply_focus_all_channel_steps(self, channel: str, z: float) -> int:
+        """Set Z on EVERY step of the channel, unconditionally.
 
         A slice of a z-stack is set to ``z`` plus its offset from its
-        channel's reference slice, so the layer's stacks are placed with
+        channel's reference slice, so the channel's stacks are placed with
         their reference at ``z`` and keep their spacing.
 
         The explicit bulk counterpart to the selected-step Save Focus
@@ -2544,12 +2544,12 @@ class Protocol:
         there. Takes no previous-Z parameter by design -- a selective
         "only steps that still look untouched" update is deliberately
         not representable, because sibling steps are all born at the
-        identical layer focus, so matching a prior value is the default
+        identical channel focus, so matching a prior value is the default
         state and never evidence of user intent.
 
         Args:
-            layer: Color/layer name (BF, Ex405, Ex488, Ex589, Lumi, etc.).
-            z: The Z position to write to every step of the layer.
+            channel: Color/channel name (BF, Ex405, Ex488, Ex589, Lumi, etc.).
+            z: The Z position to write to every step of the channel.
 
         Returns:
             Number of steps updated.
@@ -2558,7 +2558,7 @@ class Protocol:
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
-        mask = steps_df['channel'] == layer
+        mask = steps_df['channel'] == channel
         count = int(mask.sum())
         if count > 0:
             steps_df.loc[mask, 'Z'] = [
@@ -2613,7 +2613,7 @@ class Protocol:
     def modify_step(
         self,
         step_index: int,
-        layer: str,
+        channel: str,
         channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
@@ -2642,18 +2642,18 @@ class Protocol:
         Raises:
             StepNotFoundError: ``step_index`` is not a step of this protocol.
             StepEditRefusedError: a value is not of its column's type, or
-                ``layer`` is not the channel of a slice of a z-stack. Nothing
+                ``channel`` is not the channel of a slice of a z-stack. Nothing
                 changes.
         """
         self._refuse_unless_in_range(step_index)
         steps = self._config['steps']
         if (
             steps.at[step_index, 'Z-Stack Group ID'] != -1
-            and layer != steps.at[step_index, 'channel']
+            and channel != steps.at[step_index, 'channel']
         ):
             raise StepEditRefusedError(
                 f'step {step_index + 1} is a slice of a z-stack of {steps.at[step_index, "channel"]}, '
-                f'so it cannot become {layer}. Change the channel of the step before it is '
+                f'so it cannot become {channel}. Change the channel of the step before it is '
                 'stacked, then stack it again.'
             )
 
@@ -2664,7 +2664,7 @@ class Protocol:
             'Y': plate_position.y_mm,
             'Z': plate_position.z_um,
             'Auto_Focus': channel_config['autofocus'],
-            'channel': layer,
+            'channel': channel,
             'False_Color': channel_config['false_color'],
             'Illumination': channel_config['illumination_ma'],
             'Gain': channel_config['gain_db'],
@@ -2710,7 +2710,7 @@ class Protocol:
     def insert_step(
         self,
         step_name: str | None,
-        layer: str,
+        channel: str,
         channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
@@ -2760,7 +2760,7 @@ class Protocol:
         tile_group_id = -1
         zstack_group_id = -1
 
-        # Every channel's step takes the stage's current Z, not the layer's
+        # Every channel's step takes the stage's current Z, not the channel's
         # saved focus: the focus of the channel being viewed is a better
         # guess for every acquiring channel than their older saved focus.
         # The saved focus is left as it is; it is where a protocol built for
@@ -2772,7 +2772,7 @@ class Protocol:
             y=plate_position.y_mm,
             z=plate_position.z_um,
             af=channel_config['autofocus'],
-            color=layer,
+            color=channel,
             fc=channel_config['false_color'],
             ill=channel_config['illumination_ma'],
             gain=channel_config['gain_db'],
@@ -3287,7 +3287,7 @@ class Protocol:
         positions = input_config.get('positions')
 
         # Optional per-(well, channel) z map: when provided it overrides the
-        # layer focus for matching steps. New Protocol does NOT populate it by
+        # channel focus for matching steps. New Protocol does NOT populate it by
         # default -- the carry-over was removed (see
         # ProtocolSettings.new_protocol); this path is kept dormant for a
         # future opt-in. Empty / missing falls back to channel_config['focus'].
@@ -3302,8 +3302,8 @@ class Protocol:
         period = input_config['period']
         duration = input_config['duration']
         stim_config = input_config['stim_config']
-        # Where a layer whose focus was never saved is imaged: the stage's Z
-        # when the config was built. Read only for such a layer.
+        # Where a channel whose focus was never saved is imaged: the stage's Z
+        # when the config was built. Read only for such a channel.
         current_z = input_config.get('current_z')
 
         # The objective is stamped into every step; a protocol with none --
@@ -3350,7 +3350,7 @@ class Protocol:
                     {
                         'x': well_x if has_xy else None,
                         'y': well_y if has_xy else None,
-                        # Per-(well, channel) tuned z is resolved in the layer
+                        # Per-(well, channel) tuned z is resolved in the channel
                         # loop below; do not collapse it to one z per well here.
                         'z': None,
                         'name': well_label,
@@ -3366,10 +3366,10 @@ class Protocol:
         channel_group_id = 0
         steps = []
 
-        # One step per acquiring layer per position; the grid and the stack
+        # One step per acquiring channel per position; the grid and the stack
         # are built over these by apply_tiling and apply_zstacking.
         for pos in actual_positions:
-            for layer_name, channel_config in channel_configs.items():
+            for channel_name, channel_config in channel_configs.items():
                 if not cls.channel_acquires(channel_config):
                     continue
 
@@ -3386,7 +3386,7 @@ class Protocol:
                 # focus, not one channel's z for all); else an explicit
                 # manual-position z; else this channel's saved focus;
                 # else, never saved, the current Z.
-                tuned_z = previous_well_z.get((pos.get('name'), layer_name))
+                tuned_z = previous_well_z.get((pos.get('name'), channel_name))
                 if not has_z:
                     z = None
                 elif tuned_z is not None:
@@ -3401,7 +3401,7 @@ class Protocol:
                     _refuse_build(
                         reason='focus_not_given',
                         message=(
-                            f'No focus is saved for {layer_name} and the '
+                            f'No focus is saved for {channel_name} and the '
                             'configuration names no current Z to image it at.'
                         ),
                     )
@@ -3438,7 +3438,7 @@ class Protocol:
                     y=y,
                     z=z,
                     af=autofocus,
-                    color=layer_name,
+                    color=channel_name,
                     fc=false_color,
                     ill=illumination,
                     gain=gain,
@@ -3755,7 +3755,7 @@ class Protocol:
         is runnable: a period or duration no protocol can run raises
         ProtocolScheduleRefusedError, naming the file, and a step cell or a
         Layer Settings cell that is not of its column's type raises
-        ProtocolFormatError, naming the file, the step or layer, and the
+        ProtocolFormatError, naming the file, the step or channel, and the
         column.
 
         ``StoredNames.KEPT`` is for a reader that never runs or edits the
@@ -3943,7 +3943,7 @@ class Protocol:
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
-        # followed by one row per enabled layer. Block ends at the first
+        # followed by one row per enabled channel. Block ends at the first
         # blank row or at the 'Steps' marker. Its rows are typed into
         # records once the channel names are read as the unit's.
         block_rows = None
@@ -3962,7 +3962,7 @@ class Protocol:
                     if tmp[0] == 'Layer Settings':
                         # Parse the block in place. The first non-blank row is
                         # the column header; subsequent non-blank rows are
-                        # per-layer entries; block ends at the first blank
+                        # per-channel entries; block ends at the first blank
                         # row or at the 'Steps' marker. A header with no
                         # 'Layer' column is refused: an inference from the
                         # steps would put back settings the file never held.
@@ -3985,19 +3985,19 @@ class Protocol:
                                     )
                                 continue
                             row_dict = dict(zip(ls_header, sub_row, strict=False))
-                            layer_name = row_dict.get('Layer', '').strip()
-                            if not layer_name:
+                            channel_name = row_dict.get('Layer', '').strip()
+                            if not channel_name:
                                 raise ProtocolFormatError(
                                     'a row of its Layer Settings block names no channel.',
                                     file=file_path,
                                 )
-                            block_rows[layer_name] = row_dict
+                            block_rows[channel_name] = row_dict
             except StopIteration:
                 raise ProtocolFormatError(
                     "Missing 'Steps' section in protocol file", file=file_path
                 ) from None
             # The writer never writes a block with no rows; one that has none
-            # would turn every layer off at a restore.
+            # would turn every channel off at a restore.
             if block_rows == {}:
                 raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
@@ -4085,9 +4085,9 @@ class Protocol:
             """
             if not isinstance(stim_config, dict):
                 return stim_config
-            for layer_stim in stim_config.values():
-                if isinstance(layer_stim, dict) and 'illumination' in layer_stim:
-                    layer_stim['illumination_ma'] = layer_stim.pop('illumination')
+            for channel_stim in stim_config.values():
+                if isinstance(channel_stim, dict) and 'illumination' in channel_stim:
+                    channel_stim['illumination_ma'] = channel_stim.pop('illumination')
             return stim_config
 
         def _parse_config_per_row(position, row, column):

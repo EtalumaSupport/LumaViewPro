@@ -51,7 +51,7 @@ try:
     show('step 0 Z after modify', proto.step_row(step_index=0)['Z'])
     show(
         'protocol.apply_focus_all_channel_steps',
-        proto.apply_focus_all_channel_steps(layer=lay, z=z + 9),
+        proto.apply_focus_all_channel_steps(channel=lay, z=z + 9),
     )
     show(f'step {LED0} Z after apply', proto.steps()[proto.steps()['channel'] == lay]['Z'].iloc[0])
     # goto_focus == a Z move to the stored focus

@@ -510,7 +510,7 @@ class AutofocusRunner:
             if af_address is None and self._led_color is not None and self._scope.led_connected:
                 # A named AF channel that resolves to no LED address on a
                 # connected board means this unit's identity has no such
-                # layer: the metric would scan an ambient field and focus
+                # channel: the metric would scan an ambient field and focus
                 # on the wrong thing. Loud, then proceed ambient -- an
                 # in-flight run gets logs, not popups.
                 logger.error(
@@ -804,7 +804,7 @@ class AutofocusRunner:
 
         A live-view arm's stored gain and exposure are stale by
         construction: the slider poll reads a cache the arm invalidates,
-        so the layer keeps whatever it held before auto-gain was switched
+        so the channel keeps whatever it held before auto-gain was switched
         on. When the lock consumed an arm and read usable values it has
         already written them through the setters; the sweep keeps them
         (and the end-of-run trim keeps them on the camera, as it keeps a
@@ -838,7 +838,7 @@ class AutofocusRunner:
     def _camera_state_to_restore(self) -> dict:
         """Pre-AF snapshot minus the fields this run explicitly targeted.
 
-        The gain/exposure targets handed to AF are the committed layer or
+        The gain/exposure targets handed to AF are the committed channel or
         step values; the camera must keep them after AF ends. Reverting
         them to the pre-AF snapshot silently undid an exposure the user
         committed by clicking away from the text box just before starting

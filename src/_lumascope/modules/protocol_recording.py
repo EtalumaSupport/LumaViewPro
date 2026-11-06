@@ -500,7 +500,7 @@ class ProtocolVideoStep:
         """
         scope = self._scope
         # A camera without hardware auto-gain records the step manual, as
-        # its layer apply did. A disarm or a one-shot the camera did not take
+        # its channel apply did. A disarm or a one-shot the camera did not take
         # raises out of the step, which then records nothing: the writer
         # counts it a failed capture.
         if scope.camera.applied_auto_gain_for(step['Auto_Gain']).applied:

@@ -67,7 +67,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         # A video's frames are drawn at its rate, with or without the time
-        # stamped on them, in its layer's colour.
+        # stamped on them, in its channel's colour.
         color = channel_record.output_color(group.iloc[0]['channel'], kwargs['channel_colors'])
         return post_derivation.Step(
             PostFunction.VIDEO,
@@ -222,7 +222,7 @@ class VideoBuilder(ProtocolPostProcessor):
             return False
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
-        # load_pixels). VideoWriter applies the layer false-color, the 8-bit
+        # load_pixels). VideoWriter applies the channel false-color, the 8-bit
         # downconvert scaled by significant_bits against white_bits (one frame's
         # white, for a sum), and any cv2 BGR-swap internally.
         writer.add_frame(
@@ -371,10 +371,10 @@ class VideoBuilder(ProtocolPostProcessor):
         Args:
             source_dir: Directory of TIFF inputs, one per frame.
             output_file: Destination video file (H.264 via PyAV).
-            false_color: When True, the layer false-color is applied inside
+            false_color: When True, the channel false-color is applied inside
                 VideoWriter. Requires ``color``; raises ValueError otherwise.
                 When False, encode grayscale.
-            color: Layer key ('Ex405', 'Ex488', 'Ex589', 'Lumi', 'BF', ...).
+            color: Channel key ('Ex405', 'Ex488', 'Ex589', 'Lumi', 'BF', ...).
                 Required when ``false_color=True``; ignored otherwise.
             fps: Frames per second.
             include_timestamp_overlay: Overlay frame timestamps.
@@ -385,7 +385,7 @@ class VideoBuilder(ProtocolPostProcessor):
         Raises:
             ValueError: If false_color=True and color is None, or if
                 source_dir contains no .tiff / .tif files.
-            ArgumentRefusedError: ``color`` is neither a layer of this
+            ArgumentRefusedError: ``color`` is neither a channel of this
                 release nor a composite (``'channel_unknown'``).
         """
         source_dir = pathlib.Path(source_dir)

@@ -31,7 +31,7 @@ def _is_valid_threshold_percent(value: object) -> bool:
     bool is rejected deliberately: it is an int subclass, so True would pass a
     plain range test and quietly mean 1 percent. NaN is rejected because every
     comparison against it is False -- a NaN cutoff admits no pixel and drops
-    the layer, which is the silent outcome this check exists to prevent.
+    the channel, which is the silent outcome this check exists to prevent.
     """
     return is_finite_number(value) and 0 <= value <= 100
 
@@ -79,17 +79,17 @@ class CompositeGeneration(ProtocolPostProcessor):
         blended = group['channel'].isin(transmitted).any()
         thresholds = kwargs['brightness_thresholds_percent']
         settings = [('format', output_format)]
-        for layer in sorted(set(group['channel']) - set(transmitted)):
+        for channel in sorted(set(group['channel']) - set(transmitted)):
             # Named as the run stored it; an old name's colour and threshold
             # are its stock key's.
-            key = channel_record.stored_key(layer)
+            key = channel_record.stored_key(channel)
             settings.append(
-                (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][key]))
+                (f'{channel}.color', post_derivation.color_text(kwargs['channel_colors'][key]))
             )
             if blended:
                 # A missing threshold is refused by the build itself, before
                 # anything is written; this only names the group's output.
-                settings.append((f'{layer}.threshold', str(thresholds.get(key))))
+                settings.append((f'{channel}.threshold', str(thresholds.get(key))))
         return post_derivation.Step(PostFunction.COMPOSITE, tuple(settings))
 
     def _generate_filename(
@@ -206,7 +206,7 @@ class CompositeGeneration(ProtocolPostProcessor):
 
     def _places(self, group: pd.DataFrame) -> pd.Series:
         # A composite takes one transmitted image and one image per other
-        # channel, so every transmitted layer fills the one transmitted
+        # channel, so every transmitted channel fills the one transmitted
         # plane: two of them, or two of one channel, have no one answer, and
         # keeping one would discard an acquired image behind a composite
         # that looks complete.
@@ -227,7 +227,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         Written to *output_file_loc*, when one is given, in the format its
         name states (``image_utils.is_ome_tiff``).
 
-        brightness_thresholds_percent maps each fluorescence layer to the
+        brightness_thresholds_percent maps each fluorescence channel to the
         percentage below which its pixels are not composited onto a
         transmitted base. It is a required argument rather than a settings
         read: this runs unattended on a worker thread with no GUI, and the
@@ -235,32 +235,32 @@ class CompositeGeneration(ProtocolPostProcessor):
         the app bootstrap, so every headless caller found it None and
         crashed at the threshold lookup. Passing the values in makes the
         headless and GUI paths identical by construction. channel_colors is
-        the colour each layer is added in, handed in for the same reason.
+        the colour each channel is added in, handed in for the same reason.
         """
 
         BF_present = False
         BF_channel = ''
 
-        # Every layer is read by the key it reads as -- its kind, colour and
+        # Every channel is read by the key it reads as -- its kind, colour and
         # threshold -- so an old run's colour names build as their stock keys.
-        # Nothing below writes a layer's name.
+        # Nothing below writes a channel's name.
         df = df.assign(channel=df['channel'].map(channel_record.stored_key))
 
-        allowed_BF_layers = common_utils.get_transmitted_channels()
-        allowed_layers = [
+        allowed_BF_channels = common_utils.get_transmitted_channels()
+        allowed_channels = [
             *common_utils.get_fluorescence_channels(),
             *common_utils.get_luminescence_channels(),
         ]
         img = None
 
-        for layer in allowed_BF_layers:
-            if (df['channel'] == layer).any():
+        for channel in allowed_BF_channels:
+            if (df['channel'] == channel).any():
                 BF_present = True
-                BF_channel = layer
-                allowed_layers.append(layer)
+                BF_channel = channel
+                allowed_channels.append(channel)
                 break
 
-        df = df[df['channel'].isin(allowed_layers)]
+        df = df[df['channel'].isin(allowed_channels)]
 
         # Load source images via tifffile (RGB-native, returns mono 2D for
         # single-channel TIFFs; no BGR upconvert -> no downstream cvtColor
@@ -268,7 +268,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # in-memory mono inputs so build_composite consumes the same
         # shape from both orchestrators.
         # Each file keeps its own depth and white: the sum count is set per
-        # layer, so the layers of one composite can each have their own.
+        # channel, so the channels of one composite can each have their own.
         images = {}
         scales = {}
         for _, row in df.iterrows():
@@ -289,11 +289,11 @@ class CompositeGeneration(ProtocolPostProcessor):
         # blends and therefore the only case that consults a threshold.
         if BF_present:
             missing = sorted(
-                layer
-                for layer in df['channel']
-                if layer != BF_channel
-                and layer in common_utils.get_image_channels()
-                and layer not in brightness_thresholds_percent
+                channel
+                for channel in df['channel']
+                if channel != BF_channel
+                and channel in common_utils.get_image_channels()
+                and channel not in brightness_thresholds_percent
             )
             if missing:
                 raise ConfigurationDefectError(
@@ -312,14 +312,14 @@ class CompositeGeneration(ProtocolPostProcessor):
             # group instead of a bad argument. The type check is part of the
             # same question: a string reaches the arithmetic otherwise.
             out_of_range = sorted(
-                (layer, brightness_thresholds_percent[layer])
-                for layer in df['channel']
-                if layer != BF_channel
-                and layer in common_utils.get_image_channels()
-                and not _is_valid_threshold_percent(brightness_thresholds_percent[layer])
+                (channel, brightness_thresholds_percent[channel])
+                for channel in df['channel']
+                if channel != BF_channel
+                and channel in common_utils.get_image_channels()
+                and not _is_valid_threshold_percent(brightness_thresholds_percent[channel])
             )
             if out_of_range:
-                named = '; '.join(f'{layer} = {value!r}' for layer, value in out_of_range)
+                named = '; '.join(f'{channel} = {value!r}' for channel, value in out_of_range)
                 raise ConfigurationDefectError(
                     'composite_threshold_out_of_range',
                     f'composite generation needs a brightness threshold between '
@@ -346,7 +346,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # populated). The RGB2GRAY luminance collapse used
                 # before attenuated single-plane data by 41-89% of its
                 # original intensity, producing a "mostly green"
-                # composite for Blue and Red layers. rgb_image_to_gray
+                # composite for Blue and Red channels. rgb_image_to_gray
                 # detects the single-populated-plane case and uses
                 # max-axis extraction instead, preserving the full
                 # value. Mono 2D inputs (the common path) pass through.
@@ -358,14 +358,14 @@ class CompositeGeneration(ProtocolPostProcessor):
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
             for _, row in df.iterrows():
-                layer = row['channel']
+                channel = row['channel']
 
-                # Skip transmitted layer (already captured above)
-                if layer == BF_channel:
+                # Skip transmitted channel (already captured above)
+                if channel == BF_channel:
                     continue
 
-                # Skip non-fluorescence layers
-                if layer not in common_utils.get_image_channels():
+                # Skip non-fluorescence channels
+                if channel not in common_utils.get_image_channels():
                     continue
 
                 f_image = images[row['Filepath']]
@@ -379,8 +379,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # 41-89% of single-plane signal pre-fix.
                 img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
 
-                channel_images[layer] = CompositeChannel(
-                    img_gray, channel_colors[layer], *scales[row['Filepath']]
+                channel_images[channel] = CompositeChannel(
+                    img_gray, channel_colors[channel], *scales[row['Filepath']]
                 )
 
                 # The mapping onto the composite's 8-bit output scale belongs to
@@ -388,8 +388,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # cutoff feeds; computing it here would be a second copy free
                 # to drift from either.
                 if BF_present:
-                    brightness_thresholds[layer] = brightness_cutoff_from_percent(
-                        brightness_thresholds_percent[layer]
+                    brightness_thresholds[channel] = brightness_cutoff_from_percent(
+                        brightness_thresholds_percent[channel]
                     )
 
             if not channel_images and transmitted is None:
@@ -411,8 +411,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                 logger.info(
                     'CompositeGeneration] Channel colours: '
                     + ', '.join(
-                        f'{layer} {tuple(round(w, 3) for w in channel.color)}'
-                        for layer, channel in channel_images.items()
+                        f'{channel} {tuple(round(w, 3) for w in channel.color)}'
+                        for channel, channel in channel_images.items()
                     )
                 )
                 img = build_composite(

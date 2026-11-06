@@ -182,7 +182,7 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
         channel_group_id=proto.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
-        layer='BF',
+        channel='BF',
         channel_config=_insert_layer_config(),
         plate_position=PlateLocation(x_mm=10.0, y_mm=10.0, z_um=5000.0),
         objective_id='4x Oly',

@@ -540,7 +540,7 @@ class PostProcessingAPI:
             settings_snapshot: The live user configuration, read when a
                 build needs a user setting (the composite's blend
                 thresholds).
-            channel_colors: Every layer's colour, from the Session's one
+            channel_colors: Every channel's colour, from the Session's one
                 read of it, read as each build is asked for.
             scope_holder: What holds the scope now -- a run, a recording, a
                 diagnostic, a home -- or None; asked as each build starts.

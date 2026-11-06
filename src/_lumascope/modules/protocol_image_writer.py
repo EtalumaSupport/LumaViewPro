@@ -692,7 +692,7 @@ class ProtocolImageWriter:
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
-        # Every layer's colour as the run began: what its stills and videos
+        # Every channel's colour as the run began: what its stills and videos
         # are coloured in, never the live settings mid-run.
         channel_colors: ChannelColors,
         # The run's activity claim, lent to the work inside the run: a
@@ -1569,7 +1569,7 @@ class ProtocolImageWriter:
                     # refusal leaves this step: the run loop ends the run
                     # on it, as for any hardware that left.
                     # The camera as the step set it (``camera.apply`` above):
-                    # no layer is held, so the step's own gain and exposure
+                    # no channel is held, so the step's own gain and exposure
                     # are what the frame is taken at.
                     try:
                         still = self._scope.imaging.capture_still(

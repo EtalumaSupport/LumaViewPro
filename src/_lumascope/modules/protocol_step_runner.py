@@ -70,7 +70,7 @@ class ProtocolStepRunner:
     # Scan loop
     # ------------------------------------------------------------------
 
-    def scan_loop(self):
+    def scan_loop(self) -> None:
         """Iterate through all protocol steps until scan completes.
 
         Blocks until the scan is done (all steps executed or aborted).
@@ -321,7 +321,7 @@ class ProtocolStepRunner:
             self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
             # arming. Set on the shared settings dict so capture() inherits it.
-            # step['channel'] is the layer; the per-install override map rides
+            # step['channel'] is the channel; the per-install override map rides
             # the run plan, so a headless run honours it too.
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
                 step['channel'], p._ag_ae_max_exposure_ms
@@ -446,7 +446,7 @@ class ProtocolStepRunner:
                     is_scan_boundary = True
                 # An unmapped channel makes the boundary target empty. That
                 # covers three states: no LED board (diff is a no-op), a
-                # layer that drives no LED (nothing to hold), and a layer
+                # channel that drives no LED (nothing to hold), and a channel
                 # this unit's identity lacks (the light seam already said
                 # so loudly) -- in every case there is nothing to keep lit.
                 boundary_ctx = LedTransitionCtx(
@@ -753,8 +753,8 @@ class ProtocolStepRunner:
             return
         address = p._scope.illumination.led_address_of(step['channel'])
         if address is None and step['channel'] in common_utils.get_channels_with_led():
-            # The layer is one that drives an LED, so an unresolvable name
-            # here means this unit's identity has no such layer: the step
+            # The channel is one that drives an LED, so an unresolvable name
+            # here means this unit's identity has no such channel: the step
             # will capture dark, deterministically, every scan. Say so per step -- a
             # run in progress gets logs, not popups -- rather than let
             # the frames come back dark with no named cause.

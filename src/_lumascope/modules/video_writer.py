@@ -263,7 +263,7 @@ class VideoWriter:
         """Add a frame to the video.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
-        writer applies the layer false-color before the encoder boundary.
+        writer applies the channel false-color before the encoder boundary.
         Also accepts pre-colored RGB input for back-compat callers that
         produce their own RGB.
 
@@ -333,7 +333,7 @@ class VideoWriter:
                 image = image_utils.mono_to_rgb_falsecolor(image, self._color)
 
             # Timestamp last -- after false-color -- so the text stays
-            # neutral white instead of being tinted by the layer color map.
+            # neutral white instead of being tinted by the channel color map.
             if self._include_timestamp_overlay:
                 text = overlay_text(timestamp)
                 if text is not None:

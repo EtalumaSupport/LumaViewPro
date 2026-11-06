@@ -40,12 +40,7 @@ THE_OLD_WORD = Words({'layer', 'layers'})
 # Each guarded file holding a `layer` identifier, and how many it holds.
 _PIN: dict[str, int] = {
     'lumaviewpro.py': 7,
-    'src/_lumascope/modules/composite_generation.py': 35,
-    'src/_lumascope/modules/lumascope_api/protocols.py': 3,
-    'src/_lumascope/modules/protocol.py': 40,
-    'src/_lumascope/modules/protocol_cleanup.py': 3,
     'src/_lumascope/modules/scope_display_thread.py': 1,
-    'src/_lumascope/modules/sequenced_capture_runner.py': 1,
     'ui/composite_capture.py': 4,
     'ui/histogram.py': 12,
     'ui/image_settings.py': 154,

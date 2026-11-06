@@ -62,7 +62,7 @@ WRITERS = {
     'modify_step': lambda p, i: p.modify_step(
         turret_slot=-1,
         step_index=i,
-        layer='BF',
+        channel='BF',
         channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
@@ -77,7 +77,7 @@ def _insert(protocol, **place):
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
         step_name='added',
-        layer='BF',
+        channel='BF',
         channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
