@@ -31,7 +31,7 @@ import numpy as np
 
 from _lumascope.modules.image_save import _apply_save_orientation
 from tests.frame_records import frame_record, plate
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent

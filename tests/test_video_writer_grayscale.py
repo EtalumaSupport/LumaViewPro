@@ -11,7 +11,7 @@ happened to use.
 import numpy as np
 
 from _lumascope.modules.video_writer import VideoWriter
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED2
 
 

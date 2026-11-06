@@ -43,7 +43,7 @@ from _lumascope.modules.config_helpers import (
     camera_max_gain_for_ui,
     layer_slider_maxima,
 )
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent

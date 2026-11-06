@@ -30,7 +30,7 @@ import _lumascope.modules.image_save as image_save
 import _lumascope.modules.image_utils as image_utils
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 POSITION_KEYS = ('plate_pos_mm', 'z_pos_um')
 

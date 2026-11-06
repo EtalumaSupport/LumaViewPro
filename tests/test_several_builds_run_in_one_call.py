@@ -27,7 +27,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.post_processing_api import Stitch, Video, ZProject
 from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- fixtures
     run_folder,

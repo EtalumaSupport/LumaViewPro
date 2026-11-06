@@ -27,7 +27,7 @@ from _lumascope.modules.exceptions import ConfigError
 from tests import ast_seams
 
 import pandas as pd
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1, LED2
 
 

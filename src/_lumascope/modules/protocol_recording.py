@@ -47,7 +47,7 @@ from _lumascope.modules.common_utils import (
 )
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.wall_time as wall_time
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.exceptions import (
@@ -169,7 +169,7 @@ class ProtocolVideoStep:
         timestamp_overlay: bool,
         global_max_fps: float,
         video_sizing_fps: float | None,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
         autogain_settings: dict,
         events: RunEvents,
         aborted_event: threading.Event,
@@ -396,7 +396,9 @@ class ProtocolVideoStep:
                 height=frame_size.height,
                 # Grey (a gray encode) when false color is off -- the same
                 # contract the manual leg encodes with.
-                color=layer_record.shown_color(step['Color'], false_color_on, self._channel_colors),
+                color=channel_record.shown_color(
+                    step['Color'], false_color_on, self._channel_colors
+                ),
                 include_timestamp_overlay=self._timestamp_overlay,
                 vfr=True,
             )

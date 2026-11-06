@@ -30,7 +30,7 @@ from _lumascope.modules.common_utils import (
     build_step_name,
     parse_legacy_step_name,
 )
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED1, LED2
 

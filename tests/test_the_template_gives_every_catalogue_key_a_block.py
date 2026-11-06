@@ -20,7 +20,7 @@ import shutil
 import pytest
 
 import _lumascope.modules.settings_init as settings_init
-from _lumascope.modules import layer_record
+from _lumascope.modules import channel_record
 from _lumascope.modules.exceptions import InstallationFileError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import SHIPPED_DATA, copy_installation_files
@@ -54,7 +54,7 @@ def test_every_preparation_path_gives_every_key_a_block_and_holds_no_defaults(tm
     # rejection each come up on the template, and each holds a block for
     # every catalogue key and no channel_defaults.
     data = _installation(tmp_path)
-    keys = layer_record.release_catalogue()
+    keys = channel_record.release_catalogue()
     fluorescence = _shipped_fluorescence_block()
 
     fresh, _ = settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
@@ -90,7 +90,7 @@ def test_a_session_on_each_model_holds_every_block_and_publishes_no_defaults(tmp
         warn_pre_release=False,
     )
     try:
-        keys = layer_record.release_catalogue()
+        keys = channel_record.release_catalogue()
         assert [k for k in keys if k not in session.settings] == []
         assert 'channel_defaults' not in session.settings
         assert 'channel_defaults' not in session.scope.settings_template
@@ -101,10 +101,10 @@ def test_a_session_on_each_model_holds_every_block_and_publishes_no_defaults(tmp
 
 
 def test_a_key_added_to_the_catalogue_gets_its_modalitys_block(tmp_path, monkeypatch):
-    shipped = layer_record.release_layers()
+    shipped = channel_record.release_channels()
     blue = next(layer for layer in shipped if layer.key == LED0)
     nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff', step_order=99)
-    monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', (*shipped, nir))
+    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', (*shipped, nir))
 
     template = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
 
@@ -138,7 +138,7 @@ def test_a_fresh_install_adds_a_multi_channel_step_led1_before_led0(tmp_path):
     # The shipped step order is the catalogue's step_order, which puts LED1
     # before LED0 for the composite's focus, not the display order.
     settings = complete_settings(live_folder=str(tmp_path), microscope='LS620')
-    for key in layer_record.release_catalogue():
+    for key in channel_record.release_catalogue():
         settings[key]['acquire'] = None
     session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
     try:
@@ -161,10 +161,10 @@ def test_a_fresh_install_adds_a_multi_channel_step_led1_before_led0(tmp_path):
 
 
 def test_a_key_added_to_the_catalogue_takes_its_step_order(monkeypatch):
-    shipped = layer_record.release_layers()
+    shipped = channel_record.release_channels()
     blue = next(layer for layer in shipped if layer.key == LED0)
     nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff', step_order=-1)
-    monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', (*shipped, nir))
+    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', (*shipped, nir))
 
     template = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
 

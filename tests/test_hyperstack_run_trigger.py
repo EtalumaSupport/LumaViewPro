@@ -21,7 +21,7 @@ from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
 from tests.case_walk import failing_cases
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0
 
 

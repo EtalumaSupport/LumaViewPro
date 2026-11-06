@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.composite_builder import CompositeChannel, TransmittedBase, build_composite
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -14,7 +14,7 @@ def _in_release_colours(images, bits=8):
     """Each image as a composite channel in its layer's release colour, at a
     depth of ``bits`` and stating no white."""
     return {
-        key: CompositeChannel(image, layer_record.release_color(key), bits, None)
+        key: CompositeChannel(image, channel_record.release_color(key), bits, None)
         for key, image in images.items()
     }
 
@@ -248,8 +248,8 @@ class TestChannelsAdd:
         assert self._pixel(pair, base=40) == [120, 120, 0]
 
     def test_a_colour_that_is_not_a_primary_lands_on_each_plane_by_its_weight(self):
-        magenta = layer_record.parse_display_color('#ff00ff')
-        orange = layer_record.parse_display_color('#ff8000')
+        magenta = channel_record.parse_display_color('#ff00ff')
+        orange = channel_record.parse_display_color('#ff8000')
         channels = {
             'Magenta': CompositeChannel(np.full((1, 1), 50, np.uint8), magenta, 8, None),
             'Orange': CompositeChannel(np.full((1, 1), 100, np.uint8), orange, 8, None),
@@ -265,7 +265,7 @@ class TestChannelsAdd:
             {LED2: one(40), LED1: one(50), LED0: one(60), 'Lumi': one(70)}
         )
         channels['Magenta'] = CompositeChannel(
-            one(20), layer_record.parse_display_color('#ff00ff'), 8, None
+            one(20), channel_record.parse_display_color('#ff00ff'), 8, None
         )
         assert self._pixel(channels) == [60, 50, 150]
         assert self._pixel(channels, base=90) == [60, 50, 150]
@@ -290,7 +290,7 @@ def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
 
     script = (
         'import tracemalloc, numpy as np\n'
-        'import _lumascope.modules.layer_record as layer_record\n'
+        'import _lumascope.modules.channel_record as channel_record\n'
         'from _lumascope.modules.composite_builder import CompositeChannel, build_composite\n'
         'rng = np.random.default_rng(0)\n'
         'side = 1000\n'
@@ -298,7 +298,7 @@ def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
         '    channels = {\n'
         '        key: CompositeChannel(\n'
         '            rng.integers(0, 4096, (side, side), dtype=np.uint16),\n'
-        '            layer_record.release_color(key),\n'
+        '            channel_record.release_color(key),\n'
         '            12,\n'
         '            None,\n'
         '        )\n'

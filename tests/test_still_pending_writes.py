@@ -32,7 +32,7 @@ from tests.scope_fakes import spec_scope
 
 
 from _lumascope.modules.run_outcome import EndingLatch
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 def _writer(file_io_executor=None):

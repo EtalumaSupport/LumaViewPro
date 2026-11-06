@@ -33,7 +33,7 @@ from tests.ast_seams import parse_module
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 LAYER = 'Lumi'
 

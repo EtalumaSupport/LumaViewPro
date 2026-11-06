@@ -29,7 +29,7 @@ from unittest.mock import patch
 
 from _lumascope.modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]

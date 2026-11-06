@@ -18,7 +18,7 @@ import pytest
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.settings_init as settings_init
 from _lumascope.modules.exceptions import InstallationFileError
-from _lumascope.modules.layer_record import release_old_names
+from _lumascope.modules.channel_record import release_old_names
 from _lumascope.modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
 from tests.locale_fixtures import a_latin1_locale

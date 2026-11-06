@@ -31,7 +31,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
-from _lumascope.modules.layer_record import IdentitySource, refuse_unknown_layer
+from _lumascope.modules.channel_record import IdentitySource, refuse_unknown_channel
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.api_surface import Admission, api, api_fields
 from _lumascope.modules.frame_validity import FrameValiditySource
@@ -564,7 +564,7 @@ class IlluminationAPI:
         """The board address a light of ``channel`` writes, or the refusal that says why not.
 
         Asked on the lane of a name the door has judged
-        (``refuse_unknown_layer``), in the address lane's order: the
+        (``refuse_unknown_channel``), in the address lane's order: the
         board, then the model, so an LED this model does not have is
         ``not_on_this_scope`` named as the command named it.
 
@@ -1068,7 +1068,7 @@ class IlluminationAPI:
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
         """
-        refuse_unknown_layer(channel, argument='channel')
+        refuse_unknown_channel(channel, argument='channel')
         return self._dispatch_led(
             self._led_on_by_name_impl,
             'led_on',
@@ -1104,7 +1104,7 @@ class IlluminationAPI:
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
         """
-        refuse_unknown_layer(channel, argument='channel')
+        refuse_unknown_channel(channel, argument='channel')
         return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
 
     def _led_off_by_name_impl(self, channel: str) -> None:
@@ -1740,7 +1740,7 @@ class IlluminationAPI:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.
         """
-        refuse_unknown_layer(color, argument='color')
+        refuse_unknown_channel(color, argument='color')
         record = self._scope.channel_identity.find(color)
         if record is None or not record.led_addresses:
             return None

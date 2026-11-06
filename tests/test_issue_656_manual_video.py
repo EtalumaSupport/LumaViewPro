@@ -22,7 +22,7 @@ import tifffile as tf
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids

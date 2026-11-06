@@ -29,7 +29,7 @@ from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import ObjectiveUnknownError
-from _lumascope.modules.layer_record import UNRESOLVED, load_scope_models
+from _lumascope.modules.channel_record import UNRESOLVED, load_scope_models
 from _lumascope.modules.lumascope_api import AxisState, TurretStatus
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from _lumascope.modules.scope_session import ScopeSession

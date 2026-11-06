@@ -36,7 +36,7 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.modules.finite_number import is_finite_number, refuse_unless_finite_number
 from _lumascope.modules.python_values import python_values
-from _lumascope.modules.layer_record import refuse_unknown_layer
+from _lumascope.modules.channel_record import refuse_unknown_channel
 from _lumascope.modules.request_fields import key_path, refuse_unless_kind, required
 import _lumascope.modules.labware_loader as labware_loader
 from _lumascope.modules.tiling_config import TilingGrids
@@ -49,7 +49,7 @@ from _lumascope.modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import _lumascope.modules.labware as labware_module
-    from _lumascope.modules.layer_record import ChannelIdentity
+    from _lumascope.modules.channel_record import ChannelIdentity
     from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
     from _lumascope.modules.objectives_loader import Objective, ObjectiveLoader
     from _lumascope.modules.scope_capabilities import ScopeCapabilities
@@ -225,7 +225,7 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
     layers = read(config, 'channel_configs', 'dict', argument)
     layers_path = key_path(argument, 'channel_configs')
     for layer, layer_config in layers.items():
-        refuse_unknown_layer(layer, layers_path)
+        refuse_unknown_channel(layer, layers_path)
         layer_path = key_path(layers_path, layer)
         refuse_unless_kind(layer_config, 'dict', layer_path)
         acquire = required(layer_config, 'acquire', layer_path)

@@ -18,7 +18,7 @@ import pandas as pd
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.stitch_algorithms import (
     estimate_overlap_offset,
@@ -96,7 +96,7 @@ def _write_output(
     image: np.ndarray,
     tile_paths: list[pathlib.Path],
     color: str,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
     center: dict,
     significant_bits: int,
     white_bits: int | None,
@@ -122,7 +122,7 @@ def _write_output(
         metadata=metadata,
         # The format its name states, the one its tiles share.
         ome=image_utils.is_ome_tiff(output_file_loc),
-        color=layer_record.output_color(color, channel_colors),
+        color=channel_record.output_color(color, channel_colors),
         significant_bits=metadata['significant_bits'],
         save_encoding=image_mode.encoding_for_array(image),
         white_bits=white_bits,
@@ -146,7 +146,7 @@ def _result(
     metadata: dict,
     significant_bits: int,
     white_bits: int | None,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     first_row = df.iloc[0]
     color = str(first_row.get('Color', ''))
@@ -251,7 +251,7 @@ def overlap_stitcher(
     algorithm: StitchAlgorithm = StitchAlgorithm.QUALITY_LOCAL_NCC,
     blend_mode: str = 'source_preserving',
     *,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     """Use the newest stage-position + overlap-registration stitch math."""
     center = _center_metadata(df)
@@ -348,7 +348,7 @@ def fft_phase_stitcher(
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
     *,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     """Fast, stage-constrained preview registration for real overlaps only."""
     return overlap_stitcher(
@@ -369,7 +369,7 @@ def stage_position_stitcher(
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
     *,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     """Place tiles by recorded stage position without registration correction."""
     center = _center_metadata(df)
@@ -473,7 +473,7 @@ def simple_position_stitcher(
     df: pd.DataFrame,
     output_file_loc: pathlib.Path | None = None,
     *,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     """Place tiles by X/Y rank, preserving the legacy no-overlap behavior."""
     try:
@@ -584,7 +584,7 @@ def channel_aware_stitcher(
     output_file_loc: pathlib.Path | None = None,
     stitching_mode: StitchMode = StitchMode.QUALITY,
     *,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
 ) -> dict:
     """Route channels through the preferred algorithm and fallbacks.
 

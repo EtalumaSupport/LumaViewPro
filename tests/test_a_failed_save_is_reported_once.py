@@ -24,7 +24,7 @@ from _lumascope.modules.exceptions import CaptureError, ImageSaveError
 from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
 from tests.test_jpg_export import _bright_mono, _scope_with_depth
 from tests.frame_records import frame_record, plate
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 def _save(tmp_path):

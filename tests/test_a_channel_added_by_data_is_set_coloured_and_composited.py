@@ -22,7 +22,7 @@ import pytest
 import tifffile as tf
 
 import _lumascope.modules.settings_init as settings_init
-from _lumascope.modules import image_utils, layer_record
+from _lumascope.modules import image_utils, channel_record
 from _lumascope.modules.path_utils import read_installation_file
 from tests.installation_fixtures import (
     ADDED_CHANNELS,
@@ -47,9 +47,9 @@ def installation(tmp_path, monkeypatch):
     # The release catalogue is one process-wide read; this replaces it
     # with the written file's, the one prepare_settings must then read.
     monkeypatch.setattr(
-        layer_record,
+        channel_record,
         '_CATALOGUE_CACHE',
-        layer_record.load_layer_catalogue(read_installation_file(scopes), scopes),
+        channel_record.load_channel_catalogue(read_installation_file(scopes), scopes),
     )
     return tmp_path
 
@@ -85,7 +85,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
     settings = _prepared(installation, model)
     with open_composite_session(settings, source_path=installation) as (session, _):
         assert _fluorescence(session) == expected
-        keys = layer_record.release_catalogue()
+        keys = channel_record.release_catalogue()
         assert set(_ADDED) <= set(keys)
         # The block is the template's fluorescence default: the catalogue
         # prepare_settings read is the one this test wrote.
@@ -96,7 +96,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
             assert session.settings[key] == fluorescence_block, key
         colors = session.channel_colors()
         for record in session.scope.channel_identity.channels:
-            assert colors[record.key_name] == layer_record.parse_display_color(
+            assert colors[record.key_name] == channel_record.parse_display_color(
                 record.display_color
             ), record.key_name
         assert colors[_ADDED[0]] == (0.0, 1.0, 1.0)
@@ -123,7 +123,7 @@ def test_a_composite_takes_every_channel_in_its_colour(installation, model):
     settings = _prepared(installation, model)
     with open_composite_session(settings, source_path=installation) as (session, runner):
         channels = _fluorescence(session)
-        for key in layer_record.release_catalogue():
+        for key in channel_record.release_catalogue():
             session.set_channel_acquire(key, 'image' if key in channels else None)
 
         runs = installation / 'runs'

@@ -16,7 +16,7 @@ import logging
 import pytest
 
 import _lumascope.modules.common_utils as common_utils
-from _lumascope.modules.layer_record import (
+from _lumascope.modules.channel_record import (
     UNRESOLVED,
     ChannelIdentity,
     ChannelRecord,
@@ -26,17 +26,17 @@ from _lumascope.modules.layer_record import (
     LedBoardFamily,
     Modality,
     format_display_color,
-    load_layer_catalogue,
+    load_channel_catalogue,
     output_color,
     read_scope_models,
     parse_display_color,
     release_color,
-    resolve_layer_identity,
+    resolve_channel_identity,
     shown_color,
 )
 from _lumascope.modules.exceptions import ArgumentRefusedError, InstallationFileError
 from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -123,8 +123,8 @@ def resolve(data_file, **kwargs):
     }
     defaults.update(kwargs)
     data = read_installation_file(data_file)
-    catalogue = load_layer_catalogue(data, data_file)
-    return resolve_layer_identity(
+    catalogue = load_channel_catalogue(data, data_file)
+    return resolve_channel_identity(
         models=read_scope_models(data, data_file, catalogue, old_names=()),
         catalogue=catalogue,
         report=REPORTED.append,
@@ -155,7 +155,7 @@ class TestCatalogue:
         path = tmp_path / 'scopes_fixture.json'
         path.write_text(json.dumps({'LS850T': {'Layers': LS850T_ROWS}}), encoding='utf-8')
         with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
-            load_layer_catalogue(read_installation_file(path), path)
+            load_channel_catalogue(read_installation_file(path), path)
         assert refused.value.file_path == path
 
     def test_the_shipped_catalogue_answers_each_channel_set(self):
@@ -193,7 +193,7 @@ class TestCatalogueRecords:
         path = tmp_path / 'scopes_fixture.json'
         path.write_text(json.dumps({'LayerOrder': catalogue, 'Models': {}}), encoding='utf-8')
         with pytest.raises(InstallationFileError) as refused:
-            load_layer_catalogue(read_installation_file(path), path)
+            load_channel_catalogue(read_installation_file(path), path)
         assert refused.value.file_path == path
         return str(refused.value)
 
@@ -423,7 +423,7 @@ class TestRowParsing:
             entry = {**MODEL_KEYS, 'Layers': [row('BF', 'BF', 3)]}
             mutate(entry)
             data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-            catalogue = load_layer_catalogue(data, 'scopes.json')
+            catalogue = load_channel_catalogue(data, 'scopes.json')
             with pytest.raises(InstallationFileError) as refused:
                 read_scope_models(data, 'scopes.json', catalogue, old_names=())
             assert "model 'M'" in str(refused.value) and words in str(refused.value)
@@ -442,7 +442,7 @@ class TestRowParsing:
             'MaxFrame': {'width': 1700, 'height': 1700},
         }
         data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-        catalogue = load_layer_catalogue(data, 'scopes.json')
+        catalogue = load_channel_catalogue(data, 'scopes.json')
         model = read_scope_models(data, 'scopes.json', catalogue, old_names=())['M']
         assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
         assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
@@ -514,7 +514,7 @@ class TestRowParsing:
         # row whose two disagree is the release's defect, refused whole.
         entry = {**MODEL_KEYS, 'Layers': [row('Ex550', None, 1, 561)]}
         data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-        catalogue = load_layer_catalogue(data, 'scopes.json')
+        catalogue = load_channel_catalogue(data, 'scopes.json')
         with pytest.raises(InstallationFileError) as refused:
             read_scope_models(data, 'scopes.json', catalogue, old_names=())
         assert "model 'M'" in str(refused.value)
@@ -531,7 +531,7 @@ class TestRowParsing:
 
         def check(layer, words):
             data = {'LayerOrder': CATALOGUE, 'Models': {'M': {**MODEL_KEYS, 'Layers': [layer]}}}
-            catalogue = load_layer_catalogue(data, 'scopes.json')
+            catalogue = load_channel_catalogue(data, 'scopes.json')
             with pytest.raises(InstallationFileError) as refused:
                 read_scope_models(data, 'scopes.json', catalogue, old_names=())
             assert words in str(refused.value)

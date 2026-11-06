@@ -30,12 +30,12 @@ import tifffile
 from _lumascope.modules import image_utils
 from _lumascope.modules.common_utils import recover_step_label
 from _lumascope.modules.exceptions import InstallationFileError, PostProcessingOperation
-from _lumascope.modules.layer_record import (
+from _lumascope.modules.channel_record import (
     GREY,
-    load_layer_catalogue,
+    load_channel_catalogue,
     load_old_channel_names,
     read_scope_models,
-    resolve_layer_identity,
+    resolve_channel_identity,
     stored_key,
 )
 from _lumascope.modules.post_processing_api import Stitch, ZProject
@@ -63,9 +63,9 @@ def _release(installation: pathlib.Path) -> dict:
 
 def _identity(installation, model, board_block=None):
     contents = _release(installation)
-    catalogue = load_layer_catalogue(contents, 'scopes.json')
+    catalogue = load_channel_catalogue(contents, 'scopes.json')
     old_names = load_old_channel_names(contents, 'scopes.json', catalogue)
-    return resolve_layer_identity(
+    return resolve_channel_identity(
         board_block=board_block,
         board_config_read_ok=True,
         motor_model=model,
@@ -88,7 +88,7 @@ def test_a_table_that_cannot_be_true_is_refused(installation):
     old name that is a key of this release, a stock key the release lacks or
     that is no fluorescence key, or one LED address twice."""
     contents = _release(installation)
-    catalogue = load_layer_catalogue(contents, 'scopes.json')
+    catalogue = load_channel_catalogue(contents, 'scopes.json')
     ex405 = {'led_address': 0, 'stock_key': 'Ex405'}
     cases = [
         (None, 'has no usable OldChannelNames'),
@@ -120,7 +120,7 @@ def test_a_model_row_off_its_old_names_address_is_refused(installation):
         {**row, 'led_channel': {0: 1, 1: 0}.get(row['led_channel'], row['led_channel'])}
         for row in contents['Models']['LS850']['Layers']
     ]
-    catalogue = load_layer_catalogue(contents, 'scopes.json')
+    catalogue = load_channel_catalogue(contents, 'scopes.json')
     old_names = load_old_channel_names(contents, 'scopes.json', catalogue)
 
     with pytest.raises(InstallationFileError, match=r"'LS850'.*Ex405.*LED address 1.*Blue"):

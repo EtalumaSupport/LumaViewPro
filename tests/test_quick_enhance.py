@@ -17,8 +17,8 @@ from _lumascope.modules.quick_enhance import (
     QuickEnhanceSettings,
     QuickEnhancer,
 )
-from _lumascope.modules.layer_record import GREY, release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 

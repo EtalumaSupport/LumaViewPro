@@ -15,7 +15,7 @@ the daA3840 (48 dB) would have let a 45 dB layer through.
 """
 
 import pytest
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from tests.case_walk import failing_cases
 from tests.settings_fixtures import shipped_template
 from tests.stock_channels import LED1, LED2

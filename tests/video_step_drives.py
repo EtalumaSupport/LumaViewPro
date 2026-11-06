@@ -14,7 +14,7 @@ import threading
 from unittest.mock import MagicMock
 
 from _lumascope.modules.image_mode import ImageCaptureConfig
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
 from tests.frame_records import plate

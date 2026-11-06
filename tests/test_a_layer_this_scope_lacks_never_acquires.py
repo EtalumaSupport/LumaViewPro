@@ -26,7 +26,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
-from _lumascope.modules.layer_record import UNRESOLVED
+from _lumascope.modules.channel_record import UNRESOLVED
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

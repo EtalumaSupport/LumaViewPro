@@ -26,7 +26,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     RefusalCause,
 )
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases

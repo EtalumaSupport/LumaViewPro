@@ -8,7 +8,7 @@ import pandas as pd
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
 
 from _lumascope.modules.common_utils import PostFunction
@@ -226,7 +226,7 @@ class ZProjector(ProtocolPostProcessor):
         df: pd.DataFrame,
         method: ZProjectMethod,
         output_file_loc: pathlib.Path,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
     ):
         method = ZProjectMethod(method)
 
@@ -295,7 +295,7 @@ class ZProjector(ProtocolPostProcessor):
             metadata=metadata,
             # The format its name states, the one its slices share.
             ome=image_utils.is_ome_tiff(output_file_loc),
-            color=layer_record.output_color(first_slice_row['Color'], channel_colors),
+            color=channel_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
             save_encoding=image_mode.encoding_for_array(result['image']),
             white_bits=output_white,

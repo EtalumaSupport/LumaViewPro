@@ -17,13 +17,13 @@ import pytest
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.drivers.motorconfig import MotorConfig
-from _lumascope.modules.layer_record import load_scope_models
+from _lumascope.modules.channel_record import load_scope_models
 from _lumascope.modules.scope_capabilities import (
     _declared_optics,
     _resolve_lens_focal_length_mm,
     _resolve_pixel_size_um,
 )
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
 

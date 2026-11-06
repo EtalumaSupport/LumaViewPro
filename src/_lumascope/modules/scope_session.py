@@ -42,7 +42,7 @@ from _lumascope.modules import (
     settings_paths,
     wall_time,
 )
-from _lumascope.modules.layer_record import ChannelSliderMaxima, refuse_unknown_layer
+from _lumascope.modules.channel_record import ChannelSliderMaxima, refuse_unknown_channel
 from _lumascope.modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -2157,7 +2157,7 @@ class ScopeSession:
         import _lumascope.modules.config_helpers as config_helpers
 
         for layer in specific_layers or ():
-            refuse_unknown_layer(layer)
+            refuse_unknown_channel(layer)
 
         layer_configs = config_helpers.get_layer_configs(self.settings, specific_layers)
         self._read_autofocus_as_off_without_z(layer_configs.values())
@@ -2192,7 +2192,7 @@ class ScopeSession:
         """
         from _lumascope.modules.exceptions import FocusNotSavedError
 
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         focus = self.settings[channel]['focus']
         if focus is None:
             raise FocusNotSavedError(channel)
@@ -2213,9 +2213,9 @@ class ScopeSession:
 
         Raises:
             InstallationFileError: the installation's ``scopes.json`` is
-                unusable (``layer_record.release_layers``).
+                unusable (``channel_record.release_channels``).
         """
-        from _lumascope.modules.layer_record import parse_display_color, release_colors
+        from _lumascope.modules.channel_record import parse_display_color, release_colors
 
         colors = release_colors()
         for record in self.scope.channel_identity.channels:
@@ -2244,7 +2244,7 @@ class ScopeSession:
         """
         import _lumascope.modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         capabilities = self.scope.capabilities
         limits = capabilities.camera_limits
         record = self.scope.channel_identity.find(channel)
@@ -2546,7 +2546,7 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'not_on_this_scope'``, ``mode`` is not
                 None and this scope does not have ``channel``.
         """
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         if mode is not None:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_acquire', then='be set to acquire'
@@ -2564,7 +2564,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         mode = self.settings[channel]['acquire']
         return None if mode is None else AcquireMode(mode)
 
@@ -2620,7 +2620,7 @@ class ScopeSession:
         """
         from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         lock = None
         holds = self.scope.camera.get_held_layer() == channel
         if enabled:
@@ -2659,7 +2659,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         return self.settings[channel]['auto_gain']
 
     @api(reads=True)
@@ -2681,7 +2681,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         with self.settings_lock:
             return self._auto_gain_locks.get(channel)
 

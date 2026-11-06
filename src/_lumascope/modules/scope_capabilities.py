@@ -46,7 +46,7 @@ from _lumascope.modules.axes import Axis
 
 if TYPE_CHECKING:
     from _lumascope.drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
-    from _lumascope.modules.layer_record import ChannelIdentity, ScopeModel
+    from _lumascope.modules.channel_record import ChannelIdentity, ScopeModel
 
 
 def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:

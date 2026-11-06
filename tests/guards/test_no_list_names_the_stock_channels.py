@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import ast
 
-from _lumascope.modules.layer_record import stored_channel_names
+from _lumascope.modules.channel_record import stored_channel_names
 from tests.ast_seams import iter_package_modules, production_modules, walk_defs
 
 _MINIMUM = 3

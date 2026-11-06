@@ -43,8 +43,8 @@ from _lumascope.modules.stitching_core import (
 from _lumascope.modules.stitcher import Stitcher
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_utils as image_utils
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1, LED2
 from tests.installation_fixtures import shipped_grids
 

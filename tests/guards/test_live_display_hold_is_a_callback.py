@@ -38,7 +38,7 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 
 
 from _lumascope.modules.run_outcome import EndingLatch
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 

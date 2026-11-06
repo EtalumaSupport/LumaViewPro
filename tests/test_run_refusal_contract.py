@@ -72,7 +72,7 @@ from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.executor_registry import session_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED2
 from tests.protocol_fixtures import protocol_of
 

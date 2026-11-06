@@ -1,18 +1,19 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Layer identity: what a layer IS on the attached unit.
+"""Channel identity: what a channel IS on the attached unit.
 
-One record per layer (stable key name, display name, LED board address,
+One record per channel (stable key name, display name, LED board address,
 excitation wavelength) plus the unit's filterset, resolved once into an
 immutable snapshot. Identity is unit data, not code: different filtersets
 carry different LEDs, so the truth lives in the unit's motorconfig
 Channels block when it has one, and in the model's `scopes.json` rows for
 units built before per-unit blocks existed.
 
-Internally a layer is identified by its integer id. The names are fields
-that get WRITTEN OUT (display, and serialisation under the stable
-`key_name`); nothing in memory looks a layer up by its name past the
-deserialisation boundary this module implements.
+A channel is known by its stable key (`key_name`), in memory as on disk:
+settings blocks, protocol steps, file names and metadata all carry it,
+and `ChannelIdentity.find` maps a key to the unit's record. A record's
+`id` is its position in the release's order: it sorts a unit's records
+and is never stored.
 
 Resolution never raises: a scope with no resolvable identity gets the
 empty `unresolved` snapshot, and the illumination API is where that
@@ -49,7 +50,7 @@ from _lumascope.modules.scope_capabilities import FrameSize
 
 
 class Modality(enum.StrEnum):
-    """The kind of light a layer images."""
+    """The kind of light a channel images."""
 
     TRANSMITTED = 'transmitted'
     FLUORESCENCE = 'fluorescence'
@@ -57,7 +58,7 @@ class Modality(enum.StrEnum):
 
 
 class Background(enum.StrEnum):
-    """What a layer's field of view looks like, which is not its modality's:
+    """What a channel's field of view looks like, which is not its modality's:
     darkfield is transmitted light on a dark field."""
 
     BRIGHT = 'bright'
@@ -104,43 +105,43 @@ def format_display_color(color: Color) -> str:
     return '#' + ''.join(f'{round(weight * 255):02x}' for weight in color)
 
 
-# The objective a layer's simulated light is stated through: the release's
+# The objective a channel's simulated light is stated through: the release's
 # default objective (`settings.json` `objective_id`, the 20x), so a default
-# simulated session renders each layer at its stated light.
+# simulated session renders each channel at its stated light.
 SIM_LIGHT_MAGNIFICATION = 20.0
 
 
 @dataclass(frozen=True)
-class CatalogueLayer:
-    """What a layer of one key is in this release, on every unit that has it.
+class CatalogueChannel:
+    """What a channel of one key is in this release, on every unit that has it.
 
-    `background` is whether the layer's field of view is bright or dark,
+    `background` is whether the channel's field of view is bright or dark,
     which its modality does not say: darkfield is transmitted light that
     shows bright subjects on a dark field.
     `manual_max_exposure_ms` is the exposure slider's ceiling, None where the
-    layer has none (luminescence integrates as long as the sensor allows).
+    channel has none (luminescence integrates as long as the sensor allows).
     `manual_max_illumination_ma` is the illumination slider's ceiling, None
     where the slider goes to the LED driver's cap. It is the slider's range,
     not the light's limit: the text entry reaches past it, up to what the
     connected board can be asked for.
-    `display_color` is the release's colour for the layer, ``'#rrggbb'``.
-    `step_order` is where the layer's steps are inserted in a new protocol,
+    `display_color` is the release's colour for the channel, ``'#rrggbb'``.
+    `step_order` is where the channel's steps are inserted in a new protocol,
     which is not its display order.
     `sim_light_per_ma_s` is the light the simulated cameras render for the
-    layer, per mA of LED current and second of exposure at unity gain,
-    through an objective of `SIM_LIGHT_MAGNIFICATION`; None for a layer
-    with no LED. Each value puts the layer's shipped defaults
+    channel, per mA of LED current and second of exposure at unity gain,
+    through an objective of `SIM_LIGHT_MAGNIFICATION`; None for a channel
+    with no LED. Each value puts the channel's shipped defaults
     (`settings.json`) at brightness 1.0, the specimen at its own grey
     levels: 1 / (exposure s x linear gain x mA), so BF's 2 ms, 1 dB and
     5 mA give 89.1 and fluorescence's 100 ms, 10 dB and 250 mA 0.0126.
-    The defaults are what makes each layer look right on a scope, so they
+    The defaults are what makes each channel look right on a scope, so they
     carry the light each modality delivers.
     `sim_light_magnification_power` is how that light falls with the
     objective: it is multiplied by (`SIM_LIGHT_MAGNIFICATION` / the
     objective's magnification) to this power; None where
     `sim_light_per_ma_s` is. On the LS850T a clear brightfield field falls
     as the square (/3.84 and /3.99 from 10x to 20x to 40x), so BF's is 2;
-    a layer the bench has not read is 0.
+    a channel the bench has not read is 0.
     """
 
     key: str
@@ -167,7 +168,7 @@ class CatalogueLayer:
 )
 @dataclass(frozen=True)
 class ChannelRecord:
-    """Identity of one layer on one unit.
+    """Identity of one channel on one unit.
 
     `id` is the internal key and the display position -- assigned from
     the release catalogue's order, never persisted to any per-unit or
@@ -175,17 +176,17 @@ class ChannelRecord:
 
     `key_name` is the stable serialisation name (settings block keys,
     protocol TSV `Color`, filename tokens, metadata `channel`). It never
-    changes when a layer is renamed.
+    changes when a channel is renamed.
 
-    `display_name` is the unit's name for the layer. Freely changeable: a
+    `display_name` is the unit's name for the channel. Freely changeable: a
     rename touches this field and nothing persisted. None for a
     fluorescence channel a board's Channels block names by its excitation
     alone.
 
-    `led_addresses` is the LED board address(es) this layer drives, empty
-    for a layer with no LED (luminescence). A tuple rather than a single
+    `led_addresses` is the LED board address(es) this channel drives, empty
+    for a channel with no LED (luminescence). A tuple rather than a single
     value because a future channel (quantitative phase) drives several
-    switches as one layer; today every shipped row carries zero or one.
+    switches as one channel; today every shipped row carries zero or one.
     A row in a model's file names them ``led_channel``, read into this
     field by the one row reader.
 
@@ -193,14 +194,14 @@ class ChannelRecord:
     holds, since an ambiguous "wavelength" invites silently wrong
     metadata -- and the number a fluorescence key names (``Ex<nm>``).
     None is the truth for broadband transmitted light and for LED-less
-    layers.
+    channels.
 
-    `modality` and `background` are the layer's catalogue record's
-    (`CatalogueLayer`). `display_color` is the unit's colour for the layer:
+    `modality` and `background` are the channel's catalogue record's
+    (`CatalogueChannel`). `display_color` is the unit's colour for the channel:
     its board block row's, else the catalogue record's.
 
-    `label` is what the layer is called wherever it is shown or written:
-    a fluorescence layer's excitation (``'405 nm'``), any other layer's
+    `label` is what the channel is called wherever it is shown or written:
+    a fluorescence channel's excitation (``'405 nm'``), any other channel's
     `display_name`.
     """
 
@@ -218,9 +219,9 @@ class ChannelRecord:
 @api_fields('slider_max_exposure_ms', 'slider_max_illumination_ma')
 @dataclass(frozen=True)
 class ChannelSliderMaxima:
-    """Where one layer's manual sliders stop: display hints, never a bound.
+    """Where one channel's manual sliders stop: display hints, never a bound.
 
-    Each is the connected part's cap narrowed to the layer's manual ceiling,
+    Each is the connected part's cap narrowed to the channel's manual ceiling,
     so the brightfield slider stops at a useful range while a typed value
     still reaches past it, up to what the camera or the LED board can be
     asked for. A value above that limit is refused by its writer
@@ -231,7 +232,7 @@ class ChannelSliderMaxima:
         slider_max_exposure_ms: The exposure slider's maximum, in
             milliseconds; None with no camera connected.
         slider_max_illumination_ma: The illumination slider's maximum, in
-            mA; None with no LED board, or for a layer with no LED on this
+            mA; None with no LED board, or for a channel with no LED on this
             scope (luminescence).
     """
 
@@ -274,55 +275,55 @@ class ChannelIdentity:
 
     @api(in_process=True, reads=True)
     def find(self, key_name: str) -> ChannelRecord | None:
-        """Return the layer whose stable key name matches, else None.
+        """Return the channel whose stable key name matches, else None.
 
         The deserialisation boundary: a name arriving from disk or from
         an API caller is mapped to its record exactly once, here.
 
         Args:
-            key_name: The layer's stable key name, such as ``'BF'`` or
+            key_name: The channel's stable key name, such as ``'BF'`` or
                 ``'Ex488'``.
 
         Raises:
             Nothing.
         """
-        for layer in self.channels:
-            if layer.key_name == key_name:
-                return layer
+        for record in self.channels:
+            if record.key_name == key_name:
+                return record
         return None
 
     def key_at(self, address: int) -> str | None:
-        """The key of the layer whose LED is at board ``address``, else None."""
-        for layer in self.channels:
-            if address in layer.led_addresses:
-                return layer.key_name
+        """The key of the channel whose LED is at board ``address``, else None."""
+        for record in self.channels:
+            if address in record.led_addresses:
+                return record.key_name
         return None
 
     @api(in_process=True)
     def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> None:
-        """Refuse ``channel`` unless it is a layer of this release and this unit has it.
+        """Refuse ``channel`` unless it is a channel of this release and this unit has it.
 
-        The one question for a command that takes a layer: its settings,
+        The one question for a command that takes a channel: its settings,
         its focus, a still or a recording named for it. The name first
-        (``refuse_unknown_layer``), so a name that is no layer is never
+        (``refuse_unknown_channel``), so a name that is no channel is never
         told it is missing hardware.
 
         Args:
-            channel: The layer's key name the command was given.
+            channel: The channel's key name the command was given.
             member: The name of the command asking, which the hardware
                 refusal names as the command refused.
-            then: What the command would have the layer do, as words
+            then: What the command would have the channel do, as words
                 completing "so <channel> cannot ...", such as ``'be
                 captured'``; the unresolved refusal's message ends with it.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, naming the
-                layer (``MissingPart.layer``).
+                channel (``MissingPart.layer``).
             ConfigurationDefectError: ``'channels_unresolved'``, this unit's
                 channels could not be resolved, so ``channel`` cannot ``then``.
         """
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         if self.find(channel) is not None:
             return
         if self.channels:
@@ -359,7 +360,7 @@ UNRESOLVED = ChannelIdentity(
 # release (the file is version-paired), so nothing invalidates it at
 # runtime. Tests hand the resolver a catalogue explicitly and may
 # replace this cache to exercise a different one.
-_CATALOGUE_CACHE: tuple[CatalogueLayer, ...] | None = None
+_CATALOGUE_CACHE: tuple[CatalogueChannel, ...] | None = None
 # The release's old names, loaded once per process beside the catalogue and
 # replaced by tests the same way.
 _OLD_NAMES_CACHE: tuple[OldChannelName, ...] | None = None
@@ -381,11 +382,11 @@ class OldChannelName:
     stock_key: str
 
 
-def refuse_unknown_layer(layer: object, argument: str = 'channel') -> None:
-    """Refuse a value that is not one of this release's layers.
+def refuse_unknown_channel(channel: object, argument: str = 'channel') -> None:
+    """Refuse a value that is not one of this release's channels.
 
-    The one check of a layer name, asked by every member that takes one
-    before it asks whether the unit has the layer: a name that is no layer
+    The one check of a channel name, asked by every member that takes one
+    before it asks whether the unit has the channel: a name that is no channel
     is the request's fault on every scope. Names are exact: ``'bf'`` is
     not ``'BF'``.
 
@@ -395,29 +396,29 @@ def refuse_unknown_layer(layer: object, argument: str = 'channel') -> None:
             each offers the catalogue.
     """
     catalogue = release_catalogue()
-    if layer is None:
+    if channel is None:
         raise ArgumentRefusedError(
-            'no_channel_selected', argument=argument, value=layer, offered=catalogue
+            'no_channel_selected', argument=argument, value=channel, offered=catalogue
         )
-    if not isinstance(layer, str) or layer not in catalogue:
+    if not isinstance(channel, str) or channel not in catalogue:
         raise ArgumentRefusedError(
-            'channel_unknown', argument=argument, value=layer, offered=catalogue
+            'channel_unknown', argument=argument, value=channel, offered=catalogue
         )
 
 
 def release_catalogue() -> tuple[str, ...]:
-    """The release's layer vocabulary (stable key names, display order).
+    """The release's channel vocabulary (stable key names, display order).
 
-    The single source every vocabulary consumer derives from -- layer
+    The single source every vocabulary consumer derives from -- channel
     lists, protocol validation, metadata channel acceptance.
 
     Raises:
-        InstallationFileError: as ``release_layers``.
+        InstallationFileError: as ``release_channels``.
     """
-    return tuple(layer.key for layer in release_layers())
+    return tuple(record.key for record in release_channels())
 
 
-def release_layers() -> tuple[CatalogueLayer, ...]:
+def release_channels() -> tuple[CatalogueChannel, ...]:
     """The release catalogue's records, in display order.
 
     Read from the installation's own folder, not a scope's: the settings
@@ -425,13 +426,13 @@ def release_layers() -> tuple[CatalogueLayer, ...]:
 
     Raises:
         InstallationFileError: the installation's ``scopes.json`` is
-            unusable, states no layer order, or has a record that is not
+            unusable, states no channel order, or has a record that is not
             whole. Nothing is cached, so the next call reads the file again.
     """
     global _CATALOGUE_CACHE
     if _CATALOGUE_CACHE is None:
         path = resolve_data_file('scopes.json')
-        _CATALOGUE_CACHE = load_layer_catalogue(read_installation_file(path), path)
+        _CATALOGUE_CACHE = load_channel_catalogue(read_installation_file(path), path)
     return _CATALOGUE_CACHE
 
 
@@ -444,20 +445,20 @@ def release_old_names() -> tuple[OldChannelName, ...]:
 
     Raises:
         InstallationFileError: as ``load_old_channel_names``, or as
-            ``release_layers``. Nothing is cached, so the next call reads the
+            ``release_channels``. Nothing is cached, so the next call reads the
             file again.
     """
     global _OLD_NAMES_CACHE
     if _OLD_NAMES_CACHE is None:
         path = resolve_data_file('scopes.json')
         _OLD_NAMES_CACHE = load_old_channel_names(
-            read_installation_file(path), path, release_layers()
+            read_installation_file(path), path, release_channels()
         )
     return _OLD_NAMES_CACHE
 
 
 def load_old_channel_names(
-    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueChannel, ...]
 ) -> tuple[OldChannelName, ...]:
     """``scopes_data``'s ``OldChannelNames`` as records, or a refusal naming ``path``.
 
@@ -475,8 +476,8 @@ def load_old_channel_names(
     raw = scopes_data.get('OldChannelNames')
     if not isinstance(raw, dict):
         raise InstallationFileError(path, f'has no usable OldChannelNames (found {raw!r})')
-    fluorescence = {layer.key for layer in catalogue if layer.modality == Modality.FLUORESCENCE}
-    keys = {layer.key for layer in catalogue}
+    fluorescence = {record.key for record in catalogue if record.modality == Modality.FLUORESCENCE}
+    keys = {record.key for record in catalogue}
     names: list[OldChannelName] = []
     for name, entry in raw.items():
 
@@ -530,57 +531,57 @@ def stored_channel_names() -> tuple[str, ...]:
     return (*release_catalogue(), *(old.name for old in release_old_names()))
 
 
-def release_layer(key: object) -> CatalogueLayer:
+def release_channel(key: object) -> CatalogueChannel:
     """The release catalogue's record for ``key``.
 
     Raises:
-        ArgumentRefusedError: as ``refuse_unknown_layer``.
-        InstallationFileError: as ``release_layers``.
+        ArgumentRefusedError: as ``refuse_unknown_channel``.
+        InstallationFileError: as ``release_channels``.
     """
-    refuse_unknown_layer(key)
-    return next(layer for layer in release_layers() if layer.key == key)
+    refuse_unknown_channel(key)
+    return next(record for record in release_channels() if record.key == key)
 
 
 def release_color(key: object) -> Color:
-    """The release's colour for the layer ``key`` (``parse_display_color``).
+    """The release's colour for the channel ``key`` (``parse_display_color``).
 
-    Every unit's layer of this key has this colour today: a unit's record
+    Every unit's channel of this key has this colour today: a unit's record
     takes its colour from the release record.
 
     Raises:
-        ArgumentRefusedError: as ``refuse_unknown_layer``.
+        ArgumentRefusedError: as ``refuse_unknown_channel``.
     """
-    return parse_display_color(release_layer(key).display_color)
+    return parse_display_color(release_channel(key).display_color)
 
 
-# Every layer of the release and the colour it is shown and written in,
+# Every channel of the release and the colour it is shown and written in,
 # from the one read of it, ``ScopeSession.channel_colors``. A module below
 # the Session is handed this and reads no colour of its own.
 type ChannelColors = Mapping[str, Color]
 
 
 def release_colors() -> dict[str, Color]:
-    """Every release layer's colour, ``release_color`` of each key."""
+    """Every release channel's colour, ``release_color`` of each key."""
     return {key: release_color(key) for key in release_catalogue()}
 
 
 def output_color(name: object, colors: ChannelColors) -> Color:
-    """The colour an image named for ``name`` is written in: the layer's
+    """The colour an image named for ``name`` is written in: the channel's
     colour in ``colors``, and ``GREY`` for a composite
     (``PostFunction.COMPOSITE``), which is RGB and carries its own -- and is
     grey once collapsed into a stack. A stored old name is its stock key's
     colour (``stored_key``).
 
     Raises:
-        ArgumentRefusedError: ``name`` is neither a layer of this release,
-            an old name nor a composite (``refuse_unknown_layer``).
+        ArgumentRefusedError: ``name`` is neither a channel of this release,
+            an old name nor a composite (``refuse_unknown_channel``).
     """
     from _lumascope.modules.common_utils import PostFunction
 
     if name == PostFunction.COMPOSITE.value:
         return GREY
     key = stored_key(name)
-    refuse_unknown_layer(key)
+    refuse_unknown_channel(key)
     return colors[key]
 
 
@@ -596,16 +597,16 @@ def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Co
     return color if false_color_on else GREY
 
 
-# The keys a model's layer row may carry, by its layer's modality; each but
-# the colour is required. A row's colour is optional: without one the layer
-# takes the release's. A fluorescence layer is labelled by its excitation, so
+# The keys a model's channel row may carry, by its channel's modality; each but
+# the colour is required. A row's colour is optional: without one the channel
+# takes the release's. A fluorescence channel is labelled by its excitation, so
 # its row stores no name to publish beside the label.
 _REQUIRED_ROW_FIELDS = ('key_name', 'led_channel', 'excitation_nm')
 _NAMED_ROW_FIELDS = (*_REQUIRED_ROW_FIELDS, 'display_name')
 
 
 def _row_fields(modality: Modality) -> tuple[tuple[str, ...], frozenset[str]]:
-    """The fields a model row for a layer of ``modality`` must carry, and every
+    """The fields a model row for a channel of ``modality`` must carry, and every
     field it may."""
     required = _REQUIRED_ROW_FIELDS if modality == Modality.FLUORESCENCE else _NAMED_ROW_FIELDS
     return required, frozenset(required) | {'display_color'}
@@ -649,7 +650,7 @@ class ScopeModel:
     ``id`` is the model's name, the key the operator selects and a board
     reports. ``has_focus``, ``has_xy_stage`` and ``has_turret`` are the motor
     axes the model is built with: Z, X and Y, T. ``channels`` are the model's
-    channel rows, resolved against the release's layer vocabulary: what a unit
+    channel rows, resolved against the release's channel vocabulary: what a unit
     of the model has when its board carries no Channels block of its own.
     ``led_board`` and ``motor_board`` name the model's boards, ``motor_board``
     None for a model with no motor axes; production finds the boards it has
@@ -701,25 +702,25 @@ def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
     answers False, and a turret scope whose board did not come up is
     configured as turretless -- answering with its stored objective
     instead of the one in the light path. So an unusable file or a
-    missing section refuses, naming the file. Each model's layer rows are
-    resolved against the release's layer vocabulary (``release_layers``).
+    missing section refuses, naming the file. Each model's channel rows are
+    resolved against the release's channel vocabulary (``release_channels``).
 
     ``data_file`` None reads the installation's own folder.
 
     Raises:
         InstallationFileError: as ``read_scope_models``, or the release's
-            vocabulary is unusable (``release_layers``).
+            vocabulary is unusable (``release_channels``).
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
     return read_scope_models(
-        read_installation_file(path), path, release_layers(), release_old_names()
+        read_installation_file(path), path, release_channels(), release_old_names()
     )
 
 
 def read_scope_models(
     scopes_data: dict,
     path: str | os.PathLike,
-    catalogue: tuple[CatalogueLayer, ...],
+    catalogue: tuple[CatalogueChannel, ...],
     old_names: tuple[OldChannelName, ...],
 ) -> Mapping[str, ScopeModel]:
     """``scopes_data``'s models as a read-only mapping of records by name, or a refusal naming ``path``.
@@ -732,8 +733,8 @@ def read_scope_models(
     Raises:
         InstallationFileError: there is no Models section, or an entry is
             not an object, misses a required key, carries an undeclared
-            one, or gives a key a value it cannot hold; a layer row as
-            ``_model_layers`` refuses it. Each names the model and the key.
+            one, or gives a key a value it cannot hold; a channel row as
+            ``_model_channels`` refuses it. Each names the model and the key.
     """
     models = scopes_data.get('Models')
     if not isinstance(models, dict):
@@ -752,7 +753,7 @@ def _scope_model(
     model: str,
     entry: object,
     path: str | os.PathLike,
-    catalogue: tuple[CatalogueLayer, ...],
+    catalogue: tuple[CatalogueChannel, ...],
     old_names: tuple[OldChannelName, ...],
 ) -> ScopeModel:
     """The record for one model entry, or a refusal naming the file, the model and the key."""
@@ -802,7 +803,7 @@ def _scope_model(
         **flags,
         led_board=text['LEDBoard'],
         motor_board=text['MotorBoard'],
-        channels=_model_layers(entry.get('Layers'), catalogue, old_names, refuse),
+        channels=_model_channels(entry.get('Layers'), catalogue, old_names, refuse),
         filterset=text['Filterset'],
         **{
             field: float(optics[key]) if key in optics else None
@@ -841,16 +842,18 @@ def entry_expects_motion(entry: ScopeModel | None) -> bool:
     return entry is None or bool(entry_axes(entry))
 
 
-def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[CatalogueLayer, ...]:
-    """The release's layer records, in display order, or a refusal naming ``path``.
+def load_channel_catalogue(
+    scopes_data: dict, path: str | os.PathLike
+) -> tuple[CatalogueChannel, ...]:
+    """The release's channel records, in display order, or a refusal naming ``path``.
 
-    The catalogue is the single authored order: a layer's id IS its
+    The catalogue is the single authored order: a channel's id IS its
     position here, and every identity row (model or per-unit block) must
     name a catalogued key to resolve. Deriving the order from the
     per-model row lists instead would make id assignment depend on which
     model happens to be listed first, so the order is stated once. An
-    empty vocabulary would let the settings check pass with no layers to
-    check, so a missing one refuses. Every fact about a layer that is
+    empty vocabulary would let the settings check pass with no channels to
+    check, so a missing one refuses. Every fact about a channel that is
     the same on every unit is a field of its record, and a record missing
     one has no answer for it, so it refuses too.
 
@@ -862,22 +865,22 @@ def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[Ca
     raw = scopes_data.get('LayerOrder')
     if not isinstance(raw, list) or not raw:
         raise InstallationFileError(path, f'has no usable LayerOrder (found {raw!r})')
-    layers = tuple(_catalogue_layer(entry, path) for entry in raw)
+    records = tuple(_catalogue_channel(entry, path) for entry in raw)
     for field in ('key', 'step_order'):
-        values = [getattr(layer, field) for layer in layers]
+        values = [getattr(record, field) for record in records]
         repeated = sorted({v for v in values if values.count(v) > 1}, key=str)
         if repeated:
             raise InstallationFileError(
                 path, f'has LayerOrder records repeating {field} {repeated}'
             )
-    return layers
+    return records
 
 
 # The fields every catalogue record states.
-_CATALOGUE_FIELDS = tuple(field.name for field in fields(CatalogueLayer))
+_CATALOGUE_FIELDS = tuple(field.name for field in fields(CatalogueChannel))
 
 
-def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
+def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChannel:
     """One ``LayerOrder`` record, or the refusal naming ``path`` and the field."""
 
     def refuse(why: str) -> InstallationFileError:
@@ -919,10 +922,10 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
         raise refuse('whose sim_light_per_ma_s is not a positive number or null')
     power = entry['sim_light_magnification_power']
     if light is None and power is not None:
-        raise refuse('whose sim_light_magnification_power is set on a layer with no light')
+        raise refuse('whose sim_light_magnification_power is set on a channel with no light')
     if light is not None and not _is_number(power):
         raise refuse('whose sim_light_magnification_power is not a number')
-    return CatalogueLayer(
+    return CatalogueChannel(
         key=key,
         modality=modality,
         background=background,
@@ -940,7 +943,7 @@ def _is_number(value: object) -> bool:
 
 
 def _record(
-    key_name: str, row: dict, release: CatalogueLayer, position: int
+    key_name: str, row: dict, release: CatalogueChannel, position: int
 ) -> ChannelRecord | str:
     """The record ``row`` describes for ``key_name``, or why it describes none.
 
@@ -966,7 +969,7 @@ def _record(
     else:
         return f'has malformed led_channel {raw_channel!r}'
     if len(channel) > 1:
-        return f'drives multiple channels {channel}; multi-channel layers are not supported yet'
+        return f'drives multiple LED addresses {channel}; a channel on several LEDs is not supported yet'
     raw_nm = row.get('excitation_nm')
     if raw_nm is None:
         excitation: float | None = None
@@ -1020,13 +1023,13 @@ def _shared_address(named: Iterable[tuple[str, tuple[int, ...]]]) -> str | None:
     return None
 
 
-def _model_layers(
+def _model_channels(
     rows: object,
-    catalogue: tuple[CatalogueLayer, ...],
+    catalogue: tuple[CatalogueChannel, ...],
     old_names: tuple[OldChannelName, ...],
     refuse: Callable[[str], InstallationFileError],
 ) -> tuple[ChannelRecord, ...]:
-    """A model's layer rows as records, in id order, or ``refuse``'s refusal.
+    """A model's channel rows as records, in id order, or ``refuse``'s refusal.
 
     Every row is whole or the model is refused, as its entry is: a row
     whose key is not in the release's vocabulary, that misses a field or
@@ -1036,43 +1039,43 @@ def _model_layers(
     on that old name's address: a unit of the model stored its old name for
     that LED, and on any other address its old data would light another.
     """
-    by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
+    by_key = {record.key: (position, record) for position, record in enumerate(catalogue)}
     if not isinstance(rows, list):
         raise refuse("a 'Layers' that is not a list of rows")
     records = []
     for row in rows:
         if not isinstance(row, dict):
-            raise refuse(f'a layer row that is not an object: {row!r}')
+            raise refuse(f'a channel row that is not an object: {row!r}')
         key_name = row.get('key_name')
         if not isinstance(key_name, str) or key_name not in by_key:
-            raise refuse(f'the layer {key_name!r}, not one of this release {tuple(by_key)}')
+            raise refuse(f'the channel {key_name!r}, not one of this release {tuple(by_key)}')
         position, release = by_key[key_name]
         required, declared = _row_fields(release.modality)
         missing = [k for k in required if k not in row]
         if missing:
-            raise refuse(f'a {key_name} layer row with no {missing[0]!r}')
+            raise refuse(f'a {key_name} channel row with no {missing[0]!r}')
         undeclared = sorted(set(row) - declared)
         if undeclared:
-            raise refuse(f'a {key_name} layer row with the undeclared key {undeclared[0]!r}')
+            raise refuse(f'a {key_name} channel row with the undeclared key {undeclared[0]!r}')
         record = _record(key_name, row, release, position)
         if isinstance(record, str):
-            raise refuse(f'a {key_name} layer row that {record}')
+            raise refuse(f'a {key_name} channel row that {record}')
         for old in old_names:
             if old.stock_key == key_name and record.led_addresses != (old.led_address,):
                 on = ', '.join(map(str, record.led_addresses)) or 'none'
                 raise refuse(
-                    f'a {key_name} layer row on LED address {on}, where '
+                    f'a {key_name} channel row on LED address {on}, where '
                     f'{old.name}, which reads as {key_name}, was LED address {old.led_address}'
                 )
         records.append(record)
     shared = _shared_address((r.key_name, r.led_addresses) for r in records)
     if shared is not None:
-        raise refuse(f'layer rows where {shared}')
+        raise refuse(f'channel rows where {shared}')
     return tuple(sorted(records, key=lambda r: r.id))
 
 
 def _parse_channel_block(
-    channels: object, catalogue: tuple[CatalogueLayer, ...], report: Callable[[Notice], None]
+    channels: object, catalogue: tuple[CatalogueChannel, ...], report: Callable[[Notice], None]
 ) -> tuple[ChannelRecord, ...]:
     """Parse a board's Channels block: a mapping from catalogue key to its row.
 
@@ -1085,7 +1088,7 @@ def _parse_channel_block(
     if not isinstance(channels, dict):
         report(ChannelBlockUnusableNotice(f'its Channels is a {type(channels).__name__}'))
         return ()
-    by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
+    by_key = {record.key: (position, record) for position, record in enumerate(catalogue)}
     records, skipped = [], {}
     for key_name, row in channels.items():
         if key_name not in by_key:
@@ -1109,18 +1112,18 @@ def _parse_channel_block(
     return tuple(sorted(records, key=lambda r: r.id))
 
 
-def resolve_layer_identity(
+def resolve_channel_identity(
     *,
     board_block: dict | None,
     board_config_read_ok: bool,
     motor_model: str | None,
     configured_model: str | None,
     models: Mapping[str, ScopeModel],
-    catalogue: tuple[CatalogueLayer, ...],
+    catalogue: tuple[CatalogueChannel, ...],
     report: Callable[[Notice], None],
     override_model: str | None = None,
 ) -> ChannelIdentity:
-    """Resolve the unit's layer identity from the first authoritative source.
+    """Resolve the unit's channel identity from the first authoritative source.
 
     Precedence: an explicit `override_model` (a lab/engineering request
     to impersonate a model for this session -- it wins over everything,
@@ -1144,8 +1147,8 @@ def resolve_layer_identity(
     the board block's skipped rows and an unusable block.
 
     Reads nothing: ``models`` is the scope's model catalogue and
-    ``catalogue`` the release's layer records, each read once by its
-    owner, so rows are resolved against the one vocabulary every layer
+    ``catalogue`` the release's channel records, each read once by its
+    owner, so rows are resolved against the one vocabulary every channel
     list in the process uses.
     """
 
@@ -1164,13 +1167,13 @@ def resolve_layer_identity(
 
     if override_model is not None:
         logger.warning(
-            f'[LAYER_RECORD] identity override active: resolving as model '
+            f'[CHANNEL_RECORD] identity override active: resolving as model '
             f'{override_model!r} for this session'
         )
         identity = _from_model(override_model)
         if identity.source == IdentitySource.UNRESOLVED:
             logger.error(
-                f'[LAYER_RECORD] override model {override_model!r} has no scopes '
+                f'[CHANNEL_RECORD] override model {override_model!r} has no scopes '
                 f'entry; identity is unresolved'
             )
         return identity
@@ -1183,19 +1186,19 @@ def resolve_layer_identity(
 
     board = board_block or {}
     if 'Channels' in board:
-        layers = _parse_channel_block(board['Channels'], catalogue, report)
+        channels = _parse_channel_block(board['Channels'], catalogue, report)
         filterset = board.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''
         return ChannelIdentity(
-            channels=layers, filterset=filterset, source=IdentitySource.MOTORCONFIG, model=model
+            channels=channels, filterset=filterset, source=IdentitySource.MOTORCONFIG, model=model
         )
     if 'Layers' in board or 'Filterset' in board:
         report(ChannelBlockSupersededNotice(model))
 
     if not board_config_read_ok:
         logger.error(
-            '[LAYER_RECORD] board config could not be read; a per-unit LED '
+            '[CHANNEL_RECORD] board config could not be read; a per-unit LED '
             'block may exist but is unavailable -- resolving from the model '
             'instead'
         )
@@ -1204,5 +1207,7 @@ def resolve_layer_identity(
         return UNRESOLVED
     identity = _from_model(model)
     if identity.source == IdentitySource.UNRESOLVED:
-        logger.error(f'[LAYER_RECORD] model {model!r} has no scopes entry; identity is unresolved')
+        logger.error(
+            f'[CHANNEL_RECORD] model {model!r} has no scopes entry; identity is unresolved'
+        )
     return identity

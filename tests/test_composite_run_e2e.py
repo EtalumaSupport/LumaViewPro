@@ -358,7 +358,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        import _lumascope.modules.layer_record as layer_record
+        import _lumascope.modules.channel_record as channel_record
         from _lumascope.modules.composite_builder import (
             CompositeChannel,
             TransmittedBase,
@@ -393,7 +393,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         bits = 8 if transmitted.dtype == np.uint8 else 12
         expected = build_composite(
             channels={
-                name: CompositeChannel(arr, layer_record.release_color(name), bits, None)
+                name: CompositeChannel(arr, channel_record.release_color(name), bits, None)
                 for name, arr in fluorescence.items()
             },
             transmitted=TransmittedBase(transmitted, bits, None),

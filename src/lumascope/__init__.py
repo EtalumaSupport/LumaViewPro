@@ -72,6 +72,17 @@ from _lumascope.modules.cell_count_method import (
     CellCountMethod,
     FilterBounds,
 )
+from _lumascope.modules.channel_record import (
+    Background,
+    ChannelIdentity,
+    ChannelRecord,
+    ChannelSliderMaxima,
+    IdentitySource,
+    LedBoardFamily,
+    Modality,
+    MotorBoardFamily,
+    ScopeModel,
+)
 from _lumascope.modules.config_helpers import (
     DisplayRates,
 )
@@ -240,17 +251,6 @@ from _lumascope.modules.image_utils import (
 )
 from _lumascope.modules.labware import (
     Labware,
-)
-from _lumascope.modules.layer_record import (
-    Background,
-    ChannelIdentity,
-    ChannelRecord,
-    ChannelSliderMaxima,
-    IdentitySource,
-    LedBoardFamily,
-    Modality,
-    MotorBoardFamily,
-    ScopeModel,
 )
 from _lumascope.modules.live_work import (
     LiveWork,

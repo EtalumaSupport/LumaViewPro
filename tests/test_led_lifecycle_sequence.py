@@ -64,7 +64,7 @@ from _lumascope.modules.executor_registry import session_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.objective_records import objective
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of

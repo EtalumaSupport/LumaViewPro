@@ -9,7 +9,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules import gui_logger
 from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
@@ -51,16 +51,16 @@ class ChannelDrawer(LoggedAccordionItem):
 _CHROME_LIGHTENING = 0.4
 
 
-def _lightened(color: layer_record.Color) -> layer_record.Color:
+def _lightened(color: channel_record.Color) -> channel_record.Color:
     return tuple(weight + (1.0 - weight) * _CHROME_LIGHTENING for weight in color)
 
 
-def _drawer_title(record: layer_record.ChannelRecord) -> str:
+def _drawer_title(record: channel_record.ChannelRecord) -> str:
     """A drawer's title: a fluorescence layer's label is a bare wavelength
     (``'488 nm'``), so its drawer says what that wavelength is; any other
     layer's label is already its name. The label itself is what files
     record, so only the title says more."""
-    if record.modality == layer_record.Modality.FLUORESCENCE:
+    if record.modality == channel_record.Modality.FLUORESCENCE:
         return f'{record.label} Excitation'
     return record.label
 
@@ -149,7 +149,7 @@ class ImageSettings(BoxLayout):
             control.illumination_support = bool(record.led_addresses)
             # Luminescence is long and dim: its exposure sums frames, and
             # the camera's auto gain is not offered for it.
-            luminescence = record.modality == layer_record.Modality.LUMINESCENCE
+            luminescence = record.modality == channel_record.Modality.LUMINESCENCE
             control.exposure_summing_support = luminescence
             control.autogain_support = not luminescence
         self._shown_layers = frozenset(records)

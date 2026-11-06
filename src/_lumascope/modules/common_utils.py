@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
-    from _lumascope.modules.layer_record import Modality
+    from _lumascope.modules.channel_record import Modality
 
     from _lumascope.modules.lumascope_api.illumination import LedReading
     from _lumascope.modules.scope_capabilities import FieldOfView, ScopeCapabilities
@@ -464,39 +464,39 @@ def get_layers() -> list[str]:
     vocabulary has exactly one source and a catalogue change cannot leave
     this list silently disagreeing with it.
     """
-    from _lumascope.modules.layer_record import release_catalogue
+    from _lumascope.modules.channel_record import release_catalogue
 
     return list(release_catalogue())
 
 
 def get_stored_channel_names() -> list[str]:
     """Every channel name a saved file may hold: the release's keys, then the
-    old names earlier releases stored (``layer_record.stored_channel_names``)."""
-    from _lumascope.modules.layer_record import stored_channel_names
+    old names earlier releases stored (``channel_record.stored_channel_names``)."""
+    from _lumascope.modules.channel_record import stored_channel_names
 
     return list(stored_channel_names())
 
 
 def _layers_of_modality(modality: 'Modality') -> list[str]:
-    from _lumascope.modules.layer_record import release_layers
+    from _lumascope.modules.channel_record import release_channels
 
-    return [layer.key for layer in release_layers() if layer.modality == modality]
+    return [layer.key for layer in release_channels() if layer.modality == modality]
 
 
 def get_transmitted_layers() -> list[str]:
-    from _lumascope.modules.layer_record import Modality
+    from _lumascope.modules.channel_record import Modality
 
     return _layers_of_modality(Modality.TRANSMITTED)
 
 
 def get_fluorescence_layers() -> list[str]:
-    from _lumascope.modules.layer_record import Modality
+    from _lumascope.modules.channel_record import Modality
 
     return _layers_of_modality(Modality.FLUORESCENCE)
 
 
 def get_luminescence_layers() -> list[str]:
-    from _lumascope.modules.layer_record import Modality
+    from _lumascope.modules.channel_record import Modality
 
     return _layers_of_modality(Modality.LUMINESCENCE)
 

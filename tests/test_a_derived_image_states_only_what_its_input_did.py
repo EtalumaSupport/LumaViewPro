@@ -23,7 +23,7 @@ import tifffile as tf
 from PIL import Image
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.layer_record import release_color, release_colors
+from _lumascope.modules.channel_record import release_color, release_colors
 from _lumascope.modules.stitcher import Stitcher
 from _lumascope.modules.zproject_method import ZProjectMethod
 from _lumascope.modules.zprojector import ZProjector

@@ -46,7 +46,7 @@ from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEn
 from tests.camera_fakes import delivered_frame
 from tests.frame_records import frame_record, plate
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1
 
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)

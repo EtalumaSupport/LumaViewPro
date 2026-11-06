@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from _lumascope.modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids

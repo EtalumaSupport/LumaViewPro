@@ -32,7 +32,7 @@ from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.labware_loader import WellPlateLoader
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import ChannelSettings, Protocol, ProtocolFormatError
 from _lumascope.modules.run_events import RunEvents
@@ -51,7 +51,7 @@ from tests.protocol_drives import (
 from tests.scope_fakes import configure_turret_like_bringup, measure_delivery_like_a_session
 from _lumascope.modules.acquire_mode import AcquireMode
 from unittest.mock import MagicMock
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_from_file, protocol_of

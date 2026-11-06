@@ -30,7 +30,7 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules.image_utils import write_tiff
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED2
 
 

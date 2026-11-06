@@ -29,7 +29,7 @@ from _lumascope.modules import image_utils
 from _lumascope.modules.cell_count_method import CellCountMethod
 import ui.post_processing as panel_module
 from _lumascope.modules.exceptions import PostProcessingRefusedError
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.lumascope_api.frame_record import TimestampSource
 from _lumascope.modules.post_processing import (
     PostProcessing,

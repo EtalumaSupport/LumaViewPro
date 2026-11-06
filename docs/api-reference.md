@@ -865,7 +865,7 @@ release's, so a folder captured on another unit still has one.
 
 **Raises**
 
-- `InstallationFileError`: the installation's `scopes.json` is unusable (`layer_record.release_layers`).
+- `InstallationFileError`: the installation's `scopes.json` is unusable (`channel_record.release_channels`).
 
 **Refusals by REST status**
 
@@ -9633,14 +9633,14 @@ def find(self, key_name: str) -> ChannelRecord | None
 
 Marks: in-process; reads (changes nothing).
 
-Return the layer whose stable key name matches, else None.
+Return the channel whose stable key name matches, else None.
 
 The deserialisation boundary: a name arriving from disk or from
 an API caller is mapped to its record exactly once, here.
 
 **Args**
 
-- `key_name`: The layer's stable key name, such as `'BF'` or `'Ex488'`.
+- `key_name`: The channel's stable key name, such as `'BF'` or `'Ex488'`.
 
 **Raises**
 
@@ -9655,23 +9655,23 @@ def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> Non
 
 Marks: in-process.
 
-Refuse `channel` unless it is a layer of this release and this unit has it.
+Refuse `channel` unless it is a channel of this release and this unit has it.
 
-The one question for a command that takes a layer: its settings,
+The one question for a command that takes a channel: its settings,
 its focus, a still or a recording named for it. The name first
-(`refuse_unknown_layer`), so a name that is no layer is never
+(`refuse_unknown_channel`), so a name that is no channel is never
 told it is missing hardware.
 
 **Args**
 
-- `channel`: The layer's key name the command was given.
+- `channel`: The channel's key name the command was given.
 - `member`: The name of the command asking, which the hardware refusal names as the command refused.
-- `then`: What the command would have the layer do, as words completing "so &lt;channel> cannot ...", such as `'be captured'`; the unresolved refusal's message ends with it.
+- `then`: What the command would have the channel do, as words completing "so &lt;channel> cannot ...", such as `'be captured'`; the unresolved refusal's message ends with it.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the layer (`MissingPart.layer`).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`MissingPart.layer`).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this unit's channels could not be resolved, so `channel` cannot `then`.
 
 **Refusals**
@@ -9687,7 +9687,7 @@ A record: it crosses the wire as its data.
 Returned by: [`ChannelIdentity.find`](#ChannelIdentity.find).  
 Held in: [`ChannelIdentity.channels`](#ChannelIdentity.channels), [`ScopeModel.channels`](#ScopeModel.channels).
 
-Identity of one layer on one unit.
+Identity of one channel on one unit.
 
 `id` is the internal key and the display position -- assigned from
 the release catalogue's order, never persisted to any per-unit or
@@ -9695,17 +9695,17 @@ user file, so it can renumber freely between releases.
 
 `key_name` is the stable serialisation name (settings block keys,
 protocol TSV `Color`, filename tokens, metadata `channel`). It never
-changes when a layer is renamed.
+changes when a channel is renamed.
 
-`display_name` is the unit's name for the layer. Freely changeable: a
+`display_name` is the unit's name for the channel. Freely changeable: a
 rename touches this field and nothing persisted. None for a
 fluorescence channel a board's Channels block names by its excitation
 alone.
 
-`led_addresses` is the LED board address(es) this layer drives, empty
-for a layer with no LED (luminescence). A tuple rather than a single
+`led_addresses` is the LED board address(es) this channel drives, empty
+for a channel with no LED (luminescence). A tuple rather than a single
 value because a future channel (quantitative phase) drives several
-switches as one layer; today every shipped row carries zero or one.
+switches as one channel; today every shipped row carries zero or one.
 A row in a model's file names them `led_channel`, read into this
 field by the one row reader.
 
@@ -9713,14 +9713,14 @@ field by the one row reader.
 holds, since an ambiguous "wavelength" invites silently wrong
 metadata -- and the number a fluorescence key names (`Ex<nm>`).
 None is the truth for broadband transmitted light and for LED-less
-layers.
+channels.
 
-`modality` and `background` are the layer's catalogue record's
-(`CatalogueLayer`). `display_color` is the unit's colour for the layer:
+`modality` and `background` are the channel's catalogue record's
+(`CatalogueChannel`). `display_color` is the unit's colour for the channel:
 its board block row's, else the catalogue record's.
 
-`label` is what the layer is called wherever it is shown or written:
-a fluorescence layer's excitation (`'405 nm'`), any other layer's
+`label` is what the channel is called wherever it is shown or written:
+a fluorescence channel's excitation (`'405 nm'`), any other channel's
 `display_name`.
 
 **Fields**
@@ -9764,9 +9764,9 @@ the channel's control keeps what it holds.
 A record: it crosses the wire as its data.  
 Returned by: [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima).
 
-Where one layer's manual sliders stop: display hints, never a bound.
+Where one channel's manual sliders stop: display hints, never a bound.
 
-Each is the connected part's cap narrowed to the layer's manual ceiling,
+Each is the connected part's cap narrowed to the channel's manual ceiling,
 so the brightfield slider stops at a useful range while a typed value
 still reaches past it, up to what the camera or the LED board can be
 asked for. A value above that limit is refused by its writer
@@ -9776,7 +9776,7 @@ never by this record.
 **Fields**
 
 - <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected.
-- <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a layer with no LED on this scope (luminescence).
+- <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a channel with no LED on this scope (luminescence).
 
 <a id="ClockMapping"></a>
 ## `lumascope.ClockMapping`
@@ -12415,7 +12415,7 @@ One model of the installation's catalogue (`scopes.json`'s `Models`), read once 
 `id` is the model's name, the key the operator selects and a board
 reports. `has_focus`, `has_xy_stage` and `has_turret` are the motor
 axes the model is built with: Z, X and Y, T. `channels` are the model's
-channel rows, resolved against the release's layer vocabulary: what a unit
+channel rows, resolved against the release's channel vocabulary: what a unit
 of the model has when its board carries no Channels block of its own.
 `led_board` and `motor_board` name the model's boards, `motor_board`
 None for a model with no motor axes; production finds the boards it has
@@ -13296,7 +13296,7 @@ Possible states for a motion axis.
 
 Held in: [`ChannelRecord.background`](#ChannelRecord.background).
 
-What a layer's field of view looks like, which is not its modality's:
+What a channel's field of view looks like, which is not its modality's:
 darkfield is transmitted light on a dark field.
 
 - `bright`
@@ -13621,7 +13621,7 @@ ON_ARRIVAL: as the frame arrived from the camera (a recorded frame):
 
 Held in: [`ChannelRecord.modality`](#ChannelRecord.modality).
 
-The kind of light a layer images.
+The kind of light a channel images.
 
 - `transmitted`
 - `fluorescence`

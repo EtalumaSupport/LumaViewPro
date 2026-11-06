@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.composite_builder import (
     CompositeChannel,
     TransmittedBase,
@@ -30,14 +30,14 @@ from _lumascope.modules.composite_builder import (
 )
 from _lumascope.modules.composite_generation import CompositeGeneration
 from _lumascope.modules.exceptions import ConfigError
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED2
 
 
 def _in_release_colours(images):
     """Each image as an 8-bit composite channel in its layer's release colour."""
     return {
-        key: CompositeChannel(image, layer_record.release_color(key), 8, None)
+        key: CompositeChannel(image, channel_record.release_color(key), 8, None)
         for key, image in images.items()
     }
 

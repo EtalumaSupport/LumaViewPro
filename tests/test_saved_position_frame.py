@@ -24,7 +24,7 @@ import pytest
 import _lumascope.modules.image_save as image_save
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 PLATE_X_MM = 15.38
 PLATE_Y_MM = 11.24

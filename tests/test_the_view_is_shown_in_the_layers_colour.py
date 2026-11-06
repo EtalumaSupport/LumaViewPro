@@ -5,7 +5,7 @@
 the view's white times the colour's weight on that plane, so a colour that
 is not a primary shows as itself, and the record of the view's colour is
 the colour's ``'#rrggbb'`` text. A layer's drawer passes its layer's shown
-colour (``layer_record.shown_color``): its display colour with false colour
+colour (``channel_record.shown_color``): its display colour with false colour
 on, grey with it off; the bullseye shows grey.
 """
 
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import _lumascope.modules.app_context as _app_ctx
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.scope_session import ShownChannel
 from ui.layer_control import LayerControl
 from ui.microscope_settings import MicroscopeSettings
@@ -36,10 +36,10 @@ def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
     shown = []
     with caplog.at_level(logging.DEBUG, logger='LVP.gui_interactions'):
         for color in (
-            layer_record.parse_display_color('#0000ff'),
-            layer_record.GREY,
-            layer_record.parse_display_color('#ff00ff'),
-            layer_record.parse_display_color('#ff8000'),
+            channel_record.parse_display_color('#0000ff'),
+            channel_record.GREY,
+            channel_record.parse_display_color('#ff00ff'),
+            channel_record.parse_display_color('#ff8000'),
         ):
             view = _view()
             ShaderViewer.update_shader(view, color)
@@ -62,7 +62,7 @@ def viewer(monkeypatch):
         _app_ctx,
         'ctx',
         SimpleNamespace(
-            viewer=viewer, session=SimpleNamespace(channel_colors=layer_record.release_colors)
+            viewer=viewer, session=SimpleNamespace(channel_colors=channel_record.release_colors)
         ),
     )
     return viewer
@@ -72,8 +72,8 @@ def viewer(monkeypatch):
     ('layer', 'false_color', 'shown'),
     [
         (LED0, True, (0.0, 0.0, 1.0)),
-        (LED0, False, layer_record.GREY),
-        ('BF', True, layer_record.GREY),
+        (LED0, False, channel_record.GREY),
+        ('BF', True, channel_record.GREY),
     ],
 )
 def test_a_drawer_shows_its_layers_colour_with_false_colour_on_and_grey_off(
@@ -95,7 +95,7 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
         scope_display=SimpleNamespace(use_bullseye=False),
         session=SimpleNamespace(
             shown_channel=ShownChannel(LED2, lit=False),
-            channel_colors=layer_record.release_colors,
+            channel_colors=channel_record.release_colors,
         ),
         image_settings=SimpleNamespace(layer_lookup=lambda layer: {LED2: shown_layer}[layer]),
     )
@@ -104,7 +104,7 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
     panel = SimpleNamespace(ids={'enable_bullseye_btn_id': button})
 
     MicroscopeSettings.update_bullseye_state(panel)
-    assert viewer.update_shader.call_args_list == [((layer_record.GREY,),)]
+    assert viewer.update_shader.call_args_list == [((channel_record.GREY,),)]
     assert ctx.scope_display.use_bullseye is True
 
     button.state = 'normal'

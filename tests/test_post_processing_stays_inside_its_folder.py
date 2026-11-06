@@ -19,8 +19,8 @@ from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import PostProcessingRefusedError
 from _lumascope.modules.zprojector import ZProjector
 from tests.installation_fixtures import shipped_grids
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 
 _COLUMNS = [

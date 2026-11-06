@@ -67,7 +67,7 @@ from _lumascope.modules.scope_session import ScopeSession
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 install_mock_deps()
 

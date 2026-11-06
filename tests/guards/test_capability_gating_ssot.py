@@ -17,7 +17,7 @@ import ast
 
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
-from _lumascope.modules.layer_record import UNRESOLVED
+from _lumascope.modules.channel_record import UNRESOLVED
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import REPO_ROOT, Words, tracked_files
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS

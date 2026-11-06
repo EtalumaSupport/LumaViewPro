@@ -23,7 +23,7 @@ from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.lumascope_api.frame_record import SettingSource
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from tests.frame_records import frame_record, plate
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 
 
 LIVE_EXPOSURE_MS = 33.0

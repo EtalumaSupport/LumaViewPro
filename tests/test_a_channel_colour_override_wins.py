@@ -11,7 +11,7 @@ cannot use as a colour is refused where it is written, never stored.
 import pytest
 import tifffile
 
-from _lumascope.modules import layer_record
+from _lumascope.modules import channel_record
 from _lumascope.modules.exceptions import SettingRefusedError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -32,7 +32,7 @@ def session(tmp_path):
 
 
 def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(session):
-    release = layer_record.release_colors()
+    release = channel_record.release_colors()
 
     session.update_settings(f'{LED2}.display_color', MAGENTA)
     overridden = session.channel_colors()
@@ -45,7 +45,7 @@ def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(sess
 def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(session):
     # The board's own Channels block colours LED 0's channel cyan; a layer the block
     # leaves out keeps the release's colour, and the override wins over both.
-    release = layer_record.release_colors()
+    release = channel_record.release_colors()
     session.scope._motion_driver.motorconfig.update_from_board(
         {'Channels': {LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
     )

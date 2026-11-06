@@ -786,7 +786,7 @@ class TestScopeCapabilities:
         assert (caps.camera_sensor, caps.camera_shutter) == (None, None)
 
     def test_with_no_camera_the_datasheet_facts_are_unknown(self):
-        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.channel_record import UNRESOLVED
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
@@ -843,7 +843,7 @@ class TestScopeCapabilities:
         assert scope.capabilities.has_turret is False
 
     def test_null_motor_capabilities_empty_axes(self):
-        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.channel_record import UNRESOLVED
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
@@ -862,7 +862,7 @@ class TestScopeCapabilities:
     def test_a_scope_without_its_led_board_reports_no_channels_or_cap(self):
         """The null board's stand-in table is not the scope's: a scope that
         came up without its LED board reports no channels and no cap."""
-        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.channel_record import UNRESOLVED
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
@@ -878,10 +878,10 @@ class TestScopeCapabilities:
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""
-        from _lumascope.modules.layer_record import (
+        from _lumascope.modules.channel_record import (
             load_scope_models,
-            release_layers,
-            resolve_layer_identity,
+            release_channels,
+            resolve_channel_identity,
         )
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
         from tests.scope_fakes import refuse_a_report
@@ -894,13 +894,13 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=FourChannelLED(),
             camera=None,
-            channel_identity=resolve_layer_identity(
+            channel_identity=resolve_channel_identity(
                 board_block=None,
                 board_config_read_ok=True,
                 motor_model=None,
                 configured_model='LS620',
                 models=load_scope_models(),
-                catalogue=release_layers(),
+                catalogue=release_channels(),
                 report=refuse_a_report,
             ),
             scope_models=load_scope_models(),

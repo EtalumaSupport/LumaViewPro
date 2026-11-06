@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 import _lumascope.modules.binning as binning
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 
 
 @dataclass
@@ -67,10 +67,10 @@ class ScopeInitConfig:
         """
         acceleration_pct = settings['motion']['acceleration_max_pct']
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
-        expects_motion = layer_record.entry_expects_motion(scope_config)
+        expects_motion = channel_record.entry_expects_motion(scope_config)
         if (
             channel_identity is None
-            or channel_identity.source == layer_record.IdentitySource.UNRESOLVED
+            or channel_identity.source == channel_record.IdentitySource.UNRESOLVED
         ):
             expects_led = True
         else:

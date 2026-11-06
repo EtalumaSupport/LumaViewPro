@@ -45,7 +45,7 @@ from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1

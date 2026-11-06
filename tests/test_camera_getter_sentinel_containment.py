@@ -66,7 +66,7 @@ from tests.scope_fakes import (
     give_camera_capabilities,
     give_stub_lanes,
 )
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
 

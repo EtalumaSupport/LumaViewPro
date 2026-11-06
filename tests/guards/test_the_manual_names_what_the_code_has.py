@@ -29,7 +29,7 @@ import urllib.parse
 
 from PIL import Image
 
-from _lumascope.modules.layer_record import load_scope_models
+from _lumascope.modules.channel_record import load_scope_models
 from _lumascope.modules.settings_paths import _RANGES
 from tests.ast_seams import REPO_ROOT, tracked_files
 from ui.image_settings import _drawer_title

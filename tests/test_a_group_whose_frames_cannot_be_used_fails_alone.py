@@ -35,8 +35,8 @@ from _lumascope.modules.stitcher import Stitcher
 from _lumascope.modules.video_builder import VideoBuilder
 from _lumascope.modules.zprojector import ZProjector
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids

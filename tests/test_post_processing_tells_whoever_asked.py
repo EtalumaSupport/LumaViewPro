@@ -37,7 +37,7 @@ from _lumascope.modules.notification_center import NotificationCenter, Severity,
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from tests.installation_fixtures import shipped_grids
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 class _Processor(ProtocolPostProcessor):

@@ -23,7 +23,7 @@ import tifffile as tf
 
 from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import bind_settings_like_a_session
-from _lumascope.modules.layer_record import release_catalogue, release_colors
+from _lumascope.modules.channel_record import release_catalogue, release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 

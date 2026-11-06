@@ -237,7 +237,7 @@ def capabilities_of(camera=None, led=_NO_LED_BOARD):
     LED driver is given (no LED board otherwise)."""
     from _lumascope.drivers.null_ledboard import NullLEDBoard
     from _lumascope.drivers.null_motorboard import NullMotionBoard
-    from _lumascope.modules.layer_record import UNRESOLVED
+    from _lumascope.modules.channel_record import UNRESOLVED
     from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
     return ScopeCapabilities.from_drivers(
@@ -664,10 +664,10 @@ def identity_with_layers(keys, *, model=None, filterset=''):
     own block is, against the shipped release catalogue: every record
     carries the fields the production resolver fills.
     """
-    from _lumascope.modules import layer_record
+    from _lumascope.modules import channel_record
 
     shipped = {}
-    for entry in layer_record.load_scope_models().values():
+    for entry in channel_record.load_scope_models().values():
         for record in entry.channels:
             shipped.setdefault(record.key_name, record)
     channels = {
@@ -678,13 +678,13 @@ def identity_with_layers(keys, *, model=None, filterset=''):
         }
         for key in keys
     }
-    return layer_record.resolve_layer_identity(
+    return channel_record.resolve_channel_identity(
         board_block={'Channels': channels, 'Filterset': filterset},
         board_config_read_ok=True,
         motor_model=model,
         configured_model=None,
         models={},
-        catalogue=layer_record.release_layers(),
+        catalogue=channel_record.release_channels(),
         report=refuse_a_report,
     )
 
@@ -696,15 +696,15 @@ def stock_unit():
     the unit: each channel name the file holds is read as this unit's key
     for it (``Protocol.from_file``'s ``unit``).
     """
-    from _lumascope.modules import layer_record
+    from _lumascope.modules import channel_record
 
-    return layer_record.resolve_layer_identity(
+    return channel_record.resolve_channel_identity(
         board_block=None,
         board_config_read_ok=True,
         motor_model='LS850',
         configured_model=None,
-        models=layer_record.load_scope_models(),
-        catalogue=layer_record.release_layers(),
+        models=channel_record.load_scope_models(),
+        catalogue=channel_record.release_channels(),
         report=refuse_a_report,
     )
 

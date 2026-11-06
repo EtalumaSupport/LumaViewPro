@@ -33,8 +33,8 @@ import tifffile as tf
 
 from _lumascope.modules import image_utils
 from _lumascope.modules.stack_builder import StackBuilder
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 

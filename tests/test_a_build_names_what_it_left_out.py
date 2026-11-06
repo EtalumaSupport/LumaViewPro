@@ -28,7 +28,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED0, LED1
 
 _COLUMNS = [

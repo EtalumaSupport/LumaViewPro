@@ -51,7 +51,7 @@ from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.executor_registry import session_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.protocol_fixtures import protocol_of
 
 

@@ -27,13 +27,13 @@ from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 class TestScopeModelsCatalogue:
     def test_the_shipped_catalogue_loads_its_models(self):
-        from _lumascope.modules.layer_record import load_scope_models
+        from _lumascope.modules.channel_record import load_scope_models
 
         models = load_scope_models()
         assert models['LS850T'].has_turret is True
 
     def test_a_file_without_a_models_section_refuses_by_name(self, tmp_path):
-        from _lumascope.modules.layer_record import load_scope_models
+        from _lumascope.modules.channel_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Layers': []}))
@@ -42,7 +42,7 @@ class TestScopeModelsCatalogue:
         assert info.value.file_path == path
 
     def test_a_models_section_that_is_not_a_dict_refuses(self, tmp_path):
-        from _lumascope.modules.layer_record import load_scope_models
+        from _lumascope.modules.channel_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Models': ['LS850T']}))
@@ -50,7 +50,7 @@ class TestScopeModelsCatalogue:
             load_scope_models(str(path))
 
     def test_an_unreadable_file_refuses_instead_of_returning_empty(self, tmp_path):
-        from _lumascope.modules.layer_record import load_scope_models
+        from _lumascope.modules.channel_record import load_scope_models
 
         with pytest.raises(InstallationFileError):
             load_scope_models(str(tmp_path / 'missing.json'))

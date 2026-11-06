@@ -5,7 +5,7 @@ import contextlib
 import pathlib
 from collections.abc import Iterator
 
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.post_processing_api import PostProcessingAPI
 from _lumascope.modules.executor_registry import session_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor

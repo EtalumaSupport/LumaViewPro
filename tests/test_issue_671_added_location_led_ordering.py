@@ -51,7 +51,7 @@ import pytest
 
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.image_mode import ImageCaptureConfig
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.run_events import RunEvents

@@ -30,7 +30,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.image_utils import ImageStatistics
-from _lumascope.modules.layer_record import ChannelColors
+from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.lumascope_api.camera import ChannelCameraRequest
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord
 from _lumascope.modules.lumascope_api.illumination import lit_other_than

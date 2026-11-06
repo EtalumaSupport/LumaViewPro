@@ -38,7 +38,7 @@ from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.drivers.simulated_specimen import NOMINAL_UM_PER_PX, Slide
 from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules import common_utils
-from _lumascope.modules.layer_record import SIM_LIGHT_MAGNIFICATION
+from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now

@@ -38,7 +38,7 @@ from _lumascope.modules.exceptions import (
     RunWriteRefusedError,
 )
 from _lumascope.modules.image_save import save_image
-from _lumascope.modules.layer_record import ChannelColors
+from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.lumascope_api.bring_up import Part
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import Protocol

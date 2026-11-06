@@ -28,7 +28,7 @@ from _lumascope.modules.cell_count_method import (
     saved_form,
 )
 from _lumascope.modules.post_processing import PostProcessing, load_cell_count_method
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED1
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)

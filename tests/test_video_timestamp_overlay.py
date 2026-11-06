@@ -15,7 +15,7 @@ from typing import ClassVar
 import pytest
 
 import _lumascope.modules.protocol_recording as protocol_recording
-from _lumascope.modules.layer_record import GREY, release_color
+from _lumascope.modules.channel_record import GREY, release_color
 from tests.stock_channels import LED0
 from tests.video_step_drives import ElapsedClock, video_step_on
 

@@ -28,8 +28,8 @@ sys.path.insert(0, str(REPO))
 
 from _lumascope.modules import image_utils
 from tests.frame_records import frame_record, plate
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 

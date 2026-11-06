@@ -7,9 +7,9 @@ import pathlib
 import pandas as pd
 
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
-from _lumascope.modules.layer_record import GREY, ChannelColors
+from _lumascope.modules.channel_record import GREY, ChannelColors
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
@@ -68,7 +68,7 @@ class VideoBuilder(ProtocolPostProcessor):
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         # A video's frames are drawn at its rate, with or without the time
         # stamped on them, in its layer's colour.
-        color = layer_record.output_color(group.iloc[0]['Color'], kwargs['channel_colors'])
+        color = channel_record.output_color(group.iloc[0]['Color'], kwargs['channel_colors'])
         return post_derivation.Step(
             PostFunction.VIDEO,
             (
@@ -267,7 +267,7 @@ class VideoBuilder(ProtocolPostProcessor):
         # when it was recorded with false color off, which is grey too, and a
         # group of composites is their own RGB.
         layer = df.iloc[0]['Color'] if 'Color' in df.columns else None
-        layer_color = GREY if layer is None else layer_record.output_color(layer, channel_colors)
+        layer_color = GREY if layer is None else channel_record.output_color(layer, channel_colors)
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
@@ -410,7 +410,7 @@ class VideoBuilder(ProtocolPostProcessor):
         if not tiff_paths:
             raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
 
-        writer_color = layer_record.output_color(color, channel_colors) if false_color else GREY
+        writer_color = channel_record.output_color(color, channel_colors) if false_color else GREY
         writer = VideoWriter(
             output_path=output_file,
             fps=fps,

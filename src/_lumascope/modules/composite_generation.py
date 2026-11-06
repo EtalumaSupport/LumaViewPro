@@ -14,9 +14,9 @@ from _lumascope.modules.composite_builder import (
 )
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
-from _lumascope.modules.layer_record import GREY
+from _lumascope.modules.channel_record import GREY
 from _lumascope.modules.common_utils import PostFunction
 from _lumascope.modules.exceptions import ConfigurationDefectError
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
@@ -82,7 +82,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         for layer in sorted(set(group['Color']) - set(transmitted)):
             # Named as the run stored it; an old name's colour and threshold
             # are its stock key's.
-            key = layer_record.stored_key(layer)
+            key = channel_record.stored_key(layer)
             settings.append(
                 (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][key]))
             )
@@ -220,7 +220,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         brightness_thresholds_percent: dict,
         output_file_loc: pathlib.Path | None = None,
         *,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
     ):
         """Merge one group's per-channel frames into a single composite.
 
@@ -244,7 +244,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # Every layer is read by the key it reads as -- its kind, colour and
         # threshold -- so an old run's colour names build as their stock keys.
         # Nothing below writes a layer's name.
-        df = df.assign(Color=df['Color'].map(layer_record.stored_key))
+        df = df.assign(Color=df['Color'].map(channel_record.stored_key))
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
         allowed_layers = [

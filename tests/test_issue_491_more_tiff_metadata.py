@@ -38,7 +38,7 @@ import datetime
 import numpy as np
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.ome_schema import OME, q, valid_description
 
 

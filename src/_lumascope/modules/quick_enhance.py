@@ -20,7 +20,7 @@ import numpy as np
 
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, wall_time
-from _lumascope.modules.layer_record import GREY, ChannelColors, Color, stored_key
+from _lumascope.modules.channel_record import GREY, ChannelColors, Color, stored_key
 from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,

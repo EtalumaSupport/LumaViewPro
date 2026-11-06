@@ -8,7 +8,7 @@ lights, sets or names one of a stock unit's fluorescence channels takes its
 key from here, so it follows the catalogue rather than restating it.
 """
 
-from _lumascope.modules.layer_record import release_old_names
+from _lumascope.modules.channel_record import release_old_names
 
 
 def _stock_key(address: int) -> str:

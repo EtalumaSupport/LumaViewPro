@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import _lumascope.modules.app_context as _app_ctx
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from _lumascope.modules.lumascope_api.camera import AppliedExposure, AppliedGain, cap_stored_value
 from _lumascope.modules.scope_session import ShownChannel
 from tests.stock_channels import LED0, LED1, LED2

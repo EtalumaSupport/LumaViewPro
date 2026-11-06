@@ -124,8 +124,8 @@ def test_a_retired_type_is_caught_where_it_is_defined_or_imported():
     tree = ast.parse(
         'class LayerIdentity:\n'
         '    pass\n'
-        'from _lumascope.modules.layer_record import LayerRecord\n'
-        'from _lumascope.modules.layer_record import ChannelRecord as LayerRecord\n'
+        'from _lumascope.modules.channel_record import LayerRecord\n'
+        'from _lumascope.modules.channel_record import ChannelRecord as LayerRecord\n'
     )
     assert _retired_identifier_hits(tree) == [
         (1, 'LayerIdentity'),
@@ -161,7 +161,7 @@ def test_the_unit_string_is_untouched():
     import numpy as np
 
     from _lumascope.modules import image_utils
-    from _lumascope.modules.layer_record import GREY
+    from _lumascope.modules.channel_record import GREY
 
     plane = image_utils.generate_tiff_data(
         data=np.zeros((4, 4), dtype=np.uint8),

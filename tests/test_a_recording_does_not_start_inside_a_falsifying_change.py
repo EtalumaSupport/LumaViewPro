@@ -34,7 +34,7 @@ from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import run_identity
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 _WAIT_S = 2.0
 

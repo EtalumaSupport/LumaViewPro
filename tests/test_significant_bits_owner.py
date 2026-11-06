@@ -27,7 +27,7 @@ import pytest
 from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import FrameDepthError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
 

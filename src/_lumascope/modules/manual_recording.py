@@ -37,7 +37,7 @@ from _lumascope.drivers.camera import Frame
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_save as image_save
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.lvp_logger import logger, version as lvp_version
@@ -194,7 +194,7 @@ class ManualRecordingController:
         scope: Any,
         settings_snapshot: Callable[[], dict],
         shown_channel: Callable[[], str],
-        channel_colors: Callable[[], layer_record.ChannelColors],
+        channel_colors: Callable[[], channel_record.ChannelColors],
         activity_claim: Any,
         scheduler: Scheduler,
         post_processing: 'PostProcessingAPI',
@@ -640,7 +640,9 @@ class ManualRecordingController:
                     height=claimed['frame_size'].height,
                     # Rendering: grey keeps the encoder gray, which is what a
                     # recording with the toggle off must produce.
-                    color=layer_record.shown_color(plan.layer, false_color_on, plan.channel_colors),
+                    color=channel_record.shown_color(
+                        plan.layer, false_color_on, plan.channel_colors
+                    ),
                     include_timestamp_overlay=config.timestamp_overlay,
                     vfr=True,
                 )
@@ -1263,7 +1265,7 @@ class _RecordingPlan:
     false_color_on: bool
     # Every layer's colour as the recording began: each frame is coloured
     # as the channel that lit it, so one colour would not do.
-    channel_colors: layer_record.ChannelColors
+    channel_colors: channel_record.ChannelColors
     save_encoding: str
     capture_depth: int
     # The camera facts every frame shares, read at start(); None when the

@@ -18,7 +18,7 @@ import numpy as np
 import tifffile as tf
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.layer_record import GREY, release_color
+from _lumascope.modules.channel_record import GREY, release_color
 from tests.ome_schema import q, schema_errors, valid_description
 
 _RECORD = {

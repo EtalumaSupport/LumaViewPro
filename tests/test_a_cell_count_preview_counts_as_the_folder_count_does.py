@@ -23,7 +23,7 @@ import ui.post_processing as panel_module
 from _lumascope.modules import image_utils
 from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 from _lumascope.modules.exceptions import PostProcessingRefusedError
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.post_processing import read_cell_count_image
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings

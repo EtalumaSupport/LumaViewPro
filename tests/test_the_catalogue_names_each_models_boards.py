@@ -25,13 +25,13 @@ from _lumascope.drivers.simulated_camera import SimulatedStall
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.drivers.tmcm6110 import Tmcm6110Board
-from _lumascope.modules import layer_record
+from _lumascope.modules import channel_record
 from _lumascope.modules.exceptions import ArgumentRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope
 from tests.case_walk import failing_cases
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
-MODELS = layer_record.load_scope_models()
+MODELS = channel_record.load_scope_models()
 
 
 def _folder(tmp_path, model, mutate) -> pathlib.Path:
@@ -49,7 +49,7 @@ def _scope(model, **kwargs):
 
 def test_every_row_names_a_motor_board_exactly_when_it_has_axes():
     def check(model):
-        has_axes = bool(layer_record.model_axes(MODELS, model))
+        has_axes = bool(channel_record.model_axes(MODELS, model))
         assert (MODELS[model].motor_board is not None) == has_axes
 
     failed = failing_cases(sorted(MODELS), check)

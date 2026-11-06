@@ -14,7 +14,7 @@ import numpy as np
 
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.wall_time as wall_time
-from _lumascope.modules.layer_record import GREY, Color
+from _lumascope.modules.channel_record import GREY, Color
 from _lumascope.lvp_logger import logger
 
 
@@ -71,7 +71,7 @@ class VideoWriter:
                 timing.
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
-            color: The colour mono frames are shown in (``layer_record.Color``).
+            color: The colour mono frames are shown in (``channel_record.Color``).
                 ``GREY`` encodes grayscale (gray pixfmt).
             include_timestamp_overlay: Overlay frame timestamps via image_utils.
             vfr: Variable-frame-rate timing: each frame's presentation

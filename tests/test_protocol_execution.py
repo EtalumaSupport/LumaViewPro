@@ -51,7 +51,7 @@ from tests.scope_fakes import (
     configure_turret_like_bringup,
     swap_lanes,
 )
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
 

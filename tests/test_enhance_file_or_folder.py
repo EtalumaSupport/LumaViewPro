@@ -3,8 +3,8 @@
 import datetime
 import ast
 from pathlib import Path
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 
 
 REPO = Path(__file__).resolve().parents[1]

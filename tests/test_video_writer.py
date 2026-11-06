@@ -14,8 +14,8 @@ import pytest
 
 import _lumascope.modules.video_writer as video_writer_module
 from _lumascope.modules.video_writer import VideoWriter
-from _lumascope.modules.layer_record import GREY, release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED2
 from tests.video_step_drives import record_first_frame
 

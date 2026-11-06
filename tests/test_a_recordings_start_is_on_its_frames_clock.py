@@ -23,7 +23,7 @@ import time
 import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.image_utils import read_file_record, stated_frame_time
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.run_events import RunEvents, VideoPhase
 from tests.scope_fakes import bind_settings_like_a_session

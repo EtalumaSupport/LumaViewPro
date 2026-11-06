@@ -23,7 +23,7 @@ import _lumascope.modules.autofocus_functions as autofocus_functions
 import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.notification_center import NotificationCenter, Severity
 from _lumascope.modules.protocol import Protocol

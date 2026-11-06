@@ -14,7 +14,7 @@ import pytest
 
 from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
 from _lumascope.modules.labware_loader import WellPlateLoader
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import Protocol, ProtocolFormatError
 from tests.stock_channels import LED0

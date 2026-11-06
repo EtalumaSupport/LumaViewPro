@@ -19,7 +19,7 @@ import pytest
 
 from _lumascope.modules import post_derivation
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 def _frame_name(n):

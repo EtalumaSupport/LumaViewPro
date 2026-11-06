@@ -49,7 +49,7 @@ from _lumascope.modules.activity_claim import (
 )
 from _lumascope.modules.caller import Caller, current_caller
 from _lumascope.modules.autofocus_runner import AutofocusRunner
-from _lumascope.modules.layer_record import ChannelColors
+from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.coord_transformations import PlateLocation, StageOffset
 from _lumascope.modules.exceptions import (
     POST_PROCESSING_RUNNING_MESSAGE,

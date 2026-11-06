@@ -18,7 +18,7 @@ import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
-from _lumascope.modules.layer_record import load_scope_models, model_axes
+from _lumascope.modules.channel_record import load_scope_models, model_axes
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings

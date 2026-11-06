@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 
 _METADATA = {
     'pixel_size_um': 0.5,

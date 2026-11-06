@@ -23,7 +23,7 @@ from _lumascope.modules import post_derivation
 from _lumascope.modules import recording_frames, wall_time
 from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from _lumascope.modules.stack_builder import StackBuilder
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1, LED2
 

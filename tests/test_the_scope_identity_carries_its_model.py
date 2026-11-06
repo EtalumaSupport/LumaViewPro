@@ -16,7 +16,7 @@ selection is saved for the next start without touching the running scope.
 
 import pytest
 
-from _lumascope.modules import layer_record
+from _lumascope.modules import channel_record
 from _lumascope.modules.exceptions import Refusal
 from tests.scope_fakes import refuse_a_report
 from _lumascope.modules.scope_session import ScopeSession
@@ -30,12 +30,12 @@ def _resolve(**kwargs):
         'board_config_read_ok': True,
         'motor_model': None,
         'configured_model': None,
-        'models': layer_record.load_scope_models(),
-        'catalogue': layer_record.release_layers(),
+        'models': channel_record.load_scope_models(),
+        'catalogue': channel_record.release_channels(),
         'report': refuse_a_report,
     }
     args.update(kwargs)
-    return layer_record.resolve_layer_identity(**args)
+    return channel_record.resolve_channel_identity(**args)
 
 
 class TestEveryRungCarriesTheModel:
@@ -59,7 +59,7 @@ class TestEveryRungCarriesTheModel:
 
     def test_no_model_at_all_is_the_shared_unresolved_snapshot(self):
         identity = _resolve()
-        assert identity is layer_record.UNRESOLVED
+        assert identity is channel_record.UNRESOLVED
         assert identity.model is None
 
 

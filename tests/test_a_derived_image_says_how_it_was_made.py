@@ -26,7 +26,7 @@ import tifffile
 from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import PostProcessingFailedError
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
-from _lumascope.modules.layer_record import release_color, stored_key
+from _lumascope.modules.channel_record import release_color, stored_key
 from tests.stock_channels import LED0
 
 _COLUMNS = [

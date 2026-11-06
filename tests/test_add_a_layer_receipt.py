@@ -18,7 +18,7 @@ import json
 import pytest
 
 import _lumascope.modules.common_utils as common_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.image_save import generate_image_metadata
 from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
 from _lumascope.modules.protocol import Protocol
@@ -68,9 +68,9 @@ def added_layer_release(tmp_path, monkeypatch):
     path = tmp_path / 'scopes_fixture.json'
     path.write_text(json.dumps(data), encoding='utf-8')
     monkeypatch.setattr(
-        layer_record,
+        channel_record,
         '_CATALOGUE_CACHE',
-        layer_record.load_layer_catalogue(json.loads(path.read_text(encoding='utf-8')), path),
+        channel_record.load_channel_catalogue(json.loads(path.read_text(encoding='utf-8')), path),
     )
     return str(path)
 

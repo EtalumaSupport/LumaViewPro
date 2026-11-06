@@ -19,7 +19,7 @@ from _lumascope.modules import recording_frames
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1
 
 

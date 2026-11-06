@@ -25,7 +25,7 @@ import pytest
 from _lumascope.modules.image_mode import OutputFormat
 
 import _lumascope.modules.config_helpers as config_helpers
-from _lumascope.modules.layer_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalogue
 from tests.settings_fixtures import complete_settings
 from tests.objective_records import objective
 from _lumascope.modules.coord_transformations import PlateLocation

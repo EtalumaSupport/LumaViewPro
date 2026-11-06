@@ -697,7 +697,7 @@ from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
 from _lumascope.modules.protocol_runner import ProtocolRunner
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 class TestHeadlessSession:

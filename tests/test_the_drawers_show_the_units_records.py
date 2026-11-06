@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 import _lumascope.modules.app_context as _app_ctx
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.path_utils import read_installation_file
 from tests.installation_fixtures import FLUORESCENCE_UNITS, write_release_with_added_channels
 from tests.scope_fakes import refuse_a_report
@@ -65,13 +65,13 @@ class _Accordion:
 
 
 def _identity(model, data_file=None):
-    return layer_record.resolve_layer_identity(
+    return channel_record.resolve_channel_identity(
         board_block=None,
         board_config_read_ok=True,
         motor_model=model,
         configured_model=None,
-        models=layer_record.load_scope_models(data_file),
-        catalogue=layer_record.release_layers(),
+        models=channel_record.load_scope_models(data_file),
+        catalogue=channel_record.release_channels(),
         report=refuse_a_report,
     )
 
@@ -86,9 +86,9 @@ def added_release(tmp_path, monkeypatch):
     """The release with two channels added as data; its scopes.json path."""
     scopes = write_release_with_added_channels(tmp_path)
     monkeypatch.setattr(
-        layer_record,
+        channel_record,
         '_CATALOGUE_CACHE',
-        layer_record.load_layer_catalogue(read_installation_file(scopes), scopes),
+        channel_record.load_channel_catalogue(read_installation_file(scopes), scopes),
     )
     return str(scopes)
 
@@ -108,13 +108,13 @@ def _panel(monkeypatch):
         SimpleNamespace(
             session=SimpleNamespace(
                 set_channel_acquire=lambda layer, v: acquire.append((layer, v)),
-                channel_colors=layer_record.release_colors,
+                channel_colors=channel_record.release_colors,
             )
         ),
     )
     panel = SimpleNamespace(
         ids={'accordion_id': _Accordion()},
-        _drawers={layer: _Drawer(layer) for layer in layer_record.release_catalogue()},
+        _drawers={layer: _Drawer(layer) for layer in channel_record.release_catalogue()},
         _shown_layers=frozenset(),
         acquire=acquire,
     )
@@ -136,7 +136,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         control = drawer.ids['control']
         if record.modality != 'fluorescence':
             assert drawer.title == record.label
-        color = layer_record.parse_display_color(record.display_color)
+        color = channel_record.parse_display_color(record.display_color)
         assert drawer.color_rgba == (*color, 1.0)
         # The chrome is the colour moved toward white, so no plane is darker.
         assert all(c >= w for c, w in zip(drawer.chrome_rgba, (*color, 1.0), strict=True))
@@ -144,7 +144,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert control.exposure_summing_support == (record.modality == 'luminescence')
         assert control.autogain_support == (record.modality != 'luminescence')
     present = {r.key_name for r in identity.channels}
-    absent = [layer for layer in layer_record.release_catalogue() if layer not in present]
+    absent = [layer for layer in channel_record.release_catalogue() if layer not in present]
     assert panel.acquire == [(layer, None) for layer in absent]
     assert all(panel._drawers[layer].collapse for layer in absent)
 

@@ -20,7 +20,7 @@ import tifffile as tf
 
 from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import InputFramesUnusableError
-from _lumascope.modules.layer_record import GREY, release_colors
+from _lumascope.modules.channel_record import GREY, release_colors
 from _lumascope.modules.stack_builder import StackBuilder
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED1

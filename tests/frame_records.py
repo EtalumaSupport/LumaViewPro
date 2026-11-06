@@ -97,7 +97,7 @@ def write_recorded(
     (``image_save.write_recorded_frame``), on ``scope``'s catalogue and
     identity; a uint16 frame is 12-bit unless ``record`` says otherwise."""
     from _lumascope.modules.image_save import write_recorded_frame
-    from _lumascope.modules.layer_record import release_colors
+    from _lumascope.modules.channel_record import release_colors
 
     if record is None:
         record = recorded_record(frame_significant_bits=8 if image.dtype.itemsize == 1 else 12)

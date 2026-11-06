@@ -36,7 +36,7 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.run_outcome import EndingLatch
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.log_capture import records_of
 

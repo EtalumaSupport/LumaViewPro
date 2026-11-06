@@ -36,8 +36,8 @@ from _lumascope.modules.stack_builder import StackBuilder
 from _lumascope.modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1, LED2
 

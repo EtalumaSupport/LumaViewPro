@@ -40,7 +40,7 @@ from _lumascope.modules.run_events import RunEvents
 
 from _lumascope.modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 
 

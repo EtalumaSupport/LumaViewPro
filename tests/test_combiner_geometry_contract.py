@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from _lumascope.modules import image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.composite_builder import CompositeChannel, build_composite
 from _lumascope.modules.zproject_method import ZProjectMethod
 from _lumascope.modules.zprojection import zproject
@@ -22,7 +22,7 @@ from tests.stock_channels import LED0, LED1, LED2
 def _in_release_colours(images):
     """Each image as an 8-bit composite channel in its layer's release colour."""
     return {
-        key: CompositeChannel(image, layer_record.release_color(key), 8, None)
+        key: CompositeChannel(image, channel_record.release_color(key), 8, None)
         for key, image in images.items()
     }
 

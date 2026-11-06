@@ -2636,7 +2636,7 @@ from tests.scope_fakes import (
     swap_lanes,
 )
 from tests.installation_fixtures import copy_installation_files
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 
@@ -7338,7 +7338,7 @@ class TestAxisTravelLimitsOnCapabilities:
         travel-dependent consumers away from it."""
         from _lumascope.drivers.null_ledboard import NullLEDBoard
         from _lumascope.drivers.null_motorboard import NullMotionBoard
-        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.channel_record import UNRESOLVED
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
@@ -7404,7 +7404,7 @@ class TestOpticsOnCapabilities:
         capabilities say None rather than a motorised scope's 2.0 um."""
         from _lumascope.drivers.null_ledboard import NullLEDBoard
         from _lumascope.drivers.null_motorboard import NullMotionBoard
-        from _lumascope.modules.layer_record import UNRESOLVED
+        from _lumascope.modules.channel_record import UNRESOLVED
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
@@ -8343,7 +8343,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         import numpy as np
         import pandas as pd
         import tifffile as tf
-        import _lumascope.modules.layer_record as layer_record
+        import _lumascope.modules.channel_record as channel_record
         from _lumascope.modules.composite_builder import CompositeChannel, build_composite
         from _lumascope.modules.composite_generation import CompositeGeneration
 
@@ -8370,7 +8370,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         # Path A: manual composite path. build_composite -> tifffile.
         manual_rgb = build_composite(
             channels={
-                name: CompositeChannel(image, layer_record.release_color(name), 8, None)
+                name: CompositeChannel(image, channel_record.release_color(name), 8, None)
                 for name, image in channel_images.items()
             },
             transmitted=None,

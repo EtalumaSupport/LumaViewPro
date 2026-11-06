@@ -10,7 +10,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules import gui_logger
 from _lumascope.modules.acquire_mode import AcquireMode
@@ -966,7 +966,7 @@ class LayerControl(BoxLayout):
 
     def update_shader(self, dt):
         _app_ctx.ctx.viewer.update_shader(
-            layer_record.shown_color(
+            channel_record.shown_color(
                 self.layer, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors()
             )
         )

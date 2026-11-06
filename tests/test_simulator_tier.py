@@ -29,7 +29,7 @@ from _lumascope.drivers.tmcm6110 import Tmcm6110Board
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import ScopeModelUnknownError, SettingRefusedError
-from _lumascope.modules.layer_record import load_scope_models, model_axes
+from _lumascope.modules.channel_record import load_scope_models, model_axes
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.scope_session import ScopeSession

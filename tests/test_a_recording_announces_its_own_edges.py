@@ -30,7 +30,7 @@ from tests.test_manual_recording_controller import (
 from tests.test_video_recording_contract import make_config
 from tests.video_engine_harness import FakeClock, FrameFeed, ManualFireScheduler, WriterStub
 from tests.protocol_drives import run_identity
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 def _engine_heard_by(tmp_path, claim_for, *, blocked=False):

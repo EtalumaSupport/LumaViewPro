@@ -23,7 +23,7 @@ from _lumascope.modules.composite_generation import CompositeGeneration
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.stitcher import Stitcher
 from _lumascope.modules.zprojector import ZProjector
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1, LED2
 
 

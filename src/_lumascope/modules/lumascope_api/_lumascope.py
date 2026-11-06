@@ -99,7 +99,7 @@ from _lumascope.modules.lumascope_api.bring_up import (
 )
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
-from _lumascope.modules.layer_record import LedBoardFamily, MotorBoardFamily
+from _lumascope.modules.channel_record import LedBoardFamily, MotorBoardFamily
 from _lumascope.modules.lvp_lock import take_scope_lock
 from _lumascope.modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
@@ -114,7 +114,7 @@ if TYPE_CHECKING:
     from _lumascope.drivers.simulated_camera import SimulatedStall
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.labware_loader import WellPlateLoader
-    from _lumascope.modules.layer_record import ChannelIdentity, ScopeModel
+    from _lumascope.modules.channel_record import ChannelIdentity, ScopeModel
     from _lumascope.modules.lumascope_api.camera import CameraAPI
     from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
     from _lumascope.modules.lumascope_api.illumination import IlluminationAPI
@@ -456,18 +456,18 @@ class Lumascope:
                 shape its reader needs, naming the file; or the release's
                 layer vocabulary is unusable.
         """
-        from _lumascope.modules import labware_loader, layer_record, objectives_loader
+        from _lumascope.modules import labware_loader, channel_record, objectives_loader
 
         self.source_path = pathlib.Path(source_path)
         self.wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         # Kept so a refusal of one of its rows names the file it came from.
         self._scope_models_path = resolve_data_file('scopes.json', source_path=source_path)
-        self._scope_models = layer_record.load_scope_models(self._scope_models_path)
+        self._scope_models = channel_record.load_scope_models(self._scope_models_path)
         # The release's layer vocabulary is process-wide, not this folder's,
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
-        layer_record.release_catalogue()
+        channel_record.release_catalogue()
         motorconfig_defaults = read_installation_file(
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
@@ -841,7 +841,7 @@ class Lumascope:
         # The motor defaults are read on every model: the motor probe below
         # runs on every model, and a board it finds takes them.
         motorconfig_defaults = self._read_catalogues(get_source_root(source_path))
-        from _lumascope.modules.layer_record import entry_expects_motion, model_axes
+        from _lumascope.modules.channel_record import entry_expects_motion, model_axes
 
         # Decided here, before anything is started, for the same reason: a
         # model the catalogue does not list refuses before a lane exists.
@@ -950,12 +950,12 @@ class Lumascope:
             ``_sim_pixel_size`` draws at no scale then. 0 for an address no
             layer names or a layer with no LED. Read while a frame is made,
             after the illumination API, the identity and runtime_state exist."""
-            from _lumascope.modules.layer_record import SIM_LIGHT_MAGNIFICATION, release_layer
+            from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION, release_channel
 
             name = self.illumination.ch2color(address)
             if name is None:
                 return 0.0
-            layer = release_layer(name)
+            layer = release_channel(name)
             if layer.sim_light_per_ma_s is None:
                 return 0.0
             through_slide = layer.sim_light_per_ma_s * the_slide(sim_slide).transmittance
@@ -1258,20 +1258,20 @@ class Lumascope:
 
     def _resolve_layer_identity(self, override_model: str | None = None):
         """Run the identity resolver against the current drivers and config."""
-        from _lumascope.modules.layer_record import release_layers, resolve_layer_identity
+        from _lumascope.modules.channel_record import release_channels, resolve_channel_identity
 
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
         read_ok = motorconfig.board_config_read_ok if motorconfig is not None else True
         # The board's cached record, read with no exchange.
         motor_model = self._motion_driver.get_microscope_model()
-        return resolve_layer_identity(
+        return resolve_channel_identity(
             board_block=board_block,
             board_config_read_ok=read_ok,
             motor_model=motor_model,
             configured_model=self._configured_model,
             models=self._scope_models,
-            catalogue=release_layers(),
+            catalogue=release_channels(),
             report=lambda notice: notifications.report_outcome(
                 notice, solicited=False, category='Illumination'
             ),

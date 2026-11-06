@@ -17,7 +17,7 @@ import dataclasses
 import pytest
 
 from _lumascope.modules.exceptions import ArgumentRefusedError
-from _lumascope.modules.layer_record import ChannelSliderMaxima
+from _lumascope.modules.channel_record import ChannelSliderMaxima
 from tests.stock_channels import LED0
 from tests.test_a_camera_command_with_no_camera_is_refused import _camera_less
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (

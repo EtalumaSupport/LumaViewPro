@@ -25,7 +25,7 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.layer_record import GREY, release_catalogue, release_color
+from _lumascope.modules.channel_record import GREY, release_catalogue, release_color
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -1381,7 +1381,7 @@ def _a_full_still(
     ``labware`` in ``well_label``, judged as ``judgments`` say: the record the
     save built, and the file it wrote."""
     from _lumascope.modules import image_save
-    from _lumascope.modules.layer_record import release_colors
+    from _lumascope.modules.channel_record import release_colors
     from tests.frame_records import frame_record, plate
     from tests.scope_fakes import bind_settings_like_a_session
 

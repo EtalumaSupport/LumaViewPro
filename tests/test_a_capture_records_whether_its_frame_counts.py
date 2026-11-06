@@ -22,7 +22,7 @@ from _lumascope.modules import image_save, image_utils
 from _lumascope.modules.exceptions import ArgumentTypeRefusedError
 from _lumascope.modules.frame_validity import Counter, FrameRule, FrameValidity
 from _lumascope.modules.labware_loader import WellPlateLoader
-from _lumascope.modules.layer_record import release_color
+from _lumascope.modules.channel_record import release_color
 from tests.camera_fakes import delivered_frame
 
 _PIXELS = np.zeros((2, 2), dtype=np.uint8)

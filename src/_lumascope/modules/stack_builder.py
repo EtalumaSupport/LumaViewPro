@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.common_utils as common_utils
@@ -241,7 +241,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         plane_metadata: dict,
         significant_bits: int,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
         input_records: list[dict | None],
     ):
         channel_names = df['Color'].unique().tolist()
@@ -281,7 +281,7 @@ class StackBuilder(ProtocolPostProcessor):
             input_records=input_records,
             channel_names=channel_names,
             channel_colors=[
-                layer_record.output_color(name, channel_colors) for name in channel_names
+                channel_record.output_color(name, channel_colors) for name in channel_names
             ],
             plane_positions={
                 'PositionX': plane_metadata['PositionX'],
@@ -334,7 +334,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         *,
         save_encoding: str,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
@@ -476,7 +476,7 @@ class StackBuilder(ProtocolPostProcessor):
                     # is a colour image, read by luminance.
                     image = image_utils.rgb_image_to_gray(
                         image=image,
-                        baked=layer_record.stored_key(row['Color']) in common_utils.get_layers(),
+                        baked=channel_record.stored_key(row['Color']) in common_utils.get_layers(),
                     )
 
                 # Each plane must share the hyperstack's canvas; a per-plane
@@ -538,7 +538,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         *,
         save_encoding: str,
-        channel_colors: layer_record.ChannelColors,
+        channel_colors: channel_record.ChannelColors,
     ) -> dict:
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)

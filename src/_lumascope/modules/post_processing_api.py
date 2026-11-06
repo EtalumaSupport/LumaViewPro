@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from _lumascope.modules.api_surface import ProgressCallback
-    from _lumascope.modules.layer_record import ChannelColors
+    from _lumascope.modules.channel_record import ChannelColors
     from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
     from _lumascope.modules.tiling_config import TilingGrids
 

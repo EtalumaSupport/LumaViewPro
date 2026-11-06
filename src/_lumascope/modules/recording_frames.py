@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.coord_transformations import PlatePosition
     from _lumascope.modules.image_mode import OutputFormat
     from _lumascope.modules.labware import Labware
-    from _lumascope.modules.layer_record import ChannelColors
+    from _lumascope.modules.channel_record import ChannelColors
     from _lumascope.modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------

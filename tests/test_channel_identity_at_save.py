@@ -31,7 +31,7 @@ import tifffile as tf
 from _lumascope.modules import image_save, image_utils
 from tests.frame_records import frame_record, plate, write_recorded
 from tests.scope_fakes import bind_settings_like_a_session
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1
 
 

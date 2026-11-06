@@ -30,8 +30,8 @@ import datetime
 import numpy as np
 import pytest
 import tifffile as tf
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 

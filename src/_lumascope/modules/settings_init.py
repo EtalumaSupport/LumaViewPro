@@ -585,7 +585,7 @@ def fold_old_channel_blocks(logger: logging.Logger, settings_dict: dict) -> None
     colour names. Every reader before the scope exists -- the validation,
     the focus retirement, the repairs, the merge, the range check -- reads
     the release's keys, so each old block becomes its stock key's here
-    (``layer_record.release_old_names``) and is read there; the unit is not
+    (``channel_record.release_old_names``) and is read there; the unit is not
     known yet, and its bring-up places them by its own LEDs
     (``ScopeSession._place_old_channel_blocks``), from the record this
     leaves under ``OLD_CHANNEL_BLOCKS``. Run again on its own result it
@@ -596,7 +596,7 @@ def fold_old_channel_blocks(logger: logging.Logger, settings_dict: dict) -> None
     told with the load's replacements: the release has no setting of that
     name.
     """
-    from _lumascope.modules.layer_record import release_old_names
+    from _lumascope.modules.channel_record import release_old_names
 
     moved = {}
     dropped = []
@@ -699,8 +699,8 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
     Raises:
         InstallationFileError: the template states ``step_channel_order``.
     """
-    # Deferred: layer_record imports lvp_logger, which imports this module.
-    from _lumascope.modules.layer_record import release_layers
+    # Deferred: channel_record imports lvp_logger, which imports this module.
+    from _lumascope.modules.channel_record import release_channels
 
     if 'step_channel_order' in template:
         raise InstallationFileError(
@@ -708,7 +708,7 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
             "states step_channel_order, which is each scopes.json LayerOrder record's step_order",
         )
     template['step_channel_order'] = [
-        layer.key for layer in sorted(release_layers(), key=lambda layer: layer.step_order)
+        layer.key for layer in sorted(release_channels(), key=lambda layer: layer.step_order)
     ]
 
 
@@ -726,8 +726,8 @@ def _give_every_layer_a_block(template: dict, template_path: str) -> None:
             mapping of blocks, or has no block for the modality of a key
             the file names none for.
     """
-    # Deferred: layer_record imports lvp_logger, which imports this module.
-    from _lumascope.modules.layer_record import release_layers
+    # Deferred: channel_record imports lvp_logger, which imports this module.
+    from _lumascope.modules.channel_record import release_channels
 
     defaults = template.pop('channel_defaults', None)
     if not isinstance(defaults, dict) or not all(isinstance(b, dict) for b in defaults.values()):
@@ -735,7 +735,7 @@ def _give_every_layer_a_block(template: dict, template_path: str) -> None:
             template_path, f'has no usable channel_defaults (found {defaults!r})'
         )
     unfilled = []
-    for layer in release_layers():
+    for layer in release_channels():
         if layer.key in template:
             continue
         default = defaults.get(layer.modality)

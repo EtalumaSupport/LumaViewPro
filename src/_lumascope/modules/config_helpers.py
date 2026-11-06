@@ -21,7 +21,7 @@ from _lumascope.lvp_logger import logger, metrics_logger
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import api
 from _lumascope.modules.coord_transformations import PlateLocation
-from _lumascope.modules.layer_record import ChannelSliderMaxima, Modality, release_layer
+from _lumascope.modules.channel_record import ChannelSliderMaxima, Modality, release_channel
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
@@ -927,7 +927,7 @@ def layer_slider_maxima(
     Raises:
         ArgumentRefusedError: ``layer`` is not a layer of this release.
     """
-    catalogue = release_layer(layer)
+    catalogue = release_channel(layer)
     return ChannelSliderMaxima(
         slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalogue.manual_max_exposure_ms),
         slider_max_illumination_ma=_narrowed(

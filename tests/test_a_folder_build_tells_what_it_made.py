@@ -28,8 +28,8 @@ from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcess
 from _lumascope.modules import post_processing
 from _lumascope.modules.post_processing import PostProcessing
 from _lumascope.modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1
 from tests.installation_fixtures import shipped_grids
 

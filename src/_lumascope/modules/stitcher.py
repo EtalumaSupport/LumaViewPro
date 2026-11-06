@@ -18,7 +18,7 @@ from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
-from _lumascope.modules.layer_record import ChannelColors
+from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.stitch_mode import StitchMode
 
 logger = logging.getLogger('LVP.modules.stitcher')

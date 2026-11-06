@@ -26,8 +26,8 @@ import tifffile as tf
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.composite_generation import CompositeGeneration
-from _lumascope.modules.layer_record import GREY
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import GREY
+from _lumascope.modules.channel_record import release_colors
 from tests.ast_seams import parse_module
 from tests.stock_channels import LED0, LED2
 from tests.test_a_derived_image_says_how_it_was_made import write_run_folder

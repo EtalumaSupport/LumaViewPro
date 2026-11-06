@@ -25,7 +25,7 @@ from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixtur
     capture_ctx,
 )
 from tests.test_manual_recording_controller import make_controller
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 class TestTheLocationOwnerAnswers:

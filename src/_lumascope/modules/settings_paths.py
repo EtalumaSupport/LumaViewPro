@@ -32,7 +32,7 @@ from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.closed_sets import member_of
 from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from _lumascope.modules.finite_number import is_finite_number
-from _lumascope.modules.layer_record import parse_display_color
+from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
     SIMULATOR_TIERS,
     refuse_acceleration_pct,

@@ -28,7 +28,7 @@ import numpy as np
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
-import _lumascope.modules.layer_record as layer_record
+import _lumascope.modules.channel_record as channel_record
 from _lumascope.lib.handle_trace import tick as _h_tick
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import (
@@ -64,7 +64,7 @@ def write_recorded_frame(
     well_label: str | None,
     fallback_focus: str | None,
     false_color_on: bool,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
     save_encoding: str,
 ) -> None:
     """Save one recorded frame with the still's builder and writer, in the container its name states.
@@ -131,7 +131,7 @@ def write_recorded_frame(
         ome=image_utils.is_ome_tiff(file_loc),
         # Rendering only: grey whenever false colour is off. The channel above
         # is what the frame is.
-        color=layer_record.shown_color(channel, false_color_on, channel_colors),
+        color=channel_record.shown_color(channel, false_color_on, channel_colors),
         # The frame's own depth: 8 for a frame rendered to 8 bits, else the
         # depth it was delivered at.
         significant_bits=8 if frame.dtype == np.uint8 else frame_record.frame_significant_bits,
@@ -662,7 +662,7 @@ def save_image(
     *,
     channel: str,
     false_color_on: bool,
-    channel_colors: layer_record.ChannelColors,
+    channel_colors: channel_record.ChannelColors,
     save_encoding: str,
     output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
     plate_x_mm: float | None = None,
@@ -753,7 +753,7 @@ def save_image(
     # The one place the two facts meet, and they meet on the rendering side
     # only. A channel with false color off is drawn grey; it is still that
     # channel, and the metadata below says so.
-    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
+    render_color = channel_record.shown_color(channel, false_color_on, channel_colors)
 
     if output_format == image_mode.OutputFormat.JPG:
         # JPG is a convenience / sharing export: the pixels come from the

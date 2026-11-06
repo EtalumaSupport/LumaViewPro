@@ -27,7 +27,7 @@ import typing
 from _lumascope.modules.activity_claim import HeldClaim
 from _lumascope.modules.exceptions import CompositeFailedError, RunWaitExpiredError
 from _lumascope.modules.finite_number import refuse_unless_wait_s
-from _lumascope.modules.layer_record import refuse_unknown_layer
+from _lumascope.modules.channel_record import refuse_unknown_channel
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.run_events import RunEvents
@@ -301,7 +301,7 @@ class ProtocolRunner:
         """
         import _lumascope.modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
@@ -470,7 +470,7 @@ class ProtocolRunner:
         """
         import _lumascope.modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(channel)
+        refuse_unknown_channel(channel)
         settings = self.session.capture_settings_snapshot()
         position = self.session.plate_position_on(settings['protocol']['labware'])
         # The build stacks around this position and judges the slices'

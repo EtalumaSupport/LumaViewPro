@@ -29,8 +29,8 @@ import pathlib
 import numpy as np
 import pytest
 import tifffile as tf
-from _lumascope.modules.layer_record import release_color
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.channel_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1
 
@@ -461,11 +461,11 @@ def test_mp4_writers_pass_layer_color():
     manual_flat = ''.join(manual_src.split())
     cap_flat = ''.join(cap_src.split())
     assert (
-        'color=layer_record.shown_color(plan.layer,false_color_on,plan.channel_colors)'
+        'color=channel_record.shown_color(plan.layer,false_color_on,plan.channel_colors)'
         in manual_flat
     )
     assert (
-        "color=layer_record.shown_color(step['Color'],false_color_on,self._channel_colors)"
+        "color=channel_record.shown_color(step['Color'],false_color_on,self._channel_colors)"
         in cap_flat
     )
     # The inline protocol-capture bake stays gone (one colorization authority).

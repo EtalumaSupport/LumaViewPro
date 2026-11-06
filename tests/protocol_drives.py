@@ -28,7 +28,7 @@ from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
 from tests.settings_fixtures import complete_settings
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 def held_run_claim():

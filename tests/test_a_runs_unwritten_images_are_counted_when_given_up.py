@@ -33,7 +33,7 @@ from _lumascope.modules.run_events import RunEvents
 from tests.af_drives import af_runner_on, sweep
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 WAIT_S = 30.0
 

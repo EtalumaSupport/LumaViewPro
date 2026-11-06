@@ -24,7 +24,7 @@ import _lumascope.modules.stack_builder as stack_builder_module
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.exceptions import RecordingRefusedError
 from _lumascope.modules.image_utils import read_file_record
-from _lumascope.modules.layer_record import load_scope_models
+from _lumascope.modules.channel_record import load_scope_models
 from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from _lumascope.modules.lumascope_api.frame_record import ClockMapping
 from _lumascope.modules.manual_recording import ManualRecordingController
@@ -37,7 +37,7 @@ from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from tests.camera_fakes import delivered_frame
 from _lumascope.modules.lumascope_api import AxisPosition, AxisState
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 from tests.frame_records import plate
 from tests.objective_records import objective
 from tests.post_processing_lane import a_post_processing_api

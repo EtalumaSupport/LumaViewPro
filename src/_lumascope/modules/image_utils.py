@@ -21,7 +21,7 @@ import tifffile as tf
 
 from _lumascope.modules.api_surface import api_fields, fields_of
 from _lumascope.modules.exceptions import FrameDepthError, InputFramesUnusableError
-from _lumascope.modules.layer_record import GREY, Color, stored_key
+from _lumascope.modules.channel_record import GREY, Color, stored_key
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.objectives_loader as objectives_loader
@@ -335,7 +335,7 @@ def click_offset_to_um(
     return (frame_pos - frame_extent / 2.0) * pixel_size_um
 
 
-# The caller resolves a colour (``layer_record.Color``); nothing here maps a
+# The caller resolves a colour (``channel_record.Color``); nothing here maps a
 # channel to one. A writer keeps a ``GREY`` frame mono rather than storing
 # three equal planes.
 
@@ -1905,7 +1905,7 @@ def rgb_image_to_gray(image: np.ndarray, baked: bool = False) -> np.ndarray:
     its one populated plane, else by luminance.
 
     A baked plane is the mono times its weight, and every stored colour has
-    a full weight on its brightest plane (``layer_record.parse_display_color``),
+    a full weight on its brightest plane (``channel_record.parse_display_color``),
     so that plane is the mono whatever the colour was: a magenta image
     reads back at full intensity, where luminance reads it about 58% dim,
     and a build needs no record of the colour a file was baked in.

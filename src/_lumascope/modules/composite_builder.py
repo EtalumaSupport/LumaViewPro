@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 import _lumascope.modules.image_utils as image_utils
-from _lumascope.modules.layer_record import Color
+from _lumascope.modules.channel_record import Color
 
 # Largest value an 8-bit pixel can take. The composite's blend operates on the
 # 8-bit output scale (the inputs are downconverted below before any threshold

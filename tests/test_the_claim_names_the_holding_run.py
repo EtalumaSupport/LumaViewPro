@@ -22,7 +22,7 @@ from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
-from _lumascope.modules.layer_record import release_colors
+from _lumascope.modules.channel_record import release_colors
 
 
 class TestTheClaimCarriesTheRun:

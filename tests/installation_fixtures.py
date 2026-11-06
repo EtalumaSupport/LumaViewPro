@@ -131,16 +131,16 @@ def use_release(monkeypatch, scopes: pathlib.Path) -> None:
     Both are read once per process from the installation's own folder, so a
     test replaces the two caches for its own duration.
     """
-    from _lumascope.modules import layer_record
+    from _lumascope.modules import channel_record
     from _lumascope.modules.path_utils import read_installation_file
 
     contents = read_installation_file(scopes)
-    catalogue = layer_record.load_layer_catalogue(contents, scopes)
-    monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', catalogue)
+    catalogue = channel_record.load_channel_catalogue(contents, scopes)
+    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', catalogue)
     monkeypatch.setattr(
-        layer_record,
+        channel_record,
         '_OLD_NAMES_CACHE',
-        layer_record.load_old_channel_names(contents, scopes, catalogue),
+        channel_record.load_old_channel_names(contents, scopes, catalogue),
     )
 
 
@@ -150,7 +150,7 @@ def write_release_with_added_channels(data: pathlib.Path) -> pathlib.Path:
 
     Adding a channel is a data change: one catalogue record and a unit's
     row. The caller replaces the process-wide catalogue with this file's
-    (``layer_record._CATALOGUE_CACHE``), since the release catalogue is
+    (``channel_record._CATALOGUE_CACHE``), since the release catalogue is
     read from the installation's own folder, not the scope's.
     """
     scopes = json.loads((SHIPPED_DATA / 'scopes.json').read_text(encoding='utf-8'))
