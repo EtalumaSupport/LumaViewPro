@@ -11,13 +11,17 @@ and ``step_records()`` answers every step at once.
 from __future__ import annotations
 
 import dataclasses
+import json
 
+import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.protocol import (
     _STEP_CELLS,
     _STEP_FIELDS,
+    ProtocolFormatError,
     Stimulation,
     StepRecord,
     VideoConfig,
@@ -119,4 +123,45 @@ def test_a_step_with_no_slice_group_or_slot_reads_none_where_the_table_holds_min
         None,
         None,
         None,
+    )
+
+
+def test_every_value_of_a_record_is_a_python_value_not_a_numpy_one(session):
+    # The steps table holds numpy scalars; a record handed one leaks it to
+    # every caller that copies a value into a Kivy property or a JSON body.
+    protocol = _bf_and_blue(session)
+    session.add_step(
+        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
+    )
+
+    numpy_values = [
+        (step.name, field.name, type(value).__name__)
+        for step in protocol.step_records()
+        for field in dataclasses.fields(step)
+        if isinstance(value := getattr(step, field.name), np.generic)
+    ]
+
+    assert numpy_values == []
+
+
+def test_a_stimulation_entry_that_is_not_a_config_is_refused_naming_its_step(session, tmp_path):
+    protocol = _bf_and_blue(session)
+    saved = tmp_path / 'protocol.tsv'
+    protocol.to_file(saved)
+    first = protocol.step_row(step_index=0)
+
+    # The cell as the writer saves it: JSON, quoted for the TSV, its quotes doubled.
+    def cell(config):
+        return '"' + json.dumps(config).replace('"', '""') + '"'
+
+    stims = cell(dict(first['Stim_Config']))
+    assert stims in saved.read_text()
+    saved.write_text(saved.read_text().replace(stims, cell({'BF': 5}), 1))
+    loaded = session.load_protocol(saved)
+
+    with pytest.raises(ProtocolFormatError) as refused:
+        loaded.step_records()
+
+    assert str(refused.value) == (
+        f'step {first["Name"]} has a Stim_Config entry for BF that is not a config: 5.'
     )

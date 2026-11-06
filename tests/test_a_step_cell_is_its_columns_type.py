@@ -164,6 +164,10 @@ WRITES = {
         'Auto_Focus',
         lambda p, v: p.modify_autofocus(step_index=0, enabled=v),
     ),
+    'modify_autofocus_all_steps': (
+        'Auto_Focus',
+        lambda p, v: p.modify_autofocus_all_steps(enabled=v),
+    ),
     'modify_step_z_height': ('Z', lambda p, v: p.modify_step_z_height(step_index=0, z=v)),
     'apply_zstack_group_focus': (
         'Z',
@@ -224,6 +228,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
     # modify_name and _regenerate_step_name write text they build.
     typed_writers = {
         'Protocol.modify_autofocus',
+        'Protocol.modify_autofocus_all_steps',
         'Protocol.modify_step_z_height',
         'Protocol.apply_zstack_group_focus',
         'Protocol.apply_focus_all_layer_steps',

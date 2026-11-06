@@ -866,8 +866,19 @@ def _stimulation_records(cell: dict, step_name: str) -> dict[str, Stimulation]:
     return records
 
 
-def _step_record(row: pd.Series) -> StepRecord:
-    """A step row, as ``Protocol.step_row`` answers it, as its record: every column one field.
+def _no_position_as_none(row: 'pd.Series | dict') -> None:
+    """Set None, in place, where ``row`` holds the frame's NaN for an axis position.
+
+    The frame's NaN does not cross the wire, and None is what every record
+    says for no position; a single step and the whole table answer it here.
+    """
+    for column in _POSITION_COLUMNS:
+        if pd.isna(row[column]):
+            row[column] = None
+
+
+def _step_record(row: Mapping) -> StepRecord:
+    """A step's row, as ``Protocol.step_row`` answers it, as its record: every column one field.
 
     Raises:
         ProtocolFormatError: a stimulation entry is not a config.
@@ -2389,8 +2400,9 @@ class Protocol:
         Raises:
             Nothing.
         """
-        for idx, _ in self._config['steps'].iterrows():
-            self.modify_autofocus(step_index=idx, enabled=enabled)
+        # The whole column: every step is set, so the z-stack rule of
+        # modify_autofocus (a channel's slices hold one flag) holds already.
+        self._config['steps'].loc[:, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
     def delete_step(self, step_index: int) -> None:
         self._refuse_unless_in_range(step_index)
@@ -2822,7 +2834,29 @@ class Protocol:
             ProtocolFormatError: a stimulation entry of a step is not a
                 config.
         """
-        return tuple(_step_record(self.step_row(idx)) for idx in range(self.num_steps()))
+        return tuple(_step_record(row) for row in self._step_rows())
+
+    def _step_rows(self) -> list[dict]:
+        """Every step, in order, as a plain dict keyed by the steps table's columns.
+
+        What ``step_row`` answers for each step -- Python scalars, None for
+        no position -- read a column at a time: building one row at a time
+        costs about ten times as much on a large protocol, and a run's
+        start reads every step.
+
+        ``.tolist()`` boxes a numeric column to Python scalars, but it leaves
+        a numpy scalar sitting in an object column as it is. No stored frame
+        holds one: ``_set_steps`` reads every cell by its column's reader.
+        """
+        steps = self._config['steps']
+        columns = {column: steps[column].tolist() for column in steps.columns}
+        rows = [
+            dict(zip(columns, values, strict=True))
+            for values in zip(*columns.values(), strict=True)
+        ]
+        for row in rows:
+            _no_position_as_none(row)
+        return rows
 
     def step_row(self, step_index: int) -> pd.Series:
         """One step, as a DETACHED copy of its row, keyed by the steps table's columns.
@@ -2844,9 +2878,7 @@ class Protocol:
         """
         self._refuse_unless_in_range(step_index)
         row = to_python_scalars(self._config['steps'].iloc[step_index]).astype(object)
-        for column in _POSITION_COLUMNS:
-            if pd.isna(row[column]):
-                row[column] = None
+        _no_position_as_none(row)
         return row
 
     def apply_tiling(
@@ -2942,34 +2974,42 @@ class Protocol:
         outside: dict[str, int] = {}
         new_tiles = 0
 
-        for idx, row in orig_steps_df.iterrows():
+        # Each column read once, in the two forms a step is read in here: the
+        # copied step's Python scalars, and the numpy scalars the tile
+        # arithmetic rounds. They are not interchangeable: numpy's round and
+        # Python's settle a tie differently, so reading X and Y as Python
+        # floats would move tile coordinates by a last digit.
+        python_columns = {column: orig_steps_df[column].tolist() for column in orig_steps_df}
+        numpy_columns = {column: orig_steps_df[column].to_numpy() for column in orig_steps_df}
+
+        for idx in range(len(orig_steps_df)):
+            orig_step = {column: values[idx] for column, values in numpy_columns.items()}
+            orig_step_dict = {column: values[idx] for column, values in python_columns.items()}
+
             # A step whose grid cannot be computed (ConfigError when the scale
             # is unknown, which no step can tile around) fails the whole build:
             # the steps are only replaced at the end, so the protocol is left
             # as it was rather than silently missing that step.
             tiles = self._tiling_grids.get_tile_centers(
                 config_label=tiling,
-                focal_length=row['focal_length'],
+                focal_length=orig_step_dict['focal_length'],
                 frame_size=frame_dimensions,
                 fill_factor=fill_factor,
                 binning_size=binning_size,
                 capabilities=capabilities,
             )
 
-            orig_step_df = orig_steps_df.iloc[idx]
-            orig_step_dict = orig_step_df.to_dict()
-
             if len(tiles) == 1:  # No tiles generated
                 new_steps.append(orig_step_dict)
                 continue
 
             # If already a tile, copy it over to the new protocol
-            if orig_step_df['Tile'] not in (None, ''):
+            if orig_step['Tile'] not in (None, ''):
                 new_steps.append(orig_step_dict)
                 continue
 
-            x = orig_step_df['X']
-            y = orig_step_df['Y']
+            x = orig_step['X']
+            y = orig_step['Y']
             new_tiles += len(tiles)
 
             for tile_label, tile_position in tiles.items():
@@ -2986,13 +3026,13 @@ class Protocol:
                     labware=labware,
                     stage_offset=stage_offset,
                 ):
-                    name = orig_step_df['Name']
+                    name = orig_step['Name']
                     outside[name] = outside.get(name, 0) + 1
                     continue
 
                 # -1 is the not-part-of-a-stack sentinel this column uses
                 # throughout; those steps stay ungrouped.
-                parent_zstack_group_id = orig_step_df['Z-Stack Group ID']
+                parent_zstack_group_id = orig_step['Z-Stack Group ID']
                 if parent_zstack_group_id == -1:
                     tile_zstack_group_id = -1
                 else:
@@ -3003,32 +3043,32 @@ class Protocol:
                     tile_zstack_group_id = tiled_zstack_group_ids[group_key]
 
                 new_step_dict = self._create_step_dict(
-                    label=orig_step_df['Label'],
+                    label=orig_step['Label'],
                     x=x_tile,
                     y=y_tile,
-                    z=orig_step_df['Z'],
-                    af=orig_step_df['Auto_Focus'],
-                    color=orig_step_df['Color'],
-                    fc=orig_step_df['False_Color'],
-                    ill=orig_step_df['Illumination'],
-                    gain=orig_step_df['Gain'],
-                    auto_gain=orig_step_df['Auto_Gain'],
-                    exp=orig_step_df['Exposure'],
-                    sum=orig_step_df['Sum'],
-                    objective=orig_step_df['Objective'],
-                    well=orig_step_df['Well'],
+                    z=orig_step['Z'],
+                    af=orig_step['Auto_Focus'],
+                    color=orig_step['Color'],
+                    fc=orig_step['False_Color'],
+                    ill=orig_step['Illumination'],
+                    gain=orig_step['Gain'],
+                    auto_gain=orig_step['Auto_Gain'],
+                    exp=orig_step['Exposure'],
+                    sum=orig_step['Sum'],
+                    objective=orig_step['Objective'],
+                    well=orig_step['Well'],
                     tile=tile_label,
-                    zslice=orig_step_df['Z-Slice'],
-                    custom_step=orig_step_df['Custom Step'],
+                    zslice=orig_step['Z-Slice'],
+                    custom_step=orig_step['Custom Step'],
                     tile_group_id=tile_group_id,
                     zstack_group_id=tile_zstack_group_id,
-                    acquire=orig_step_df['Acquire'],
-                    video_config=orig_step_df['Video Config'],
-                    stim_config=orig_step_df['Stim_Config'],
-                    auto_named=orig_step_df['Auto_Named'],
-                    channel_group_id=orig_step_df['Channel Group ID'],
-                    turret_slot=orig_step_df['Turret Slot'],
-                    zstack_offset=orig_step_df['Z-Stack Offset'],
+                    acquire=orig_step['Acquire'],
+                    video_config=orig_step['Video Config'],
+                    stim_config=orig_step['Stim_Config'],
+                    auto_named=orig_step['Auto_Named'],
+                    channel_group_id=orig_step['Channel Group ID'],
+                    turret_slot=orig_step['Turret Slot'],
+                    zstack_offset=orig_step['Z-Stack Offset'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -3140,17 +3180,13 @@ class Protocol:
         if only is not None and len(only) > 0:
             self._refuse_unless_in_range(only.start)
             self._refuse_unless_in_range(only[-1])
-        expanded = range(self.num_steps()) if only is None else only
-        unstacked = [
-            idx for idx in expanded if self.step_row(step_index=idx)['Z-Slice'] in (None, '', -1)
-        ]
+        rows = self._step_rows()
+        expanded = range(len(rows)) if only is None else only
+        unstacked = [idx for idx in expanded if rows[idx]['Z-Slice'] in (None, '', -1)]
         Protocol.refuse_unbuildable_zstack(
             zstack_params,
             axis_limits,
-            [
-                (self.step_row(step_index=idx)['Name'], self.step_row(step_index=idx)['Z'])
-                for idx in unstacked
-            ],
+            [(rows[idx]['Name'], rows[idx]['Z']) for idx in unstacked],
         )
 
         to_stack = set(unstacked)
@@ -3163,9 +3199,8 @@ class Protocol:
         block: list[dict] = []
         block_at = None
 
-        for row_idx in range(num_steps):
-            orig_step_df = self.step_row(step_index=row_idx)
-            orig_step_dict = orig_step_df.to_dict()
+        for row_idx, orig_step in enumerate(rows):
+            orig_step_dict = dict(orig_step)
 
             # If already part of a Z-Stack, or not asked for, copy it over to the new protocol
             if row_idx not in to_stack:
@@ -3178,7 +3213,7 @@ class Protocol:
                 range=zstack_params['range'],
                 step_size=zstack_params['step_size'],
                 current_z_reference=zstack_params['z_reference'],
-                current_z_value=orig_step_df['Z'],
+                current_z_value=orig_step['Z'],
             )
 
             if zstack_config.number_of_steps() == 0:
@@ -3186,8 +3221,8 @@ class Protocol:
 
             zstack_positions = zstack_config.step_positions()
 
-            add = orig_step_df['Channel Group ID']
-            place = (add, orig_step_df['X'], orig_step_df['Y']) if add != -1 else ('step', row_idx)
+            add = orig_step['Channel Group ID']
+            place = (add, orig_step['X'], orig_step['Y']) if add != -1 else ('step', row_idx)
             if place not in group_ids:
                 group_ids[place] = next_group_id
                 next_group_id += 1
@@ -3204,31 +3239,31 @@ class Protocol:
             group_steps: list[dict] = []
             for zstack_slice, zstack_position in zstack_positions.items():
                 new_step_dict = self._create_step_dict(
-                    label=orig_step_df['Label'],
-                    x=orig_step_df['X'],
-                    y=orig_step_df['Y'],
+                    label=orig_step['Label'],
+                    x=orig_step['X'],
+                    y=orig_step['Y'],
                     z=zstack_position,
-                    af=orig_step_df['Auto_Focus'],
-                    color=orig_step_df['Color'],
-                    fc=orig_step_df['False_Color'],
-                    ill=orig_step_df['Illumination'],
-                    gain=orig_step_df['Gain'],
-                    auto_gain=orig_step_df['Auto_Gain'],
-                    exp=orig_step_df['Exposure'],
-                    sum=orig_step_df['Sum'],
-                    objective=orig_step_df['Objective'],
-                    well=orig_step_df['Well'],
-                    tile=orig_step_df['Tile'],
+                    af=orig_step['Auto_Focus'],
+                    color=orig_step['Color'],
+                    fc=orig_step['False_Color'],
+                    ill=orig_step['Illumination'],
+                    gain=orig_step['Gain'],
+                    auto_gain=orig_step['Auto_Gain'],
+                    exp=orig_step['Exposure'],
+                    sum=orig_step['Sum'],
+                    objective=orig_step['Objective'],
+                    well=orig_step['Well'],
+                    tile=orig_step['Tile'],
                     zslice=zstack_slice,
-                    custom_step=orig_step_df['Custom Step'],
-                    tile_group_id=orig_step_df['Tile Group ID'],
+                    custom_step=orig_step['Custom Step'],
+                    tile_group_id=orig_step['Tile Group ID'],
                     zstack_group_id=zstack_group_id,
-                    acquire=orig_step_df['Acquire'],
-                    video_config=orig_step_df['Video Config'],
-                    stim_config=orig_step_df['Stim_Config'],
-                    auto_named=orig_step_df['Auto_Named'],
-                    channel_group_id=orig_step_df['Channel Group ID'],
-                    turret_slot=orig_step_df['Turret Slot'],
+                    acquire=orig_step['Acquire'],
+                    video_config=orig_step['Video Config'],
+                    stim_config=orig_step['Stim_Config'],
+                    auto_named=orig_step['Auto_Named'],
+                    channel_group_id=orig_step['Channel Group ID'],
+                    turret_slot=orig_step['Turret Slot'],
                     zstack_offset=round(zstack_position - reference_position, max_precision),
                 )
 

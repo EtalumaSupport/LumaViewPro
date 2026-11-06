@@ -19,6 +19,7 @@ import logging
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.scope_session import ScopeSession
@@ -83,7 +84,31 @@ def _ordered(protocol):
     return _rows(other)
 
 
+@pytest.fixture
+def low_mag_session():
+    built = ScopeSession.create(complete_settings(objective_id='1.25x Oly'), simulate=True)
+    home_sim_scope(built.scope)
+    yield built
+    built.shutdown()
+
+
 class TestTiling:
+    def test_a_tile_coordinate_on_a_rounding_tie_is_rounded_as_numpy_rounds_it(
+        self, low_mag_session
+    ):
+        # At 1.25x a 2x2 grid's tile sits 5723.85 um left of X 65.005, so the
+        # tile's X, 59.28115, is a tie at the stored four decimals: numpy
+        # rounds it to 59.2812, Python's round to 59.2811. Every tile build
+        # LumaViewPro has shipped rounded it as numpy does.
+        protocol = low_mag_session.create_empty_protocol()
+        low_mag_session.add_step(
+            protocol, channels=('BF',), at=PlateLocation(x_mm=65.005, y_mm=40.0, z_um=5000.0)
+        )
+
+        low_mag_session.apply_tiling(protocol, '2x2')
+
+        assert sorted(set(protocol.steps()['X'])) == [59.2812, 70.7288]
+
     def test_every_step_becomes_the_grid_in_the_order_a_run_visits(self, session):
         # Two steps at one X with another between them: built step by step,
         # the tiles of the two would not be next to each other.
