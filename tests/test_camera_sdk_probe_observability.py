@@ -15,8 +15,11 @@ failure surfaces its exception text -- banner, tech-support system info,
 and the driver import guards.
 """
 
+import json
+import logging
 import pathlib
 import re
+import subprocess
 import sys
 import types
 
@@ -96,22 +99,34 @@ def test_system_info_records_import_failure_text(monkeypatch):
     assert re.search(r'\w+Error', info['ids_peak_import_error'])
 
 
-def test_driver_import_guards_log_their_reason():
-    """Source-text pin: the FX2 driver-import guard in _lumascope surfaces the
-    swallowed ImportError instead of silently degrading. The IDS guard is
-    pinned by behaviour in test_ids_absence_on_macos_is_not_a_warning.py."""
-    import _lumascope.modules.lumascope_api._lumascope as lumascope_mod
+# A host where the FX2 driver cannot import: its module entry is None, so
+# the import raises ImportError as a missing pyusb does. Run in a child,
+# since the guard runs once, as the scope module is first imported.
+_FX2_ABSENT = """
+import json, sys
+sys.path.insert(0, 'src')
+sys.modules['_lumascope.drivers.fx2driver'] = None
+from _lumascope.modules.lumascope_api._lumascope import driver_availability_lines
+print(json.dumps(driver_availability_lines()))
+"""
 
-    src = pathlib.Path(lumascope_mod.__file__).read_text(encoding='utf-8')
 
-    fx2_guard = re.search(
-        r'try:\s*\n\s*import _lumascope\.drivers\.fx2driver[^\n]*\n'
-        r'except ImportError([^\n]*):\n(.*?)(?=\n(?:try:|from |import |#))',
-        src,
-        re.DOTALL,
+def test_a_failed_fx2_driver_import_is_stated_as_a_warning_with_its_reason():
+    """The FX2 driver-import guard surfaces the swallowed ImportError instead
+    of silently degrading: the environment banner's driver lines carry it at
+    WARNING, with the exception's words. The IDS guard is pinned in
+    test_ids_absence_on_macos_is_not_a_warning.py."""
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, '-c', _FX2_ABSENT],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    assert fx2_guard, 'expected the guarded fx2driver import'
-    assert 'logger' in fx2_guard.group(0), (
-        'the FX2 driver import guard must log the ImportError reason '
-        '(same silent-swallow shape as the IDS guard)'
-    )
+    assert done.returncode == 0, done.stderr[-3000:]
+    lines = json.loads(done.stdout.strip().splitlines()[-1])
+
+    fx2 = [(level, line) for level, line in lines if 'FX2 (Classic) drivers unavailable' in line]
+    assert fx2 and fx2[0][0] == logging.WARNING, f'no FX2 import warning among {lines}'
+    assert 'fx2driver' in fx2[0][1], f'the warning does not carry the reason: {fx2[0][1]}'

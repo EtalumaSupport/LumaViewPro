@@ -8,10 +8,14 @@ swamping it. protocol_image_writer now logs through a dedicated
 serial / camera / metrics split, so the main log stays readable while the
 full run history is preserved.
 
-These are source-scan tests because conftest mocks lvp_logger wholesale
-during pytest, so the real logger configuration never executes at runtime.
+The suite's conftest mocks lvp_logger wholesale, so the lane is checked in
+a child that starts the real one; the bindings are source scans.
 """
 
+import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -21,22 +25,46 @@ def _src(rel):
     return (REPO_ROOT / rel).read_text()
 
 
-def test_protocol_logger_defined_non_propagating():
-    """lvp_logger must define a dedicated LVP.protocol logger that writes
-    to protocol.log and does not propagate into the main log."""
-    # pin-justified: conftest mocks lvp_logger wholesale, so the real
-    # logger configuration never executes in pytest (see module docstring).
-    src = _src('src/_lumascope/lvp_logger.py')
-    assert 'PROTOCOL_LOG_FILE' in src and "'protocol.log'" in src, (
-        'lvp_logger must define PROTOCOL_LOG_FILE pointing at protocol.log'
+# A LumaViewPro program's start, in a child: the suite's conftest stands a
+# MagicMock in for lvp_logger, so only a fresh interpreter starts the real one.
+_STARTED = """
+import json, logging, sys
+sys.path.insert(0, 'src')
+from _lumascope import lvp_logger
+lvp_logger.start_program_logging()
+lane = logging.getLogger('LVP.protocol')
+lane.info('a protocol step line')
+for handler in (*lane.handlers, lvp_logger.file_handler):
+    handler.flush()
+print(json.dumps({
+    'propagate': lane.propagate,
+    'protocol_log': open(lvp_logger.PROTOCOL_LOG_FILE, encoding='utf-8').read(),
+    'main_log': open(lvp_logger.LOG_FILE, encoding='utf-8').read(),
+}))
+"""
+
+
+def test_a_protocol_line_goes_to_protocol_log_and_not_the_main_log(tmp_path):
+    """Once logging starts, the LVP.protocol lane writes protocol.log and does
+    not propagate into the main log."""
+    folder = tmp_path / 'launch'
+    folder.mkdir()
+    for item in ('src', 'version.txt'):
+        (folder / item).symlink_to(REPO_ROOT / item)
+    shutil.copytree(REPO_ROOT / 'data', folder / 'data')
+    done = subprocess.run(
+        [sys.executable, '-c', _STARTED],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    idx = src.find("getLogger('LVP.protocol')")
-    assert idx != -1, "lvp_logger must create the 'LVP.protocol' logger"
-    window = src[idx : idx + 400]
-    assert 'propagate = False' in window, (
-        'the LVP.protocol logger must set propagate = False to keep '
-        'protocol detail out of the main log'
-    )
+    assert done.returncode == 0, done.stderr[-3000:]
+    state = json.loads(done.stdout.strip().splitlines()[-1])
+
+    assert state['propagate'] is False
+    assert 'a protocol step line' in state['protocol_log']
+    assert 'a protocol step line' not in state['main_log']
 
 
 def test_protocol_image_writer_uses_protocol_logger():

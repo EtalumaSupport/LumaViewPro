@@ -75,6 +75,7 @@ def test_two_sessions_in_one_process_log_one_banner_from_the_script_root(tmp_pat
 # went uncounted.
 _DRIVERS = """
 import json, logging, sys
+sys.path.insert(0, 'src')
 import _lumascope.lvp_logger
 _lumascope.lvp_logger.start_program_logging()
 for name in ('', 'LVP', 'lvp_logger'):
@@ -111,14 +112,18 @@ def _is_driver_line(message):
 
 def test_the_banner_states_what_the_driver_imports_found_and_the_import_writes_none(tmp_path):
     # The drivers decide their availability as they import, where nothing has
-    # started logging; the banner is where a support bundle gets it.
+    # started logging; the banner is where a support bundle gets it. Launched
+    # from a folder of links into the checkout, so the log it starts is that
+    # folder's, never the checkout's.
+    for item in ('src', 'tests', 'version.txt'):
+        (tmp_path / item).symlink_to(REPO / item)
     shutil.copytree(REPO / 'data', tmp_path / 'data')
     done = subprocess.run(
         [sys.executable, '-c', _DRIVERS, str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=120,
-        cwd=str(REPO),
+        cwd=str(tmp_path),
     )
     assert done.returncode == 0, done.stderr
     heard = json.loads(done.stdout.strip().splitlines()[-1])
