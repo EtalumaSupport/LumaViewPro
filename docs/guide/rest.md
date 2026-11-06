@@ -1,51 +1,14 @@
 # REST
 
-The API over HTTP: serving it, reaching it from another computer, routes, handles, jobs, the control session, problems, events, the live view and files, and a walkthrough.
+The API over HTTP: routes, handles, jobs, the control session, problems, events, and the live view and files. [A walkthrough](rest-walkthrough.md) drives a session with `curl`.
 
-## Serving it
-
-```bash
-python -m lumascope.rest --simulate      # a simulated scope; leave out --simulate for the hardware
-```
-
-The server brings the scope up as LumaViewPro does -- the user's settings, the
-startup home, the plugins -- and serves where `rest_api` in its settings says
-(shipped `127.0.0.1:8000`, this computer only; another computer reaches it as
-[REST from another computer](rest-remote.md) says). It takes the same single-instance lock as
-LumaViewPro, so it will not start while LumaViewPro or another server drives
-the scope. A failed startup home is reported and the server still serves, so a
-client can home again. Ctrl-C closes it: new calls are refused
-(`'server_closing'`), the session shuts down with the event stream open, the
-stream's last event is `closing`, and the process exits `0`, or `1` when the
-session did not close cleanly.
-
-LumaViewPro serves the same API beside its window when `rest_api.enabled` is
-set in its settings (shipped `false`). To serve a session your own program has
-brought up, build its server, the one every host serves through:
-
-```python norun
-from lumascope import build_server
-
-server = build_server(session, shut_down=session.shutdown)
-server.run()    # until Ctrl-C, whose close shuts the session down
-if not server.close_begun:    # it stopped before it served
-    session.shutdown()
-```
-
-The server reads `rest_api` from the session's settings. A `rest_api` setting
-it cannot use, or an address and port it cannot take, is refused with
-`RestServerNotStartedError` before anything is served, from every host:
-LumaViewPro shows it and runs on without a server, and `python -m lumascope.rest`
-prints it and exits `1`. While it serves, `server.reach` says where and to
-whom (`python -m lumascope.rest` prints it, and LumaViewPro shows it in Advanced
-Settings). The settings are read from the file as written, and LumaViewPro
-writes its whole settings file back as it runs, so edit `rest_api` with
-LumaViewPro closed.
-
-`GET /api` answers the versions served; the OpenAPI 3.1 description of every
-route is at `/api/v1/openapi.json`, with an interactive reference at `/docs`.
-Each route's description lists the refusals and faults its member declares,
-under the status each answers.
+A server is LumaViewPro's, beside its window, or `python -m lumascope.rest`
+from its source; [Serving REST](rest-serving.md) says how each starts, its
+settings, and how a client on another computer reaches it. `GET /api` answers
+the versions served; the OpenAPI 3.1 description of every route is at
+`/api/v1/openapi.json`, with an interactive reference at `/docs`. Each route's
+description lists the refusals and faults its member declares, under the
+status each answers.
 
 ## Routes
 
@@ -77,9 +40,10 @@ a path segment, so `session.scope.motion.move_xy` is
 - **Paths are names in the live folder**, `/`-separated
   (`"ProtocolData/run1"`). A name that leaves it is refused
   (`'outside_live_folder'`); `"."` is the live folder itself. An answered path is
-  `{"name": ..., "host_path": ...}`.
+  `{"name": ..., "host_path": ...}`, `name` null for a path outside it.
 - **Units are the API's**: an axis position crosses as
-  `{"position_um": ..., "state": ...}`, and a duration as a number of seconds.
+  `{"position_um": ..., "state": ...}`, a duration as a number of seconds, and
+  a time as ISO 8601 with its offset.
 
 In-process members -- those taking a callback, returning a live object, or
 waiting on the caller's thread -- have no route; each has a wire form beside
@@ -93,16 +57,21 @@ A live object -- a protocol, a protocol runner -- crosses as a handle,
 `/api/v1/handles/<type>/<id>/<member>` (`GET /api/v1/handles/Protocol/1/period_s`),
 and a parameter that takes it is sent its id (`{"protocol": "1"}`).
 `GET /api/v1/handles` lists every handle held, oldest first.
-`DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object; the
-session's protocol runner is every client's and is kept (`422`,
-`'handle_shared'`). At most 1000 handles are held.
+`DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object (`204`);
+the session's protocol runner is every client's and is kept (`422`,
+`'handle_shared'`). A forget is a write: under another's control session it is
+refused. At most 1000 handles are held; past that, a call whose answer could
+carry a new one is refused `503` (`'overloaded'`, `Retry-After: 5`) before it
+runs, so forget the handles a client is done with.
 
 ## Jobs
 
 Every call runs on its own thread, and its route waits for it as long as the
-client says: `Prefer: wait=<seconds>`, 2 s when it says nothing, at most 60 s.
-`Prefer: respond-async` asks for no wait at all. A call still running then
-answers `202 Accepted` with `Location: /api/v1/jobs/<id>` and the job:
+client says: `Prefer: wait=<seconds>`, 2 s when it says nothing, a longer wait
+cut to 60 s. `Prefer: respond-async` asks for no wait at all. A preference
+taken is echoed in `Preference-Applied`. A call still running then answers
+`202 Accepted` with `Location: /api/v1/jobs/<id>`, `Retry-After: 1` and the
+job:
 
 ```json
 {"id": "3", "member": "handles/ProtocolRunner/2/start_single_scan", "status": "running",
@@ -120,24 +89,37 @@ a stopped run's job is `completed` with its outcome `aborted`, a stopped move's
 the run's images: the run's job ends as the run lets go of the scope, and its
 `files` job once the images are on disk, its `result` the run's `RunFiles`.
 Wait on it before reading the run's folder or starting the next run, which is
-refused `'files_writing'` until then. `DELETE /api/v1/jobs/<id>` stops a running
-operation (`202`) or forgets a finished job (`204`). Finished jobs are kept up
-to 1000 and 24 hours. Take a job's id from the answer that made it, never count
-it: every call held as a job takes the next id.
+refused `'files_writing'` until then. `GET /api/v1/jobs` lists every job held,
+newest first.
 
-A `POST` or `PUT` that may be sent twice carries `Idempotency-Key`: sent again
-with the same key, it runs nothing and is answered what the first was, with
-`Idempotent-Replayed: true`. A key is held for 24 hours.
+`DELETE /api/v1/jobs/<id>` stops a running operation (`202`, the job) or
+forgets a finished job (`204`). It is a stop, so no control session refuses it.
+A still has no stop, and its job ends as it would have; a call held as a job
+only because it outlived its wait holds no operation, and is refused `409`
+(`'not_cancellable'`). Finished jobs are kept up to 1000 and 24 hours; at most
+256 calls run at once, past which a call is refused `503` (`'overloaded'`).
+Take a job's id from the answer that made it, never count it: every call held
+as a job takes the next id.
+
+A `POST` or `PUT` that may be sent twice, an upload among them, carries
+`Idempotency-Key`: sent again with the same key, it runs nothing and is
+answered what the first was, with `Idempotent-Replayed: true`. A key sent with
+another request is refused `422` (`'idempotency_key_reused'`). A key is held
+for 24 hours, and at most 10,000, the oldest let go first.
 
 ## The control session
 
-While a control session is held, every write carries its id in the
-`Control-Session` header; any other write is refused `409`
-(`'control_session_held'`), and a request naming an ended session `422`
-(`'control_session_ended'`). `POST /api/v1/take_control` with `{"name": ...}`
-answers the id; `POST /api/v1/end_control` with `{"session_id": ...}` ends it.
+The wire form of [the control session](concepts.md#who-may-act).
+`POST /api/v1/take_control` with `{"name": ...}` answers the id, to this
+client alone; `GET /api/v1/control` reads who holds it, and since when. While
+it is held, every write carries its id in the `Control-Session` header; any
+other write is refused `409` (`'control_session_held'`), and a request naming
+an ended session `422` (`'control_session_ended'`). Reads, stops and the
+display preferences pass without it. `POST /api/v1/end_control` with
+`{"session_id": ...}` ends it, stopping a run or recording taken in it.
 Every request carrying the header renews the session, a read or a job poll
 included; one silent for 180 s is ended by the next client it would refuse.
+Taking back control without the id is the window's alone: it has no route.
 
 ## Problems
 
@@ -146,32 +128,42 @@ Every answer that is not a result is an RFC 9457 problem,
 
 ```json
 {"type": "urn:lumascope:problem:not_offered", "title": "Not One of the Values Offered",
- "detail": "axis must be one of X, Y, Z; 'W' is not one.", "status": 422,
+ "detail": "axis must be one of X, Y, Z, T; 'W' is not one.", "status": 422,
  "instance": "urn:uuid:3faa1296-...", "kind": "refusal", "reason": "not_offered",
- "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z"]}
+ "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"],
+ "board": null, "limits": null, "member": null, "plate": null, "takes": null}
 ```
 
 `title` and `detail` are the words a person is shown; `reason` is the code to
 branch on; `kind` is the outcome's; `remedy` is sent back as
-`POST /api/v1/apply_remedy` with `{"remedy": ...}`. A refusal carries the
-fields its class publishes -- `argument`, `offered`, `limits`, `holder` -- so a
-client corrects its request without reading the words.
+`POST /api/v1/apply_remedy` with `{"remedy": ...}`. A refusal carries every
+field its class publishes -- `argument`, `offered`, `limits`, `holder` --
+null where unused, so a client corrects its request without reading the
+words. An outcome that declares no reason is `type` `about:blank`.
+
+The status is the outcome's [cause](concepts.md#outcomes), or the server's own
+refusal's; every reason and its status is in the reference's
+[table](../api-reference.md#ServerRefusedError) and
+[Outcomes](../api-reference.md#outcomes).
 
 | Status | Means |
 |---|---|
-| `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`). |
-| `422` | A refusal of the request as sent: change it. Also `'invalid_request'` and `'handle_shared'`. |
+| `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`), and `'not_cancellable'`. |
+| `422` | A refusal of the request as sent: change it. Also `'invalid_request'`, `'handle_shared'` and `'idempotency_key_reused'`. |
+| `403` | `'client_not_allowed'`: a client [`allowed_clients`](rest-serving.md#serving-another-computer) does not list. |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
 | `405` / `415` | The wrong method; a body that is not JSON. |
-| `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'scope_disconnected'`, `'session_closing'`, `'server_closing'`). |
+| `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, `'server_closing'`, and every other restart cause). |
 
 ## The event stream
 
 `GET /api/v1/events` is a server-sent event stream. Its first event is
 `status`, the scope as `GET /api/v1/status` reads it; after that every change
 is an event, named as in the [events table](../api-reference.md#events), its data
-the event's record. A run's events carry `run`, `{"job": "<id>"}`, the job of
+the event's record -- but the frame events, which are the live view's. A
+quiet stream sends a keep-alive comment every 15 s and asks a client to
+reconnect after 1 s (`retry: 1000`). A run's events carry `run`, `{"job": "<id>"}`, the job of
 the run that sent them, and every job's end is a `job_ended` event, its data
 the job: a run's `files` job ends with its own, so match a `job_ended` by its
 `id`. An outcome nobody asked for is an `outcome` event.
@@ -184,15 +176,19 @@ event is `closing`.
 
 ## The live view and files
 
-- `GET /api/v1/live` -- the camera's frames as MJPEG, for a browser's `<img>`.
-- `GET /api/v1/live.jpg` -- one frame.
+- `GET /api/v1/live` -- the camera's frames as MJPEG, for a browser's `<img>`,
+  each part carrying `X-Frame-Ordinal` and `X-Frame-Timestamp`; `max_width`
+  bounds a frame's width, half the camera's frame when not given.
+- `GET /api/v1/live.jpg` -- one frame, `max_width` as for `/live`; `503`
+  (`'no_frame_yet'`, with `Retry-After`) when the camera sends none in time.
 - `GET /api/v1/files/<name>` -- a file in the live folder, as an attachment; a
   `Range` request resumes a large download.
-- `PUT /api/v1/files/<name>` -- a new file in the live folder; a file already
-  at the name is refused (`'file_exists'`), so an upload never replaces a
-  capture.
+- `PUT /api/v1/files/<name>` -- a new file in the live folder, answered `201`
+  with its path; a file already at the name is refused (`'file_exists'`), so
+  an upload never replaces a capture. It is a write, carrying
+  `Control-Session` under a held session.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
-  display (`max_width`).
+  display (`max_width` as for `/live`).
 - `POST /api/v1/still` -- a still with the camera as set, at its own depth,
   saved nowhere (`ScopeSession.capture_still`): the body is the still's record
   as JSON, `X-Record-Length` bytes, then its pixels, row by row, little-endian,
@@ -205,51 +201,3 @@ The live view and previews are display: 8-bit grey, lossy, with no metadata.
 The data is the file. Every answer carries `X-Request-ID`, which a problem
 names as its `instance`, and each request is one line of
 `lumaviewpro_rest_api.log`.
-
-## A walkthrough
-
-A session with `curl` against a server started with `--simulate`, reading the
-answers with `jq`. Each line's comment is the status it answers; a handle's or
-a job's id is read from the answer that made it. Every line here is run, in
-this order, in LumaViewPro's test suite.
-
-```bash
-API=http://127.0.0.1:8000/api/v1
-
-curl -s $API/status                                         # 200: the scope's work, axes, parts and camera
-curl -s "$API/scope/motion/get_axis_limits?axis=W"          # 422 not_offered: offered X, Y, Z
-curl -s -H 'Prefer: wait=60' --json '{"z_um": 4000.0}' $API/scope/motion/move_z    # 200
-curl -s --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
-curl -s --json '{}' $API/scope/illumination/leds_off        # 200
-```
-
-Build a one-step protocol and run it. A run is answered `202` at once with its
-job; poll the job at once with `Prefer: respond-async`, or read it with
-`Prefer: wait` until it has ended, then its `files` job until the run's images
-are on disk.
-
-```bash
-curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
-PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
-curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
-curl -s --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200: ["custom0000_BF"]
-RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
-JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\"}" $API/handles/ProtocolRunner/$RUNNER/start_single_scan | jq -r .id)   # 202
-curl -s -H 'Prefer: respond-async' $API/jobs/$JOB           # 200: the job as it stands, its "progress" where the run has got
-FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "status": "completed", "result" the RunOutcome
-curl -s -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the images are on disk
-curl -s "$API/live_folder_listing?name=ProtocolData"        # 200: the run's folder
-```
-
-Take the control session, and see another write refused while it is held.
-
-```bash
-CONTROL=$(curl -s --json '{"name": "walkthrough"}' $API/take_control | jq -r .)   # 200: the id, for this client alone
-curl -s --json '{"z_um": 3000.0}' $API/scope/motion/move_z                          # 409 control_session_held
-curl -s -H "Control-Session: $CONTROL" -H 'Prefer: wait=60' --json '{"z_um": 3000.0}' $API/scope/motion/move_z   # 200
-curl -s --json "{\"session_id\": \"$CONTROL\"}" $API/end_control                    # 200
-curl -s $API/events/held                                    # 200: where a poll of the events begins
-```
-
-A client that holds a connection open reads the events as they happen with
-`curl -N $API/events`.

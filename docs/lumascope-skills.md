@@ -115,7 +115,8 @@ it needs them. Every member, field and outcome is in the
 | Move the stage, the focus or the turret, over REST | [concepts.md](guide/concepts.md), [motion.md](guide/motion.md), [rest.md](guide/rest.md) |
 | Light a channel or set the camera, in Python | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
 | Light a channel or set the camera, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [rest.md](guide/rest.md) |
-| Serve REST to a client on another computer | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-remote.md](guide/rest-remote.md) |
+| Learn the REST API from a worked session with `curl` | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-walkthrough.md](guide/rest-walkthrough.md) |
+| Start a REST server, on this computer or for a client on another | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-serving.md](guide/rest-serving.md) |
 | Test against the simulator or inject a fault, in Python | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [python.md](guide/python.md) |
 | Test against the simulator or inject a fault, over REST | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [rest.md](guide/rest.md) |
 | Drive the scope from another acquisition engine, in Python | [concepts.md](guide/concepts.md), [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |

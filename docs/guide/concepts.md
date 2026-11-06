@@ -85,12 +85,12 @@ stalls, a run's file writer that stops -- reaches the outcome listeners
 
 **Kinds.** Each outcome class is of one kind:
 
-| Kind | Means | REST |
-|---|---|---|
-| refusal | Nothing was done: the request was wrong, or the scope's state did not allow it. | 409, 422 or 503, by its cause |
-| fault | Something broke while it was being done. | 500 |
-| notice | It ended differently from what was asked, by someone's choice: a move stopped, or superseded by a newer one. | by its cause |
-| quiet | An expected answer that needs no report: a wait that ran out. | by its cause |
+| Kind | Means |
+|---|---|
+| refusal | Nothing was done: the request was wrong, or the scope's state did not allow it. |
+| fault | Something broke while it was being done. |
+| notice | It ended differently from what was asked, by someone's choice: a move stopped, or superseded by a newer one. |
+| quiet | An expected answer that needs no report: a wait that ran out. |
 
 **Reasons and causes.** Every outcome carries a `reason`, the code your
 program branches on, and every refusal, notice and quiet outcome a `cause`:
@@ -106,11 +106,14 @@ except PositionOutOfRangeError as refused:
     print(refused.reason, '--', refused)    # the reason, then the words a person reads
 ```
 
-| Cause | Means | Retry? | REST |
-|---|---|---|---|
-| `RefusalCause.STATE` | The scope's state refused it: a run is live, an axis is not homed. | Yes, once the state has changed. | 409 |
-| `RefusalCause.REQUEST` | The request cannot succeed as sent: a bad argument, hardware this scope lacks. | No; change the request. | 422 |
-| `RefusalCause.RESTART` | Nothing succeeds until the application restarts: a part is disconnected, the session is closing. | No. | 503 |
+| Cause | Means | Retry? |
+|---|---|---|
+| `RefusalCause.STATE` | The scope's state refused it: a run is live, an axis is not homed. | Yes, once the state has changed. |
+| `RefusalCause.REQUEST` | The request cannot succeed as sent: a bad argument, hardware this scope lacks. | No; change the request. |
+| `RefusalCause.RESTART` | Nothing succeeds until the application restarts: a part is disconnected, the session is closing. | No. |
+
+Over REST a fault is `500` and a cause is its status, `409`, `422` or `503`
+([Problems](rest.md#problems)).
 
 **`Raises:` is the contract.** Each member's docstring lists what it may raise,
 by class and reason; a member that raises nothing says `Nothing.`. The reference
@@ -136,8 +139,13 @@ before the member runs (`'invalid_request'`).
 scope.motion.move_z('5000')                 # a str where a float is declared
 ```
 
-```python raises=ArgumentRefusedError:not_offered
-scope.motion.get_axis_limits('W')           # no axis W: offered X, Y, Z
+```python
+from lumascope import ArgumentRefusedError
+
+try:
+    scope.motion.get_axis_limits('W')       # no axis W
+except ArgumentRefusedError as refused:
+    assert (refused.reason, refused.offered) == ('not_offered', ('X', 'Y', 'Z', 'T'))
 ```
 
 ```python raises=ArgumentRefusedError:not_a_number

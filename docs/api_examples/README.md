@@ -91,8 +91,8 @@ installed app, or a server started from the source. You need `bash`, `curl`
 Each line prints its answer on a line of its own, and its comment says the
 status it answers. The server is
 `http://127.0.0.1:8000`, this computer only; with another `port` or
-`address` (another computer's scope: the guide's [Reaching it from another
-computer](../guide/rest-remote.md)), change `API=` at the top of the example. The interactive reference of every route is
+`address` (another computer's scope: the guide's [Serving another
+computer](../guide/rest-serving.md#serving-another-computer)), change `API=` at the top of the example. The interactive reference of every route is
 at `http://127.0.0.1:8000/docs` while the server runs.
 
 `refusals_and_faults` pulls the simulated camera's cable, as its Python form
