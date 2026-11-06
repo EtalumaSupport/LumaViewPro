@@ -84,7 +84,7 @@ def _load_set(session, folder):
     ).get('pixel_size_um')
     columns = [
         c
-        for c in ('Filepath', 'X', 'Y', 'Objective', 'Color', 'Well', 'Tile Group ID')
+        for c in ('Filepath', 'X', 'Y', 'Objective', 'channel', 'Well', 'Tile Group ID')
         if c in df.columns
     ]
     floods = {}

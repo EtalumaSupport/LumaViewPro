@@ -465,7 +465,7 @@ def test_mp4_writers_pass_layer_color():
         in manual_flat
     )
     assert (
-        "color=channel_record.shown_color(step['Color'],false_color_on,self._channel_colors)"
+        "color=channel_record.shown_color(step['channel'],false_color_on,self._channel_colors)"
         in cap_flat
     )
     # The inline protocol-capture bake stays gone (one colorization authority).

@@ -94,7 +94,7 @@ def _shown(env) -> str:
     One layer widget stands for every layer, so the step's stimulation
     settings for the other layers land on it too.
     """
-    return env.layer_obj.set_step_state.call_args_list[0].args[0]['Color']
+    return env.layer_obj.set_step_state.call_args_list[0].args[0]['channel']
 
 
 def _lit(env) -> list:

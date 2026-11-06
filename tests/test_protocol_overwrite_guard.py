@@ -112,7 +112,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
             position=unpositioned(),
             fallback_focus=None,
         ),
-        step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        step={'Name': 's', 'channel': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),
         output_format='TIFF',

@@ -125,7 +125,7 @@ def _channel_files(tmp_path, colors):
     for color in colors:
         arr = np.full((8, 8), 120, dtype=np.uint8)
         tf.imwrite(str(tmp_path / f'{color}.tiff'), arr, compression='lzw')
-        rows.append({'Color': color, 'Filepath': f'{color}.tiff'})
+        rows.append({'channel': color, 'Filepath': f'{color}.tiff'})
     return pd.DataFrame(rows)
 
 

@@ -468,6 +468,6 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, select
 
     panel.insert_step_ex(after_current_step=True)
 
-    assert list(panel._protocol.steps()['Color']) == ['BF', 'BF', LED0, 'BF']
+    assert list(panel._protocol.steps()['channel']) == ['BF', 'BF', LED0, 'BF']
     assert panel.curr_step in (1, 2)
-    assert panel._protocol.step_row(panel.curr_step)['Color'] == selected_color
+    assert panel._protocol.step_row(panel.curr_step)['channel'] == selected_color

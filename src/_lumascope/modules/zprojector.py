@@ -44,7 +44,7 @@ class ZProjector(ProtocolPostProcessor):
             by=[
                 'Scan Count',
                 'Well',
-                'Color',
+                'channel',
                 'Objective',
                 'X',
                 'Y',
@@ -126,7 +126,7 @@ class ZProjector(ProtocolPostProcessor):
         return PostProcResult.from_group_result(
             self._zproject(
                 path=path,
-                df=df[['Filepath', 'Color']],
+                df=df[['Filepath', 'channel']],
                 method=kwargs['method'],
                 output_file_loc=kwargs['output_file_loc'],
                 channel_colors=kwargs['channel_colors'],
@@ -154,7 +154,7 @@ class ZProjector(ProtocolPostProcessor):
             z='',
             z_slice='',
             well=row0['Well'],
-            color=row0['Color'],
+            color=row0['channel'],
             objective=row0['Objective'],
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
@@ -281,7 +281,7 @@ class ZProjector(ProtocolPostProcessor):
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         metadata = image_utils.build_postproc_output_metadata(
             input_records=[image_utils.read_file_record(path / name) for name in df['Filepath']],
-            channel=first_slice_row['Color'],
+            channel=first_slice_row['channel'],
             significant_bits=output_depth,
             # A slice's frame count says how many exposures each of its pixels
             # integrates; a Sum adds the slices, so beside the per-frame exposure
@@ -295,7 +295,7 @@ class ZProjector(ProtocolPostProcessor):
             metadata=metadata,
             # The format its name states, the one its slices share.
             ome=image_utils.is_ome_tiff(output_file_loc),
-            color=channel_record.output_color(first_slice_row['Color'], channel_colors),
+            color=channel_record.output_color(first_slice_row['channel'], channel_colors),
             significant_bits=metadata['significant_bits'],
             save_encoding=image_mode.encoding_for_array(result['image']),
             white_bits=output_white,

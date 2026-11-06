@@ -56,7 +56,7 @@ import tifffile as tf
 from _lumascope.modules import image_utils
 
 def _zproject(self, path, df):
-    data = image_utils.maybe_apply_false_color(data=arr, color=df['Color'].iloc[0])
+    data = image_utils.maybe_apply_false_color(data=arr, color=df['channel'].iloc[0])
     tf.imwrite("out.tiff", data=data)
 """
         assert _violations(src, 'src/_lumascope/modules/zprojector.py') == []

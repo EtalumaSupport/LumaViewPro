@@ -151,7 +151,7 @@ def _make_step(
         'Y': y,
         'Z': z,
         'Auto_Focus': auto_focus,
-        'Color': color,
+        'channel': color,
         'False_Color': false_color,
         'Illumination': illumination,
         'Gain': gain,
@@ -366,14 +366,28 @@ class TestRoundTripBasic:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 1
         step = reloaded.step_row(step_index=0)
-        assert step['Color'] == 'BF'
+        assert step['channel'] == 'BF'
         assert step['Acquire'] == 'image'
+
+    def test_the_channel_column_is_color_in_the_file_and_channel_in_memory(self, tmp_path):
+        """What is saved stays as saved: the file names the channel's step
+        column 'Color', as ``CURRENT_COLUMNS`` does; the steps read back
+        name it 'channel'."""
+        proto = _build_protocol([_make_step(color=LED1)])
+        reloaded = _save_and_reload(proto, tmp_path)
+        lines = (tmp_path / 'test_protocol.tsv').read_text().splitlines()
+        header = lines[lines.index('Steps') + 1].split('\t')
+        assert 'Color' in Protocol.CURRENT_COLUMNS
+        assert 'Color' in header and 'channel' not in header
+        steps = reloaded.steps()
+        assert 'channel' in steps.columns and 'Color' not in steps.columns
+        assert reloaded.step_row(step_index=0)['channel'] == LED1
 
     def test_single_fluor_step(self, tmp_path):
         proto = _build_protocol([_make_step(color=LED1, illumination=200.0)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
-        assert step['Color'] == LED1
+        assert step['channel'] == LED1
         assert step['Illumination'] == 200.0
 
     def test_video_step_config_preserved(self, tmp_path):
@@ -570,9 +584,9 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
-        assert reloaded.step_row(step_index=1)['Color'] == LED1
-        assert reloaded.step_row(step_index=2)['Color'] == LED2
+        assert reloaded.step_row(step_index=0)['channel'] == 'BF'
+        assert reloaded.step_row(step_index=1)['channel'] == LED1
+        assert reloaded.step_row(step_index=2)['channel'] == LED2
 
     def test_mixed_image_and_video(self, tmp_path):
         steps = [
@@ -701,7 +715,7 @@ class TestRoundTripEdgeCases:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == len(colors)
         for i, c in enumerate(colors):
-            assert reloaded.step_row(step_index=i)['Color'] == c
+            assert reloaded.step_row(step_index=i)['channel'] == c
 
     def test_high_illumination(self, tmp_path):
         proto = _build_protocol([_make_step(illumination=1000.0)])
@@ -1144,9 +1158,9 @@ class TestRoundTripCombinations:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 9
         assert reloaded.step_row(step_index=0)['Well'] == 'A1'
-        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
+        assert reloaded.step_row(step_index=0)['channel'] == 'BF'
         assert reloaded.step_row(step_index=8)['Well'] == 'B1'
-        assert reloaded.step_row(step_index=8)['Color'] == LED2
+        assert reloaded.step_row(step_index=8)['channel'] == LED2
 
     def test_tiling_1x3(self, tmp_path):
         """1 row x 3 columns tiling."""
@@ -1615,9 +1629,9 @@ class TestProtocolModification:
             _make_step(name='third', color=LED2),
         ]
         proto = _build_protocol(steps)
-        assert proto.step_row(step_index=0)['Color'] == 'BF'
-        assert proto.step_row(step_index=1)['Color'] == LED1
-        assert proto.step_row(step_index=2)['Color'] == LED2
+        assert proto.step_row(step_index=0)['channel'] == 'BF'
+        assert proto.step_row(step_index=1)['channel'] == LED1
+        assert proto.step_row(step_index=2)['channel'] == LED2
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
@@ -1734,7 +1748,7 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['X'] == pytest.approx(12.345)
         assert s['Y'] == pytest.approx(67.89)
         assert s['Z'] == pytest.approx(4567.0)
-        assert s['Color'] == LED1
+        assert s['channel'] == LED1
         assert s['Illumination'] == pytest.approx(234.5)
         assert s['Gain'] == pytest.approx(3.7)
         assert s['Exposure'] == pytest.approx(42.0)
@@ -1867,7 +1881,7 @@ class TestProtocolInsertStep:
         # it with the channel token.
         assert proto.step_row(step_index=0)['Label'] == 'new_step'
         assert proto.step_row(step_index=0)['Name'] == f'new_step_{LED1}'
-        assert proto.step_row(step_index=0)['Color'] == LED1
+        assert proto.step_row(step_index=0)['channel'] == LED1
         assert proto.step_row(step_index=1)['Name'] == 'existing'
 
     def test_insert_after_last_step(self):
@@ -1888,7 +1902,7 @@ class TestProtocolInsertStep:
         assert proto.step_row(step_index=0)['Name'] == 'first'
         assert proto.step_row(step_index=1)['Label'] == 'appended'
         assert proto.step_row(step_index=1)['Name'] == f'appended_{LED2}'
-        assert proto.step_row(step_index=1)['Color'] == LED2
+        assert proto.step_row(step_index=1)['channel'] == LED2
 
     def test_insert_between_steps(self):
         proto = _build_protocol(
@@ -1972,7 +1986,7 @@ class TestProtocolInsertStep:
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
         assert reloaded.num_steps() == 2
-        assert reloaded.step_row(step_index=1)['Color'] == LED1
+        assert reloaded.step_row(step_index=1)['channel'] == LED1
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed, 'Inserted-step protocol did not complete'
@@ -2057,7 +2071,7 @@ class TestProtocolModifyStep:
             stim_configs=_default_stim_config(),
         )
         step = proto.step_row(step_index=0)
-        assert step['Color'] == LED1
+        assert step['channel'] == LED1
         assert step['Illumination'] == 300.0
         # A rename via modify_step stores the label and derives the display
         # Name with the (new) channel token.
@@ -2098,7 +2112,7 @@ class TestProtocolModifyStep:
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
-        assert reloaded.step_row(step_index=0)['Color'] == LED2
+        assert reloaded.step_row(step_index=0)['channel'] == LED2
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed

@@ -76,7 +76,7 @@ def _write_frame(
 def _row(fname, *, color, z_idx, z_um, well='A1', scan=0):
     return {
         'Filepath': fname,
-        'Color': color,
+        'channel': color,
         'Scan Count': scan,
         'Z-Slice': z_idx,
         'X': 10.0,

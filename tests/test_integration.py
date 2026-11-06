@@ -146,7 +146,7 @@ def _make_protocol(steps_config):
                 'Y': merged['y'],
                 'Z': merged['z'],
                 'Auto_Focus': merged['auto_focus'],
-                'Color': merged['color'],
+                'channel': merged['color'],
                 'False_Color': merged['false_color'],
                 'Illumination': merged['illumination_ma'],
                 'Gain': merged['gain_db'],

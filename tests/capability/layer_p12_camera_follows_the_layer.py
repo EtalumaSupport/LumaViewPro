@@ -84,7 +84,7 @@ def body(session):
     settings[LED0]['acquire'] = 'image'
     protocol = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
     session.add_step(protocol, before_step_index=0)
-    colors = [protocol.step_row(step_index=i)['Color'] for i in range(protocol.num_steps())]
+    colors = [protocol.step_row(step_index=i)['channel'] for i in range(protocol.num_steps())]
     figure('steps', colors)
 
     for color in (LED0, 'BF'):

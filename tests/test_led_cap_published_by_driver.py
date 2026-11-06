@@ -118,7 +118,7 @@ def _protocol_with(illumination) -> Protocol:
                     'Y': 10.0,
                     'Z': 100.0,
                     'Auto_Focus': False,
-                    'Color': LED0,
+                    'channel': LED0,
                     'False_Color': False,
                     'Illumination': float(illumination),
                     'Gain': 0.0,

@@ -21,7 +21,7 @@ def _make_recorder(scope, tmp_path, clock, **overrides):
     return video_step_on(
         scope,
         tmp_path,
-        step={'Video Config': {'duration': 10}, 'Color': 'BF'},
+        step={'Video Config': {'duration': 10}, 'channel': 'BF'},
         video_as_frames=False,
         clock=lambda: clock['t'],
         elapsed_clock=lambda: clock['t'],
@@ -143,7 +143,7 @@ class TestStartFailureEndsTheStep:
         # open its container at construction; with it off the encoder init
         # defers and there is no artifact to leave behind, so the unlink
         # would go unexercised.
-        recorder._step['Color'] = LED0
+        recorder._step['channel'] = LED0
         recorder._step['False_Color'] = True
 
         # a stand-in by design: no simulated fault makes the registration

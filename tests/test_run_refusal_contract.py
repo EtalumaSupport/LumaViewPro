@@ -163,7 +163,7 @@ def _make_single_step_protocol(color='BF'):
         'Y': 20.0,
         'Z': 5000.0,
         'Auto_Focus': False,
-        'Color': color,
+        'channel': color,
         'False_Color': False,
         'Illumination': 50.0,
         'Gain': 1.0,
@@ -922,7 +922,7 @@ class TestTheRefusalFunnel:
         def channel_not_on_scope(mp):
             # The suite's scope has no Lumi layer.
             return _build_real_protocol(
-                [{**_make_single_step_protocol().step_row(step_index=0), 'Color': 'Lumi'}]
+                [{**_make_single_step_protocol().step_row(step_index=0), 'channel': 'Lumi'}]
             )
 
         return [

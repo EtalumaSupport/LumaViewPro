@@ -246,7 +246,7 @@ class ProtocolStepRunner:
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,
                 run=p._run_identity,
-                led_color=sweep_step['Color'],
+                led_color=sweep_step['channel'],
                 led_illumination=sweep_step['Illumination'],
                 camera_gain=sweep_step['Gain'],
                 camera_exposure=sweep_step['Exposure'],
@@ -321,17 +321,17 @@ class ProtocolStepRunner:
             self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
             # arming. Set on the shared settings dict so capture() inherits it.
-            # step['Color'] is the layer; the per-install override map rides
+            # step['channel'] is the layer; the per-install override map rides
             # the run plan, so a headless run honours it too.
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-                step['Color'], p._ag_ae_max_exposure_ms
+                step['channel'], p._ag_ae_max_exposure_ms
             )
             p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
-                step['Color']
+                step['channel']
             )
             try:
                 p._scope.camera.apply(
-                    channel=step['Color'],
+                    channel=step['channel'],
                     gain_db=step['Gain'],
                     exposure_ms=step['Exposure'],
                     auto_gain=True,
@@ -390,7 +390,7 @@ class ProtocolStepRunner:
         if remaining_scans > 0:
             if not p._disable_saving_artifacts:
                 if p._separate_folder_per_channel:
-                    save_folder = p._run_dir / step['Color']
+                    save_folder = p._run_dir / step['channel']
                     save_folder.mkdir(parents=True, exist_ok=True)
                 else:
                     save_folder = p._run_dir
@@ -419,7 +419,7 @@ class ProtocolStepRunner:
                 snapshot_lit = frozenset()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step_row(step_index=p._curr_step + 1)
-                    same_color = next_step['Color'] == step['Color']
+                    same_color = next_step['channel'] == step['channel']
                     # A z-stack group holds every channel at one position, so the
                     # color is judged too: the LED is held only across slices of
                     # one channel.
@@ -450,7 +450,7 @@ class ProtocolStepRunner:
                 # this unit's identity lacks (the light seam already said
                 # so loudly) -- in every case there is nothing to keep lit.
                 boundary_ctx = LedTransitionCtx(
-                    led_address=p._scope.illumination.led_address_of(step['Color']),
+                    led_address=p._scope.illumination.led_address_of(step['channel']),
                     illumination_ma=step['Illumination'],
                     same_color=same_color,
                     same_zstack_group=same_zstack_group,
@@ -751,15 +751,15 @@ class ProtocolStepRunner:
             # abort path is turning the LEDs off, and a stray on here flashes
             # the sample at cancel time.
             return
-        address = p._scope.illumination.led_address_of(step['Color'])
-        if address is None and step['Color'] in common_utils.get_layers_with_led():
+        address = p._scope.illumination.led_address_of(step['channel'])
+        if address is None and step['channel'] in common_utils.get_layers_with_led():
             # The layer is one that drives an LED, so an unresolvable name
             # here means this unit's identity has no such layer: the step
             # will capture dark, deterministically, every scan. Say so per step -- a
             # run in progress gets logs, not popups -- rather than let
             # the frames come back dark with no named cause.
             logger.error(
-                f"[Capture   ] This scope has no '{step['Color']}' LED "
+                f"[Capture   ] This scope has no '{step['channel']}' LED "
                 f'channel; the step will capture dark.'
             )
         self.apply_led_transition(
@@ -770,5 +770,5 @@ class ProtocolStepRunner:
             ),
         )
         if p._on_step_lit is not None:
-            p._on_step_lit(step['Color'])
+            p._on_step_lit(step['channel'])
         time.sleep(0.005)

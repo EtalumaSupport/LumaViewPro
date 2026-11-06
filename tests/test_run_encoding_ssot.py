@@ -76,7 +76,7 @@ def _make_step(color='BF'):
         'Y': 20.0,
         'Z': 5000.0,
         'Auto_Focus': False,
-        'Color': color,
+        'channel': color,
         'False_Color': False,
         'Illumination': 50.0,
         'Gain': 1.0,
@@ -313,7 +313,14 @@ class TestOneRunOneEncoding:
 
         from _lumascope.modules.protocol_image_writer import CapturedFrame
 
-        step = {'Name': 'A1_BF', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
+        step = {
+            'Name': 'A1_BF',
+            'channel': 'BF',
+            'False_Color': False,
+            'X': 0.0,
+            'Y': 0.0,
+            'Z': 0.0,
+        }
         writer.write_capture(
             step_index=0,
             scan_count=0,
@@ -353,7 +360,7 @@ class TestOneRunOneEncoding:
         protocol.capture_root.return_value = ''
         video_step = {
             'Name': 'A1_BF_vid',
-            'Color': 'BF',
+            'channel': 'BF',
             'False_Color': False,
             'Acquire': 'video',
             'Auto_Gain': False,

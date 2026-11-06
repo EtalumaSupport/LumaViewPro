@@ -154,7 +154,7 @@ def test_single_channel_stitch_drops_tile_keeps_channel():
     row = {
         'Well': 'A1',
         'Label': '',
-        'Color': 'BF',
+        'channel': 'BF',
         'Tile': 'A1',
         'Z-Slice': '',
         'Name': 'A1_BF_TA1',
@@ -171,7 +171,7 @@ def test_composite_stitch_drops_tile_and_channel():
     row = {
         'Well': 'A1',
         'Label': '',
-        'Color': 'Composite',
+        'channel': 'Composite',
         'Tile': 'A1',
         'Z-Slice': '',
         'Name': 'A1_BF_TA1',
@@ -186,7 +186,14 @@ def test_stitch_drops_tile_even_when_tile_column_empty():
     # still carries 'TA1'. The old strip helper keyed on the empty column and
     # no-op'd, leaking the token. Setting tile=None omits it by construction,
     # and the stale Name token is never re-parsed (Well is set).
-    row = {'Well': 'A1', 'Label': '', 'Color': 'BF', 'Tile': '', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'channel': 'BF',
+        'Tile': '',
+        'Z-Slice': '',
+        'Name': 'A1_BF_TA1',
+    }
     name = _build(row, tile=None, scan_count=0, post=('stitched',))
     assert name == 'A1_BF_0000_stitched'
     assert '_TA1' not in name
@@ -199,7 +206,7 @@ def test_hyperstack_drops_channel_and_z_keeps_tile():
     row = {
         'Well': 'A1',
         'Label': '',
-        'Color': 'BF',
+        'channel': 'BF',
         'Tile': 'A1',
         'Z-Slice': 3,
         'Name': 'A1_BF_TA1_Z3',
@@ -216,7 +223,7 @@ def test_zprojection_drops_z_keeps_channel_and_tile():
     row = {
         'Well': 'A1',
         'Label': '',
-        'Color': 'BF',
+        'channel': 'BF',
         'Tile': 'A1',
         'Z-Slice': 3,
         'Name': 'A1_BF_TA1_Z3',
@@ -233,7 +240,7 @@ def test_chained_post_outputs_carry_both_suffixes():
     row = {
         'Well': 'A1',
         'Label': '',
-        'Color': 'BF',
+        'channel': 'BF',
         'Tile': 'A1',
         'Z-Slice': 3,
         'Name': 'A1_BF_TA1_Z3',

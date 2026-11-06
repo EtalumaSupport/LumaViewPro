@@ -126,7 +126,7 @@ class TestModifyStep:
         panel.modify_step()
 
         row = protocol.step_row(step_index=0)
-        assert row['Color'] == homed.session.shown_channel.channel
+        assert row['channel'] == homed.session.shown_channel.channel
         assert 'my_step' in row['Name']
 
     def test_a_refused_modify_is_shown_once(self, homed, centre_posts):

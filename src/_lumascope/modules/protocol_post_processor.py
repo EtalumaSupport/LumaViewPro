@@ -704,7 +704,7 @@ class ProtocolPostProcessor(abc.ABC):
                 f'{key}={"+".join(str(value) for value in group[column].unique())}'
                 for key, column in (
                     ('well', 'Well'),
-                    ('color', 'Color'),
+                    ('color', 'channel'),
                     ('tile_group', 'Tile Group ID'),
                 )
                 if column in group

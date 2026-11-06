@@ -165,7 +165,7 @@ def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch, sim_sco
     _stand, layers = _build_env(monkeypatch, sim_scope, files_draining=True, run_in_progress=False)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
-    go_to_step_update_ui({'Color': 'BF'})
+    go_to_step_update_ui({'channel': 'BF'})
 
     assert layers['BF'].ids['enable_led_btn'].state == 'normal', (
         'the run indicator must gate on runner truth; the lockout flag '
@@ -179,6 +179,6 @@ def test_a_live_runs_step_leaves_the_led_button_to_the_led(monkeypatch, sim_scop
     _stand, layers = _build_env(monkeypatch, sim_scope, run_in_progress=True)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
-    go_to_step_update_ui({'Color': 'BF'})
+    go_to_step_update_ui({'channel': 'BF'})
 
     assert layers['BF'].ids['enable_led_btn'].state == 'normal'

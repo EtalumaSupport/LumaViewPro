@@ -333,7 +333,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
             position=unpositioned(),
             fallback_focus=None,
         ),
-        step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        step={'Name': 's', 'channel': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),
         output_format='TIFF',

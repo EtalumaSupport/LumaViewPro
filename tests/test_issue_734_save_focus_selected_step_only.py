@@ -62,9 +62,9 @@ class TestApplyFocusAllLayerSteps:
     def test_sets_whole_channel_and_returns_count(self):
         proto = _make_protocol_with_steps(
             [
-                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-                {'Name': 'B1_BF', 'Color': 'BF', 'Z': 6500.0, 'X': 1, 'Y': 1},
-                {'Name': f'A1_{LED0}', 'Color': LED0, 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'A1_BF', 'channel': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'B1_BF', 'channel': 'BF', 'Z': 6500.0, 'X': 1, 'Y': 1},
+                {'Name': f'A1_{LED0}', 'channel': LED0, 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
         count = proto.apply_focus_all_layer_steps(layer='BF', z=5000.0)

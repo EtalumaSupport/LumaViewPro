@@ -218,7 +218,7 @@ def _tiles(folder, **per_tile):
         rows.append(
             {
                 'Filepath': name,
-                'Color': 'BF',
+                'channel': 'BF',
                 'X': i * 0.01,
                 'Y': 0.0,
                 'Objective': '20x',

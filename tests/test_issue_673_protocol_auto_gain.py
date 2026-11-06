@@ -69,7 +69,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Y': 24.0,
         'Z': 6247.4,
         'Auto_Focus': False,
-        'Color': color,
+        'channel': color,
         'False_Color': color != 'BF',
         'Illumination': 50.0,
         'Gain': 5.0,

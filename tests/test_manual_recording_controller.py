@@ -1140,7 +1140,7 @@ class TestChannelIdentity:
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['BF', 'BF', 'BF']
+        assert list(captured['df']['channel']) == ['BF', 'BF', 'BF']
 
     def test_luminescence_records_with_zero_lit_channels(self, tmp_path, monkeypatch):
         # Lumi is legitimately unlit; the shown channel names it.
@@ -1153,7 +1153,7 @@ class TestChannelIdentity:
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['Lumi', 'Lumi']
+        assert list(captured['df']['channel']) == ['Lumi', 'Lumi']
 
     def test_startup_state_records_brightfield(self, tmp_path, monkeypatch):
         # Nothing lit and Brightfield shown is a session's startup state.
@@ -1165,7 +1165,7 @@ class TestChannelIdentity:
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['BF', 'BF']
+        assert list(captured['df']['channel']) == ['BF', 'BF']
 
     def test_no_led_board_falls_back_to_the_shown_channel(self, tmp_path, monkeypatch):
         # get_led_states() is None with no board, so the shown channel stands.
@@ -1179,7 +1179,7 @@ class TestChannelIdentity:
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == [LED1, LED1]
+        assert list(captured['df']['channel']) == [LED1, LED1]
 
     def test_brightfield_hyperstack_is_actually_written(self, tmp_path):
         # End to end with the REAL builder: the defect this fix exists for
@@ -1534,7 +1534,7 @@ class TestTheRecordedPosition:
         finish(controller)
 
         assert list(captured['df']['X']) == [1.5, 3.5]
-        assert list(captured['df']['Color']) == [LED0, LED1]
+        assert list(captured['df']['channel']) == [LED0, LED1]
 
     def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
         shown = []

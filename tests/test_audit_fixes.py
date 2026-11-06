@@ -1946,7 +1946,7 @@ def _protocol_step(**overrides):
         'Name': 'stepA',
         'Acquire': 'image',
         'Auto_Gain': False,
-        'Color': 'BF',
+        'channel': 'BF',
         'Gain': 2.0,
         'Exposure': 10.0,
         'Objective': '4x',
@@ -8403,7 +8403,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
                 rows.append(
                     {
                         'Filepath': f'protocol_channels/{fname}',
-                        'Color': layer_name,
+                        'channel': layer_name,
                     }
                 )
             df = pd.DataFrame(rows)
@@ -8459,7 +8459,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             tmp = pathlib.Path(tmpdir)
             arr = np.full((8, 8), 100, dtype=np.uint8)
             tf.imwrite(str(tmp / f'{LED2}.tiff'), arr, compression='lzw')
-            df = pd.DataFrame([{'Filepath': f'{LED2}.tiff', 'Color': LED2}])
+            df = pd.DataFrame([{'Filepath': f'{LED2}.tiff', 'channel': LED2}])
 
             result = CompositeGeneration._create_composite_image(
                 path=tmp,
@@ -9033,8 +9033,8 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         tf.imwrite(str(tmp_path / 'b.tiff'), np.full((4, 4), 200, dtype=np.uint16))
         df = pd.DataFrame(
             [
-                {'X': 0.0, 'Y': 0.0, 'Filepath': 'a.tiff', 'Color': 'BF'},
-                {'X': 1.0, 'Y': 0.0, 'Filepath': 'b.tiff', 'Color': 'BF'},
+                {'X': 0.0, 'Y': 0.0, 'Filepath': 'a.tiff', 'channel': 'BF'},
+                {'X': 1.0, 'Y': 0.0, 'Filepath': 'b.tiff', 'channel': 'BF'},
             ]
         )
 

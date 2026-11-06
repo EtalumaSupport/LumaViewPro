@@ -133,7 +133,7 @@ class StackBuilder(ProtocolPostProcessor):
         scan = group['Scan Count']
         if recording_frames.is_video_frame(group['Filepath'].iloc[0]):
             scan = group['Filepath'].map(recording_frames.frame_number)
-        return scan.astype(str) + ',' + group['Z-Slice'].astype(str) + ',' + group['Color']
+        return scan.astype(str) + ',' + group['Z-Slice'].astype(str) + ',' + group['channel']
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
@@ -244,7 +244,7 @@ class StackBuilder(ProtocolPostProcessor):
         channel_colors: channel_record.ChannelColors,
         input_records: list[dict | None],
     ):
-        channel_names = df['Color'].unique().tolist()
+        channel_names = df['channel'].unique().tolist()
         # The hyperstack inherits the depth the caller carried from the
         # load_pixels read of the input frames -- no second open to re-derive
         # what those pixels already came tagged with.
@@ -357,7 +357,7 @@ class StackBuilder(ProtocolPostProcessor):
         # per-recording (manual frames) build.
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
-        num_c = df['Color'].nunique()
+        num_c = df['channel'].nunique()
 
         # A hyperstack is a rectangular T x Z x C cube: every channel must be
         # captured at the same z-slices and scan counts, exactly once each. A
@@ -370,7 +370,7 @@ class StackBuilder(ProtocolPostProcessor):
         # well, and its one way to be non-rectangular is a channel change
         # while it recorded, which each frame's row records truthfully.
         expected_planes = num_t * num_z * num_c
-        captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
+        captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'channel']).ngroups
         if len(df) != expected_planes or captured_cells != expected_planes:
             if 'Well' in df.columns:
                 # A custom step has no well, and is named by nothing here.
@@ -392,7 +392,7 @@ class StackBuilder(ProtocolPostProcessor):
                 )
             return {'status': False, 'error': error, 'metadata': {}}
 
-        _, color_idx_map = np.unique(df['Color'], return_inverse=True)
+        _, color_idx_map = np.unique(df['channel'], return_inverse=True)
         df['Color Index'] = color_idx_map
 
         df = df.sort_values(by=sort_order, ascending=True)
@@ -476,7 +476,8 @@ class StackBuilder(ProtocolPostProcessor):
                     # is a colour image, read by luminance.
                     image = image_utils.rgb_image_to_gray(
                         image=image,
-                        baked=channel_record.stored_key(row['Color']) in common_utils.get_layers(),
+                        baked=channel_record.stored_key(row['channel'])
+                        in common_utils.get_layers(),
                     )
 
                 # Each plane must share the hyperstack's canvas; a per-plane

@@ -37,7 +37,7 @@ from _lumascope.modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.channel_record import release_color
-from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -265,7 +265,7 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     for z in range(3):
         name = f'A1_{LED0}_Z{z}.tiff'
         _write(tmp_path / name, np.full((8, 8), 4000, dtype=np.uint16), 12, 'right_aligned')
-        rows.append({'Color': LED0, 'Filepath': name})
+        rows.append({'channel': LED0, 'Filepath': name})
     result = ZProjector(has_turret=False)._zproject(
         path=tmp_path,
         df=pd.DataFrame(rows),
@@ -294,7 +294,7 @@ def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
             white=12,
             frames_summed=4,
         )
-        rows.append({'Color': LED0, 'Filepath': name})
+        rows.append({'channel': LED0, 'Filepath': name})
     ZProjector(has_turret=False)._zproject(
         path=tmp_path,
         df=pd.DataFrame(rows),
@@ -335,8 +335,8 @@ def _mixed_planes(path: pathlib.Path, encoding: str) -> pd.DataFrame:
     _write(path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
     return pd.DataFrame(
         [
-            {'Filepath': 'blue.tiff', 'Color': LED0, 'Scan Count': 0, 'Z-Slice': 0},
-            {'Filepath': 'lumi.tiff', 'Color': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
+            {'Filepath': 'blue.tiff', 'channel': LED0, 'Scan Count': 0, 'Z-Slice': 0},
+            {'Filepath': 'lumi.tiff', 'channel': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
         ]
     ).assign(X=0.0, Y=0.0, Z=0.0)
 
@@ -379,7 +379,7 @@ def test_a_runs_stack_is_built_in_the_runs_encoding(tmp_path, encoding, unsummed
 @MIXED_PLANES
 def test_a_manual_recordings_stack_is_built_in_its_encoding(tmp_path, encoding, unsummed, summed):
     # One recording is one channel over time: the two planes are its frames.
-    df = _mixed_planes(tmp_path, encoding).assign(Color='Lumi', **{'Scan Count': [0, 1]})
+    df = _mixed_planes(tmp_path, encoding).assign(channel='Lumi', **{'Scan Count': [0, 1]})
     result = StackBuilder(has_turret=False).create_single_recording_stack(
         df=df,
         path=tmp_path,
@@ -467,7 +467,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
         _write(
             tmp_path / name, np.full((24, 32), 4096, np.uint16), 14, 'right_aligned', 'BF', white=12
         )
-        rows.append({'Filepath': name, 'Scan Count': scan, 'Color': 'BF'})
+        rows.append({'Filepath': name, 'Scan Count': scan})
 
     VideoBuilder(has_turret=False)._create_video(
         path=tmp_path,
@@ -475,7 +475,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
         frame_rate_fps=10,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
-        channel_colors=release_colors(),
+        color=GREY,
     )
 
     with av.open(str(tmp_path / 'out.mp4')) as container:
@@ -505,7 +505,7 @@ def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
         white=12,
     )
     df = pd.DataFrame(
-        [{'Filepath': 'green.tiff', 'Color': LED1}, {'Filepath': 'red.tiff', 'Color': LED2}]
+        [{'Filepath': 'green.tiff', 'channel': LED1}, {'Filepath': 'red.tiff', 'channel': LED2}]
     )
 
     result = CompositeGeneration._create_composite_image(
@@ -528,7 +528,7 @@ def test_a_stitch_keeps_its_tiles_white(tmp_path):
     for i, x in enumerate((0.0, 1.0)):
         name = f'tile{i}.tiff'
         _write(tmp_path / name, np.full((8, 8), 4095, np.uint16), 14, 'right_aligned', white=12)
-        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'Color': LED0})
+        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'channel': LED0})
 
     result = simple_position_stitcher(
         tmp_path,

@@ -85,7 +85,7 @@ def test_bring_up_turns_off_a_layer_this_scope_lacks(ls850):
 def test_new_and_add_build_no_step_for_a_layer_this_scope_lacks(ls850):
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
-    assert set(protocol.steps()['Color']) == {'BF'}
+    assert set(protocol.steps()['channel']) == {'BF'}
 
 
 def test_a_layer_this_scope_lacks_is_refused_acquire_and_allowed_nothing(ls850):
@@ -140,7 +140,7 @@ def test_a_scope_runs_the_lumi_steps_its_own_layers_include(lumi, tmp_path):
 
     loaded = lumi.load_protocol(path)
 
-    assert set(loaded.steps()['Color']) == {'BF', 'Lumi'}
+    assert set(loaded.steps()['channel']) == {'BF', 'Lumi'}
     lumi.scope.protocols.refuse_absent_layers(loaded)
 
 
@@ -195,4 +195,4 @@ def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
 
     ls850.update_step(protocol, 0, channel=LED0)
 
-    assert protocol.step_row(step_index=0)['Color'] == 'BF'
+    assert protocol.step_row(step_index=0)['channel'] == 'BF'

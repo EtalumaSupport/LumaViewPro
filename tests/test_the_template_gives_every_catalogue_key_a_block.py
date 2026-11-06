@@ -150,7 +150,7 @@ def test_a_fresh_install_adds_a_multi_channel_step_led1_before_led0(tmp_path):
 
         session.add_step(protocol)
 
-        assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == [
+        assert [protocol.step_row(step_index=i)['channel'] for i in range(3)] == [
             'BF',
             LED1,
             LED0,

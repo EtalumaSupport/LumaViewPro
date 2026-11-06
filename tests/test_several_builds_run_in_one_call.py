@@ -210,7 +210,7 @@ def _stills_and_a_recording():
     steps = []
     for index, (color, acquire) in enumerate((('BF', 'image'), (LED1, 'image'), (LED0, 'video'))):
         step = _step('P1', index, x=20.0, gain=1.0)
-        step['Color'] = color
+        step['channel'] = color
         step['Acquire'] = acquire
         steps.append(step)
     return steps

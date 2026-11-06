@@ -113,8 +113,8 @@ def test_new_images_an_unsaved_channel_at_the_current_z_and_a_saved_one_at_its_f
 ):
     steps = _from_config(_input_config(current_z=6100.0), scale_capabilities)
 
-    assert set(steps[steps['Color'] == LED0]['Z']) == {6100.0}
-    assert set(steps[steps['Color'] == 'BF']['Z']) == {5998.6}
+    assert set(steps[steps['channel'] == LED0]['Z']) == {6100.0}
+    assert set(steps[steps['channel'] == 'BF']['Z']) == {5998.6}
 
 
 def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capabilities):

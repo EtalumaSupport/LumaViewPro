@@ -158,7 +158,7 @@ class ProtocolPostRecord:
                 ('Z', float),
                 ('Z-Slice', int),
                 ('Well', str),
-                ('Color', str),
+                ('channel', str),
                 ('Objective', str),
                 ('Tile Group ID', int),
                 ('Tile', str),
@@ -240,7 +240,7 @@ class ProtocolPostRecord:
             'Z': z,
             'Z-Slice': z_slice,
             'Well': well,
-            'Color': color,
+            'channel': color,
             'Objective': objective,
             'Tile Group ID': tile_group_id,
             'Tile': tile,
@@ -400,7 +400,11 @@ class ProtocolPostRecord:
                     break
 
             columns, rows = read_table(''.join(fp), sep='\t')
-            df = pd.DataFrame(rows, columns=columns, dtype=object)
+            # The file names the channel column 'Color' (COLUMNS); in memory
+            # it is 'channel', as in the protocol's steps.
+            df = pd.DataFrame(rows, columns=columns, dtype=object).rename(
+                columns={'Color': 'channel'}
+            )
             # Each number and True/False column is read by the protocol's
             # cell reader for its type, and every other column stays the text
             # written, so a name or label of 'NA' or '0600' reads back as
@@ -505,7 +509,7 @@ class ProtocolPostRecord:
                     z=row['Z'],
                     z_slice=row['Z-Slice'],
                     well=row['Well'],
-                    color=row['Color'],
+                    color=row['channel'],
                     objective=row['Objective'],
                     tile_group_id=row['Tile Group ID'],
                     tile=row['Tile'],

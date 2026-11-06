@@ -69,7 +69,7 @@ def _build_input_config(previous_well_z=None):
 
 
 def _well_channel_z(df, well, color):
-    sel = df[(df['Well'] == well) & (df['Color'] == color)]
+    sel = df[(df['Well'] == well) & (df['channel'] == color)]
     return sel['Z'].iloc[0]
 
 
@@ -126,9 +126,9 @@ def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
         wellplate_loader=WellPlateLoader(),
     ).steps()
 
-    assert (df[df['Color'] == 'BF']['Z'] == 100.0).all()
-    assert (df[df['Color'] == LED1]['Z'] == 200.0).all()
-    assert (df[df['Color'] == LED2]['Z'] == 300.0).all()
+    assert (df[df['channel'] == 'BF']['Z'] == 100.0).all()
+    assert (df[df['channel'] == LED1]['Z'] == 200.0).all()
+    assert (df[df['channel'] == LED2]['Z'] == 300.0).all()
 
 
 def _new_protocol_src() -> str:

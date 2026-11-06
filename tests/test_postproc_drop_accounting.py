@@ -132,7 +132,7 @@ def test_stitcher_empty_result_names_the_composite_exclusion(tmp_path, monkeypat
         'Scan Count': 0,
         'Z-Slice': 0,
         'Well': 'A1',
-        'Color': 'Composite',
+        'channel': 'Composite',
         'Objective': 'obj',
         'Tile Group ID': 0,
         'Custom Step': False,

@@ -76,10 +76,10 @@ class CompositeGeneration(ProtocolPostProcessor):
         # was: the step's code names the file, so a composite already built
         # keeps its name.
         transmitted = common_utils.get_transmitted_layers()
-        blended = group['Color'].isin(transmitted).any()
+        blended = group['channel'].isin(transmitted).any()
         thresholds = kwargs['brightness_thresholds_percent']
         settings = [('format', output_format)]
-        for layer in sorted(set(group['Color']) - set(transmitted)):
+        for layer in sorted(set(group['channel']) - set(transmitted)):
             # Named as the run stored it; an old name's colour and threshold
             # are its stock key's.
             key = channel_record.stored_key(layer)
@@ -167,7 +167,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         return PostProcResult.from_group_result(
             CompositeGeneration._create_composite_image(
                 path=path,
-                df=df[['Filepath', 'Color']],
+                df=df[['Filepath', 'channel']],
                 brightness_thresholds_percent=kwargs['brightness_thresholds_percent'],
                 output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
                 channel_colors=kwargs['channel_colors'],
@@ -210,8 +210,8 @@ class CompositeGeneration(ProtocolPostProcessor):
         # plane: two of them, or two of one channel, have no one answer, and
         # keeping one would discard an acquired image behind a composite
         # that looks complete.
-        transmitted = group['Color'].isin(common_utils.get_transmitted_layers())
-        return group['Color'].where(~transmitted, 'transmitted')
+        transmitted = group['channel'].isin(common_utils.get_transmitted_layers())
+        return group['channel'].where(~transmitted, 'transmitted')
 
     @staticmethod
     def _create_composite_image(
@@ -244,7 +244,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # Every layer is read by the key it reads as -- its kind, colour and
         # threshold -- so an old run's colour names build as their stock keys.
         # Nothing below writes a layer's name.
-        df = df.assign(Color=df['Color'].map(channel_record.stored_key))
+        df = df.assign(channel=df['channel'].map(channel_record.stored_key))
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
         allowed_layers = [
@@ -254,13 +254,13 @@ class CompositeGeneration(ProtocolPostProcessor):
         img = None
 
         for layer in allowed_BF_layers:
-            if (df['Color'] == layer).any():
+            if (df['channel'] == layer).any():
                 BF_present = True
                 BF_channel = layer
                 allowed_layers.append(layer)
                 break
 
-        df = df[df['Color'].isin(allowed_layers)]
+        df = df[df['channel'].isin(allowed_layers)]
 
         # Load source images via tifffile (RGB-native, returns mono 2D for
         # single-channel TIFFs; no BGR upconvert -> no downstream cvtColor
@@ -290,7 +290,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         if BF_present:
             missing = sorted(
                 layer
-                for layer in df['Color']
+                for layer in df['channel']
                 if layer != BF_channel
                 and layer in common_utils.get_image_layers()
                 and layer not in brightness_thresholds_percent
@@ -313,7 +313,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             # same question: a string reaches the arithmetic otherwise.
             out_of_range = sorted(
                 (layer, brightness_thresholds_percent[layer])
-                for layer in df['Color']
+                for layer in df['channel']
                 if layer != BF_channel
                 and layer in common_utils.get_image_layers()
                 and not _is_valid_threshold_percent(brightness_thresholds_percent[layer])
@@ -337,7 +337,7 @@ class CompositeGeneration(ProtocolPostProcessor):
 
             if BF_present:
                 logger.info('CompositeGeneration] Generating transmitted channel composite')
-                BF_row = df[df['Color'] == BF_channel]
+                BF_row = df[df['channel'] == BF_channel]
                 BF_image_filename = BF_row['Filepath'].iloc[0]
                 BF_image = images[BF_image_filename]
                 img_dtype = BF_image.dtype
@@ -358,7 +358,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
             for _, row in df.iterrows():
-                layer = row['Color']
+                layer = row['channel']
 
                 # Skip transmitted layer (already captured above)
                 if layer == BF_channel:

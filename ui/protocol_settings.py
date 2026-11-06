@@ -967,7 +967,7 @@ class ProtocolSettings(FloatLayout):
         )
         logger.info(
             "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-            self._protocol.step_row(step_index=self.curr_step)['Color'],
+            self._protocol.step_row(step_index=self.curr_step)['channel'],
             name,
         )
 
@@ -1015,7 +1015,7 @@ class ProtocolSettings(FloatLayout):
         first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
         added = range(first_added, first_added + len(names))
         shown = session.shown_channel.channel
-        of_shown = [idx for idx in added if self._protocol.step_row(idx)['Color'] == shown]
+        of_shown = [idx for idx in added if self._protocol.step_row(idx)['channel'] == shown]
         if len(of_shown) > 1:
             # A stack's slices: the one nearest where Z stands, so the move to
             # it is the shortest. A choice of which step to show, not a saved

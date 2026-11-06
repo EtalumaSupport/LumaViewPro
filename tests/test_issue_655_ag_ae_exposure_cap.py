@@ -266,7 +266,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
     from tests.protocol_drives import protocol_step, scan_ready_runner
 
     runner = scan_ready_runner(
-        protocol_step(Auto_Gain=True, Color=LED0),
+        protocol_step(Auto_Gain=True, channel=LED0),
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()
@@ -303,7 +303,7 @@ def _video_step_autogain_call(scope, tmp_path, monkeypatch, autogain_settings):
     recorder = video_step_on(
         scope,
         tmp_path,
-        step={'Auto_Gain': True, 'Color': 'BF'},
+        step={'Auto_Gain': True, 'channel': 'BF'},
         autogain_settings=autogain_settings,
         elapsed_clock=elapsed,
     )

@@ -40,7 +40,7 @@ def _write_timestamped_frames(scope, tmp_path, df, base_s=1_755_000_000.0, spaci
             scope,
             np.full((4, 4), n, dtype=np.uint8),
             loc,
-            channel=row['Color'],
+            channel=row['channel'],
             record=recorded_record(
                 captured_at=FrameTime(
                     at=wall_time.local_time(round((base_s + n * spacing_s) * 1e9)),

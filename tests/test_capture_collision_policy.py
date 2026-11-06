@@ -45,7 +45,7 @@ from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
-from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1
@@ -473,7 +473,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
     recorder = video_step_on(
         sim_scope,
         tmp_path,
-        step={'Color': 'BF'},
+        step={'channel': 'BF'},
         video_as_frames=False,
         record_step_row=lambda **kw: rows.append(kw),
         elapsed_clock=elapsed,
@@ -507,7 +507,6 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
             'Filepath': [f'frame_{i:04}.tiff' for i in range(2)],
             'Scan Count': range(2),
             'Timestamp': '',
-            'Color': None,
         }
     )
 
@@ -525,7 +524,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        channel_colors=release_colors(),
+        color=GREY,
     )
     assert result['status'] is True
     actual = pathlib.Path(str(result['actual_output_file_loc']))

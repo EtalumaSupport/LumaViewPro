@@ -27,7 +27,7 @@ def _rows(*, well=None):
                 'Filepath': f'f_{t}_{color}.tiff',
                 'Scan Count': t,
                 'Z-Slice': 0,
-                'Color': color,
+                'channel': color,
                 'X': 1.0,
                 'Y': 2.0,
                 'Z': 3.0,

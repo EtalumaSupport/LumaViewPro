@@ -276,11 +276,13 @@ def _blank_to_none(value):
     return None if value in (None, '', -1) else value
 
 
-def step_components(step, **overrides) -> StepNameComponents:
+def step_components(
+    step: 'pd.Series | Mapping[str, object]', **overrides: object
+) -> StepNameComponents:
     """Map a protocol step / post-record row to its canonical name components.
 
     The single place that reads a step's columns into StepNameComponents, so
-    every name-building site renders one identity from one source. Well, Color,
+    every name-building site renders one identity from one source. Well, channel,
     Tile, Z-Slice and Label are the authoritative columns. Label is the step's
     base text -- a user-typed name kept verbatim, or the machine-assigned
     'custom<NNNN>' prefix of an added step; empty means the base is the Well.
@@ -299,7 +301,7 @@ def step_components(step, **overrides) -> StepNameComponents:
     base = StepNameComponents(
         well=well,
         custom_prefix=label,
-        channel=_blank_to_none(step['Color']),
+        channel=_blank_to_none(step['channel']),
         tile=_blank_to_none(step['Tile']),
         z_index=_blank_to_none(step['Z-Slice']),
     )
@@ -339,7 +341,7 @@ def recover_step_label(step: 'pd.Series | Mapping[str, object]') -> tuple[str, b
             {
                 'Well': well,
                 'Label': candidate_prefix,
-                'Color': step['Color'],
+                'channel': step['channel'],
                 'Tile': step['Tile'],
                 'Z-Slice': step['Z-Slice'],
             }

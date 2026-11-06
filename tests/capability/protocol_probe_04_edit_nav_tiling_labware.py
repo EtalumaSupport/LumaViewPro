@@ -79,7 +79,7 @@ try:
     )
     # What a script must do instead: read the step and drive motion itself.
     st = p.step_row(step_index=0)
-    print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
+    print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['channel'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_z(st['Z'])
     now = session.get_current_plate_position()

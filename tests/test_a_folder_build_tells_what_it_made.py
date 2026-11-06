@@ -459,7 +459,7 @@ def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatc
         pass
 
     df = pd.DataFrame(
-        {'Filepath': ['a.tiff'], 'Scan Count': [0], 'Timestamp': [''], 'Color': [None]}
+        {'Filepath': ['a.tiff'], 'Scan Count': [0], 'Timestamp': [''], 'channel': ['BF']}
     )
     try:
         VideoBuilder(has_turret=False)._group_algorithm(

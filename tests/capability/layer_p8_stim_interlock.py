@@ -43,7 +43,7 @@ try:
     )
     proto = s.scope.protocols.create_protocol(input_config=cfg)
     steps = proto.steps()
-    row = steps[steps['Color'] == lay]
+    row = steps[steps['channel'] == lay]
     harness.check('a script can build a protocol from settings holding the pair', len(row) > 0)
     _acq = row['Acquire'].iloc[0] if len(row) else None
     _stim = row['Stim_Config'].iloc[0].get(lay) if len(row) else None

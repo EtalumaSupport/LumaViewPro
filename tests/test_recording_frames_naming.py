@@ -19,7 +19,7 @@ from _lumascope.modules import recording_frames
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.channel_record import GREY
 from tests.stock_channels import LED1
 
 
@@ -158,7 +158,7 @@ class TestManualFramesTakeTheNumericSortBranch:
                 frame_rate_fps=10,
                 enable_timestamp_overlay=False,
                 output_file_loc=pathlib.Path('out.mp4'),
-                channel_colors=release_colors(),
+                color=GREY,
             )
 
         assert consumed == sorted(frames)

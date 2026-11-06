@@ -966,7 +966,7 @@ class ManualRecordingController:
                     # Channel identity: what was imaged. Independent of the
                     # false-color toggle, which governs display only, so it
                     # is recorded on every frame regardless of rendering.
-                    'Color': light.channel,
+                    'channel': light.channel,
                     'Z-Slice': 0,
                     'X': plate_pos_mm['x'] if plate_pos_mm else None,
                     'Y': plate_pos_mm['y'] if plate_pos_mm else None,

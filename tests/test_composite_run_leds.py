@@ -121,7 +121,7 @@ def _record_captures(monkeypatch, events):
     original = protocol_image_writer.ProtocolImageWriter.capture
 
     def recorded(self, *args, **kwargs):
-        events.append(('capture', kwargs['step']['Color'], 0.0))
+        events.append(('capture', kwargs['step']['channel'], 0.0))
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(protocol_image_writer.ProtocolImageWriter, 'capture', recorded)

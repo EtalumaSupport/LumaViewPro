@@ -88,7 +88,7 @@ def _step_dict(name, x, y, z, color, idx):
         'Y': y,
         'Z': z,
         'Auto_Focus': False,
-        'Color': color,
+        'channel': color,
         'False_Color': color != 'BF',
         'Illumination': CHANNEL_ILLUMINATION[color],
         'Gain': CHANNEL_GAIN[color],

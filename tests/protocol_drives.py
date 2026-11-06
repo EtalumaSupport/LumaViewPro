@@ -109,7 +109,7 @@ def protocol_step(**overrides):
     step = {
         'Auto_Focus': False,
         'Auto_Gain': False,
-        'Color': 'BF',
+        'channel': 'BF',
         'Illumination': 50.0,
         'Gain': 2.0,
         'Exposure': 10.0,

@@ -269,7 +269,7 @@ class TestAHyperstackLeavesNothingWhenRefused:
         tf.imwrite(str(tmp_path / 'b.tiff'), second)
         return pd.DataFrame(
             [
-                {'Filepath': name, 'Color': 'BF', 'Scan Count': 0, 'Z-Slice': z,
+                {'Filepath': name, 'channel': 'BF', 'Scan Count': 0, 'Z-Slice': z,
                  'X': 1.0, 'Y': 2.0, 'Z': 3.0 + z, 'Well': 'A1'}
                 for z, name in enumerate(('a.tiff', 'b.tiff'))
             ]
@@ -300,7 +300,7 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
     for z, color in ((0, 'BF'), (1, 'BF'), (0, LED1)):
         name = f'{color}_{z}.tiff'
         _write_frame(tmp_path / name, x=1.0, seed=z, size=8)
-        rows.append({'Filepath': name, 'Color': color, 'Scan Count': 0, 'Z-Slice': z,
+        rows.append({'Filepath': name, 'channel': color, 'Scan Count': 0, 'Z-Slice': z,
                      'X': 1.0, 'Y': 2.0, 'Z': 3.0, 'Well': ''})  # fmt: skip
 
     result = StackBuilder._create_stack(
@@ -331,7 +331,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
         base = _make_single_step_protocol().step_row(step_index=0)
         steps = [
             {**base, 'Name': f'p{p}_{color}', 'Label': f'p{p}_{color}', 'X': x,
-             'Color': color, 'Channel Group ID': p, 'Step Index': 2 * p + c}
+             'channel': color, 'Channel Group ID': p, 'Step Index': 2 * p + c}
             for p, x in enumerate((10.0, 30.0))
             for c, color in enumerate(('BF', LED1))
         ]  # fmt: skip

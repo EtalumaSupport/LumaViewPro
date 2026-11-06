@@ -84,7 +84,7 @@ def test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_
 def test_a_protocol_built_in_memory_is_refused_by_the_apply_storing_nothing(session):
     # Built from steps alone, its Layer Settings are inferred from its first
     # BF step, Exposure 0 among them.
-    protocol = _make_protocol([_valid_step(Color='BF', Exposure=0)])
+    protocol = _make_protocol([_valid_step(channel='BF', Exposure=0)])
     before = session.get_settings_snapshot()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:

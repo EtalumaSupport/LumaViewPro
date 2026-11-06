@@ -581,7 +581,7 @@ def _recorded_name(step, file_name, separate_folder_per_channel: bool):
     the run folder, the folder post-processing finds it from. With a folder
     per channel the step saved into its channel's folder."""
     if separate_folder_per_channel:
-        return pathlib.Path(step['Color']) / file_name
+        return pathlib.Path(step['channel']) / file_name
     return file_name
 
 
@@ -1101,7 +1101,7 @@ class ProtocolImageWriter:
         # means the capture_failed row below is cancelled where
         # it previously waited for a slot -- accepted.
         if aborting:
-            step_color = step.get('Color', '')
+            step_color = step.get('channel', '')
             # led_connected term: with the LED controller gone
             # the failures are the disconnect's, not a missing
             # channel, and keep the camera wording.
@@ -1286,7 +1286,7 @@ class ProtocolImageWriter:
         # isinstance gate; rely on try/except.
         try:
             _proto_step_name = step.get('Name', '?')
-            _proto_color = step.get('Color', '?')
+            _proto_color = step.get('channel', '?')
         except Exception:
             _proto_step_name = '?'
             _proto_color = '?'
@@ -1307,7 +1307,7 @@ class ProtocolImageWriter:
                 _curr_gain = self._scope.camera.gain_db
                 _curr_exp = self._scope.camera.exposure_ms
                 logger.debug(
-                    f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
+                    f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["channel"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
                     f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
                     f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
@@ -1348,7 +1348,7 @@ class ProtocolImageWriter:
                         gain_db=step['Gain'],
                         exposure_ms=step['Exposure'],
                         auto_gain=None,
-                        channel=step['Color'],
+                        channel=step['channel'],
                     )
                 except CameraSettingRejected as rejected:
                     not_applied.append(rejected)
@@ -1814,7 +1814,7 @@ class ProtocolImageWriter:
                     tail_id_mode='if_collision',
                     output_format=output_format,
                     jpeg_quality=self._config.jpg_quality,
-                    channel=step['Color'],
+                    channel=step['channel'],
                     false_color_on=bool(step['False_Color']),
                     channel_colors=self._channel_colors,
                     # The frame's position fact holds plate mm for X and Y

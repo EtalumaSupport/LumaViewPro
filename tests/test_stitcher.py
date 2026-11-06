@@ -243,7 +243,7 @@ class TestSimplePositionStitcher:
                     'X': x,
                     'Y': y,
                     'Objective': '10x Oly',
-                    'Color': 'BF',
+                    'channel': 'BF',
                     'Well': 'A1',
                     'Tile Group ID': 1,
                 }
@@ -273,7 +273,7 @@ class TestSimplePositionStitcher:
                     'X': x,
                     'Y': y,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                     'Well': 'B2',
                     'Tile Group ID': 2,
                 }
@@ -303,7 +303,7 @@ class TestSimplePositionStitcher:
                 'Z': 0.0,
                 'Z-Slice': 0,
                 'Well': 'A1',
-                'Color': 'BF',
+                'channel': 'BF',
                 'Objective': '10x Oly',
                 'Tile Group ID': 1,
                 'Tile': str(tile_idx),
@@ -412,14 +412,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'BF',
+                    'channel': 'BF',
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'BF',
+                    'channel': 'BF',
                 },
             ]
         )
@@ -490,7 +490,7 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -499,7 +499,7 @@ class TestSimplePositionStitcher:
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -555,14 +555,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                 },
             ]
         )
@@ -628,14 +628,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.05,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED1,
+                    'channel': LED1,
                 },
             ]
         )
@@ -748,7 +748,7 @@ class TestGroupAlgorithmPixelSize:
                 self._write_tile_with_pixel_size(
                     tmp_path / name, pixel_size_um=tile_pixel_size_um, x=x, y=y
                 )
-                rows.append({'Filepath': name, 'Color': 'BF', 'X': x, 'Y': y, 'Objective': '20x'})
+                rows.append({'Filepath': name, 'channel': 'BF', 'X': x, 'Y': y, 'Objective': '20x'})
         df = pd.DataFrame(rows)
 
         captured = {}
@@ -784,7 +784,7 @@ class TestStitchOutputAlgorithmStamp:
                 str(tmp_path / f't{i}.tiff'), np.full((8, 8), 100 + i * 20, dtype=np.uint8)
             )
         df = pd.DataFrame(
-            [{'Filepath': f't{i}.tiff', 'Color': 'BF', 'X': float(i), 'Y': 0.0} for i in range(2)]
+            [{'Filepath': f't{i}.tiff', 'channel': 'BF', 'X': float(i), 'Y': 0.0} for i in range(2)]
         )
         stitching_core.simple_position_stitcher(
             tmp_path,
@@ -1151,13 +1151,19 @@ class TestPositionAwareStitcher:
         half_fov_mm = fov['width'] / 2 / 1000
         df = pd.DataFrame(
             [
-                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': LED2},
+                {
+                    'Filepath': 'r0.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'channel': LED2,
+                },
                 {
                     'Filepath': 'r1.tiff',
                     'X': -half_fov_mm,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': LED2,
+                    'channel': LED2,
                 },
             ]
         )
@@ -1262,8 +1268,8 @@ class TestStageConstrainedStitchModes:
     ):
         frame = pd.DataFrame(
             [
-                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
-                {'Filepath': 'b.tiff', 'X': 0.100, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0, 'channel': 'BF'},
+                {'Filepath': 'b.tiff', 'X': 0.100, 'Y': 0.0, 'channel': 'BF'},
             ]
         )
         calls = []
@@ -1324,8 +1330,8 @@ class TestStageConstrainedStitchModes:
         cv2.imwrite(str(tmp_path / 'right.tiff'), base[:, 50:150])
         frame = pd.DataFrame(
             [
-                {'Filepath': 'left.tiff', 'X': 0.050, 'Y': 0.0, 'Color': 'BF'},
-                {'Filepath': 'right.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'left.tiff', 'X': 0.050, 'Y': 0.0, 'channel': 'BF'},
+                {'Filepath': 'right.tiff', 'X': 0.0, 'Y': 0.0, 'channel': 'BF'},
             ]
         )
 
@@ -1341,8 +1347,8 @@ class TestStageConstrainedStitchModes:
     def test_fast_preview_overlap_route_uses_fft_not_quality_ncc(self, tmp_path, monkeypatch):
         frame = pd.DataFrame(
             [
-                {'Filepath': 'a.tiff', 'X': 0.050, 'Y': 0.0, 'Color': 'BF'},
-                {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'a.tiff', 'X': 0.050, 'Y': 0.0, 'channel': 'BF'},
+                {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 0.0, 'channel': 'BF'},
             ]
         )
         calls = []

@@ -135,7 +135,7 @@ class TestTheApiAdds:
         )
 
         assert len(names) == 2
-        assert protocol.steps()['Color'].tolist() == [LED0, 'BF']
+        assert protocol.steps()['channel'].tolist() == [LED0, 'BF']
         assert protocol.steps()['Name'].tolist() == names
         assert protocol.steps()['Objective'].tolist() == [OBJECTIVE, OBJECTIVE]
 
@@ -150,7 +150,7 @@ class TestTheApiAdds:
             before_step_index=0,
         )
 
-        colors = protocol.steps()['Color'].tolist()
+        colors = protocol.steps()['channel'].tolist()
         assert colors[0] == LED1
         assert set(colors) == {'BF', LED0, LED1}
 
@@ -181,7 +181,7 @@ class TestAScriptAddsAStepThroughTheSession:
 
         assert len(names) == 1
         step = protocol.step_row(step_index=0)
-        assert step['Color'] == 'BF'
+        assert step['channel'] == 'BF'
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
     def test_every_channel_takes_the_current_z_and_keeps_its_saved_focus(self, session):
@@ -201,7 +201,7 @@ class TestAScriptAddsAStepThroughTheSession:
         session.add_step(protocol, before_step_index=0)
 
         steps = protocol.steps()
-        assert sorted(steps['Color']) == sorted(saved)
+        assert sorted(steps['channel']) == sorted(saved)
         assert steps['Z'].tolist() == pytest.approx([5000.0] * len(saved))
         assert {layer: session.saved_focus_z_um(layer) for layer in saved} == saved
 
@@ -218,7 +218,7 @@ class TestAScriptAddsAStepThroughTheSession:
 
         steps = protocol.steps()
         assert len(names) == 2
-        assert steps['Color'].tolist() == [LED0, 'BF']
+        assert steps['channel'].tolist() == [LED0, 'BF']
         assert steps['Acquire'].tolist() == ['image', 'image']
         assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
         assert config_helpers.get_channel_configs(session.settings) == before
@@ -277,7 +277,7 @@ class TestAnAddCanBeAZStack:
         added = steps.iloc[1:]
         assert added['Name'].tolist() == names
         for color in ('BF', LED0):
-            stack = added[added['Color'] == color].sort_values('Z-Slice')
+            stack = added[added['channel'] == color].sort_values('Z-Slice')
             assert stack['Z-Slice'].tolist() == [0, 1, 2]
             assert stack['Z'].tolist() == pytest.approx([4995.0, 5000.0, 5005.0])
         # One Add at one place is one group, every channel in it: a run focuses it once.

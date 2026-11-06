@@ -223,7 +223,7 @@ def _recorded_runs(tmp_path_factory):
             steps = []
             for index, (color, acquire) in enumerate(shape):
                 step = _run_step('P1', index, x=20.0, gain=1.0)
-                step['Color'] = color
+                step['channel'] = color
                 step['Acquire'] = acquire
                 steps.append(step)
             pending = runner.start_single_scan(

@@ -217,11 +217,11 @@ class TestDarkFloorKeysOnLedDrivability:
         # The capture path derives dark-by-design from commanded state (a
         # luminescence step commands no LED); the writer posting the fact
         # back would recreate the mirror the fold retired.
-        kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
+        kwargs, _, _ = self._run_capture({'channel': 'Lumi', 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
     def test_led_layer_step_posts_no_dark_floor_fact(self):
-        kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
+        kwargs, _, _ = self._run_capture({'channel': 'BF', 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
     def test_composite_step_posts_no_dark_floor_fact(self):
@@ -232,7 +232,7 @@ class TestDarkFloorKeysOnLedDrivability:
         # which passes for the wrong reason. The invariant is pinned here
         # instead, on the one path every capture takes, and the drivability
         # half is pinned behaviourally by TestCaptureAbortWording below.
-        kwargs, _, _ = self._run_capture({'Color': LED0, 'Illumination': 50.0})
+        kwargs, _, _ = self._run_capture({'channel': LED0, 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
     def test_live_capture_reads_no_settings_predicate(self):
@@ -274,7 +274,7 @@ class TestCaptureAbortWording:
             scan_count=0,
             curr_step=0,
             save_folder='/tmp',
-            step=_protocol_step(Color=color),
+            step=_protocol_step(channel=color),
             output_format='TIFF',
             protocol=protocol,
             enable_image_saving=True,

@@ -59,7 +59,7 @@ def _step(x: float, objective: str) -> dict:
         'Y': 20.0,
         'Z': 4000.0,
         'Auto_Focus': False,
-        'Color': LED1,
+        'channel': LED1,
         'False_Color': False,
         'Illumination': 50.0,
         'Gain': 0.0,

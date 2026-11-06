@@ -9,7 +9,7 @@ import pandas as pd
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
-from _lumascope.modules.channel_record import GREY, ChannelColors
+from _lumascope.modules.channel_record import GREY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
@@ -50,7 +50,7 @@ class VideoBuilder(ProtocolPostProcessor):
         return df.groupby(
             by=[
                 'Well',
-                'Color',
+                'channel',
                 'Objective',
                 'X',
                 'Y',
@@ -68,7 +68,7 @@ class VideoBuilder(ProtocolPostProcessor):
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         # A video's frames are drawn at its rate, with or without the time
         # stamped on them, in its layer's colour.
-        color = channel_record.output_color(group.iloc[0]['Color'], kwargs['channel_colors'])
+        color = channel_record.output_color(group.iloc[0]['channel'], kwargs['channel_colors'])
         return post_derivation.Step(
             PostFunction.VIDEO,
             (
@@ -130,20 +130,19 @@ class VideoBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        # 'Color' included so _create_video can drive VideoWriter's in-writer
-        # false-color from the layer name (one group is one color per
-        # _get_groups).
+        # One group is one channel (_get_groups), so its first row's channel
+        # colours the whole video.
         return PostProcResult.from_group_result(
             self._create_video(
                 path=path,
-                df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
+                df=df[['Filepath', 'Scan Count', 'Timestamp']],
                 frame_rate_fps=kwargs['frame_rate_fps'],
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=kwargs['output_file_loc'],
                 on_progress=kwargs['on_progress'],
                 total_groups=kwargs['total_groups'],
                 current_group=kwargs['current_group'],
-                channel_colors=kwargs['channel_colors'],
+                color=channel_record.output_color(df.iloc[0]['channel'], kwargs['channel_colors']),
             )
         )
 
@@ -168,7 +167,7 @@ class VideoBuilder(ProtocolPostProcessor):
             z=row0['Z'],
             z_slice=row0['Z-Slice'],
             well=row0['Well'],
-            color=row0['Color'],
+            color=row0['channel'],
             objective=row0['Objective'],
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
@@ -245,8 +244,13 @@ class VideoBuilder(ProtocolPostProcessor):
         total_groups=1,
         current_group=1,
         *,
-        channel_colors: ChannelColors,
+        color: Color,
     ) -> dict:
+        """Encode ``df``'s frames into one video, mono frames shown in ``color``.
+
+        ``color`` is the caller's: a protocol group's channel colour, or a
+        manual recording's (grey when it was recorded with false colour off).
+        """
 
         if recording_frames.is_video_frame(df['Filepath'].values[0]):
             df['Frame Num'] = df['Filepath'].apply(recording_frames.frame_number)
@@ -255,25 +259,12 @@ class VideoBuilder(ProtocolPostProcessor):
         else:
             df = df.sort_values(by=['Scan Count'], ascending=True)
 
-        # Layer color drives VideoWriter's internal false-color application.
-        # One protocol-output group is one color per _get_groups, so the
-        # first row carries the right value for the whole video. The df is
-        # always projected with 'Color' and grouped by it, so the else-None
-        # fallback is effectively unreachable. Considered fail-fast on a
-        # missing/NaN color; rejected because BF/PC/DF carry a transmitted-
-        # light label that VideoWriter renders as grayscale -- a hard error
-        # would break legitimate brightfield-only videos. None falls through
-        # to grayscale, the safe default. A manual recording's channel is None
-        # when it was recorded with false color off, which is grey too, and a
-        # group of composites is their own RGB.
-        layer = df.iloc[0]['Color'] if 'Color' in df.columns else None
-        layer_color = GREY if layer is None else channel_record.output_color(layer, channel_colors)
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
             output_path=output_file_loc_abs,
             fps=frame_rate_fps,
-            color=layer_color,
+            color=color,
             include_timestamp_overlay=enable_timestamp_overlay,
         )
 
@@ -613,7 +604,6 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Filepath': [p.name for p in frame_paths],
                 'Scan Count': range(len(frame_paths)),
                 'Timestamp': '',
-                'Color': channel_color,
             }
         )
         output_file_loc = pathlib.Path(f'{path.name}.mp4')
@@ -627,7 +617,11 @@ class VideoBuilder(ProtocolPostProcessor):
             on_progress=on_progress,
             total_groups=1,
             current_group=1,
-            channel_colors=channel_colors,
+            color=(
+                GREY
+                if channel_color is None
+                else channel_record.output_color(channel_color, channel_colors)
+            ),
         )
 
         if on_progress is not None:

@@ -19,7 +19,7 @@ import pytest
 
 from _lumascope.modules import post_derivation
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_colors
 
 
 def _frame_name(n):
@@ -54,7 +54,7 @@ def _consumed_order(tmp_path, frame_numbers):
             frame_rate_fps=10,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
-            channel_colors=release_colors(),
+            color=GREY,
         )
     return consumed
 
@@ -83,7 +83,7 @@ def test_unparseable_frame_name_fails_loudly(tmp_path):
             frame_rate_fps=10,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
-            channel_colors=release_colors(),
+            color=GREY,
         )
 
 
@@ -130,7 +130,7 @@ def _protocol_df(rows):
         {
             'Well': ['A1'] * n,
             'Label': [''] * n,
-            'Color': ['BF'] * n,
+            'channel': ['BF'] * n,
             'Objective': [''] * n,
             'X': [1.0] * n,
             'Y': [2.0] * n,

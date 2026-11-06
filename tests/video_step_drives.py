@@ -24,7 +24,7 @@ from tests.stock_channels import LED0
 # A one-second step at 5 fps, manual gain, as the protocol editor writes it.
 VIDEO_STEP = {
     'Video Config': {'duration': 1},
-    'Color': LED0,
+    'channel': LED0,
     'False_Color': False,
     'Auto_Gain': False,
     'Exposure': 10.0,

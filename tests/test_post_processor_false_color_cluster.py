@@ -29,7 +29,7 @@ def _write_mono_tiff(path, value, shape=(8, 8)):
 class TestStitcherGroupAlgorithmCarriesColor:
     """Production call path: _group_algorithm receives the full-shape df
     from protocol_post_processor.load_folder and slices it before passing
-    to _simple_position_stitcher. The slice must include 'Color' so the
+    to _simple_position_stitcher. The slice must include 'channel' so the
     write_tiff routing can pass the layer through to the colormap gate.
 
     The earlier TestStitcherAppliesFalseColorForFluorescence tests skip
@@ -46,7 +46,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
                 rows.append(
                     {
                         'Filepath': p.name,
-                        'Color': LED1,
+                        'channel': LED1,
                         'X': x,
                         'Y': y,
                         'Well': 'A1',
@@ -98,7 +98,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
             _write_mono_tiff(p, value=val)
             slice_paths.append(p.name)
 
-        df = pd.DataFrame({'Filepath': slice_paths, 'Color': ['BF'] * 3})
+        df = pd.DataFrame({'Filepath': slice_paths, 'channel': ['BF'] * 3})
         zproj = ZProjector.__new__(ZProjector)
         result = zproj._zproject(
             path=tmp_path,
@@ -117,7 +117,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
             for iy, y in enumerate((0.0, 1.0)):
                 p = tmp_path / f'tile_{ix}_{iy}.tiff'
                 _write_mono_tiff(p, value=200, shape=(4, 4))
-                rows.append({'Filepath': p.name, 'Color': 'BF', 'X': x, 'Y': y})
+                rows.append({'Filepath': p.name, 'channel': 'BF', 'X': x, 'Y': y})
         df = pd.DataFrame(rows)
         result = Stitcher._simple_position_stitcher(
             path=tmp_path,

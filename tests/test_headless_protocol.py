@@ -185,7 +185,7 @@ class TestHeadlessProtocolExecution:
                 'Y': 20.0,
                 'Z': 5000.0,
                 'Auto_Focus': False,
-                'Color': 'BF',
+                'channel': 'BF',
                 'False_Color': False,
                 'Illumination': 100.0,
                 'Gain': 1.0,

@@ -39,7 +39,7 @@ def _raw_row(
         'Z': step['Z'],
         'Z-Slice': step['Z-Slice'],
         'Well': step['Well'],
-        'Color': step['Color'],
+        'channel': step['channel'],
         'Objective': step['Objective'],
         'Tile': step['Tile'],
         'Tile Group ID': step['Tile Group ID'],
@@ -256,7 +256,7 @@ class ProtocolPostProcessingHelper:
                 missing = 'not_on_disk'
             else:
                 recorded = pathlib.Path(reason)
-                color = protocol.step_row(step_index=entry['Step Index'])['Color']
+                color = protocol.step_row(step_index=entry['Step Index'])['channel']
                 if include_subpaths and color not in include_subpaths:
                     continue
                 missing = reason
@@ -307,7 +307,7 @@ class ProtocolPostProcessingHelper:
     @staticmethod
     def _add_zproject_group_index(df: pd.DataFrame) -> pd.DataFrame:
         df['Z-Project Group Index'] = df.groupby(
-            by=['Scan Count', 'Well', 'Color', 'Objective', 'X', 'Y', 'Tile', 'Custom Step'],
+            by=['Scan Count', 'Well', 'channel', 'Objective', 'X', 'Y', 'Tile', 'Custom Step'],
             dropna=False,
         ).ngroup()
         return df

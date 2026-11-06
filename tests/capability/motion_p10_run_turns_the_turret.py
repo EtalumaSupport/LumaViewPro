@@ -39,7 +39,7 @@ def _step(name, objective, slot, index, position, layer):
         'Y': position.y_mm,
         'Z': position.z_um,
         'Auto_Focus': False,
-        'Color': 'BF',
+        'channel': 'BF',
         'False_Color': False,
         'Illumination': layer['illumination_ma'],
         'Gain': layer['gain_db'],

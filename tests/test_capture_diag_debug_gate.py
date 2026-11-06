@@ -94,7 +94,7 @@ def _drive_capture(monkeypatch, debug_enabled):
             'Label': '',
             'Acquire': 'image',
             'Auto_Gain': False,
-            'Color': 'BF',
+            'channel': 'BF',
             'Gain': 2.0,
             'Exposure': 10.0,
             'Objective': '4x',

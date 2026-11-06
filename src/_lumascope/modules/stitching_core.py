@@ -149,7 +149,7 @@ def _result(
     channel_colors: channel_record.ChannelColors,
 ) -> dict:
     first_row = df.iloc[0]
-    color = str(first_row.get('Color', ''))
+    color = str(first_row.get('channel', ''))
     center = metadata['center']
     return_image = _write_output(
         path=path,
@@ -638,7 +638,7 @@ def channel_aware_stitcher(
         chain,
         context={
             'well': row0.get('Well', ''),
-            'color': row0.get('Color', ''),
+            'color': row0.get('channel', ''),
             'tile_group_id': row0.get('Tile Group ID', ''),
         },
     )

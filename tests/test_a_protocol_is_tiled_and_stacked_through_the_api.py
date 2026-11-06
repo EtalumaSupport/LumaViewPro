@@ -282,17 +282,17 @@ class TestNewStacksAsApplyDoes:
         wells = steps['Well'].nunique()
         groups = steps.groupby('Z-Stack Group ID')
         assert groups.ngroups == wells
-        assert all(set(group['Color']) == {'BF', LED0} for _, group in groups)
+        assert all(set(group['channel']) == {'BF', LED0} for _, group in groups)
         # The autofocus channel is flagged on every slice, and each group is
         # swept at its BF reference slice, the one built at BF's focus.
-        assert set(steps[steps['Auto_Focus']]['Color']) == {'BF'}
-        assert set(steps[steps['Color'] == 'BF']['Auto_Focus']) == {True}
+        assert set(steps[steps['Auto_Focus']]['channel']) == {'BF'}
+        assert set(steps[steps['channel'] == 'BF']['Auto_Focus']) == {True}
         first_slices = [group.index[0] for _, group in groups]
         swept = [
             protocol.step_row(step_index=protocol.focus_sweep_step(step_index=idx))
             for idx in first_slices
         ]
-        assert [(row['Color'], row['Z-Stack Offset']) for row in swept] == [('BF', 0.0)] * wells
+        assert [(row['channel'], row['Z-Stack Offset']) for row in swept] == [('BF', 0.0)] * wells
         assert [row['Z'] for row in swept] == pytest.approx([5000.0] * wells)
 
     def test_a_stack_past_the_z_travel_is_refused(self, session):
@@ -341,7 +341,7 @@ class TestNewTilesAsApplyDoes:
         steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()
 
         first_tile = steps[(steps['Well'] == 'A1') & (steps['Tile'] == 'A1')]
-        assert first_tile['Color'].tolist() == [LED0, 'BF']
+        assert first_tile['channel'].tolist() == [LED0, 'BF']
         assert first_tile['Z'].tolist() == pytest.approx([4990.0, 5000.0])
         assert not steps['Custom Step'].any()
         assert steps.groupby('Well')['Tile'].nunique().eq(4).all()

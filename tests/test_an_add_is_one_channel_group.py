@@ -126,7 +126,7 @@ def _run_folder(tmp_path, protocol, *, without_groups=False):
     for idx in range(protocol.num_steps()):
         step = protocol.step_row(step_index=idx)
         filename = f'{step["Name"]}_0000.tiff'
-        _write_tiff(folder / filename, step['Color'])
+        _write_tiff(folder / filename, step['channel'])
         record.add_step(
             capture_result_file_name=pathlib.Path(filename),
             step_name=step['Name'],
@@ -186,7 +186,7 @@ class TestTheCompositeRefusesADoubledPlane:
         rows = []
         for i, color in enumerate(colors):
             _write_tiff(tmp_path / f'{i}_{color}.tiff', color)
-            rows.append({'Color': color, 'Filepath': f'{i}_{color}.tiff'})
+            rows.append({'channel': color, 'Filepath': f'{i}_{color}.tiff'})
         return pd.DataFrame(rows)
 
     @pytest.mark.usefixtures('turret_in_a_known_slot')
@@ -232,7 +232,7 @@ def _raw_frame(rows):
                 'Filepath': f'{i}.tiff',
                 'Scan Count': scan,
                 'Well': '',
-                'Color': color,
+                'channel': color,
                 'Objective': OBJECTIVE,
                 'X': x,
                 'Y': AT.y_mm,
@@ -361,7 +361,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
             plate_position=AT,
         )
 
-        assert list(protocol.steps()['Color']) == ['BF', 'BF']
+        assert list(protocol.steps()['channel']) == ['BF', 'BF']
 
 
 class TestAGeneratedProtocolKeepsAPositionTogether:
@@ -387,7 +387,7 @@ def _frame_of(steps):
     """The raw-image frame post-processing builds from these protocol steps."""
 
     frame = steps[
-        ['Well', 'Color', 'Objective', 'X', 'Y', 'Z-Slice', 'Tile', 'Tile Group ID',
+        ['Well', 'channel', 'Objective', 'X', 'Y', 'Z-Slice', 'Tile', 'Tile Group ID',
          'Custom Step', 'Channel Group ID']
     ].copy()  # fmt: skip
     frame['Filepath'] = [f'{i}.tiff' for i in range(len(frame))]
@@ -415,4 +415,4 @@ class TestAHyperstackAfterApplyTiling:
         session.apply_tiling(protocol, '2x2')
 
         stacks = list(StackBuilder._get_groups(_frame_of(protocol.steps())))
-        assert sorted(sorted(g['Color']) for _, g in stacks) == [['BF', LED1]] * 4
+        assert sorted(sorted(g['channel']) for _, g in stacks) == [['BF', LED1]] * 4

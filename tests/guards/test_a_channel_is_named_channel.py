@@ -67,7 +67,6 @@ _PIN: dict[str, int] = {
     'src/_lumascope/modules/settings_init.py': 35,
     'src/_lumascope/modules/settings_paths.py': 12,
     'src/_lumascope/modules/stack_builder.py': 1,
-    'src/_lumascope/modules/video_builder.py': 5,
     'ui/composite_capture.py': 4,
     'ui/histogram.py': 12,
     'ui/image_settings.py': 172,

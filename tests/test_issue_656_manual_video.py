@@ -22,7 +22,7 @@ import tifffile as tf
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.channel_record import GREY, release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
@@ -342,7 +342,6 @@ def _overlay_frame(folder, cells, *, overlay=True):
             'Filepath': [f'frame_{i:04}.tiff' for i in range(len(cells))],
             'Scan Count': range(len(cells)),
             'Timestamp': pd.Series(cells, dtype=object),
-            'Color': None,
         }
     )
     result = VideoBuilder(has_turret=False)._create_video(
@@ -354,7 +353,7 @@ def _overlay_frame(folder, cells, *, overlay=True):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        channel_colors=release_colors(),
+        color=GREY,
     )
     assert result['status'] is True
     return _first_frame(_find_video(folder, 'out'))
@@ -406,7 +405,6 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
             'Filepath': [f'frame_{i:04}.tiff' for i in range(2)],
             'Scan Count': range(2),
             'Timestamp': '',
-            'Color': None,
         }
     )
     builder = VideoBuilder(has_turret=False)
@@ -419,16 +417,16 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        channel_colors=release_colors(),
+        color=GREY,
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()
 
 
 def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
-    """A protocol's composites are grouped under the Color 'Composite', which
-    is no layer: the video is built from their own RGB, not refused for want
-    of a layer colour."""
+    """A protocol's composites are grouped under the channel 'Composite',
+    which is no channel of the release: the group's video is built from
+    their own RGB, not refused for want of a channel colour."""
     folder = tmp_path / 'composites'
     folder.mkdir()
     for i in range(2):
@@ -438,10 +436,10 @@ def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
             'Filepath': [f'frame_{i:04}.tiff' for i in range(2)],
             'Scan Count': range(2),
             'Timestamp': '',
-            'Color': 'Composite',
+            'channel': 'Composite',
         }
     )
-    result = VideoBuilder(has_turret=False)._create_video(
+    result = VideoBuilder(has_turret=False)._group_algorithm(
         path=folder,
         df=df,
         frame_rate_fps=5,
@@ -452,5 +450,5 @@ def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
         current_group=1,
         channel_colors=release_colors(),
     )
-    assert result['status'] is True
+    assert result.status is True
     assert _find_video(folder, 'out').is_file()

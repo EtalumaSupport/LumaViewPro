@@ -75,7 +75,7 @@ def _steps(session, scope, protocol):
         dark_mean = _mean(scope)
         steps.append(
             {
-                'color': str(protocol.steps()['Color'].iloc[index]),
+                'color': str(protocol.steps()['channel'].iloc[index]),
                 'lit': lit,
                 'lit_mean': lit_mean,
                 'dark_mean': dark_mean,

@@ -164,7 +164,7 @@ def test_an_old_step_name_is_a_machine_name_before_and_after_its_rename(installa
     ]
     recovered = {
         case: recover_step_label(
-            {'Name': case[0], 'Well': 'A1', 'Color': case[1], 'Tile': '', 'Z-Slice': ''}
+            {'Name': case[0], 'Well': 'A1', 'channel': case[1], 'Tile': '', 'Z-Slice': ''}
         )
         for case in cases
     }

@@ -83,7 +83,8 @@ def test_step_runner_gates_same_color_hold_on_flag():
     method = _method_node(_tree(PSR_SRC), 'ProtocolStepRunner', 'scan_iterate')
     src = ast.unparse(method)
     assert (
-        "next_step['Color'] == step['Color']" in src or "step['Color'] == next_step['Color']" in src
+        "next_step['channel'] == step['channel']" in src
+        or "step['channel'] == next_step['channel']" in src
     ), 'step runner must derive same_color from the next vs current step Color'
     flag_wired = any(
         isinstance(node, ast.keyword)

@@ -113,8 +113,8 @@ class TestAPercentageOutsideTheRangeIsRefused:
         imageio.imwrite(red_path, red)
         df = pd.DataFrame(
             [
-                {'Color': 'BF', 'Filepath': bf_path},
-                {'Color': LED2, 'Filepath': red_path},
+                {'channel': 'BF', 'Filepath': bf_path},
+                {'channel': LED2, 'Filepath': red_path},
             ]
         )
         return df, {LED2: threshold}

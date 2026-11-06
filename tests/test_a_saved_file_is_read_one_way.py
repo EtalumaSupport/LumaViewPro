@@ -159,7 +159,7 @@ def _plane_times(tmp_path, times) -> list[float]:
         rows.append(
             {
                 'Filepath': name,
-                'Color': LED1,
+                'channel': LED1,
                 'Scan Count': t,
                 'Z-Slice': 0,
                 'X': 12.5,
@@ -228,7 +228,7 @@ def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_
         rows.append(
             {
                 'Filepath': name,
-                'Color': LED1,
+                'channel': LED1,
                 'Scan Count': 0,
                 'Z-Slice': z,
                 'X': 12.5,

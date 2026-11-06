@@ -113,7 +113,7 @@ class TestStackBuilderPropagatesPlanePositions:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED1,
+                    'channel': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': plate_pos['x'],
@@ -172,7 +172,7 @@ class TestStackBuilderPropagatesPlanePositions:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED1,
+                    'channel': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': x,
@@ -223,7 +223,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED2,
+                    'channel': LED2,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -267,7 +267,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
                 rows.append(
                     {
                         'Filepath': fname,
-                        'Color': channel,
+                        'channel': channel,
                         'Scan Count': 0,
                         'Z-Slice': z_idx,
                         'X': 0.0,
@@ -314,7 +314,7 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED1,
+                    'channel': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -356,7 +356,7 @@ def _two_slice_stack(tmp_path, *, plate_pos_mm=None, bare=False) -> pathlib.Path
         rows.append(
             {
                 'Filepath': fname,
-                'Color': LED1,
+                'channel': LED1,
                 'Scan Count': 0,
                 'Z-Slice': z_idx,
                 'X': plate_pos_mm['x'],
@@ -486,7 +486,7 @@ class TestHyperstackChannelColor:
                 rows.append(
                     {
                         'Filepath': fname,
-                        'Color': channel,
+                        'channel': channel,
                         'Scan Count': 0,
                         'Z-Slice': z_idx,
                         'X': 0.0,
@@ -542,7 +542,7 @@ class TestHyperstackScaleComesFromTheInput:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED2,
+                    'channel': LED2,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -586,7 +586,7 @@ class TestHyperstackScaleComesFromTheInput:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': LED1,
+                    'channel': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -685,7 +685,7 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
         rows.append(
             {
                 'Filepath': fname,
-                'Color': LED1,
+                'channel': LED1,
                 'Scan Count': scan,
                 'Z-Slice': 0,
                 'X': plate_pos['x'],
@@ -733,7 +733,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     rows = [
         {
             'Filepath': f'frame_s{scan}.tiff',
-            'Color': LED1,
+            'channel': LED1,
             'Scan Count': scan,
             'Z-Slice': 0,
             'X': plate_pos['x'],
@@ -770,7 +770,7 @@ def test_hyperstack_output_uses_strips(tmp_path):
         [
             {
                 'Filepath': fname,
-                'Color': LED1,
+                'channel': LED1,
                 'Scan Count': 0,
                 'Z-Slice': 0,
                 'X': plate_pos['x'],

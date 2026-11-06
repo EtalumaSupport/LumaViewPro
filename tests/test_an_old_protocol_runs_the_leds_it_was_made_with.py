@@ -97,7 +97,7 @@ def _old_file(
     }
     steps = [
         _step(60.0, 40.0, 5000.0, objective)
-        | {'Name': f'A1_{color}', 'Color': color, 'Stim_Config': stimulation}
+        | {'Name': f'A1_{color}', 'channel': color, 'Stim_Config': stimulation}
         for color in colors
     ]
     for color in colors:
@@ -165,7 +165,7 @@ def test_an_old_protocol_loads_in_the_units_keys_and_lights_its_leds(
     try:
         protocol = session.load_protocol(str(old))
         steps = protocol.steps()
-        colors = list(steps['Color'])
+        colors = list(steps['channel'])
         stim_keys = {k for cell in steps['Stim_Config'] for k in cell}
         settings_keys = set(protocol.channel_settings())
         names = list(steps['Name'])
@@ -206,7 +206,7 @@ def test_on_a_unit_without_the_led_an_old_name_is_its_stock_key(tmp_path, monkey
     finally:
         session.shutdown()
 
-    assert step['Color'] == 'Ex488'
+    assert step['channel'] == 'Ex488'
     assert {k for k, v in step['Stim_Config'].items() if not v['enabled']} >= {'Ex405', 'Ex589'}
     assert lit == [1]
     assert absent.value.reason == 'channel_not_on_scope'

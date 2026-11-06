@@ -60,7 +60,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Y': 20.0,
         'Z': 5000.0,
         'Auto_Focus': autofocus,
-        'Color': 'BF',
+        'channel': 'BF',
         'False_Color': False,
         'Illumination': 1.0,
         'Gain': gain,

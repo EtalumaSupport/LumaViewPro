@@ -58,7 +58,7 @@ def _writer_base(step, scan_count=0) -> str:
 
 
 def _step_row(label, color='BF', well=''):
-    return {'Well': well, 'Label': label, 'Color': color, 'Tile': '', 'Z-Slice': -1}
+    return {'Well': well, 'Label': label, 'channel': color, 'Tile': '', 'Z-Slice': -1}
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +415,7 @@ def test_recover_label_stale_token_name_is_machine_and_cleaned():
     # Old releases appended a channel token instead of replacing it; the row
     # must classify machine so the re-render CLEANS the stale token rather
     # than freezing the doubled name as a user label.
-    row = {'Name': 'A2_BF_Green', 'Well': 'A2', 'Color': 'Green', 'Tile': '', 'Z-Slice': -1}
+    row = {'Name': 'A2_BF_Green', 'Well': 'A2', 'channel': 'Green', 'Tile': '', 'Z-Slice': -1}
     assert recover_step_label(row) == ('', True)
     cleaned = {**row, 'Label': ''}
     assert build_step_name(step_components(cleaned)) == 'A2_Green'
@@ -424,12 +424,12 @@ def test_recover_label_stale_token_name_is_machine_and_cleaned():
 def test_recover_label_user_text_embedding_anchor_survives():
     # User text that happens to start with the well anchor is NOT machine --
     # 'treated' does not classify as a token, so the text is kept verbatim.
-    row = {'Name': 'A2_treated', 'Well': 'A2', 'Color': 'BF', 'Tile': '', 'Z-Slice': -1}
+    row = {'Name': 'A2_treated', 'Well': 'A2', 'channel': 'BF', 'Tile': '', 'Z-Slice': -1}
     assert recover_step_label(row) == ('A2_treated', False)
 
 
 def test_recover_label_stale_token_custom_name_keeps_machine_prefix():
-    row = {'Name': 'custom0001_BF_Green', 'Well': '', 'Color': 'Green', 'Tile': '', 'Z-Slice': -1}
+    row = {'Name': 'custom0001_BF_Green', 'Well': '', 'channel': 'Green', 'Tile': '', 'Z-Slice': -1}
     assert recover_step_label(row) == ('custom0001', True)
 
 
@@ -439,9 +439,9 @@ def test_recover_label_post_record_output_adjusted_rows_stay_machine():
     # channel. Both must classify machine (anchor + tokens), or chained
     # post-processing would treat the old name as a user label and double
     # its tokens on the next render.
-    stitched = {'Name': 'B4_Green_TA1', 'Well': 'B4', 'Color': 'Green', 'Tile': '', 'Z-Slice': -1}
+    stitched = {'Name': 'B4_Green_TA1', 'Well': 'B4', 'channel': 'Green', 'Tile': '', 'Z-Slice': -1}
     assert recover_step_label(stitched) == ('', True)
-    composite = {'Name': 'A2_BF', 'Well': 'A2', 'Color': 'Composite', 'Tile': '', 'Z-Slice': -1}
+    composite = {'Name': 'A2_BF', 'Well': 'A2', 'channel': 'Composite', 'Tile': '', 'Z-Slice': -1}
     assert recover_step_label(composite) == ('', True)
 
 
@@ -496,7 +496,7 @@ def test_zslice_reads_as_a_whole_number_and_names_render_from_it(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Fix 3: the oldest files name the channel column 'Channel'; the loader must
-# normalize it to 'Color' instead of KeyError-ing in name derivation. And
+# read it as the in-memory 'channel' column instead of KeyError-ing in name derivation. And
 # Well / Tile / Z-Slice are load-time REQUIREMENTS now that names derive
 # from them -- a missing column fails loud at validation, not as a KeyError
 # deep in the migration.
@@ -517,7 +517,7 @@ _V2_CHANNEL = (
 )
 
 
-def test_legacy_channel_column_loads_and_normalizes_to_color(tmp_path):
+def test_legacy_channel_column_loads_as_the_channel_column(tmp_path):
     src = tmp_path / 'v2_channel.tsv'
     src.write_text(_V2_CHANNEL)
     proto = protocol_from_file(
@@ -525,8 +525,8 @@ def test_legacy_channel_column_loads_and_normalizes_to_color(tmp_path):
     )
     steps = proto.steps()
     assert list(steps['Name']) == ['A2_BF']
-    assert 'Color' in steps.columns
-    assert steps.iloc[0]['Color'] == 'BF'
+    assert 'channel' in steps.columns
+    assert steps.iloc[0]['channel'] == 'BF'
     assert steps.iloc[0]['Label'] == ''
 
 
@@ -649,7 +649,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
     step = proto.step_row(step_index=0)
     assert step['Label'] == 'MySpot'
     assert step['Name'] == 'MySpot_BF'
-    assert step['Color'] == 'BF', 'refused rename must leave the step unmodified'
+    assert step['channel'] == 'BF', 'refused rename must leave the step unmodified'
 
 
 def test_insert_step_refuses_name_that_sanitizes_to_empty():

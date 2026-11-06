@@ -604,7 +604,7 @@ _STEP_CELLS = {
     'Y': _position_cell,
     'Z': _position_cell,
     'Auto_Focus': _bool_cell,
-    'Color': _str_cell,
+    'channel': _str_cell,
     'False_Color': _bool_cell,
     'Illumination': _float_cell,
     'Gain': _float_cell,
@@ -809,7 +809,7 @@ _STEP_FIELDS = {
     'Y': 'y_mm',
     'Z': 'z_um',
     'Auto_Focus': 'auto_focus',
-    'Color': 'channel',
+    'channel': 'channel',
     'False_Color': 'false_color',
     'Illumination': 'illumination_ma',
     'Gain': 'gain_db',
@@ -1028,7 +1028,8 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
                 values[f'video_config.{part}'] = video.get(part)
                 columns[f'video_config.{part}'] = f'Video Config {part}'
     refused = [
-        (columns[r.path.partition('.')[2]], r) for r in refused_layer_values(step['Color'], values)
+        (columns[r.path.partition('.')[2]], r)
+        for r in refused_layer_values(step['channel'], values)
     ]
     stims = step.get('Stim_Config')
     for stim_layer, stim in stims.items() if isinstance(stims, dict) else ():
@@ -1591,10 +1592,10 @@ class Protocol:
         infer, so it is None and the channel's control keeps what it holds.
         """
         steps = self._config.get('steps')
-        if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
+        if steps is None or len(steps) == 0 or 'channel' not in steps.columns:
             return {}
         out = {}
-        for color, group in steps.groupby('Color'):
+        for color, group in steps.groupby('channel'):
             if not color:
                 continue
             first = group.iloc[0]
@@ -1725,7 +1726,7 @@ class Protocol:
                 # Serialize dict columns as JSON strings before writing to CSV.
                 # Without this, pandas uses Python repr (single quotes) which
                 # fails json.loads() on reload.
-                steps_df = self._config['steps'].copy()
+                steps_df = self._config['steps'].rename(columns={'channel': 'Color'})
                 for col in ('Video Config', 'Stim_Config'):
                     if col in steps_df.columns:
                         steps_df[col] = steps_df[col].apply(
@@ -1778,7 +1779,7 @@ class Protocol:
                 ('Y', float),
                 ('Z', float),
                 ('Auto_Focus', bool),
-                ('Color', str),
+                ('channel', str),
                 ('False_Color', bool),
                 ('Illumination', float),
                 ('Gain', float),
@@ -1910,7 +1911,7 @@ class Protocol:
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
 
             # Color
-            color = step.get('Color', '')
+            color = step.get('channel', '')
             if color not in self.valid_colors():
                 errors.append(
                     f"{label}: Color '{color}' is not valid. "
@@ -2106,7 +2107,7 @@ class Protocol:
         if df.empty:
             df = self._create_empty_steps_df()
         else:
-            missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
+            missing = [c for c in _STEP_CELLS if c not in df.columns]
             if missing:
                 named = ', '.join(repr(column) for column in missing)
                 raise ProtocolFormatError(
@@ -2363,7 +2364,7 @@ class Protocol:
             return pd.Index([step_index])
         return steps.index[
             (steps['Z-Stack Group ID'] == group_id)
-            & (steps['Color'] == steps.at[step_index, 'Color'])
+            & (steps['channel'] == steps.at[step_index, 'channel'])
         ]
 
     @staticmethod
@@ -2429,7 +2430,7 @@ class Protocol:
     _FOCUS_IDENTITY = (
         ('X', 'position'),
         ('Y', 'position'),
-        ('Color', 'channel'),
+        ('channel', 'channel'),
         ('Objective', 'objective'),
     )
 
@@ -2520,13 +2521,13 @@ class Protocol:
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
         members = steps.index[steps['Z-Stack Group ID'] == group_id]
         planes = {
-            color: self._channel_plane(steps, members[steps.loc[members, 'Color'] == color])
-            for color in steps.loc[members, 'Color'].unique()
+            color: self._channel_plane(steps, members[steps.loc[members, 'channel'] == color])
+            for color in steps.loc[members, 'channel'].unique()
         }
-        shift = z - planes[steps.at[reference_step_idx, 'Color']]
+        shift = z - planes[steps.at[reference_step_idx, 'channel']]
         for idx in members:
             steps.at[idx, 'Z'] = self._measured_z(
-                planes[steps.at[idx, 'Color']] + shift + steps.at[idx, 'Z-Stack Offset']
+                planes[steps.at[idx, 'channel']] + shift + steps.at[idx, 'Z-Stack Offset']
             )
         return len(members)
 
@@ -2557,7 +2558,7 @@ class Protocol:
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
-        mask = steps_df['Color'] == layer
+        mask = steps_df['channel'] == layer
         count = int(mask.sum())
         if count > 0:
             steps_df.loc[mask, 'Z'] = [
@@ -2588,7 +2589,7 @@ class Protocol:
     def _regenerate_step_name(self, step_index: int) -> str:
         """Re-render the step's derived Name from its structured columns.
 
-        Name is a display rendering of (Label, Well, Color, Tile, Z-Slice);
+        Name is a display rendering of (Label, Well, channel, Tile, Z-Slice);
         every mutation of those columns re-renders it here so the stored
         string can never drift from the fields it encodes.
         """
@@ -2648,10 +2649,10 @@ class Protocol:
         steps = self._config['steps']
         if (
             steps.at[step_index, 'Z-Stack Group ID'] != -1
-            and layer != steps.at[step_index, 'Color']
+            and layer != steps.at[step_index, 'channel']
         ):
             raise StepEditRefusedError(
-                f'step {step_index + 1} is a slice of a z-stack of {steps.at[step_index, "Color"]}, '
+                f'step {step_index + 1} is a slice of a z-stack of {steps.at[step_index, "channel"]}, '
                 f'so it cannot become {layer}. Change the channel of the step before it is '
                 'stacked, then stack it again.'
             )
@@ -2663,7 +2664,7 @@ class Protocol:
             'Y': plate_position.y_mm,
             'Z': plate_position.z_um,
             'Auto_Focus': channel_config['autofocus'],
-            'Color': layer,
+            'channel': layer,
             'False_Color': channel_config['false_color'],
             'Illumination': channel_config['illumination_ma'],
             'Gain': channel_config['gain_db'],
@@ -3036,7 +3037,7 @@ class Protocol:
                     y=y_tile,
                     z=orig_step['Z'],
                     af=orig_step['Auto_Focus'],
-                    color=orig_step['Color'],
+                    color=orig_step['channel'],
                     fc=orig_step['False_Color'],
                     ill=orig_step['Illumination'],
                     gain=orig_step['Gain'],
@@ -3232,7 +3233,7 @@ class Protocol:
                     y=orig_step['Y'],
                     z=zstack_position,
                     af=orig_step['Auto_Focus'],
-                    color=orig_step['Color'],
+                    color=orig_step['channel'],
                     fc=orig_step['False_Color'],
                     ill=orig_step['Illumination'],
                     gain=orig_step['Gain'],
@@ -3572,7 +3573,7 @@ class Protocol:
             'Y': y,
             'Z': z,
             'Auto_Focus': af,
-            'Color': color,
+            'channel': color,
             'False_Color': fc,
             'Illumination': ill,
             'Gain': gain,
@@ -3709,7 +3710,7 @@ class Protocol:
         max_precision = common_utils.max_decimal_precision(parameter='z')
         inferred = set()
         for (group_id, _color), slices in (
-            protocol_df.loc[stacked].groupby(['Z-Stack Group ID', 'Color']).groups.items()
+            protocol_df.loc[stacked].groupby(['Z-Stack Group ID', 'channel']).groups.items()
         ):
             z = protocol_df.loc[slices, 'Z'].astype(float)
             flagged = [idx for idx in slices if flags[idx] != '' and bool(flags[idx])]
@@ -4029,11 +4030,11 @@ class Protocol:
                 f'Protocol missing required columns: {missing}', file=file_path
             )
 
-        if 'Color' not in protocol_df.columns:
-            # The oldest files name the channel column 'Channel'; everything
-            # downstream (name derivation, validation, the image writer)
-            # reads 'Color', so normalize once at the read boundary.
-            protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
+        # The file names the channel column 'Color', the oldest files
+        # 'Channel'; in memory it is 'channel', named once here at the read
+        # boundary and written back as 'Color' by to_file.
+        file_column = 'Color' if 'Color' in protocol_df.columns else 'Channel'
+        protocol_df = protocol_df.rename(columns={file_column: 'channel'})
 
         # Each step cell is read by its column's reader, so a name or label of
         # 'NA' or '0600' stays that text and a number is the number written.
@@ -4169,7 +4170,7 @@ class Protocol:
         # recovery and the Name re-render read the channels, so both see the
         # unit's keys.
         if runnable:
-            protocol_df['Color'] = protocol_df['Color'].map(unit.unit_key)
+            protocol_df['channel'] = protocol_df['channel'].map(unit.unit_key)
             protocol_df['Stim_Config'] = _typed_column(
                 (
                     _in_unit_keys(

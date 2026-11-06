@@ -3176,7 +3176,7 @@ class ScopeSession:
         step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z_um(then='save the focus')
         self._store_layer_focus(channel, z)
-        if step is None or step['Color'] != channel:
+        if step is None or step['channel'] != channel:
             logger.info(f'[Session  ] Focus saved: {channel} Z={z}, no step written')
             return SavedFocus(z_um=z, step_index=None)
         self.scope.protocols.set_step_z(protocol, step_index, z)
@@ -3730,7 +3730,7 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_step')
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
-        layer = protocol.step_row(step_index=step_index)['Color']
+        layer = protocol.step_row(step_index=step_index)['channel']
         with self._a_layer_change(layer, 'go_to_step'):
             going = self._start_moving_to_step(protocol, step_index)
             try:
@@ -3820,7 +3820,7 @@ class ScopeSession:
                 the UI thread. Nothing was started.
         """
         refuse_waiting_on_ui_thread('start_go_to_step')
-        layer = protocol.step_row(step_index=step_index)['Color']
+        layer = protocol.step_row(step_index=step_index)['channel']
         with self._a_layer_change(layer, 'start_go_to_step'):
             going = self._start_moving_to_step(protocol, step_index)
             self.apply_layer_camera(layer)
@@ -3840,7 +3840,7 @@ class ScopeSession:
         # objective in the light path.
         targets = self.scope.protocols.step_targets(protocol, step_index)
         self.scope.channel_identity.refuse_unless_on_scope(
-            step['Color'], 'go_to_step', then='be gone to'
+            step['channel'], 'go_to_step', then='be gone to'
         )
         stim_configs = step.get('Stim_Config')
         if isinstance(stim_configs, dict):
@@ -3886,9 +3886,9 @@ class ScopeSession:
         # person left them while the step's layer is shown, and moves the shown
         # channel, lit or dark as its LED reads, back to it when another was shown.
         was_lit = self._layer_lit(self._shown_layer)
-        moves_light = shows or self._shown_layer != step['Color']
+        moves_light = shows or self._shown_layer != step['channel']
         lit = self.settings['protocol_led_on'] if shows else was_lit
-        if moves_light and lit and self._led_address(step['Color']) is not None:
+        if moves_light and lit and self._led_address(step['channel']) is not None:
             # A preview that would light needs the LED controller, asked
             # before anything moves; a dark one needs no board. A recording
             # refuses the light, so it is asked here too, before the stage
@@ -3918,8 +3918,8 @@ class ScopeSession:
         # person makes while the stage travels lands after the step's preview.
         # The step's values are now its layer's, so the layer lights at the
         # step's current.
-        self._show_leds(step['Color'], lit)
-        self._show_layer(step['Color'], was_lit=was_lit)
+        self._show_leds(step['channel'], lit)
+        self._show_layer(step['channel'], was_lit=was_lit)
         return moves
 
     def _load_step_into_layer(self, step) -> None:
@@ -3932,7 +3932,7 @@ class ScopeSession:
         next protocol, so visiting a step must not move it. A step's
         stimulation spans every layer it names, and each takes its own.
         """
-        color = step['Color']
+        color = step['channel']
         channel_config = {
             'autofocus': step['Auto_Focus'],
             'false_color': step['False_Color'],

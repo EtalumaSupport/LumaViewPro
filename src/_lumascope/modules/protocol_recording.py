@@ -366,7 +366,7 @@ class ProtocolVideoStep:
                 'step_name': self._name,
                 # The channel, and whether it was shown in false colour, as
                 # the manual leg records them.
-                'channel': step['Color'],
+                'channel': step['channel'],
                 'false_color': false_color_on,
                 'camera': {
                     'model': camera.camera_model,
@@ -397,7 +397,7 @@ class ProtocolVideoStep:
                 # Grey (a gray encode) when false color is off -- the same
                 # contract the manual leg encodes with.
                 color=channel_record.shown_color(
-                    step['Color'], false_color_on, self._channel_colors
+                    step['channel'], false_color_on, self._channel_colors
                 ),
                 include_timestamp_overlay=self._timestamp_overlay,
                 vfr=True,
@@ -630,7 +630,7 @@ class ProtocolVideoStep:
                 self._scope,
                 frame,
                 frame_time=frame_time,
-                channel_tiebreak=self._step['Color'],
+                channel_tiebreak=self._step['channel'],
                 to_plate=self._to_plate,
                 camera=self._camera,
             )

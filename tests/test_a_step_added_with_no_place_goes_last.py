@@ -47,7 +47,7 @@ def test_steps_added_with_no_place_follow_the_last_step_in_channel_order(session
     second = session.add_step(protocol)
 
     assert list(protocol.steps()['Name']) == first + second
-    assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == ['BF', LED0, 'BF']
+    assert [protocol.step_row(step_index=i)['channel'] for i in range(3)] == ['BF', LED0, 'BF']
 
 
 def test_the_protocols_own_insert_names_its_place(session):

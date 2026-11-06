@@ -67,7 +67,7 @@ def _protocol_bf_bf_blue(session):
     session.set_channel_acquire('BF', None)
     session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     session.set_channel_acquire('BF', 'image')
-    assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', LED0]
+    assert [protocol.step_row(i)['channel'] for i in range(3)] == ['BF', 'BF', LED0]
     assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
     return protocol
 

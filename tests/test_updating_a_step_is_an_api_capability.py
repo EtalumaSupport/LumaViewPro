@@ -156,7 +156,7 @@ class TestTheApiUpdates:
 
         step = _step(protocol)
         assert (step['X'], step['Y'], step['Z']) == (30.0, 40.0, 6000.0)
-        assert step['Color'] == LED0
+        assert step['channel'] == LED0
         assert step['Objective'] == '20x Oly'
         assert name == step['Name']
 
@@ -178,7 +178,7 @@ class TestTheApiUpdates:
 
         _update(scope, protocol, layer=LED0, channel_configs=_layer_configs(**{LED0: True}))
 
-        assert _step(protocol)['Color'] == 'BF'
+        assert _step(protocol)['channel'] == 'BF'
 
     def test_an_enabled_stim_channel_with_no_frequency_is_saved_disabled(self, scope):
         # The same rule an add applies: a stim channel that cannot pulse is

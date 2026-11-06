@@ -54,7 +54,7 @@ def _valid_step(**overrides) -> dict:
         'Y': 0.0,
         'Z': 0.0,
         'Auto_Focus': False,
-        'Color': LED0,
+        'channel': LED0,
         'False_Color': False,
         'Illumination': 100.0,
         'Gain': 1.0,
@@ -98,14 +98,14 @@ class TestValidateStepsEmpty:
 
 class TestValidateColor:
     def test_invalid_color(self):
-        p = _make_protocol([_valid_step(Color='Purple')])
+        p = _make_protocol([_valid_step(channel='Purple')])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert len(errors) == 1
         assert "Color 'Purple'" in errors[0]
 
     def test_all_valid_colors(self):
         for color in release_catalogue():
-            p = _make_protocol([_valid_step(Color=color)])
+            p = _make_protocol([_valid_step(channel=color)])
             assert p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000) == [], (
                 f'Color {color} should be valid'
             )
@@ -265,14 +265,14 @@ class TestValidateNameLength:
 
 class TestMultipleErrors:
     def test_multiple_fields_invalid(self):
-        p = _make_protocol([_valid_step(Color='Bad', Exposure=-1, Sum=0)])
+        p = _make_protocol([_valid_step(channel='Bad', Exposure=-1, Sum=0)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert len(errors) == 3
 
     def test_multiple_steps_with_errors(self):
         p = _make_protocol(
             [
-                _valid_step(Color='Bad'),
+                _valid_step(channel='Bad'),
                 _valid_step(Exposure=-10),
             ]
         )
@@ -395,7 +395,7 @@ class TestValidateForRunLabware:
 class TestValidateForRunIncludesFieldValidation:
     def test_field_errors_included(self):
         """validate_for_run should include validate_steps errors too."""
-        p = _make_protocol([_valid_step(X=60.0, Y=40.0, Color='Bad')])
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0, channel='Bad')])
         errors = p.validate_for_run(
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),

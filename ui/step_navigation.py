@@ -109,7 +109,7 @@ def go_to_step_update_ui(step):
     """
     ctx = _app_ctx.ctx
 
-    color = step['Color']
+    color = step['channel']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
     # Open the ImageSettings panel so the step's settings are visible.

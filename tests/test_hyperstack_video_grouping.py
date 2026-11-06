@@ -42,13 +42,13 @@ def _stack_df(rows):
     data = {
         'Filepath': [],
         'Scan Count': [],
-        'Color': [],
+        'channel': [],
         'Z-Slice': [],
     }
     for path, scan, color, z_slice in rows:
         data['Filepath'].append(pathlib.Path(path))
         data['Scan Count'].append(scan)
-        data['Color'].append(color)
+        data['channel'].append(color)
         data['Z-Slice'].append(z_slice)
     n = len(rows)
     data.update(

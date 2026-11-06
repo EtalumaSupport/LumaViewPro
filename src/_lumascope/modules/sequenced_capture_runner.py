@@ -131,7 +131,7 @@ step_dict = {
     "Y": y,
     "Z": z,
     "Auto_Focus": af,
-    "Color": color,
+    "channel": color,
     "False_Color": fc,
     "Illumination": ill,
     "Gain": gain,
@@ -1216,7 +1216,7 @@ class SequencedCaptureRunner:
         # to capture is an empty protocol too, and "turn on another channel"
         # is the answer its user can act on, where "add a step" is not.
         if run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE:
-            channels = protocol.steps()['Color'].nunique() if protocol.num_steps() else 0
+            channels = protocol.steps()['channel'].nunique() if protocol.num_steps() else 0
             if channels < COMPOSITE_MIN_CHANNELS:
                 set_to_capture = (
                     'no channel is'
@@ -1234,7 +1234,7 @@ class SequencedCaptureRunner:
             # A composite has one transmitted plane; capturing two would end
             # in a composite refused after both were taken.
             transmitted = sorted(
-                set(protocol.steps()['Color']) & set(common_utils.get_transmitted_layers())
+                set(protocol.steps()['channel']) & set(common_utils.get_transmitted_layers())
             )
             if len(transmitted) > 1:
                 self._refuse(

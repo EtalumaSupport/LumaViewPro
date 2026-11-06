@@ -334,9 +334,9 @@ def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
         tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
     df = pd.DataFrame(
         [
-            {'Color': LED2, 'Filepath': f'{LED2}.tiff'},
-            {'Color': LED1, 'Filepath': f'{LED1}.tiff'},
-            {'Color': LED0, 'Filepath': f'{LED0}.tiff'},
+            {'channel': LED2, 'Filepath': f'{LED2}.tiff'},
+            {'channel': LED1, 'Filepath': f'{LED1}.tiff'},
+            {'channel': LED0, 'Filepath': f'{LED0}.tiff'},
         ]
     )
 

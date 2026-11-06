@@ -461,12 +461,12 @@ class ProtocolsAPI:
         are not one another's duplicates.
         """
         step = protocol.step_row(step_index=step_index)
-        if step['Channel Group ID'] == -1 or layer == step['Color']:
+        if step['Channel Group ID'] == -1 or layer == step['channel']:
             return
         group = step['Channel Group ID']
         steps = protocol.steps().reset_index(drop=True)
         same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_index)]
-        if layer in set(same_add['Color']):
+        if layer in set(same_add['channel']):
             self._refuse(
                 reason='channel_already_in_add',
                 message=(
@@ -529,7 +529,7 @@ class ProtocolsAPI:
 
         stim_config = channel_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
-            layer = step['Color']
+            layer = step['channel']
 
         if not Protocol.layer_acquires(channel_configs[layer]):
             self._refuse(
@@ -1037,21 +1037,21 @@ class ProtocolsAPI:
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
         steps = protocol.steps()
-        unknown = steps.loc[~steps['Color'].isin(common_utils.get_layers())]
+        unknown = steps.loc[~steps['channel'].isin(common_utils.get_layers())]
         if not unknown.empty:
             self._refuse(
                 reason='channel_unknown',
                 message=(
                     f'{len(unknown)} step(s) name a channel LumaViewPro does not know '
-                    f'({", ".join(sorted(set(unknown["Color"])))}), so they cannot be run: '
+                    f'({", ".join(sorted(set(unknown["channel"])))}), so they cannot be run: '
                     f'{common_utils.first_few(list(unknown["Name"]), separator=", ")}. '
                     f'Delete those steps, or correct the file.'
                 ),
             )
-        absent = steps.loc[~steps['Color'].isin(present)]
+        absent = steps.loc[~steps['channel'].isin(present)]
         if absent.empty:
             return
-        missing = sorted(set(absent['Color']))
+        missing = sorted(set(absent['channel']))
         channels = ', '.join(missing) + (' channels' if len(missing) > 1 else ' channel')
         names = common_utils.first_few(list(absent['Name']), separator=', ')
         if identity.channels:
@@ -1384,7 +1384,7 @@ class ProtocolsAPI:
                     continue
                 if (low is not None and value < low) or (high is not None and value > high):
                     problems.append(
-                        f'Step "{step["Name"]}" ({step["Color"]}): {word} {value:g} {unit} is '
+                        f'Step "{step["Name"]}" ({step["channel"]}): {word} {value:g} {unit} is '
                         f"outside this camera's range, {camera_range_words(low, high, unit)}."
                     )
         if problems:

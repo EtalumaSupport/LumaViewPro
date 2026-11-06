@@ -70,7 +70,7 @@ def _valid_step(**overrides) -> dict:
         'Y': 0.0,
         'Z': 5000.0,
         'Auto_Focus': False,
-        'Color': LED0,
+        'channel': LED0,
         'False_Color': False,
         'Illumination': 100.0,
         'Gain': 1.0,

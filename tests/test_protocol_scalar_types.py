@@ -45,7 +45,7 @@ def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
         'Y': y,
         'Z': z,
         'Auto_Focus': False,
-        'Color': color,
+        'channel': color,
         'False_Color': False,
         'Illumination': illumination,
         'Gain': 0.0,
@@ -151,13 +151,13 @@ class TestProtocolHandsOutPythonScalars:
         step = protocol.step_row(0)
         assert step['Illumination'] == 5.0
         assert step.get('Illumination') == 5.0
-        assert dict(step)['Color'] == 'BF'
-        assert step.to_dict()['Color'] == 'BF'
+        assert dict(step)['channel'] == 'BF'
+        assert step.to_dict()['channel'] == 'BF'
         assert not pd.isna(step['Illumination'])
         # The step runner copies before mutating; that must still work.
         copied = dict(step)
         copied['Auto_Focus'] = False
-        assert step['Color'] == 'BF'
+        assert step['channel'] == 'BF'
 
     def test_find_nearest_step_returns_a_python_int(self):
         """The annotation says int; it used to return np.int64.

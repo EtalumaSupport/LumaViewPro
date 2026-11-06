@@ -53,7 +53,7 @@ try:
         'protocol.apply_focus_all_layer_steps',
         proto.apply_focus_all_layer_steps(layer=lay, z=z + 9),
     )
-    show(f'step {LED0} Z after apply', proto.steps()[proto.steps()['Color'] == lay]['Z'].iloc[0])
+    show(f'step {LED0} Z after apply', proto.steps()[proto.steps()['channel'] == lay]['Z'].iloc[0])
     # goto_focus == a Z move to the stored focus
     show(
         'motion.move_z(focus)',

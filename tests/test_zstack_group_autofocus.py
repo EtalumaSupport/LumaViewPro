@@ -263,7 +263,7 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(focusing_session, tmp
     protocol = _stack(session)
     first = protocol.step_row(step_index=0)
     reference = protocol.step_row(step_index=protocol.focus_sweep_step(step_index=0))
-    assert (first['Color'], reference['Color']) == (LED0, 'BF')
+    assert (first['channel'], reference['channel']) == (LED0, 'BF')
 
     lit = []
 

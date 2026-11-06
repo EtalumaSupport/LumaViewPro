@@ -49,7 +49,7 @@ def session():
 
 def _slices(protocol, color):
     steps = protocol.steps().reset_index(drop=True)
-    return steps[steps['Color'] == color]
+    return steps[steps['channel'] == color]
 
 
 def _stack(session):

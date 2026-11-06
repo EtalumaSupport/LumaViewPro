@@ -78,7 +78,7 @@ class TestGroupAlgorithmsCarryDepth:
             p = tmp_path / f'slice_{i}.tiff'
             _write_mono_tiff(p, value=val)
             slice_paths.append(p.name)
-        df = pd.DataFrame({'Filepath': slice_paths, 'Color': ['BF'] * 3})
+        df = pd.DataFrame({'Filepath': slice_paths, 'channel': ['BF'] * 3})
         zproj = ZProjector.__new__(ZProjector)
         result = zproj._group_algorithm(
             path=tmp_path,
@@ -100,7 +100,7 @@ class TestGroupAlgorithmsCarryDepth:
                 rows.append(
                     {
                         'Filepath': p.name,
-                        'Color': 'BF',
+                        'channel': 'BF',
                         'X': x,
                         'Y': y,
                         'Objective': '20x',
@@ -124,7 +124,7 @@ class TestGroupAlgorithmsCarryDepth:
         for color, val in ((LED2, 120), (LED1, 180)):
             p = tmp_path / f'{color}.tiff'
             _write_mono_tiff(p, value=val)
-            rows.append({'Filepath': p.name, 'Color': color})
+            rows.append({'Filepath': p.name, 'channel': color})
         df = pd.DataFrame(rows)
         composite = CompositeGeneration.__new__(CompositeGeneration)
         result = composite._group_algorithm(

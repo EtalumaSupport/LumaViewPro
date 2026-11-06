@@ -84,7 +84,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
         wellplate_loader=WellPlateLoader(),
     )
     assert one_enabled.num_steps() > 0, 'an image layer must still produce steps'
-    step_colors = set(one_enabled.steps()['Color'].unique())
+    step_colors = set(one_enabled.steps()['channel'].unique())
     assert step_colors == {'BF'}, (
         f'only the acquiring layer may contribute steps; got {step_colors}'
     )

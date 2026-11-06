@@ -76,7 +76,7 @@ def _make_step():
         'X': 10.0,
         'Y': 20.0,
         'Z': 7.5,
-        'Color': LED1,
+        'channel': LED1,
         'Auto_Focus': True,
         'False_Color': False,
         'Illumination': 350.0,

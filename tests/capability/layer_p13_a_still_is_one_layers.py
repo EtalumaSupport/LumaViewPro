@@ -81,9 +81,9 @@ def judge(session, label, path, expect=None):
 
 def _steps(session, protocol, colors):
     return {
-        protocol.step_row(step_index=i)['Color']: i
+        protocol.step_row(step_index=i)['channel']: i
         for i in range(protocol.num_steps())
-        if protocol.step_row(step_index=i)['Color'] in colors
+        if protocol.step_row(step_index=i)['channel'] in colors
     }
 
 

@@ -262,7 +262,7 @@ class TestTheProtocolsOneFocusWriter:
 
     @pytest.mark.parametrize(
         'column, value',
-        [('X', 40.0), ('Y', 40.0), ('Color', LED2), ('Objective', '4x Oly')],
+        [('X', 40.0), ('Y', 40.0), ('channel', LED2), ('Objective', '4x Oly')],
     )
     def test_a_step_that_differs_refuses_and_changes_nothing(self, column, value):
         protocol = _two_steps()

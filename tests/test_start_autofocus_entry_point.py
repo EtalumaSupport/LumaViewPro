@@ -362,7 +362,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
 
     def test_the_step_is_the_named_layer_with_autofocus_on(self):
         steps = self._protocol_from(layer=LED1).steps()
-        assert steps['Color'].tolist() == [LED1]
+        assert steps['channel'].tolist() == [LED1]
         assert bool(steps['Auto_Focus'].iloc[0]) is True
 
     def test_the_step_sits_at_the_position_it_was_given(self):
