@@ -1,5 +1,0 @@
-# For integrators {#sec-integrators}
-
-This manual is for people using LumaViewPro at the microscope. To drive a
-Lumascope from your own software (Python, REST, MATLAB or Micro-Manager),
-read the [Lumascope integration guide](https://github.com/EtalumaSupport/LumaViewPro/blob/main/docs/lumascope-skills.md).

@@ -16,7 +16,6 @@ book:
     - protocols.qmd
     - post-processing.qmd
     - incubator.qmd
-    - integrators.qmd
   appendices:
     - sanitizing.qmd
     - windows-timelapse.qmd
