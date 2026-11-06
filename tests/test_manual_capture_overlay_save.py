@@ -99,9 +99,9 @@ def _run_capture(ctx, sum_count=1):
     capture = ManualCaptureController(
         scope=ctx.scope,
         settings_snapshot=lambda: settings,
-        shown_layer=lambda: LAYER,
+        shown_channel=lambda: LAYER,
         # No layer is put on this camera, so the still's hold writes nothing.
-        layer_camera_request=lambda layer: None,
+        channel_camera_request=lambda layer: None,
         engineering_mode=lambda: ctx.engineering_mode,
         channel_colors=release_colors,
     )

@@ -23,7 +23,7 @@ try:
         tiling='1x1',
         use_zstacking=False,
     )
-    for lc in cfg['layer_configs'].values():
+    for lc in cfg['channel_configs'].values():
         lc['acquire'] = None
     cfg['labware_id'] = 'Center Plate'
     try:

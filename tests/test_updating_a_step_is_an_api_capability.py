@@ -133,7 +133,7 @@ class TestTheApiRefuses:
 
     def test_an_empty_protocol_has_no_step_to_update_whatever_the_layer(self, scope):
         """Judged first: an empty protocol was refused for its layer
-        (``no_acquiring_layer``) when the layer acquired nothing, a reason
+        (``no_acquiring_channel``) when the layer acquired nothing, a reason
         that was not why nothing could be updated."""
         protocol = _empty_protocol_for_add()
         configs = _layer_configs()

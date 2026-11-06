@@ -204,7 +204,7 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
             video_as_frames=True,
             video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
         ),
-        shown_layer=lambda: 'BF',
+        shown_channel=lambda: 'BF',
         channel_colors=release_colors,
         activity_claim=ActivityClaim(),
         scheduler=scheduler,

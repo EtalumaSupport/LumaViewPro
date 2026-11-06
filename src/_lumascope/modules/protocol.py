@@ -222,8 +222,8 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
             key_path(zstack_path, 'z_reference'),
         )
 
-    layers = read(config, 'layer_configs', 'dict', argument)
-    layers_path = key_path(argument, 'layer_configs')
+    layers = read(config, 'channel_configs', 'dict', argument)
+    layers_path = key_path(argument, 'channel_configs')
     for layer, layer_config in layers.items():
         refuse_unknown_layer(layer, layers_path)
         layer_path = key_path(layers_path, layer)
@@ -976,7 +976,7 @@ def _channel_settings(row: dict) -> ChannelSettings:
     """
     layer = row.get('Layer')
     if not isinstance(layer, str) or layer.strip() == '':
-        raise ProtocolFormatError(f'a Layer Settings row names no layer: {row!r}')
+        raise ProtocolFormatError(f'a Layer Settings row names no channel: {row!r}')
     layer = layer.strip()
     typed = {}
     for column, field, read in _LAYER_SETTINGS_CELLS:
@@ -1083,7 +1083,7 @@ def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], w
     if refused:
         raise ProtocolRunRefusedError(
             reason='values_out_of_range',
-            message=f'{what} holds values no layer setting can take, so nothing was changed: '
+            message=f'{what} holds values no channel setting can take, so nothing was changed: '
             + '; '.join(f'{where}: {r.detail}' for where, r in refused)
             + '.',
         )
@@ -3297,7 +3297,7 @@ class Protocol:
         # carries the name every later reader resolves.
         labware_id = wellplate_loader.resolve_plate_key(input_config['labware_id'])
         objective_id = input_config['objective_id']
-        layer_configs = input_config['layer_configs']
+        layer_configs = input_config['channel_configs']
         period = input_config['period']
         duration = input_config['duration']
         stim_config = input_config['stim_config']
@@ -3515,7 +3515,7 @@ class Protocol:
             'zstack_params': zstack_params,
             'use_zstacking': use_zstacking,
             'tiling': tiling,
-            'layer_configs': layer_configs,
+            'channel_configs': layer_configs,
             'period': period,
             'duration': duration,
             'frame_dimensions': frame_dimensions,
@@ -3987,7 +3987,7 @@ class Protocol:
                             layer_name = row_dict.get('Layer', '').strip()
                             if not layer_name:
                                 raise ProtocolFormatError(
-                                    'a row of its Layer Settings block names no layer.',
+                                    'a row of its Layer Settings block names no channel.',
                                     file=file_path,
                                 )
                             block_rows[layer_name] = row_dict

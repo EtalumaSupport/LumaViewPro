@@ -679,31 +679,31 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
         self.replacements = replacements
 
 
-class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """Saved layer gains or exposures above this camera's range; each runs at the camera's limit.
+class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Saved channel gains or exposures above this camera's range; each runs at the camera's limit.
 
     The saved value is the person's intent and is kept: a camera that can
-    reach it applies it again. One notice names every capped layer value
+    reach it applies it again. One notice names every capped channel value
     one bring-up found, as ``StoredSettingReplacedNotice`` names every
     replaced one, since the notification centre shows one notice of a kind
     at a time.
 
     Attributes:
-        capped: ``(layer, setting, stored, applied)`` for each capped value:
-            the layer, ``'gain_db'`` or ``'exposure_ms'``, the saved value
+        capped: ``(channel, setting, stored, applied)`` for each capped value:
+            the channel, ``'gain_db'`` or ``'exposure_ms'``, the saved value
             and the camera's limit it runs at.
     """
 
-    title = "Saved layer settings above the camera's range"
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'layer_setting_capped': None}
+    title = "Saved channel settings above the camera's range"
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_setting_capped': None}
 
     def __init__(self, capped: list[tuple[str, str, float, float]]):
         listed = '; '.join(
-            f'{layer} {setting} {stored!r} runs at {applied!r}'
-            for layer, setting, stored, applied in capped
+            f'{channel} {setting} {stored!r} runs at {applied!r}'
+            for channel, setting, stored, applied in capped
         )
         super().__init__(
-            'This camera cannot reach these saved layer settings, so each runs at the '
+            'This camera cannot reach these saved channel settings, so each runs at the '
             f"camera's limit; the saved value is kept for a camera that can: {listed}."
         )
         self.capped = capped
@@ -857,7 +857,7 @@ class ConfigurationDefectError(Fault, ConfigError):
             an output format this build does not write, so the stored image
             output format was never judged by the settings' preparation.
             ``'composite_thresholds_missing'`` -- a composite was asked for
-            without a brightness threshold for every fluorescence layer it
+            without a brightness threshold for every fluorescence channel it
             blends. ``'composite_threshold_out_of_range'`` -- a composite's
             brightness threshold is not a number from 0 to 100 percent.
             ``'capture_config_inconsistent'`` -- a capture configuration's
@@ -865,8 +865,8 @@ class ConfigurationDefectError(Fault, ConfigError):
             ``'tail_id_mode_unknown'`` -- a file name was asked for with a
             tail id mode the namer does not implement.
             ``'labware_not_given'`` -- an image's record was written with no
-            labware to state. ``'layers_unresolved'`` -- this scope's layers
-            could not be resolved from its model, so no layer can be acted
+            labware to state. ``'channels_unresolved'`` -- this scope's channels
+            could not be resolved from its model, so no channel can be acted
             on. ``'scope_not_composed'`` -- a scope that no session has
             bound was used for work that reads or saves settings.
             ``'zstack_reference_unchecked'`` -- a Z-stack's position
@@ -882,13 +882,13 @@ class ConfigurationDefectError(Fault, ConfigError):
         'capture_config_inconsistent': 'Configuration Fault',
         'tail_id_mode_unknown': 'Configuration Fault',
         'labware_not_given': 'Configuration Fault',
-        'layers_unresolved': 'Scope Model Not Known',
+        'channels_unresolved': 'Scope Model Not Known',
         'scope_not_composed': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
         'route_shadowed': 'Configuration Fault',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
-    _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'layers_unresolved'})
+    _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'channels_unresolved'})
 
     def __init__(self, reason: str, message: str):
         if reason not in self._TITLES:
@@ -1978,12 +1978,12 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'position_unknown'`` -- an axis this scope has does not know
             its position, so the scope has to be homed first. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
-            ``'no_acquiring_layer'`` -- no channel, or not the step's, is
+            ``'no_acquiring_channel'`` -- no channel, or not the step's, is
             set to acquire, so there is no step to make.
             ``'channel_already_in_add'`` -- another step added with this one
             already takes the channel, and steps added together are one
             composite with one image per channel.
-            ``'composite_two_transmitted_layers'`` -- a composite run has
+            ``'composite_two_transmitted_channels'`` -- a composite run has
             more than one transmitted channel set to capture.
             ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
             and its objective is assigned to two or more.
@@ -2017,8 +2017,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             work needs motion on an axis this scope has no motor for.
             ``'step_position_missing'`` -- steps have no position on an axis
             this scope moves, having been recorded on a scope without it.
-            ``'layer_not_on_scope'`` -- steps take or stimulate a layer this
-            scope does not have, or this scope's layers could not be
+            ``'channel_not_on_scope'`` -- steps take or stimulate a channel this
+            scope does not have, or this scope's channels could not be
             resolved. ``'objectives_require_turret'`` -- the protocol
             changes objective between steps, and this scope has no turret
             to change it. ``'objective_not_given'`` -- a protocol with a
@@ -2027,7 +2027,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             saved focus, and the configuration names no current Z to image
             it at. ``'overlap_out_of_range'`` -- the tile overlap is outside
             0 to 50 percent. ``'values_out_of_range'`` -- layer settings the
-            protocol would store hold values no layer setting takes; the
+            protocol would store hold values no channel setting takes; the
             message names each.
         title: The heading shown above the sentence, the reason's.
         message: The sentence; the same text as the exception's message.
@@ -2069,9 +2069,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'position_unknown': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
-        'no_acquiring_layer': RefusalCause.STATE,
+        'no_acquiring_channel': RefusalCause.STATE,
         'channel_already_in_add': RefusalCause.REQUEST,
-        'composite_two_transmitted_layers': RefusalCause.REQUEST,
+        'composite_two_transmitted_channels': RefusalCause.REQUEST,
         'turret_slot_ambiguous': RefusalCause.STATE,
         'turret_slot_reassigned': RefusalCause.STATE,
         'step_position_unknown': RefusalCause.STATE,
@@ -2092,7 +2092,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_setting_out_of_range': RefusalCause.REQUEST,
         'positions_unreachable': RefusalCause.REQUEST,
         'step_position_missing': RefusalCause.REQUEST,
-        'layer_not_on_scope': RefusalCause.REQUEST,
+        'channel_not_on_scope': RefusalCause.REQUEST,
         'channel_unknown': RefusalCause.REQUEST,
         'objectives_require_turret': RefusalCause.REQUEST,
         'objective_not_given': RefusalCause.REQUEST,
@@ -2121,9 +2121,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'position_unknown': 'Scope Not Homed',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
-        'no_acquiring_layer': 'No Channel Set to Acquire',
+        'no_acquiring_channel': 'No Channel Set to Acquire',
         'channel_already_in_add': 'Step Not Saved',
-        'composite_two_transmitted_layers': 'One Transmitted Channel',
+        'composite_two_transmitted_channels': 'One Transmitted Channel',
         'turret_slot_ambiguous': 'Turret Slot Not Chosen',
         'turret_slot_reassigned': 'Turret Slot Reassigned',
         'step_position_unknown': 'Step Not Saved',
@@ -2146,7 +2146,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_setting_out_of_range': 'Camera Setting Out of Range',
         'positions_unreachable': 'Position Not Reachable',
         'step_position_missing': 'Step Has No Position',
-        'layer_not_on_scope': 'Layer Not on This Scope',
+        'channel_not_on_scope': 'Channel Not on This Scope',
         'channel_unknown': 'Channel Not Known',
         'objectives_require_turret': 'One Objective At A Time',
         'objective_not_given': 'No Objective Given',
@@ -2269,9 +2269,9 @@ class RecordingRefusedError(Refusal, CaptureError):
             start. ``'falsifying_change_in_flight'`` -- an objective,
             camera frame or light change is under way, which a recording
             would capture through. ``'other_led_lit'`` -- an LED other than
-            the shown layer's is lit, and the recording is named for the
-            shown layer. ``'camera_holds_another_layer'`` -- the camera
-            holds another layer's settings than the shown layer's, which
+            the shown channel's is lit, and the recording is named for the
+            shown channel. ``'camera_holds_another_channel'`` -- the camera
+            holds another channel's settings than the shown channel's, which
             the recording is named for. ``'changes_not_in_force'`` -- a
             change the scope recorded (a setting, the light, a move) did
             not come into force within a capture's limit, so the first
@@ -2301,7 +2301,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'insufficient_disk': 'Insufficient Disk Space',
         'falsifying_change_in_flight': 'Microscope Changing',
         'other_led_lit': 'Another Light Is On',
-        'camera_holds_another_layer': 'Camera On Another Layer',
+        'camera_holds_another_channel': 'Camera On Another Channel',
         'changes_not_in_force': 'Microscope Not Settled',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
@@ -3677,7 +3677,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
         'other_led_lit': RecordingRefusedError._TITLES['other_led_lit'],
-        'channel_not_shown': 'Another Layer Is Shown',
+        'channel_not_shown': 'Another Channel Is Shown',
     }
 
     def __init__(
@@ -3771,13 +3771,15 @@ class MissingPart:
 
     @classmethod
     def layer(cls, layer: str) -> 'MissingPart':
-        """The part for a layer of this release that this scope's model does not have.
+        """The part for a channel of this release that this scope's model does not have.
 
-        For a command that takes a layer rather than lights an LED: a
-        layer's settings, its focus, a still named for it. Lumi has no LED,
+        For a command that takes a channel rather than lights an LED: a
+        channel's settings, its focus, a still named for it. Lumi has no LED,
         so "no Lumi LED" would be true and beside the point.
         """
-        return cls(f'{layer} layer', 'not_on_this_scope', f'This microscope has no {layer} layer.')
+        return cls(
+            f'{layer} channel', 'not_on_this_scope', f'This microscope has no {layer} channel.'
+        )
 
     @classmethod
     def led(cls, channel: str) -> 'MissingPart':
@@ -3897,11 +3899,11 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
         return "The stage has no power. Check the stage's power supply, then home."
     if reason == 'other_led_lit':
         return (
-            "An LED other than the shown layer's is lit, so nothing was captured. "
-            'Turn it off, or show its layer, then capture.'
+            "An LED other than the shown channel's is lit, so nothing was captured. "
+            'Turn it off, or show its channel, then capture.'
         )
     if reason == 'channel_not_shown':
-        return 'A still is taken of the shown layer. Show the layer, then capture.'
+        return 'A still is taken of the shown channel. Show the channel, then capture.'
     if reason == 'camera_not_streaming':
         return (
             'The camera is connected but is not delivering frames, so nothing was '

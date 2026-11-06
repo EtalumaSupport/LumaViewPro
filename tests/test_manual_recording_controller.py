@@ -302,7 +302,7 @@ def make_controller(
         # A private copy per call, as the session's get_settings_snapshot
         # answers, so a test writing ``store`` writes the live settings.
         settings_snapshot=lambda: copy.deepcopy(store),
-        shown_layer=lambda: shown,
+        shown_channel=lambda: shown,
         activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,

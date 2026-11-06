@@ -4,7 +4,7 @@
 Protocol.from_config skips any layer that does not acquire, so with every
 layer skipped the Protocol is legally constructed and empty. The click
 that meant steps is refused before the build, by the protocols API's
-no_acquiring_layer refusal through ScopeSession.new_protocol
+no_acquiring_channel refusal through ScopeSession.new_protocol
 (tests/test_creating_a_protocol_is_an_api_capability.py); this file pins
 the builder's half, the precondition that refusal exists for.
 """
@@ -45,7 +45,7 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
         'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
         'use_zstacking': False,
         'tiling': '1x1',
-        'layer_configs': layer_configs,
+        'channel_configs': layer_configs,
         'period': None,
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},

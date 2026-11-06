@@ -128,7 +128,7 @@ def test_a_new_protocol_the_session_refuses_is_still_recorded(session, monkeypat
     that asked for it is in the record, and nothing was built."""
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.new_protocol()
-    assert refused.value.reason == 'no_acquiring_layer'
+    assert refused.value.reason == 'no_acquiring_channel'
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
     caplog.clear()
 

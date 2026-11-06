@@ -160,10 +160,10 @@ class ManualRecordingController:
             the next recording, not part of this one. The objective and the
             plate are read once the recording holds the scope, which refuses
             a change to either.
-        shown_layer: Reads the layer of the session's shown channel, once,
-            at ``start``, once the recording holds the scope: it names the
+        shown_channel: Reads the session's shown channel, once, at
+            ``start``, once the recording holds the scope: it names the
             recording.
-        channel_colors: Reads every layer's colour, from the Session's one
+        channel_colors: Reads every channel's colour, from the Session's one
             read of it, once, at ``start``.
         activity_claim: The session's compare-and-claim handle; passed
             through to the engine so a recording and a protocol run are
@@ -193,7 +193,7 @@ class ManualRecordingController:
         *,
         scope: Any,
         settings_snapshot: Callable[[], dict],
-        shown_layer: Callable[[], str],
+        shown_channel: Callable[[], str],
         channel_colors: Callable[[], layer_record.ChannelColors],
         activity_claim: Any,
         scheduler: Scheduler,
@@ -205,7 +205,7 @@ class ManualRecordingController:
         self._post_processing = post_processing
         self._scope = scope
         self._settings_snapshot = settings_snapshot
-        self._shown_layer = shown_layer
+        self._shown_channel = shown_channel
         self._channel_colors = channel_colors
         self._claim = activity_claim
         self._scheduler = scheduler
@@ -352,9 +352,9 @@ class ManualRecordingController:
                 is running; ``'post_processing_running'``, a build is on
                 the post-processing lane; ``'falsifying_change_in_flight'``, a
                 turret, frame or light change is under way;
-                ``'other_led_lit'``, an LED other than the shown layer's is
-                lit; ``'camera_holds_another_layer'``, the camera holds
-                another layer's settings than the shown one's;
+                ``'other_led_lit'``, an LED other than the shown channel's is
+                lit; ``'camera_holds_another_channel'``, the camera holds
+                another channel's settings than the shown one's;
                 ``'camera_exposure_unknown'``, the camera has no known
                 exposure; ``'changes_not_in_force'``, a change the scope
                 recorded did not come into force within a capture's limit,
@@ -515,7 +515,7 @@ class ManualRecordingController:
         claimed = {}
 
         def _make_config() -> tuple[RecordingConfig, ClockMapping | None]:
-            claimed['layer'] = layer = self._shown_layer()
+            claimed['layer'] = layer = self._shown_channel()
             _refuse_a_name_that_would_be_false(scope, layer)
             manifest_extra['channel'] = layer
             # The size the file is made at: held, else read, so an unknown one is
@@ -1198,17 +1198,17 @@ def _refuse_a_name_that_would_be_false(scope, layer: str) -> None:
     """Refuse a recording named for ``layer`` that would be lit or set for another.
 
     Read once the recording holds the scope: from then on no light can be
-    turned on and the shown layer cannot change, so what is read here holds
-    for every frame. A recording is named for the shown layer, so another
+    turned on and the shown channel cannot change, so what is read here holds
+    for every frame. A recording is named for the shown channel, so another
     LED lit would image the frames in a channel they are not named for, and
-    a camera holding another layer's settings would shoot them at settings
-    that are not the named layer's. A camera that holds no layer whole (a
-    raw camera write came after one) names no other layer.
+    a camera holding another channel's settings would shoot them at settings
+    that are not the named channel's. A camera that holds no channel whole
+    (a raw camera write came after one) names no other channel.
 
     Raises:
         RecordingRefusedError: ``'other_led_lit'``, an LED other than
-            ``layer``'s is lit; ``'camera_holds_another_layer'``, the camera
-            holds another layer's settings.
+            ``layer``'s is lit; ``'camera_holds_another_channel'``, the camera
+            holds another channel's settings.
     """
     others = lit_other_than(scope.illumination, layer)
     if others:
@@ -1216,13 +1216,13 @@ def _refuse_a_name_that_would_be_false(scope, layer: str) -> None:
             reason='other_led_lit',
             message=(
                 f'{", ".join(others)} is lit while {layer} is shown, and a recording is '
-                'named for the shown layer. Turn it off, or show its layer, then record.'
+                'named for the shown channel. Turn it off, or show its channel, then record.'
             ),
         )
     held = scope.camera.get_held_layer()
     if held is not None and held != layer:
         raise RecordingRefusedError(
-            reason='camera_holds_another_layer',
+            reason='camera_holds_another_channel',
             message=(
                 f"The camera holds {held}'s settings while {layer} is shown. Show "
                 f'{layer} again to put its settings on the camera, then record.'

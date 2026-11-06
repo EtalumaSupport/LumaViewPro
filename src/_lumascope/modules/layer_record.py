@@ -319,8 +319,8 @@ class ChannelIdentity:
             ArgumentRefusedError: ``'channel_unknown'``.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, naming the
                 layer (``MissingPart.layer``).
-            ConfigurationDefectError: ``'layers_unresolved'``, this unit's
-                layers could not be resolved, so ``channel`` cannot ``then``.
+            ConfigurationDefectError: ``'channels_unresolved'``, this unit's
+                channels could not be resolved, so ``channel`` cannot ``then``.
         """
         refuse_unknown_layer(channel)
         if self.find(channel) is not None:
@@ -329,8 +329,8 @@ class ChannelIdentity:
             part = MissingPart.layer(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         raise ConfigurationDefectError(
-            'layers_unresolved',
-            f"this scope's layers could not be resolved (model {self.model}), "
+            'channels_unresolved',
+            f"this scope's channels could not be resolved (model {self.model}), "
             f'so {channel} cannot {then}',
         )
 

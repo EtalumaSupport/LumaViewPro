@@ -26,8 +26,8 @@ try:
         use_zstacking=False,
     )
     # Keep the probe quick: one channel only.
-    cfg['layer_configs'] = {'BF': cfg['layer_configs']['BF']}
-    cfg['layer_configs']['BF']['acquire'] = 'image'
+    cfg['channel_configs'] = {'BF': cfg['channel_configs']['BF']}
+    cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     protocol = session.scope.protocols.create_protocol(input_config=cfg)
     print('created steps   :', protocol.num_steps())

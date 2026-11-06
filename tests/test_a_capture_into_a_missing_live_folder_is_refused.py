@@ -63,9 +63,9 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
     capture = ManualCaptureController(
         scope=capture_ctx.scope,
         settings_snapshot=lambda: settings,
-        shown_layer=lambda: LAYER,
+        shown_channel=lambda: LAYER,
         # No layer is put on this camera, so the still's hold writes nothing.
-        layer_camera_request=lambda layer: None,
+        channel_camera_request=lambda layer: None,
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )

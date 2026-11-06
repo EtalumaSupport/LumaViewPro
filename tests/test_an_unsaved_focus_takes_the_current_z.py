@@ -53,7 +53,7 @@ def _input_config(**extra):
         'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
         'use_zstacking': False,
         'tiling': '1x1',
-        'layer_configs': {'BF': _layer(5998.6), LED0: _layer(None)},
+        'channel_configs': {'BF': _layer(5998.6), LED0: _layer(None)},
         'period': None,
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},

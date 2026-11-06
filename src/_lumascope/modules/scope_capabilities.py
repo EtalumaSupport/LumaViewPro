@@ -302,7 +302,7 @@ class CameraShutter(enum.StrEnum):
     'has_xy_stage',
     'is_color_native',
     'led_addresses',
-    'led_colors',
+    'led_channels',
     'led_max_ma',
     'lens_focal_length_mm',
     'pixel_size_um',
@@ -340,7 +340,7 @@ class ScopeCapabilities:
         led_addresses: The LED board addresses the installed board drives:
             0 to 7 on an EL-0940's board, 0 to 3 on a Classic's; None when
             the scope came up without its LED board.
-        led_colors: The channels of this model that light an LED, from its
+        led_channels: The channels of this model that light an LED, from its
             identity, so a scope that came up without its LED board still
             names its model's LEDs.
         led_max_ma: The most current, in mA, the connected LED board
@@ -434,7 +434,7 @@ class ScopeCapabilities:
 
     # ---- LED ----
     led_addresses: tuple[int, ...] | None
-    led_colors: tuple[str, ...]
+    led_channels: tuple[str, ...]
     led_max_ma: int | None
 
     # ---- Camera ----
@@ -525,7 +525,7 @@ class ScopeCapabilities:
         # while which layer names exist (and what they drive) is unit
         # data. A scope with no resolved identity honestly reports no
         # colour names -- the addresses stay visible via led_addresses.
-        led_colors = tuple(r.key_name for r in channel_identity.channels if r.led_addresses)
+        led_channels = tuple(r.key_name for r in channel_identity.channels if r.led_addresses)
         has_firmware_stim = _probe(
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),
@@ -667,7 +667,7 @@ class ScopeCapabilities:
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
             led_addresses=led_addresses,
-            led_colors=led_colors,
+            led_channels=led_channels,
             led_max_ma=led_max_ma,
             has_firmware_stim=has_firmware_stim,
             camera_model=camera_model,

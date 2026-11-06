@@ -135,13 +135,13 @@ class TestTheStackIsNotFlattenedByAnAutofocus:
         """Refocusing at each slice re-centres the range being swept."""
         runner = _runner()
         runner.start_zstack(channel='BF')
-        assert _built_config(runner)['layer_configs']['BF']['autofocus'] is False
+        assert _built_config(runner)['channel_configs']['BF']['autofocus'] is False
 
     def test_autofocus_stays_off_even_when_the_layer_has_it_stored_on(self):
         runner = _runner()
         runner.session.settings['BF']['autofocus'] = True
         runner.start_zstack(channel='BF')
-        assert _built_config(runner)['layer_configs']['BF']['autofocus'] is False
+        assert _built_config(runner)['channel_configs']['BF']['autofocus'] is False
 
     def test_the_method_offers_no_way_to_turn_it_on(self):
         import inspect

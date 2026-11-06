@@ -9,14 +9,14 @@ value in one notice, the shape the load's replacements take, and the
 stored value stays what the person wrote.
 """
 
-from _lumascope.modules.exceptions import LayerSettingCappedNotice
+from _lumascope.modules.exceptions import ChannelSettingCappedNotice
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 
 
 def _notices(heard):
-    return [n for n in heard if n.reason == LayerSettingCappedNotice.reason]
+    return [n for n in heard if n.reason == ChannelSettingCappedNotice.reason]
 
 
 def _session(tmp_path, heard, **layers):
@@ -40,7 +40,7 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
         assert max_gain < 1000.0 and max_exposure < 100000.0, 'the test needs a smaller camera'
         (notice,) = _notices(heard)
         assert notice.message == str(
-            LayerSettingCappedNotice(
+            ChannelSettingCappedNotice(
                 [
                     ('BF', 'gain_db', 1000.0, max_gain),
                     ('BF', 'exposure_ms', 100000.0, max_exposure),

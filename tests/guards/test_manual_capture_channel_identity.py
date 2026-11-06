@@ -71,9 +71,9 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
     capture = ManualCaptureController(
         scope=scope,
         settings_snapshot=lambda: settings,
-        shown_layer=lambda: shown_layer,
+        shown_channel=lambda: shown_layer,
         # No layer is put on this camera, so the still's hold writes nothing.
-        layer_camera_request=lambda layer: None,
+        channel_camera_request=lambda layer: None,
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )

@@ -34,7 +34,7 @@ try:
     try:
         s.add_step(protocol, before_step_index=0)
     except ProtocolRunRefusedError as e:
-        refused = e.reason == 'no_acquiring_layer'
+        refused = e.reason == 'no_acquiring_channel'
     harness.check('an add that would add nothing is refused at the API', refused)
     harness.check('the refusal added nothing', protocol.num_steps() == 1)
 except Exception:

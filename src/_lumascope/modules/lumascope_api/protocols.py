@@ -172,7 +172,7 @@ class ProtocolsAPI:
                 and save but never perform. ``'channel_unknown'``, a step
                 names a channel no release has (``refuse_absent_layers``).
                 ``'values_out_of_range'``, its Layer Settings block holds a
-                value no layer setting takes, each named: applying them
+                value no channel setting takes, each named: applying them
                 would be refused. A file with no block (v5) has its rows
                 inferred from its steps, whose values are told, not refused.
         """
@@ -347,7 +347,7 @@ class ProtocolsAPI:
         """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
 
         The GUI's Add Step and a script's add are this one call. A layer
-        whose ``acquire`` is None contributes no step, and when no layer
+        whose ``acquire`` is None contributes no step, and when no channel
         acquires the add is refused rather than silently doing nothing:
         the click used to return bare, so the user saw nothing happen and
         nothing said why. The step records the active objective, read
@@ -377,7 +377,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, or
-                no layer acquires. With ``zstack_params``, also what ``apply_zstacking`` refuses.
+                no channel acquires. With ``zstack_params``, also what ``apply_zstacking`` refuses.
             ObjectiveUnknownError: the active objective is unknown, for the
                 reason ``runtime_state.resolve_current_objective`` gives (on a
                 turret scope, ``'slot_unassigned'`` for a slot with no
@@ -508,8 +508,8 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position
-                (``'step_position_unknown'``), or the layer the step takes is
-                not set to acquire (``'no_acquiring_layer'``, as an add), or
+                (``'step_position_unknown'``), or the channel the step takes is
+                not set to acquire (``'no_acquiring_channel'``, as an add), or
                 another step of the same add already takes that channel
                 (``'channel_already_in_add'``). The step is unchanged.
             StepEditRefusedError: ``'step_value_refused'``, the step is a
@@ -533,7 +533,7 @@ class ProtocolsAPI:
 
         if not Protocol.layer_acquires(layer_configs[layer]):
             self._refuse(
-                reason='no_acquiring_layer',
+                reason='no_acquiring_channel',
                 message=(
                     f'{layer} is not set to acquire, so there is no step to make. '
                     f'Set {layer} to Image or Video first.'
@@ -971,13 +971,13 @@ class ProtocolsAPI:
         this refusal through ``ScopeSession.new_protocol`` and ``add_step``.
 
         Raises:
-            ProtocolRunRefusedError: reason ``no_acquiring_layer``.
+            ProtocolRunRefusedError: reason ``no_acquiring_channel``.
         """
         from _lumascope.modules.protocol import Protocol
 
         if not any(Protocol.layer_acquires(cfg) for cfg in layer_configs.values()):
             self._refuse(
-                reason='no_acquiring_layer',
+                reason='no_acquiring_channel',
                 message=(
                     'No channel is set to acquire, so there is no step to make. '
                     'Set a channel to Image or Video first.'
@@ -985,7 +985,7 @@ class ProtocolsAPI:
             )
 
     def refuse_layer_settings_out_of_range(self, protocol: Protocol) -> None:
-        """Refuse a protocol whose Layer Settings hold a value no layer setting takes.
+        """Refuse a protocol whose Layer Settings hold a value no channel setting takes.
 
         Judged by the settings' layer ranges, for the rows a session applies:
         those of the layers this scope has, the others being dropped when
@@ -1020,7 +1020,7 @@ class ProtocolsAPI:
         loaded file, and a run about to start. A step this session builds
         (New, Add, Update, a composite) comes from layers set to acquire,
         and a layer this scope lacks is never set to acquire. A scope whose
-        layers could not be resolved has none, and the words say so rather
+        channels could not be resolved has none, and the words say so rather
         than naming a layer it lacks.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
@@ -1031,8 +1031,8 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: reason ``channel_unknown``, naming the
-                channels and the steps; else ``layer_not_on_scope``, naming
-                the layers and the steps.
+                channels and the steps; else ``channel_not_on_scope``, naming
+                the absent channels and the steps.
         """
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
@@ -1052,17 +1052,17 @@ class ProtocolsAPI:
         if absent.empty:
             return
         missing = sorted(set(absent['Color']))
-        layers = ', '.join(missing) + (' layers' if len(missing) > 1 else ' layer')
+        channels = ', '.join(missing) + (' channels' if len(missing) > 1 else ' channel')
         names = common_utils.first_few(list(absent['Name']), separator=', ')
         if identity.channels:
-            scope = f'This scope ({identity.model}) has no {layers}'
+            scope = f'This scope ({identity.model}) has no {channels}'
         else:
-            scope = f"This scope's layers could not be resolved (model {identity.model})"
+            scope = f"This scope's channels could not be resolved (model {identity.model})"
         self._refuse(
-            reason='layer_not_on_scope',
+            reason='channel_not_on_scope',
             message=(
                 f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
-                f'Delete those steps, or open the protocol on a scope that has the layer.'
+                f'Delete those steps, or open the protocol on a scope that has the channel.'
             ),
         )
 
@@ -1078,7 +1078,7 @@ class ProtocolsAPI:
         this refusal through a run's start.
 
         Raises:
-            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
+            ProtocolRunRefusedError: reason ``channel_not_on_scope``, naming
                 the channels and the steps.
             ProtocolFormatError: a step's stimulation entry is not a config
                 (``Protocol.step_records``).
@@ -1095,13 +1095,13 @@ class ProtocolsAPI:
         names = sorted({name for steps in absent.values() for name in steps})
         channels = ', '.join(sorted(absent))
         self._refuse(
-            reason='layer_not_on_scope',
+            reason='channel_not_on_scope',
             message=(
                 f'This scope ({identity.model}) has no {channels} to stimulate, so '
                 f'{len(names)} step(s) cannot be run: '
                 f'{common_utils.first_few(names, separator=", ")}. '
                 f'Turn that stimulation off in those steps, or run the protocol on a scope '
-                f'that has the layer.'
+                f'that has the channel.'
             ),
         )
 

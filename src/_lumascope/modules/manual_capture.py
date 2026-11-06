@@ -31,7 +31,7 @@ from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.image_utils import ImageStatistics
 from _lumascope.modules.layer_record import ChannelColors
-from _lumascope.modules.lumascope_api.camera import LayerCameraRequest
+from _lumascope.modules.lumascope_api.camera import ChannelCameraRequest
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord
 from _lumascope.modules.lumascope_api.illumination import lit_other_than
 from _lumascope.modules.recording_frames import frame_fact
@@ -111,15 +111,15 @@ class ManualCaptureController:
         scope: The Lumascope instance.
         settings_snapshot: Returns a private copy of the session's settings;
             one is taken per capture, when the capture is asked for.
-        shown_layer: Reads the layer of the session's shown channel, on the
-            camera lane as the frame is taken: it names the channel when no
+        shown_channel: Reads the session's shown channel, on the camera
+            lane as the frame is taken: it is the still's channel when no
             LED is lit.
-        layer_camera_request: Reads a layer's stored camera settings from
+        channel_camera_request: Reads a channel's stored camera settings from
             the session's store, on the camera lane, for the camera to hold.
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
-        channel_colors: Reads every layer's colour, from the Session's one
+        channel_colors: Reads every channel's colour, from the Session's one
             read of it, once per capture, when the capture is asked for.
     """
 
@@ -128,15 +128,15 @@ class ManualCaptureController:
         *,
         scope: Any,
         settings_snapshot: Callable[[], dict],
-        shown_layer: Callable[[], str],
-        layer_camera_request: Callable[[str], LayerCameraRequest],
+        shown_channel: Callable[[], str],
+        channel_camera_request: Callable[[str], ChannelCameraRequest],
         engineering_mode: Callable[[], bool],
         channel_colors: Callable[[], ChannelColors],
     ):
         self._scope = scope
         self._settings_snapshot = settings_snapshot
-        self._shown_layer = shown_layer
-        self._layer_camera_request = layer_camera_request
+        self._shown_channel = shown_channel
+        self._channel_camera_request = channel_camera_request
         self._engineering_mode = engineering_mode
         self._channel_colors = channel_colors
         # Held from the call until the camera-lane body has finished, so a
@@ -259,7 +259,7 @@ class ManualCaptureController:
         now, the camera's hold of that layer, and the write's own stall
         bound. A still retaken on another shown layer shares the first
         capture's budget."""
-        layer = self._shown_layer()
+        layer = self._shown_channel()
         layer_config = config_helpers.get_layer_configs(request.settings, [layer])[layer]
         grab_s = request.scope.imaging._capture_wait_s(
             (), _CAPTURE_RETRY_BUDGET_S, layer_config['sum'], layer_config['exposure_ms'] / 1000
@@ -308,7 +308,7 @@ class ManualCaptureController:
         """
         started = time.monotonic()
         first_capture = None
-        channel = self._shown_layer()
+        channel = self._shown_channel()
         while True:
             # The summing row is the imaged channel's, from the store the camera
             # is made to hold; the delay is a settle between summed frames.
@@ -322,7 +322,7 @@ class ManualCaptureController:
             # the still it waits for.
             still = scope.imaging._capture_holding_layer_impl(
                 channel,
-                self._layer_camera_request(channel),
+                self._channel_camera_request(channel),
                 _MEMBER,
                 force_to_8bit=capture_config.capture_depth == 8,
                 all_ones_check=True,
@@ -332,7 +332,7 @@ class ManualCaptureController:
             )
             if first_capture is None:
                 first_capture = scope.imaging.last_capture_info
-            shown = self._shown_layer()
+            shown = self._shown_channel()
             if shown == channel:
                 if lit_other_than(scope.illumination, channel, still.record.illumination_ma):
                     raise HardwareCommandRefusedError('other_led_lit', _MEMBER)

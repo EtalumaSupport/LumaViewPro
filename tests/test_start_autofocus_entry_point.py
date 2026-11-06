@@ -143,7 +143,7 @@ class TestTheLayerIsTheCallersToName:
     def test_the_named_layer_is_the_only_one_configured(self):
         runner = _runner(acquiring=())
         runner.start_autofocus(channel=LED1)
-        assert list(_built_config(runner)['layer_configs']) == [LED1]
+        assert list(_built_config(runner)['channel_configs']) == [LED1]
 
     def test_autofocus_is_on_for_that_layer_whatever_settings_say(self):
         # The layer's stored flag is a leftover from whatever the user
@@ -152,7 +152,7 @@ class TestTheLayerIsTheCallersToName:
         # would read False if the stored flag were honoured.
         runner = _runner()
         runner.start_autofocus(channel='BF')
-        assert _built_config(runner)['layer_configs']['BF']['autofocus'] is True
+        assert _built_config(runner)['channel_configs']['BF']['autofocus'] is True
 
     def test_the_single_position_is_the_current_stage_position(self):
         runner = _runner()
@@ -270,7 +270,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
             'use_zstacking',
             'tiling',
             'tiling_overlap_percent',
-            'layer_configs',
+            'channel_configs',
             'period',
             'duration',
             'frame_dimensions',
@@ -286,8 +286,8 @@ class TestTheSelectorAndTheGuiStarterAgree:
         assert config['use_zstacking'] is False
         assert config['zstack_params'] == {}
         assert config['stim_config'] == {}
-        assert config['layer_configs']['BF']['autofocus'] is True
-        assert config['layer_configs']['BF']['acquire'] == 'image'
+        assert config['channel_configs']['BF']['autofocus'] is True
+        assert config['channel_configs']['BF']['acquire'] == 'image'
         assert config['positions'][0]['name'] == 'Autofocus'
 
     def test_neither_lane_tiles_or_repeats(self):

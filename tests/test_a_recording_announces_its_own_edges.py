@@ -110,7 +110,7 @@ class TestTheController:
         controller = ManualRecordingController(
             scope=scope,
             settings_snapshot=lambda: make_settings(tmp_path),
-            shown_layer=lambda: 'BF',
+            shown_channel=lambda: 'BF',
             activity_claim=ActivityClaim(on_transition=_listener),
             scheduler=ManualFireScheduler(),
             clock=clock,

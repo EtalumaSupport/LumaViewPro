@@ -20,8 +20,8 @@ try:
         tiling='1x1',
         use_zstacking=False,
     )
-    cfg['layer_configs'] = {'BF': cfg['layer_configs']['BF']}
-    cfg['layer_configs']['BF']['acquire'] = 'image'
+    cfg['channel_configs'] = {'BF': cfg['channel_configs']['BF']}
+    cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     p = session.scope.protocols.create_protocol(input_config=cfg)
     print('steps:', p.num_steps())

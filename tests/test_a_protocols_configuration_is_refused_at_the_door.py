@@ -61,8 +61,8 @@ def test_a_configuration_as_the_session_builds_it_builds(session, config):
         (('binning_size',), "input_config['binning_size']"),
         (('use_zstacking',), "input_config['use_zstacking']"),
         (('stim_config',), "input_config['stim_config']"),
-        (('layer_configs', 'BF', 'gain_db'), "input_config['layer_configs']['BF']['gain_db']"),
-        (('layer_configs', 'BF', 'acquire'), "input_config['layer_configs']['BF']['acquire']"),
+        (('channel_configs', 'BF', 'gain_db'), "input_config['channel_configs']['BF']['gain_db']"),
+        (('channel_configs', 'BF', 'acquire'), "input_config['channel_configs']['BF']['acquire']"),
     ],
 )
 def test_a_key_left_out_is_refused_naming_its_path(session, config, path, argument):
@@ -76,17 +76,17 @@ def test_a_key_left_out_is_refused_naming_its_path(session, config, path, argume
 @pytest.mark.parametrize(
     ('path', 'value', 'reason'),
     [
-        (('layer_configs', 'BF', 'exposure_ms'), True, 'not_a_number'),
-        (('layer_configs', 'BF', 'gain_db'), float('nan'), 'not_a_number'),
-        (('layer_configs', 'BF', 'illumination_ma'), '50', 'not_a_number'),
-        (('layer_configs', 'BF', 'sum'), 2.5, 'wrong_kind'),
-        (('layer_configs', 'BF', 'autofocus'), 'yes', 'wrong_kind'),
+        (('channel_configs', 'BF', 'exposure_ms'), True, 'not_a_number'),
+        (('channel_configs', 'BF', 'gain_db'), float('nan'), 'not_a_number'),
+        (('channel_configs', 'BF', 'illumination_ma'), '50', 'not_a_number'),
+        (('channel_configs', 'BF', 'sum'), 2.5, 'wrong_kind'),
+        (('channel_configs', 'BF', 'autofocus'), 'yes', 'wrong_kind'),
         (('use_zstacking',), 'text', 'wrong_kind'),
         (('frame_dimensions',), 'big', 'wrong_kind'),
         (('binning_size',), True, 'wrong_kind'),
         (('tiling_overlap_percent',), float('nan'), 'not_a_number'),
-        (('layer_configs', 'BF', 'acquire'), 'imagee', 'not_offered'),
-        (('layer_configs',), {'Purple': {'acquire': None}}, 'channel_unknown'),
+        (('channel_configs', 'BF', 'acquire'), 'imagee', 'not_offered'),
+        (('channel_configs',), {'Purple': {'acquire': None}}, 'channel_unknown'),
     ],
 )
 def test_a_value_of_the_wrong_kind_is_refused_before_anything_is_built(
@@ -136,7 +136,7 @@ def test_steps_with_no_objective_are_refused_and_post_nothing(session, config, c
 def test_a_layer_with_no_focus_and_no_current_z_is_refused_and_posts_nothing(
     session, config, centre_posts
 ):
-    config['layer_configs']['BF']['focus'] = None
+    config['channel_configs']['BF']['focus'] = None
     config['positions'] = [{'x': 10.0, 'y': 10.0, 'z': None, 'name': 'A1'}]
     config.pop('current_z', None)
     with pytest.raises(ProtocolRunRefusedError) as refused:
@@ -166,7 +166,7 @@ def test_the_zstack_keys_are_not_read_when_not_stacking(session, config):
 def test_a_whole_number_stored_as_a_float_is_a_whole_number(session, config):
     # The settings store admits a count of 2.0 (its rule: a whole number),
     # so the build takes what the store holds.
-    config['layer_configs']['BF']['sum'] = 2.0
+    config['channel_configs']['BF']['sum'] = 2.0
     assert session.scope.protocols.create_protocol(input_config=config).num_steps() > 0
 
 
@@ -177,7 +177,7 @@ def test_an_overlap_of_50_percent_builds(session, config):
 
 @pytest.mark.parametrize('acquire', [{}, [], 3])
 def test_an_acquire_mode_of_another_kind_is_refused(session, config, acquire):
-    config['layer_configs']['BF']['acquire'] = acquire
+    config['channel_configs']['BF']['acquire'] = acquire
     _refused(session, 'not_offered', input_config=config)
 
 

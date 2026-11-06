@@ -35,8 +35,8 @@ def test_a_declared_ls460_is_an_ls560_that_lights_brightfield_alone(tmp_path):
     ls560.shutdown()
     ls460, caps = _capabilities(tmp_path / '460', 'LS460')
     try:
-        assert caps.led_colors == ('BF',)
-        assert caps == dataclasses.replace(ls560_caps, led_colors=caps.led_colors)
+        assert caps.led_channels == ('BF',)
+        assert caps == dataclasses.replace(ls560_caps, led_channels=caps.led_channels)
         assert (caps.axes, caps.lens_focal_length_mm, caps.camera_limits.frame_max) == (
             (),
             32.3,

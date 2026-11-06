@@ -907,7 +907,7 @@ class TestScopeCapabilities:
             timing_record=None,
         )
         assert caps.led_addresses == (0, 1, 2, 3)
-        assert set(caps.led_colors) == {LED0, LED1, LED2, 'BF'}
+        assert set(caps.led_channels) == {LED0, LED1, LED2, 'BF'}
 
     def test_capabilities_is_frozen(self):
         """The dataclass is frozen -- any attempt to mutate a field

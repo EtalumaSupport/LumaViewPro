@@ -75,7 +75,7 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(), before_step_index=0)
 
-        assert excinfo.value.reason == 'no_acquiring_layer'
+        assert excinfo.value.reason == 'no_acquiring_channel'
         assert list(captured) == []
         assert protocol.num_steps() == 0
 
@@ -234,7 +234,7 @@ class TestAScriptAddsAStepThroughTheSession:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.add_step(protocol, before_step_index=0)
 
-        assert excinfo.value.reason == 'no_acquiring_layer'
+        assert excinfo.value.reason == 'no_acquiring_channel'
         assert list(captured) == []
         assert protocol.num_steps() == 0
 

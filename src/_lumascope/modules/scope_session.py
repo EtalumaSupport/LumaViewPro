@@ -101,7 +101,7 @@ from _lumascope.modules.lumascope_api.illumination import (
 from _lumascope.modules.lumascope_api.motion import HomeTarget
 from _lumascope.modules.finite_number import refuse_unless_wait_s
 from _lumascope.modules.frame_validity import FrameValiditySource
-from _lumascope.modules.lumascope_api.camera import CameraAPI, LayerCameraRequest, LayerHold
+from _lumascope.modules.lumascope_api.camera import CameraAPI, ChannelCameraRequest, ChannelHold
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.manual_capture import ManualCaptureController
@@ -773,7 +773,7 @@ class ScopeSession:
         self.manual_recording = ManualRecordingController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_layer=lambda: self._shown_layer,
+            shown_channel=lambda: self._shown_layer,
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
@@ -785,8 +785,8 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_layer=lambda: self._shown_layer,
-            layer_camera_request=self._layer_camera_request,
+            shown_channel=lambda: self._shown_layer,
+            channel_camera_request=self._layer_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
         )
@@ -2330,10 +2330,10 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
-                ``'layer_not_on_scope'``: the file holds a step this scope
+                ``'channel_not_on_scope'``: the file holds a step this scope
                 cannot perform; ``'channel_unknown'``, a step names a
                 channel no release has; ``'values_out_of_range'``, its Layer
-                Settings hold a value no layer setting takes; each as
+                Settings hold a value no channel setting takes; each as
                 ``ProtocolsAPI.load_protocol``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``select_labware``; the scope stays on the plate it had.
@@ -2528,7 +2528,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'not_offered'``, ``mode`` is not an
                 ``AcquireMode`` or None.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
                 could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, ``mode`` is not
                 None and this scope does not have ``channel``.
@@ -2598,7 +2598,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
                 could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, ``enabled`` is
                 True and this scope does not have ``channel``; or the lock's
@@ -2694,7 +2694,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``layer``.
-            ConfigError: this scope's layers could not be resolved. Nothing is applied.
+            ConfigError: this scope's channels could not be resolved. Nothing is applied.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope (an autofocus is a run), or ``'not_connected'``, naming
                 the camera, with none connected; nothing is applied.
@@ -2773,8 +2773,8 @@ class ScopeSession:
                 captured) or lit the frame;
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
                 home holds the scope and this call is not made under it.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
-                layers could not be resolved. Nothing is captured.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved. Nothing is captured.
             CaptureFailedError: ``'no_frame'``, the camera delivered none
                 within its grab window; ``'deadline_expired'``, changes kept
                 landing until the deadline passed; ``'no_fresh_frame'``,
@@ -2795,7 +2795,7 @@ class ScopeSession:
             )
             if channel != self._shown_layer:
                 raise HardwareCommandRefusedError('channel_not_shown', 'capture_still')
-            hold = LayerHold(channel=channel, request=self._layer_camera_request(channel))
+            hold = ChannelHold(channel=channel, request=self._layer_camera_request(channel))
         still = self.scope.imaging.capture_still(
             hold,
             force_to_8bit=force_to_8bit,
@@ -2813,7 +2813,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError('other_led_lit', 'capture_still')
         return still
 
-    def _layer_camera_request(self, layer: str) -> LayerCameraRequest:
+    def _layer_camera_request(self, layer: str) -> ChannelCameraRequest:
         """``layer``'s stored gain, exposure and auto-gain, with the auto-gain
         bounds its channel class and the installation's override give it."""
         import _lumascope.modules.config_helpers as config_helpers
@@ -2831,7 +2831,7 @@ class ScopeSession:
         # The floor rides beside the ceiling so an auto-gain lock can say
         # whether exposure bottomed out of the usable range (AT_MINIMUM).
         auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(layer)
-        return LayerCameraRequest(
+        return ChannelCameraRequest(
             gain_db=gain_db,
             exposure_ms=exposure_ms,
             auto_gain=auto_gain,
@@ -2851,7 +2851,7 @@ class ScopeSession:
 
         One step per acquiring layer at every well of the session's labware,
         at the current objective, tiled and z-stacked as asked. The
-        protocols API refuses the build when no layer acquires, where an
+        protocols API refuses the build when no channel acquires, where an
         empty protocol would otherwise come back for a click that meant
         steps; a labware with no wells still gives an empty protocol, which
         ``add_step`` fills at the current position.
@@ -2868,7 +2868,7 @@ class ScopeSession:
                 and None is the stored default's.
 
         Raises:
-            ProtocolRunRefusedError: ``'no_acquiring_layer'``, no layer
+            ProtocolRunRefusedError: ``'no_acquiring_channel'``, no channel
                 acquires; ``'tiling_unknown'``, a grid this
                 installation does not offer; ``'overlap_out_of_range'``, the
                 stored tile overlap outside 0 to 50; ``'tiles_outside_travel'``,
@@ -2896,7 +2896,7 @@ class ScopeSession:
         for key, seconds in (('period', period_s), ('duration', duration_s)):
             if seconds is not None:
                 config[key] = schedule_from_units(key, seconds, judged=False, unit='seconds')
-        layer_configs = config['layer_configs']
+        layer_configs = config['channel_configs']
         self.scope.protocols.refuse_no_acquiring_layer(layer_configs)
         if any(
             Protocol.layer_acquires(cfg) and cfg['focus'] is None for cfg in layer_configs.values()
@@ -2974,7 +2974,7 @@ class ScopeSession:
                 moving, so the live position is a place it is passing
                 through. Nothing is added.
             ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
-                not know its position; ``'no_acquiring_layer'``, no layer
+                not know its position; ``'no_acquiring_channel'``, no channel
                 acquires. With ``use_zstacking``, also
                 ``'zstack_not_configured'``, ``'positions_unreachable'`` or
                 ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
@@ -2983,8 +2983,8 @@ class ScopeSession:
                 unknown, as ``runtime_state.resolve_current_objective`` says
                 why (``'slot_unassigned'``, the turret's current slot has no
                 objective). Nothing is added.
-            ConfigurationDefectError: ``'layers_unresolved'``, ``channels`` is given
-                and this scope's layers could not be resolved. Nothing is added.
+            ConfigurationDefectError: ``'channels_unresolved'``, ``channels`` is given
+                and this scope's channels could not be resolved. Nothing is added.
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
                 is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
@@ -3069,7 +3069,7 @@ class ScopeSession:
                 turret's current slot has no objective). The step is
                 unchanged.
             ProtocolRunRefusedError: ``'step_position_unknown'``, an axis
-                does not know its position; ``'no_acquiring_layer'``,
+                does not know its position; ``'no_acquiring_channel'``,
                 ``channel`` is not set to acquire; ``'channel_already_in_add'``,
                 another step of the same add already takes that channel. The
                 step is unchanged.
@@ -3124,7 +3124,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
                 could not be resolved. Nothing is written.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
@@ -3161,7 +3161,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
                 could not be resolved. Nothing is written.
             ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
@@ -3384,7 +3384,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
                 could not be resolved. Nothing is written.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
@@ -3753,8 +3753,8 @@ class ScopeSession:
                 the step would store in its layers is outside its layer
                 setting's range, each named by column and bound. Nothing
                 changes.
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
-                layers could not be resolved. Nothing changes.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved. Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -3805,7 +3805,7 @@ class ScopeSession:
             if unknown:
                 raise ArgumentRefusedError(
                     'channel_unknown',
-                    argument="the step's stimulation layer",
+                    argument="the step's stimulation channel",
                     value=unknown[0],
                     offered=tuple(common_utils.get_layers()),
                 )
@@ -4039,8 +4039,8 @@ class ScopeSession:
                 ``channel`` is not the shown one or the shown channel is lit
                 (a recording keeps one layer and the light it started under;
                 nothing is changed).
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
-                layers could not be resolved.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LEDs are already shown.
         """
@@ -4124,8 +4124,8 @@ class ScopeSession:
                 home holds the scope, or ``lit`` is True while a manual
                 recording runs (a recording keeps the light it started
                 under; nothing is changed).
-            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
-                layers could not be resolved.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LED is already lit or dark.
         """
@@ -4353,8 +4353,8 @@ class ScopeSession:
                 ``protocol.duration`` no protocol can run, and a layer's
                 illumination above the attached LED board's maximum, among
                 them). Nothing is written.
-            ConfigurationDefectError: ``'layers_unresolved'``, the write is to the
-                shown layer's camera settings and this scope's layers could not be
+            ConfigurationDefectError: ``'channels_unresolved'``, the write is to the
+                shown channel's camera settings and this scope's channels could not be
                 resolved; the value is stored, and the camera is not changed.
 
         A numpy scalar in ``value``, at any depth, is stored as the Python
@@ -4639,9 +4639,9 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
-                ``'layer_not_on_scope'``: the file holds a step this scope
+                ``'channel_not_on_scope'``: the file holds a step this scope
                 cannot perform, a step naming a channel no release has
-                (``'channel_unknown'``), or Layer Settings no layer setting
+                (``'channel_unknown'``), or Layer Settings no channel setting
                 takes (``'values_out_of_range'``), as ``load_protocol``.
             ConfigError: As ``load_protocol`` and ``apply_channel_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
@@ -5073,11 +5073,11 @@ class ScopeSession:
                     capped.append((layer, 'exposure_ms', exposure.stored_ms, exposure.applied_ms))
         if not capped:
             return
-        from _lumascope.modules.exceptions import LayerSettingCappedNotice
+        from _lumascope.modules.exceptions import ChannelSettingCappedNotice
         from _lumascope.modules.notification_center import notifications
 
         notifications.report_outcome(
-            LayerSettingCappedNotice(capped), solicited=False, category='Camera'
+            ChannelSettingCappedNotice(capped), solicited=False, category='Camera'
         )
 
     def _apply_bring_up_layer(self) -> None:

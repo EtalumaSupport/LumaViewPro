@@ -33,7 +33,7 @@ class TestTheSessionBuilds:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.new_protocol()
 
-        assert excinfo.value.reason == 'no_acquiring_layer'
+        assert excinfo.value.reason == 'no_acquiring_channel'
         assert list(captured) == []
 
     def test_an_acquiring_layer_gives_a_step_per_well(self, session):

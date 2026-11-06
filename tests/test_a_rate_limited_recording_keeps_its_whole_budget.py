@@ -68,7 +68,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
             video_as_frames=True,
             video={'max_fps': 10, 'max_duration_s': 2, 'timestamp_overlay': False},
         ),
-        shown_layer=lambda: 'BF',
+        shown_channel=lambda: 'BF',
         channel_colors=release_colors,
         activity_claim=ActivityClaim(),
         scheduler=scheduler,

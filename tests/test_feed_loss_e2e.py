@@ -47,7 +47,7 @@ def test_manual_recording_ends_within_the_stall_bound(
     controller = ManualRecordingController(
         scope=sim_scope,
         settings_snapshot=lambda: settings,
-        shown_layer=lambda: 'BF',
+        shown_channel=lambda: 'BF',
         channel_colors=release_colors,
         activity_claim=ActivityClaim(),
         scheduler=scheduler,

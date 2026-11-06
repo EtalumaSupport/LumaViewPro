@@ -84,7 +84,7 @@ try:
             'use_zstacking': True,
             'tiling': tiling_config.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
-            'layer_configs': {active_layer: active_layer_config},
+            'channel_configs': {active_layer: active_layer_config},
             'period': None,
             'duration': None,
             'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),

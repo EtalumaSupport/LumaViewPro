@@ -344,7 +344,7 @@ class TestTheStartKeepsItsName:
         assert sim_session.scope.camera.get_held_layer() == LED0
         with pytest.raises(RecordingRefusedError) as refused:
             sim_session.manual_recording.start(false_color_on=False)
-        assert refused.value.reason == 'camera_holds_another_layer'
+        assert refused.value.reason == 'camera_holds_another_channel'
         assert not sim_session.manual_recording.is_recording
         assert sim_session.activity_claim.holder is None
 

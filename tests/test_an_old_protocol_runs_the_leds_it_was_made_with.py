@@ -209,7 +209,7 @@ def test_on_a_unit_without_the_led_an_old_name_is_its_stock_key(tmp_path, monkey
     assert step['Color'] == 'Ex488'
     assert {k for k, v in step['Stim_Config'].items() if not v['enabled']} >= {'Ex405', 'Ex589'}
     assert lit == [1]
-    assert absent.value.reason == 'layer_not_on_scope'
+    assert absent.value.reason == 'channel_not_on_scope'
     assert (unknown.value.reason, 'Bleu' in str(unknown.value)) == ('channel_unknown', True)
 
 
@@ -266,7 +266,7 @@ def test_an_enabled_stimulation_on_a_channel_the_unit_lacks_refuses_the_run(tmp_
     finally:
         session.shutdown()
 
-    assert (refused.value.reason, 'Ex550' in str(refused.value)) == ('layer_not_on_scope', True)
+    assert (refused.value.reason, 'Ex550' in str(refused.value)) == ('channel_not_on_scope', True)
     assert ran, 'the run with the stimulation disabled never wrote its files'
 
 

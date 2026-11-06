@@ -300,7 +300,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                     'composite_thresholds_missing',
                     f'composite generation needs a brightness threshold for '
                     f'{", ".join(missing)}; the caller supplies one per '
-                    f'fluorescence layer so the merge cannot silently pick its own',
+                    f'fluorescence channel so the merge cannot silently pick its own',
                 )
 
             # A percentage outside 0-100 is a corrupt value, not a preference to

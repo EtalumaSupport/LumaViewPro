@@ -37,7 +37,7 @@ def sim_scope():
 def test_invalid_steps_are_refused_without_a_log_line_each(sim_scope, caplog):
     config = _standalone_config({'range': 20.0, 'step_size': 5.0}, use_zstacking=False)
     config['positions'] = [{'name': f'P{i}', 'x': 1.0 + i, 'y': 2.0, 'z': 3.0} for i in range(3)]
-    config['layer_configs']['BF']['exposure_ms'] = 0.0
+    config['channel_configs']['BF']['exposure_ms'] = 0.0
 
     with pytest.raises(ProtocolFormatError) as refusal:
         Protocol.from_config(

@@ -622,7 +622,7 @@ class TestTheCompositeChannelFloor:
         captured = _capture_notifications(centre_posts)
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             self._prepare_composite(executor, _build_real_protocol(steps), tmp_path)
-        assert excinfo.value.reason == 'composite_two_transmitted_layers'
+        assert excinfo.value.reason == 'composite_two_transmitted_channels'
         assert list(captured) == [], captured
         assert not executor.run_in_progress()
 
@@ -699,7 +699,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
-    'layer_not_on_scope': _FUNNEL_LOOP,
+    'channel_not_on_scope': _FUNNEL_LOOP,
     'channel_unknown': (
         'tests/test_an_old_protocol_runs_the_leds_it_was_made_with.py::'
         'test_on_a_unit_without_the_led_an_old_name_is_its_stock_key'
@@ -799,7 +799,7 @@ RUNNER_REFUSAL_COVERAGE = {
     # Raised by the protocols API's add-step, before any run exists: a
     # click or a script call that would add nothing is refused where the
     # layer set is known, and the GUI's Add Step handler no longer decides.
-    'no_acquiring_layer': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    'no_acquiring_channel': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
     # Raised by an update, not a run: the add the step belongs to already
     # takes the channel; its owner's test drives the update.
     'channel_already_in_add': (
@@ -811,7 +811,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'turret_slot_ambiguous': ('tests/test_a_step_records_its_turret_slot.py::TestOldProtocols'),
     'turret_slot_reassigned': ('tests/test_a_step_records_its_turret_slot.py::TestAReassignedSlot'),
     # Raised at prepare() only for a composite run, like the channel floor.
-    'composite_two_transmitted_layers': (
+    'composite_two_transmitted_channels': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
     ),
     'objective_not_in_catalogue': (
@@ -919,7 +919,7 @@ class TestTheRefusalFunnel:
             mp.setattr(scope.runtime_state, 'get_turret_config', lambda: {1: '10x Oly'})
             return _make_two_objective_protocol()
 
-        def layer_not_on_scope(mp):
+        def channel_not_on_scope(mp):
             # The suite's scope has no Lumi layer.
             return _build_real_protocol(
                 [{**_make_single_step_protocol().step_row(step_index=0), 'Color': 'Lumi'}]
@@ -937,7 +937,7 @@ class TestTheRefusalFunnel:
             ('camera_not_streaming', camera_not_streaming),
             ('camera_not_delivering', camera_not_delivering),
             ('position_unknown', position_unknown),
-            ('layer_not_on_scope', layer_not_on_scope),
+            ('channel_not_on_scope', channel_not_on_scope),
             ('lid_open_before_motion', lid_open),
         ]
 

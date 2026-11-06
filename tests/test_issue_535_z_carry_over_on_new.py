@@ -47,7 +47,7 @@ def _build_input_config(previous_well_z=None):
         'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
         'use_zstacking': False,
         'tiling': '1x1',
-        'layer_configs': {
+        'channel_configs': {
             'BF': {
                 'acquire': 'image',
                 'autofocus': False,

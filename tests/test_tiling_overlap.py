@@ -41,7 +41,7 @@ def _make_tiled_protocol(overlap_percent, capabilities):
         'use_zstacking': False,
         'tiling': '2x2',
         'tiling_overlap_percent': overlap_percent,
-        'layer_configs': {
+        'channel_configs': {
             'BF': {
                 'acquire': 'image',
                 'focus': 5000.0,

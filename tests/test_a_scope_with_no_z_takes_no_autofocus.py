@@ -51,7 +51,7 @@ def test_an_added_step_does_not_autofocus(no_z_session):
 def test_a_new_protocol_config_does_not_autofocus(no_z_session):
     config = no_z_session.get_sequenced_capture_config()
 
-    assert not any(cfg['autofocus'] for cfg in config['layer_configs'].values())
+    assert not any(cfg['autofocus'] for cfg in config['channel_configs'].values())
 
 
 def test_the_capture_snapshot_does_not_autofocus(no_z_session):

@@ -114,12 +114,12 @@ def _warnings_and_errors(centre_posts):
 class TestCompositeConfigShape:
     def test_one_step_per_acquiring_channel(self):
         config = _assemble(_settings(acquiring=('BF', LED0, LED1)))
-        assert set(config['layer_configs']) == {'BF', LED0, LED1}
+        assert set(config['channel_configs']) == {'BF', LED0, LED1}
 
     def test_non_acquiring_channels_are_excluded(self):
         config = _assemble(_settings(acquiring=('BF', LED0)))
-        assert LED2 not in config['layer_configs']
-        assert 'Lumi' not in config['layer_configs']
+        assert LED2 not in config['channel_configs']
+        assert 'Lumi' not in config['channel_configs']
 
     def test_single_position_named_composite(self):
         config = _assemble(_settings(acquiring=('BF', LED0)))
@@ -150,8 +150,8 @@ class TestCompositeConfigShape:
                 focus_by_layer={'BF': 1000.0, LED0: 2000.0},
             )
         )
-        assert config['layer_configs']['BF']['focus'] == 1000.0
-        assert config['layer_configs'][LED0]['focus'] == 2000.0
+        assert config['channel_configs']['BF']['focus'] == 1000.0
+        assert config['channel_configs'][LED0]['focus'] == 2000.0
 
     def test_no_zstacking_and_no_tiling(self):
         # A composite is one frame per channel at one point: z-stacking or
@@ -191,16 +191,16 @@ class TestCompositeConfigShape:
 class TestOneTransmittedWins:
     def test_only_the_first_acquiring_transmitted_channel_is_kept(self):
         config = _assemble(_settings(acquiring=('BF', 'PC', 'DF', LED0)))
-        transmitted = {'BF', 'PC', 'DF'} & set(config['layer_configs'])
+        transmitted = {'BF', 'PC', 'DF'} & set(config['channel_configs'])
         assert transmitted == {'BF'}
 
     def test_a_later_transmitted_channel_wins_when_it_is_the_only_one(self):
         config = _assemble(_settings(acquiring=('DF', LED0)))
-        assert 'DF' in config['layer_configs']
+        assert 'DF' in config['channel_configs']
 
     def test_every_fluorescence_channel_survives(self):
         config = _assemble(_settings(acquiring=('BF', LED0, LED1, LED2)))
-        assert {LED0, LED1, LED2} <= set(config['layer_configs'])
+        assert {LED0, LED1, LED2} <= set(config['channel_configs'])
 
 
 # ---------------------------------------------------------------------------
@@ -226,12 +226,12 @@ class TestTwoChannelFloor:
         self, acquiring, expected, centre_posts
     ):
         config = _assemble(_settings(acquiring=acquiring))
-        assert len(config['layer_configs']) == expected
+        assert len(config['channel_configs']) == expected
         assert _warnings_and_errors(centre_posts) == [], 'assembly refuses nothing and tells no one'
 
     def test_two_channels_is_enough(self):
         config = _assemble(_settings(acquiring=('BF', LED0)))
-        assert len(config['layer_configs']) == 2
+        assert len(config['channel_configs']) == 2
 
 
 # ---------------------------------------------------------------------------

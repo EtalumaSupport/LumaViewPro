@@ -96,8 +96,8 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
             tiling='1x1',
             use_zstacking=False,
         )
-        config['layer_configs'] = {'BF': config['layer_configs']['BF']}
-        config['layer_configs']['BF']['acquire'] = 'image'
+        config['channel_configs'] = {'BF': config['channel_configs']['BF']}
+        config['channel_configs']['BF']['acquire'] = 'image'
         config['objective_id'] = EXTRA_OBJECTIVE
         config['labware_id'] = EXTRA_PLATE
 

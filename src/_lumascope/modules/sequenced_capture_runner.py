@@ -1238,7 +1238,7 @@ class SequencedCaptureRunner:
             )
             if len(transmitted) > 1:
                 self._refuse(
-                    reason='composite_two_transmitted_layers',
+                    reason='composite_two_transmitted_channels',
                     message=(
                         f'A composite takes one transmitted channel, but {" and ".join(transmitted)} '
                         'are both set to capture. Turn one of them off and try again.'

@@ -7,7 +7,7 @@ or a value of the wrong kind, used to fail wherever the value was first
 used -- a ``KeyError`` from a subscript, a ``TypeError`` from ``round()`` --
 often after something was built or commanded. Each read here refuses with
 ``ArgumentRefusedError`` naming the key's path as the client wrote it
-(``input_config['layer_configs']['BF']['gain_db']``), before the member acts.
+(``input_config['channel_configs']['BF']['gain_db']``), before the member acts.
 A number is asked ``refuse_unless_finite_number``. A key the member does not
 read is not judged: callers pass settings blocks that carry more.
 

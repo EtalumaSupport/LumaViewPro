@@ -403,7 +403,7 @@ class VideoBuilder(ProtocolPostProcessor):
         if false_color and color is None:
             raise ValueError(
                 'build_video: color is required when false_color=True. '
-                "Pass e.g. color='Ex405' to specify which layer to false-color."
+                "Pass e.g. color='Ex405' to specify which channel to false-color."
             )
 
         tiff_paths = image_utils.find_tiff_files(source_dir)

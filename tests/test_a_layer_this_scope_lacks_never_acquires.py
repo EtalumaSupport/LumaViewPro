@@ -39,7 +39,7 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 )
 from tests.stock_channels import LED0
 
-ABSENT = 'layer_not_on_scope'
+ABSENT = 'channel_not_on_scope'
 
 
 def _session(tmp_path, microscope, **acquiring):
@@ -180,7 +180,7 @@ def test_update_on_a_layer_not_set_to_acquire_is_refused_and_the_step_kept(ls850
     with pytest.raises(ProtocolRunRefusedError) as refused:
         ls850.update_step(protocol, 0, channel='BF')
 
-    assert refused.value.reason == 'no_acquiring_layer'
+    assert refused.value.reason == 'no_acquiring_channel'
     assert 'BF' in str(refused.value)
     assert protocol.steps().equals(before)
 

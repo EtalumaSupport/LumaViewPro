@@ -299,7 +299,9 @@ def run_cleanup(
         if show_pre_run_layer_fn is not None:
             show_pre_run_layer_fn()
     except Exception as ex:
-        cleanup_errors.append(('Show the layer shown before the run', f'{type(ex).__name__}: {ex}'))
+        cleanup_errors.append(
+            ('Show the channel shown before the run', f'{type(ex).__name__}: {ex}')
+        )
 
     # --- Return to position ---
     try:

@@ -1573,7 +1573,7 @@ def require_uniform_geometry(
         detail = ', '.join(f'{label} {h}x{w}' for label, (h, w) in shapes)
         raise InputFramesUnusableError(
             f'Cannot {operation}: inputs were not stitched to one geometry '
-            f'({detail}). Every layer / slice of a tile-group must be stitched '
+            f'({detail}). Every channel / slice of a tile-group must be stitched '
             f'to the same canvas before it can be combined.',
             'geometry',
         )

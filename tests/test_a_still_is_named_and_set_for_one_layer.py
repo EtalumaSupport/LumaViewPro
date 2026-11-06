@@ -305,7 +305,7 @@ def test_a_shown_layer_that_never_settles_fails_the_still_within_one_budget(sess
     # a stand-in by design: a layer shown anew faster than a capture takes is
     # a race the simulated scope cannot be made to win on every run
     shown = iter([LED0, LED1] * 1000)
-    monkeypatch.setattr(controller, '_shown_layer', lambda: next(shown))
+    monkeypatch.setattr(controller, '_shown_channel', lambda: next(shown))
 
     with pytest.raises(CaptureFailedError) as failed:
         controller.capture(false_color_on=False).result(timeout=60)
@@ -321,7 +321,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     controller = session.manual_capture
     taken = []
     reads = []
-    real_shown_layer = controller._shown_layer
+    real_shown_layer = controller._shown_channel
 
     def shown_layer_after_the_scope_is_taken():
         # a stand-in by design: the scope is taken at the one point inside the
@@ -335,7 +335,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
 
     session.show_channel(LED0)
     session.light_shown_channel(True)
-    monkeypatch.setattr(controller, '_shown_layer', shown_layer_after_the_scope_is_taken)
+    monkeypatch.setattr(controller, '_shown_channel', shown_layer_after_the_scope_is_taken)
     try:
         (still,) = controller.capture(false_color_on=False).result(timeout=30)
     finally:

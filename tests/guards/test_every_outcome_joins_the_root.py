@@ -214,7 +214,7 @@ def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person()
     from _lumascope.modules.notification_center import outcome_of
 
     assert outcome_of(ConfigurationDefectError('settings_not_prepared', 'x')).for_person is False
-    assert outcome_of(ConfigurationDefectError('layers_unresolved', 'x')).for_person is True
+    assert outcome_of(ConfigurationDefectError('channels_unresolved', 'x')).for_person is True
     assert outcome_of(CaptureFailedError('no_frame')).for_person is True
     assert outcome_of(CaptureFailedError('unknown_save_encoding', encoding='x')).for_person is False
 

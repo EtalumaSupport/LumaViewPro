@@ -44,8 +44,8 @@ from _lumascope.modules.frame_validity import (
 from _lumascope.modules.lumascope_api.camera import (
     AutoGainConvergence,
     AutoGainLock,
-    LayerCameraRequest,
-    LayerHold,
+    ChannelCameraRequest,
+    ChannelHold,
     _camera_not_connected,
     _refuse_unless_auto_gain_settings,
 )
@@ -1198,7 +1198,7 @@ class ImagingAPI:
         return CapturedStill(image=grabbed.image, record=record)
 
     def _capture_holding_layer_impl(
-        self, layer: str, request: LayerCameraRequest, member: str, **capture
+        self, layer: str, request: ChannelCameraRequest, member: str, **capture
     ) -> CapturedStill:
         """``_capture_still_impl``, with the camera holding ``layer``'s stored settings.
 
@@ -1403,7 +1403,7 @@ class ImagingAPI:
     @api(in_process=True, engineering=True)
     def capture_still(
         self,
-        hold: LayerHold | None = None,
+        hold: ChannelHold | None = None,
         *,
         force_to_8bit: bool = True,
         accept_dark: bool = False,

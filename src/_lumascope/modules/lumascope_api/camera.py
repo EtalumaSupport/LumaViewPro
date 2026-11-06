@@ -154,14 +154,14 @@ class _AutoGainArm:
 
 @api_fields('auto_gain', 'auto_gain_settings', 'exposure_ms', 'gain_db')
 @dataclasses.dataclass(frozen=True)
-class LayerCameraRequest:
-    """A layer's stored camera settings, read from its store, for the camera to take.
+class ChannelCameraRequest:
+    """A channel's stored camera settings, read from its store, for the camera to take.
 
     Attributes:
-        gain_db: The layer's stored gain, in dB.
-        exposure_ms: The layer's stored exposure, in ms.
-        auto_gain: Whether the layer's gain is set by auto-gain.
-        auto_gain_settings: The auto-gain bounds the layer's channel class
+        gain_db: The channel's stored gain, in dB.
+        exposure_ms: The channel's stored exposure, in ms.
+        auto_gain: Whether the channel's gain is set by auto-gain.
+        auto_gain_settings: The auto-gain bounds the channel's class
             and the installation's override give it, with its exposure
             ceiling and floor.
     """
@@ -174,18 +174,18 @@ class LayerCameraRequest:
 
 @api_fields('channel', 'request')
 @dataclasses.dataclass(frozen=True)
-class LayerHold:
-    """A layer and its stored camera settings, for a capture to hold: the pair
+class ChannelHold:
+    """A channel and its stored camera settings, for a capture to hold: the pair
     ``CameraAPI.hold_layer`` takes, in one value so neither travels without
-    the other. The Session reads ``request`` from the layer's store.
+    the other. The Session reads ``request`` from the channel's store.
 
     Attributes:
-        channel: The layer's channel key.
-        request: The layer's stored camera settings.
+        channel: The channel's key.
+        request: The channel's stored camera settings.
     """
 
     channel: str
-    request: LayerCameraRequest
+    request: ChannelCameraRequest
 
 
 @dataclasses.dataclass(frozen=True)
@@ -200,7 +200,7 @@ class _HeldLayer:
     """
 
     layer: str
-    request: LayerCameraRequest | None
+    request: ChannelCameraRequest | None
     taken: dict | None
 
 
@@ -3796,7 +3796,7 @@ class CameraAPI:
                     self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
-    def hold_layer(self, layer: str, request: LayerCameraRequest) -> dict | None:
+    def hold_layer(self, layer: str, request: ChannelCameraRequest) -> dict | None:
         """Put ``layer``'s stored settings on the camera unless it holds them, and wait.
 
         See ``_hold_layer_impl``; this adds the dispatch described on
@@ -3831,7 +3831,7 @@ class CameraAPI:
             return None
         return held.layer
 
-    def _holding(self, layer: str, request: LayerCameraRequest) -> _HeldLayer | None:
+    def _holding(self, layer: str, request: ChannelCameraRequest) -> _HeldLayer | None:
         """The record, when the camera holds ``layer`` at ``request``; else None."""
         with self._state_lock:
             held = self._held_layer
@@ -3839,7 +3839,9 @@ class CameraAPI:
             return held
         return None
 
-    def _hold_layer_for_capture(self, layer: str, request: LayerCameraRequest, member: str) -> None:
+    def _hold_layer_for_capture(
+        self, layer: str, request: ChannelCameraRequest, member: str
+    ) -> None:
         """``_hold_layer_impl`` from inside a capture's own camera-lane task.
 
         The capture is already the task its taking admitted, so this is not
@@ -3876,7 +3878,7 @@ class CameraAPI:
             if claim is not None and refusing is None:
                 claim.leave_falsifying_change()
 
-    def _hold_layer_impl(self, layer: str, request: LayerCameraRequest) -> dict | None:
+    def _hold_layer_impl(self, layer: str, request: ChannelCameraRequest) -> dict | None:
         """Put ``layer``'s stored settings on the camera unless it holds them.
 
         The one writer of the camera's held layer. Nothing is written when
