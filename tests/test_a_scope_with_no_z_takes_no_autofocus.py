@@ -72,7 +72,7 @@ def test_a_scope_with_z_keeps_the_saved_switch():
     try:
         assert session.scope.capabilities.has_focus
 
-        configs = session.get_layer_configs()
+        configs = session.get_channel_configs()
         snapshot = session.capture_settings_snapshot()
     finally:
         session.shutdown()

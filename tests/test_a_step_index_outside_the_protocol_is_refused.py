@@ -63,7 +63,7 @@ WRITERS = {
         turret_slot=-1,
         step_index=i,
         layer='BF',
-        layer_config=LAYER_CONFIG,
+        channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
         stim_configs={},
@@ -78,7 +78,7 @@ def _insert(protocol, **place):
         turret_slot=-1,
         step_name='added',
         layer='BF',
-        layer_config=LAYER_CONFIG,
+        channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
         stim_configs={},
@@ -227,7 +227,7 @@ def test_an_insert_at_either_end_lands_there(place, lands_at):
 def session(tmp_path):
     # A manual scope: no axis to home before a step can record its place.
     settings = complete_settings(live_folder=str(tmp_path), microscope='LS620')
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = None
     settings['BF']['acquire'] = 'image'
     session = ScopeSession.create(settings, simulate=True)

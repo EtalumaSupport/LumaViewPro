@@ -26,8 +26,8 @@ try:
         lambda: config_helpers.get_image_capture_config_from_settings(s.get_settings_snapshot()),
     )
     step(
-        f'session.get_layer_configs([{LED0}])',
-        lambda: sorted(s.get_layer_configs([LED0])[LED0].keys()),
+        f'session.get_channel_configs([{LED0}])',
+        lambda: sorted(s.get_channel_configs([LED0])[LED0].keys()),
     )
     step(
         'lit_other_than(illum, BF)',

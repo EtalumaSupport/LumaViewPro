@@ -46,7 +46,7 @@ def _sim():
 def body(session):
     scope = session.scope
     settings = session.settings
-    layers = list(session.get_layer_configs())
+    layers = list(session.get_channel_configs())
 
     after_bring_up = _camera(scope)
     figure('camera after bring-up (exposure ms, gain dB)', after_bring_up)

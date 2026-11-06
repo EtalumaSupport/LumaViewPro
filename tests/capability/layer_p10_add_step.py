@@ -15,7 +15,7 @@ import harness
 s, live = harness.make_session('p10', home=True)
 try:
     scope = s.scope
-    for layer in s.get_layer_configs():
+    for layer in s.get_channel_configs():
         s.settings[layer]['acquire'] = None
     s.settings['BF']['acquire'] = 'image'
 

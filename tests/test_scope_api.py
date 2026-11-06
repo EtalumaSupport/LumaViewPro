@@ -159,19 +159,19 @@ def _shutdown_recording_rigs():
 class TestGetLayerConfigs:
     def test_returns_all_layers(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         from _lumascope.modules.common_utils import get_layers
 
         assert set(configs.keys()) == set(get_layers())
 
     def test_specific_layers_filter(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF', LED2])
+        configs = config_helpers.get_channel_configs(settings, specific_channels=['BF', LED2])
         assert set(configs.keys()) == {'BF', LED2}
 
     def test_illumination_rounded(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('illumination')
@@ -181,7 +181,7 @@ class TestGetLayerConfigs:
 
     def test_gain_rounded(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('gain')
@@ -190,7 +190,7 @@ class TestGetLayerConfigs:
 
     def test_exposure_rounded(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         from _lumascope.modules.common_utils import max_decimal_precision
 
         precision = max_decimal_precision('exposure')
@@ -199,7 +199,7 @@ class TestGetLayerConfigs:
 
     def test_stim_config_none_when_absent(self):
         settings = _make_settings(with_stim=False)
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         for cfg in configs.values():
             assert cfg['stim_config'] is None
 
@@ -216,7 +216,7 @@ class TestGetLayerConfigs:
         for layer in settings:
             if isinstance(settings[layer], dict) and 'stim_config' in settings[layer]:
                 settings[layer]['stim_config']['illumination_ma'] = 200
-        configs = config_helpers.get_layer_configs(settings)
+        configs = config_helpers.get_channel_configs(settings)
         for cfg in configs.values():
             assert cfg['stim_config']['illumination_ma'] == 200
             # Layer illumination is different (50.123456 rounded)
@@ -225,17 +225,17 @@ class TestGetLayerConfigs:
     def test_auto_gain_bool_conversion(self):
         settings = _make_settings()
         settings['BF']['auto_gain'] = 'True'
-        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF'])
+        configs = config_helpers.get_channel_configs(settings, specific_channels=['BF'])
         assert configs['BF']['auto_gain'] is True
 
     def test_empty_specific_layers(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings, specific_layers=[])
+        configs = config_helpers.get_channel_configs(settings, specific_channels=[])
         assert configs == {}
 
     def test_config_keys(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF'])
+        configs = config_helpers.get_channel_configs(settings, specific_channels=['BF'])
         expected_keys = {
             'acquire',
             'video_config',
@@ -499,14 +499,14 @@ class TestScopeSession:
 
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
-        configs = session.get_layer_configs()
+        configs = session.get_channel_configs()
         from _lumascope.modules.common_utils import get_layers
 
         assert set(configs.keys()) == set(get_layers())
 
     def test_get_layer_configs_with_filter(self):
         session = self._make_session()
-        configs = session.get_layer_configs(specific_layers=[LED2])
+        configs = session.get_channel_configs(specific_channels=[LED2])
         assert set(configs.keys()) == {LED2}
 
     def test_the_current_objective_is_the_runtime_states(self):

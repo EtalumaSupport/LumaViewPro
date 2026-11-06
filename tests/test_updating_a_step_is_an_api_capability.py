@@ -43,20 +43,20 @@ def _layer_configs(**stim_enabled_by_layer):
     """The production layer configs, BF and LED 0 set to acquire; the named
     layers' stim config enabled."""
     settings = complete_settings()
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = None
     settings['BF']['acquire'] = 'image'
     settings[LED0]['acquire'] = 'image'
     for layer, enabled in stim_enabled_by_layer.items():
         settings[layer]['stim_config'] = {**settings[layer]['stim_config'], 'enabled': enabled}
-    return config_helpers.get_layer_configs(settings)
+    return config_helpers.get_channel_configs(settings)
 
 
 def _protocol_with_one_bf_step(scope):
     protocol = _empty_protocol_for_add()
     scope.protocols.add_step(
         protocol,
-        layer_configs={'BF': _layer_configs()['BF']},
+        channel_configs={'BF': _layer_configs()['BF']},
         stim_configs={},
         plate_position=ADDED_AT,
         before_step_index=0,
@@ -70,14 +70,14 @@ def _update(
     *,
     layer=LED0,
     label=None,
-    layer_configs=None,
+    channel_configs=None,
     stim_configs=None,
 ):
     return scope.protocols.update_step(
         protocol,
         0,
         layer=layer,
-        layer_configs=layer_configs if layer_configs is not None else _layer_configs(),
+        channel_configs=channel_configs if channel_configs is not None else _layer_configs(),
         stim_configs=stim_configs if stim_configs is not None else {},
         plate_position=UPDATED_TO,
         label=label,
@@ -140,7 +140,7 @@ class TestTheApiRefuses:
         configs[LED1] = {**configs[LED1], 'acquire': None}
 
         with pytest.raises(StepNotFoundError) as excinfo:
-            _update(scope, protocol, layer=LED1, layer_configs=configs)
+            _update(scope, protocol, layer=LED1, channel_configs=configs)
 
         assert excinfo.value.title == 'No Such Step'
         assert protocol.num_steps() == 0
@@ -176,7 +176,7 @@ class TestTheApiUpdates:
         # not a channel change: the step keeps acquiring what it acquired.
         protocol = _protocol_with_one_bf_step(scope)
 
-        _update(scope, protocol, layer=LED0, layer_configs=_layer_configs(**{LED0: True}))
+        _update(scope, protocol, layer=LED0, channel_configs=_layer_configs(**{LED0: True}))
 
         assert _step(protocol)['Color'] == 'BF'
 
@@ -203,7 +203,7 @@ def session():
 
 
 def _session_protocol(session):
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
     protocol = session.scope.protocols.create_protocol(

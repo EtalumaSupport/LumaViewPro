@@ -61,8 +61,8 @@ try:
     print('zstack positions valid:', zstack_positions_valid, 'slices:', zc.number_of_steps())
 
     active_layer = 'BF'
-    active_layer_config = config_helpers.get_layer_configs(
-        settings, specific_layers=[active_layer]
+    active_layer_config = config_helpers.get_channel_configs(
+        settings, specific_channels=[active_layer]
     )[active_layer]
     active_layer_config['acquire'] = 'image'
     active_layer_config['autofocus'] = False

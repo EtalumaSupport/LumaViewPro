@@ -157,7 +157,7 @@ def _add_3rd_location_via_insert_step(protocol):
             turret_slot=-1,
             step_name=f'added_{color}',
             layer=color,
-            layer_config={
+            channel_config={
                 'autofocus': False,
                 'false_color': color != 'BF',
                 'illumination_ma': CHANNEL_ILLUMINATION[color],

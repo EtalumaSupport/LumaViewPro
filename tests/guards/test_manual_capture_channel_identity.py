@@ -228,7 +228,7 @@ def _production_modules():
 
 
 def test_specific_layers_is_always_handed_a_list():
-    """`get_layer_configs(specific_layers=...)` filters with `in`; a bare string
+    """`get_channel_configs(specific_channels=...)` filters with `in`; a bare string
     matches by substring. Every call site passes a list display or a name bound
     to a call in the same function."""
     offenders = []
@@ -248,7 +248,7 @@ def test_specific_layers_is_always_handed_a_list():
                 if not isinstance(call, ast.Call):
                     continue
                 for kw in call.keywords:
-                    if kw.arg != 'specific_layers':
+                    if kw.arg != 'specific_channels':
                         continue
                     ok = isinstance(kw.value, ast.List) or (
                         isinstance(kw.value, ast.Name) and kw.value.id in bound_to_call

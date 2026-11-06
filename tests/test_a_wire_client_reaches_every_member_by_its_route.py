@@ -177,7 +177,7 @@ def test_a_wire_client_reads_settings_by_path_and_not_by_document(client, sessio
     whole-store snapshot, which is a worker's in-process copy: a wire client
     reads a setting by its path, and that is what the snapshot holds."""
     documents = {
-        'get_layer_configs',
+        'get_channel_configs',
         'get_stim_configs',
         'get_enabled_stim_configs',
         'get_auto_gain_settings',

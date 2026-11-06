@@ -65,44 +65,51 @@ def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
 # ---------------------------------------------------------------------------
 
 
-def get_layer_configs(settings: dict, specific_layers: list | None = None) -> dict:
-    """Build config dicts for each layer from settings.
+def get_channel_configs(settings: dict, specific_channels: list | None = None) -> dict:
+    """Each channel's settings block in ``settings``, as a run or a protocol build takes it.
+
+    One dict per channel of the release, in its order, or per channel named
+    in ``specific_channels``; a name there that is no channel is skipped,
+    not refused (``ScopeSession.get_channel_configs`` refuses it).
+    Illumination, gain and exposure are rounded to their stated precision
+    and ``auto_gain`` is read as a bool; ``stim_config`` is a copy, or None
+    where the block has none.
 
     Returns:
-        dict of layer_name -> config dict with keys:
+        dict of channel key -> config dict with keys:
         acquire, video_config, stim_config, autofocus, false_color,
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
-    layer_configs = {}
+    channel_configs = {}
     for layer in common_utils.get_layers():
-        if (specific_layers is not None) and (layer not in specific_layers):
+        if (specific_channels is not None) and (layer not in specific_channels):
             continue
 
-        layer_settings = settings[layer]
+        channel_config = settings[layer]
 
-        acquire = layer_settings['acquire']
-        video_config = layer_settings['video_config']
+        acquire = channel_config['acquire']
+        video_config = channel_config['video_config']
 
-        if 'stim_config' in layer_settings:
+        if 'stim_config' in channel_config:
             # Copy stim_config so we don't mutate the input settings dict
-            stim_config = dict(layer_settings['stim_config'])
+            stim_config = dict(channel_config['stim_config'])
         else:
             stim_config = None
 
-        autofocus = layer_settings['autofocus']
-        false_color = layer_settings['false_color']
+        autofocus = channel_config['autofocus']
+        false_color = channel_config['false_color']
         illumination = round(
-            layer_settings['illumination_ma'], common_utils.max_decimal_precision('illumination')
+            channel_config['illumination_ma'], common_utils.max_decimal_precision('illumination')
         )
-        sum_count = layer_settings['sum']
-        gain = round(layer_settings['gain_db'], common_utils.max_decimal_precision('gain'))
-        auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
+        sum_count = channel_config['sum']
+        gain = round(channel_config['gain_db'], common_utils.max_decimal_precision('gain'))
+        auto_gain = common_utils.to_bool(channel_config['auto_gain'])
         exposure = round(
-            layer_settings['exposure_ms'], common_utils.max_decimal_precision('exposure')
+            channel_config['exposure_ms'], common_utils.max_decimal_precision('exposure')
         )
-        focus = layer_settings['focus']
+        focus = channel_config['focus']
 
-        layer_configs[layer] = {
+        channel_configs[layer] = {
             'acquire': acquire,
             'video_config': video_config,
             'stim_config': stim_config,
@@ -116,16 +123,16 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
             'focus': focus,
         }
 
-    return layer_configs
+    return channel_configs
 
 
 def get_stim_configs(settings: dict) -> dict:
     """Build per-layer stim configs from settings."""
     stim_configs = {}
-    layer_configs = get_layer_configs(settings)
-    for layer in layer_configs:
-        if layer_configs[layer]['stim_config'] is not None:
-            stim_configs[layer] = layer_configs[layer]['stim_config']
+    channel_configs = get_channel_configs(settings)
+    for layer in channel_configs:
+        if channel_configs[layer]['stim_config'] is not None:
+            stim_configs[layer] = channel_configs[layer]['stim_config']
     return stim_configs
 
 
@@ -1206,7 +1213,7 @@ def get_composite_capture_config_from_settings(
             'use_zstacking': False,
             'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
-            'channel_configs': get_layer_configs(settings, specific_layers=channels),
+            'channel_configs': get_channel_configs(settings, specific_channels=channels),
             'period': None,
             'duration': None,
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
@@ -1280,14 +1287,14 @@ def get_standalone_capture_config_from_settings(
     objective_helper.get_objective_info(objective_id=objective_id)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 
-    layer_configs = get_layer_configs(settings, specific_layers=[layer])
-    layer_config = layer_configs[layer]
+    channel_configs = get_channel_configs(settings, specific_channels=[layer])
+    channel_config = channel_configs[layer]
     # Both starters do exactly this: the step captures an image, and the
     # caller's intent decides autofocus rather than the layer's stored
     # flag. Assembling a config is not the place to honour a leftover
     # switch the caller said nothing about.
-    layer_config['acquire'] = AcquireMode.IMAGE
-    layer_config['autofocus'] = autofocus
+    channel_config['acquire'] = AcquireMode.IMAGE
+    channel_config['autofocus'] = autofocus
 
     step_position = {
         'x': position.x_mm,
@@ -1304,7 +1311,7 @@ def get_standalone_capture_config_from_settings(
             'use_zstacking': use_zstacking,
             'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
-            'channel_configs': {layer: layer_config},
+            'channel_configs': {layer: channel_config},
             'period': None,
             'duration': None,
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
@@ -1381,7 +1388,7 @@ def get_sequenced_capture_config_from_settings(
             # under protocol found nothing and silently gave every headless
             # run 0% overlap regardless of what the user had configured.
             'tiling_overlap_percent': settings['tiling_overlap_percent'],
-            'channel_configs': get_layer_configs(settings),
+            'channel_configs': get_channel_configs(settings),
             'period': time_params['period'],
             'duration': time_params['duration'],
             'frame_dimensions': get_frame_dimensions_from_settings(settings),

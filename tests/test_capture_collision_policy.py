@@ -183,7 +183,7 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
         turret_slot=-1,
         step_name=None,
         layer='BF',
-        layer_config=_insert_layer_config(),
+        channel_config=_insert_layer_config(),
         plate_position=PlateLocation(x_mm=10.0, y_mm=10.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},

@@ -19,7 +19,7 @@ from tests.stock_channels import LED1
 s, live = _common.make_session()
 try:
     ill, im = s.scope.illumination, s.scope.camera
-    cfgs = s.get_layer_configs()
+    cfgs = s.get_channel_configs()
     print('layers known to the session:', sorted(cfgs))
     target = LED1 if LED1 in cfgs else sorted(cfgs)[0]
     cfg = cfgs[target]

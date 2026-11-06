@@ -32,9 +32,9 @@ try:
         f'stim.enabled={snap["stim_config"]["enabled"]!r}'
     )
     print(
-        '2: session.get_layer_configs:',
-        s.get_layer_configs([lay])[lay]['acquire'],
-        s.get_layer_configs([lay])[lay]['stim_config']['enabled'],
+        '2: session.get_channel_configs:',
+        s.get_channel_configs([lay])[lay]['acquire'],
+        s.get_channel_configs([lay])[lay]['stim_config']['enabled'],
     )
     enabled = [layer for layer, cfg in s.get_stim_configs().items() if cfg['enabled']]
     print('3: session.get_stim_configs, enabled:', enabled)

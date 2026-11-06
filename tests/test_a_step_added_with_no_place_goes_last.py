@@ -23,7 +23,7 @@ from tests.stock_channels import LED0
 def session(tmp_path):
     # A manual scope: no axis to home before a step can record its place.
     settings = complete_settings(live_folder=str(tmp_path), microscope='LS620')
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = None
     session = ScopeSession.create(settings, simulate=True)
     yield session
@@ -64,7 +64,7 @@ def test_the_protocols_own_insert_names_its_place(session):
             turret_slot=-1,
             step_name=None,
             layer='BF',
-            layer_config=session.get_layer_configs()['BF'],
+            channel_config=session.get_channel_configs()['BF'],
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
             stim_configs=session.get_stim_configs(),

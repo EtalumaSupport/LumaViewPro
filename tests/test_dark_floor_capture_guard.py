@@ -191,13 +191,13 @@ class TestLitFractionDepthRule:
 
 class TestLiveCaptureConfigSeam:
     """Every key the manual capture (src/_lumascope/modules/manual_capture.py) reads off a
-    get_layer_configs() entry must exist in the dict get_layer_configs() actually emits.
+    get_channel_configs() entry must exist in the dict get_channel_configs() actually emits.
 
     The emitted keys carry unit suffixes (illumination_ma, exposure_ms,
     gain_db) that are easy to drop when writing a new read site; a stale
     key is a KeyError on the capture worker, surfaced only as a generic
     task-failure popup. The schema below is taken from a real
-    get_layer_configs() call, so this guard tracks the producer instead
+    get_channel_configs() call, so this guard tracks the producer instead
     of pinning a copy of its key list.
     """
 
@@ -207,7 +207,7 @@ class TestLiveCaptureConfigSeam:
 
         from _lumascope.modules import config_helpers
 
-        layer_settings = {
+        channel_config = {
             'acquire': None,
             'video_config': {},
             'autofocus': False,
@@ -220,7 +220,9 @@ class TestLiveCaptureConfigSeam:
             'focus': 0.0,
         }
         schema = set(
-            config_helpers.get_layer_configs({'BF': layer_settings}, specific_layers=['BF'])['BF']
+            config_helpers.get_channel_configs({'BF': channel_config}, specific_channels=['BF'])[
+                'BF'
+            ]
         )
 
         src = (
@@ -233,16 +235,16 @@ class TestLiveCaptureConfigSeam:
                 and isinstance(node.slice, ast.Constant)
                 and isinstance(node.slice.value, str)
                 and isinstance(node.value, ast.Name)
-                and node.value.id == 'layer_config'
+                and node.value.id == 'channel_config'
             ):
                 read_keys.append((node.slice.value, node.lineno))
 
         assert read_keys, (
-            'expected layer_config[key] reads in manual_capture.py; '
+            'expected channel_config[key] reads in manual_capture.py; '
             'if they moved, retarget this guard to the new reader'
         )
         stale = [(key, line) for key, line in read_keys if key not in schema]
         assert stale == [], (
-            f'keys read but never emitted by get_layer_configs: {stale}; '
+            f'keys read but never emitted by get_channel_configs: {stale}; '
             f'emitted keys: {sorted(schema)}'
         )

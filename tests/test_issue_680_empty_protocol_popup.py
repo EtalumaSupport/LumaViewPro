@@ -23,7 +23,7 @@ PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
     """Minimal valid input_config for Protocol.from_config with one layer
     per entry, each with the given acquire mode."""
-    layer_configs = {
+    channel_configs = {
         layer: {
             'acquire': acquire,
             'autofocus': False,
@@ -45,7 +45,7 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
         'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
         'use_zstacking': False,
         'tiling': '1x1',
-        'channel_configs': layer_configs,
+        'channel_configs': channel_configs,
         'period': None,
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},

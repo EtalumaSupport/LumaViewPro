@@ -53,9 +53,9 @@ THRESHOLDS = {LED0: 25, LED1: 25, LED2: 25}
 
 def _layer_configs(acquiring):
     settings = complete_settings()
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = 'image' if layer in acquiring else None
-    return config_helpers.get_layer_configs(settings)
+    return config_helpers.get_channel_configs(settings)
 
 
 def _added(scope, adds=ADDS):
@@ -63,7 +63,7 @@ def _added(scope, adds=ADDS):
     for acquiring in adds:
         scope.protocols.add_step(
             protocol,
-            layer_configs=_layer_configs(acquiring),
+            channel_configs=_layer_configs(acquiring),
             stim_configs={},
             plate_position=AT,
             channel_order=list(acquiring),
@@ -340,7 +340,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
                 protocol,
                 1,
                 layer='BF',
-                layer_configs=_layer_configs(('BF', LED1)),
+                channel_configs=_layer_configs(('BF', LED1)),
                 stim_configs={},
                 plate_position=AT,
             )
@@ -356,7 +356,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
             protocol,
             1,
             layer='BF',
-            layer_configs=_layer_configs(('BF', LED1)),
+            channel_configs=_layer_configs(('BF', LED1)),
             stim_configs={},
             plate_position=AT,
         )
@@ -368,7 +368,7 @@ class TestAGeneratedProtocolKeepsAPositionTogether:
     def test_every_channel_and_tile_of_one_well_shares_its_group_and_each_well_has_its_own(
         self, session
     ):
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         for layer in ('BF', LED1):
             session.set_channel_acquire(layer, 'image')
@@ -402,7 +402,7 @@ class TestAHyperstackAfterApplyTiling:
         # Apply Tiling gives every channel of a position its own tile group,
         # and the stack grouped by tile group, so every stack held one image
         # and was skipped: a tiled-at-New protocol built them, this built none.
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         session.settings['BF']['acquire'] = 'image'
         session.settings[LED1]['acquire'] = 'image'

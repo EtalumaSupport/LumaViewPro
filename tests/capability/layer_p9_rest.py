@@ -26,7 +26,7 @@ try:
         s.settings[lay]['stim_config'].update(
             {'frequency': 3, 'pulse_width': 25, 'pulse_count': 9, 'illumination_ma': 77}
         )
-    lc = s.get_layer_configs([lay])[lay]
+    lc = s.get_channel_configs([lay])[lay]
     show('sum', lc['sum'])
     show('autofocus', lc['autofocus'])
     show('acquire', lc['acquire'])

@@ -44,7 +44,7 @@ ABSENT = 'channel_not_on_scope'
 
 def _session(tmp_path, microscope, **acquiring):
     settings = complete_settings(live_folder=str(tmp_path), microscope=microscope)
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = acquiring.get(layer)
     session = ScopeSession.create(settings, simulate=True)
     home_sim_scope(session.scope)

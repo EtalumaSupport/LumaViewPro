@@ -139,7 +139,7 @@ class TestEveryStoredCellIsReadOnly:
             turret_slot=-1,
             step_index=0,
             layer='BF',
-            layer_config={
+            channel_config={
                 'autofocus': False,
                 'false_color': False,
                 'illumination_ma': 5.0,

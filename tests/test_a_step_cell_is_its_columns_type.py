@@ -183,7 +183,7 @@ WRITES = {
             turret_slot=-1,
             step_index=0,
             layer='BF',
-            layer_config={
+            channel_config={
                 'autofocus': False,
                 'false_color': False,
                 'illumination_ma': 50.0,
@@ -302,7 +302,7 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
             turret_slot=-1,
             step_name='added',
             layer='BF',
-            layer_config={
+            channel_config={
                 'autofocus': 'maybe',
                 'false_color': False,
                 'illumination_ma': 50.0,

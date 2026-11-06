@@ -624,7 +624,7 @@ def test_modify_name_refuses_name_that_sanitizes_to_empty():
 
 def test_modify_step_refuses_label_that_sanitizes_to_empty():
     proto = _labeled_single_step_protocol()
-    layer_config = {
+    channel_config = {
         'autofocus': False,
         'false_color': False,
         'illumination_ma': 100.0,
@@ -641,7 +641,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
             step_index=0,
             label='###',
             layer=LED1,
-            layer_config=layer_config,
+            channel_config=channel_config,
             plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
             objective_id='4x Oly',
             stim_configs={},
@@ -654,7 +654,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
 
 def test_insert_step_refuses_name_that_sanitizes_to_empty():
     proto = _labeled_single_step_protocol()
-    layer_config = {
+    channel_config = {
         'autofocus': False,
         'false_color': False,
         'illumination_ma': 100.0,
@@ -671,7 +671,7 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
             turret_slot=-1,
             step_name='###',
             layer='BF',
-            layer_config=layer_config,
+            channel_config=channel_config,
             plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
             objective_id='4x Oly',
             stim_configs={},

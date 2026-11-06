@@ -55,7 +55,7 @@ def session():
 
 def _two_step_protocol(session):
     """A BF step and an LED 0 step at the current position, from the layers' settings."""
-    for layer in session.get_layer_configs():
+    for layer in session.get_channel_configs():
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
     session.settings[LED0]['acquire'] = 'image'

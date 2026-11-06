@@ -119,7 +119,7 @@ def test_headless_session_read_path_carries_layer_values():
     ``ScopeSession.load_user_settings`` resolves and reads current.json directly
     when no settings have been loaded into the process -- the normal state in
     a fresh REST or CLI process. A migration living in the GUI's load path
-    would never run here, and ``get_layer_configs`` would raise KeyError on
+    would never run here, and ``get_channel_configs`` would raise KeyError on
     every pre-upgrade config.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -128,7 +128,7 @@ def test_headless_session_read_path_carries_layer_values():
         settings = settings_init.read_settings_json(settings_path)
 
     assert os.path.basename(settings_path) == 'current.json'
-    config = config_helpers.get_layer_configs(settings, ['BF'])['BF']
+    config = config_helpers.get_channel_configs(settings, ['BF'])['BF']
     assert config['illumination_ma'] == 25.0
     assert config['exposure_ms'] == 14.56
 

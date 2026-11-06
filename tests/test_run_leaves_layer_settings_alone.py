@@ -410,19 +410,19 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
 
         LayerControl.sync_widgets_from_settings(stand)
 
-        layer_settings = settings[layer]
+        channel_config = settings[layer]
         ids = stand.ids
         assert lock.entries == 1
         assert stand._initializing is False
-        assert ids['ill_slider'].value == layer_settings['illumination_ma']
-        assert ids['gain_slider'].value == layer_settings['gain_db']
-        assert ids['exp_slider'].value == layer_settings['exposure_ms']
-        assert ids['false_color'].active == layer_settings['false_color']
-        assert ids['sum_slider'].value == layer_settings['sum']
-        assert ids['video_duration_text'].text == str(layer_settings['video_config']['duration'])
-        assert ids['video_duration_slider'].value == layer_settings['video_config']['duration']
-        assert ids['autofocus'].active == layer_settings['autofocus']
-        assert ids['auto_gain'].active == bool(layer_settings['auto_gain'])
+        assert ids['ill_slider'].value == channel_config['illumination_ma']
+        assert ids['gain_slider'].value == channel_config['gain_db']
+        assert ids['exp_slider'].value == channel_config['exposure_ms']
+        assert ids['false_color'].active == channel_config['false_color']
+        assert ids['sum_slider'].value == channel_config['sum']
+        assert ids['video_duration_text'].text == str(channel_config['video_config']['duration'])
+        assert ids['video_duration_slider'].value == channel_config['video_config']['duration']
+        assert ids['autofocus'].active == channel_config['autofocus']
+        assert ids['auto_gain'].active == bool(channel_config['auto_gain'])
         if layer == 'BF':
             assert ids['acquire_image'].active is True
             assert ids['composite_threshold_slider'].value is None, 'BF has no composite threshold'

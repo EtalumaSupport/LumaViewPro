@@ -260,9 +260,9 @@ class ManualCaptureController:
         bound. A still retaken on another shown layer shares the first
         capture's budget."""
         layer = self._shown_channel()
-        layer_config = config_helpers.get_layer_configs(request.settings, [layer])[layer]
+        channel_config = config_helpers.get_channel_configs(request.settings, [layer])[layer]
         grab_s = request.scope.imaging._capture_wait_s(
-            (), _CAPTURE_RETRY_BUDGET_S, layer_config['sum'], layer_config['exposure_ms'] / 1000
+            (), _CAPTURE_RETRY_BUDGET_S, channel_config['sum'], channel_config['exposure_ms'] / 1000
         )
         return grab_s + request.scope.camera._CAMERA_WRITE_TIMEOUT_S + WRITE_STALL_FATAL_S
 
@@ -312,9 +312,9 @@ class ManualCaptureController:
         while True:
             # The summing row is the imaged channel's, from the store the camera
             # is made to hold; the delay is a settle between summed frames.
-            layer_config = config_helpers.get_layer_configs(self._settings_snapshot(), [channel])[
-                channel
-            ]
+            channel_config = config_helpers.get_channel_configs(
+                self._settings_snapshot(), [channel]
+            )[channel]
             # The capture's body, not its public member: this still is already
             # the lane task its taking admitted, and the public member would be
             # admitted again, inline, against whatever holds the scope now -- a
@@ -327,8 +327,8 @@ class ManualCaptureController:
                 force_to_8bit=capture_config.capture_depth == 8,
                 all_ones_check=True,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,
-                sum_count=layer_config['sum'],
-                sum_delay_s=layer_config['exposure_ms'] / 1000,
+                sum_count=channel_config['sum'],
+                sum_delay_s=channel_config['exposure_ms'] / 1000,
             )
             if first_capture is None:
                 first_capture = scope.imaging.last_capture_info

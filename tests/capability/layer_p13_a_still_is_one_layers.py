@@ -89,7 +89,7 @@ def _steps(session, protocol, colors):
 
 def body(session, runner):
     scope = session.scope
-    layers = list(session.get_layer_configs())
+    layers = list(session.get_channel_configs())
     fluor = LED0 if LED0 in layers else next(layer for layer in layers if layer != 'BF')
     pair = ('BF', fluor)
     figure('layers compared', pair)

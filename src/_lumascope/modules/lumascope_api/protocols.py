@@ -241,7 +241,7 @@ class ProtocolsAPI:
         those.
 
         Two sources (pass exactly one):
-          - input_config={...}: positions, layer_configs, the z-stack, the
+          - input_config={...}: positions, channel_configs, the z-stack, the
             tiling, the schedule and the frame; built flat by
             Protocol.from_config, then tiled and stacked.
           - empty_config={...}: labware_id, period, duration,
@@ -336,7 +336,7 @@ class ProtocolsAPI:
         self,
         protocol: Protocol,
         *,
-        layer_configs: dict,
+        channel_configs: dict,
         stim_configs: dict,
         plate_position: PlateLocation,
         channel_order: list[str] | None = None,
@@ -390,14 +390,14 @@ class ProtocolsAPI:
         from _lumascope.modules.protocol import Protocol
 
         objective_id = self._recordable_objective(verb='add')
-        self.refuse_no_acquiring_layer(layer_configs)
+        self.refuse_no_acquiring_layer(channel_configs)
 
-        ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
-        ordered += [layer for layer in layer_configs if layer not in ordered]
+        ordered = [layer for layer in (channel_order or []) if layer in channel_configs]
+        ordered += [layer for layer in channel_configs if layer not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
         if before_step_index is None and after_step_index is None:
             after_step_index = protocol.num_steps() - 1
-        acquiring = [layer for layer in ordered if Protocol.layer_acquires(layer_configs[layer])]
+        acquiring = [layer for layer in ordered if Protocol.layer_acquires(channel_configs[layer])]
         if zstack_params is not None:
             Protocol.refuse_unbuildable_zstack(
                 zstack_params,
@@ -410,11 +410,11 @@ class ProtocolsAPI:
         channel_group_id = protocol.new_channel_group_id()
         turret_slot = self._live_turret_slot()
         for layer in acquiring:
-            layer_config = layer_configs[layer]
+            channel_config = channel_configs[layer]
             name = protocol.insert_step(
                 step_name=None,
                 layer=layer,
-                layer_config=layer_config,
+                channel_config=channel_config,
                 stim_configs=stim_configs,
                 plate_position=plate_position,
                 objective_id=objective_id,
@@ -483,7 +483,7 @@ class ProtocolsAPI:
         step_index: int,
         *,
         layer: str,
-        layer_configs: dict,
+        channel_configs: dict,
         stim_configs: dict,
         plate_position: PlateLocation,
         label: str | None = None,
@@ -527,11 +527,11 @@ class ProtocolsAPI:
         step = protocol.step_row(step_index=step_index)
         objective_id = self._recordable_objective(verb='update')
 
-        stim_config = layer_configs[layer].get('stim_config')
+        stim_config = channel_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
             layer = step['Color']
 
-        if not Protocol.layer_acquires(layer_configs[layer]):
+        if not Protocol.layer_acquires(channel_configs[layer]):
             self._refuse(
                 reason='no_acquiring_channel',
                 message=(
@@ -554,7 +554,7 @@ class ProtocolsAPI:
             step_index=step_index,
             label=label,
             layer=layer,
-            layer_config=layer_configs[layer],
+            channel_config=channel_configs[layer],
             stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
             objective_id=objective_id,
@@ -958,7 +958,7 @@ class ProtocolsAPI:
                 sc['enabled'] = False
         return stim_configs
 
-    def refuse_no_acquiring_layer(self, layer_configs: dict) -> None:
+    def refuse_no_acquiring_layer(self, channel_configs: dict) -> None:
         """Refuse a step add or a protocol build when no layer is set to acquire.
 
         A layer whose ``acquire`` is neither image nor video contributes no
@@ -975,7 +975,7 @@ class ProtocolsAPI:
         """
         from _lumascope.modules.protocol import Protocol
 
-        if not any(Protocol.layer_acquires(cfg) for cfg in layer_configs.values()):
+        if not any(Protocol.layer_acquires(cfg) for cfg in channel_configs.values()):
             self._refuse(
                 reason='no_acquiring_channel',
                 message=(

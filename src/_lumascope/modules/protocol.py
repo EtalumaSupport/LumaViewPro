@@ -222,18 +222,18 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
             key_path(zstack_path, 'z_reference'),
         )
 
-    layers = read(config, 'channel_configs', 'dict', argument)
-    layers_path = key_path(argument, 'channel_configs')
-    for layer, layer_config in layers.items():
-        refuse_unknown_channel(layer, layers_path)
-        layer_path = key_path(layers_path, layer)
-        refuse_unless_kind(layer_config, 'dict', layer_path)
-        acquire = required(layer_config, 'acquire', layer_path)
+    channel_configs = read(config, 'channel_configs', 'dict', argument)
+    channel_configs_path = key_path(argument, 'channel_configs')
+    for layer, channel_config in channel_configs.items():
+        refuse_unknown_channel(layer, channel_configs_path)
+        layer_path = key_path(channel_configs_path, layer)
+        refuse_unless_kind(channel_config, 'dict', layer_path)
+        acquire = required(channel_config, 'acquire', layer_path)
         if acquire is None:
             continue
         refuse_unless_offered(AcquireMode, acquire, key_path(layer_path, 'acquire'))
         for key, kind, nullable in _ACQUIRING_LAYER_KINDS:
-            read(layer_config, key, kind, layer_path, nullable=nullable)
+            read(channel_config, key, kind, layer_path, nullable=nullable)
 
     positions = config.get('positions')
     if positions is not None:
@@ -1820,14 +1820,14 @@ class Protocol:
         return set(get_layers())
 
     @staticmethod
-    def layer_acquires(layer_config: dict) -> bool:
+    def layer_acquires(channel_config: dict) -> bool:
         """Whether a layer's settings make it a step: acquire is image or video.
 
         The one answer for the builder, the step add and the refusal that
         guards both; a second spelling (``is not None``) once let a config
         with an empty-string acquire pass the add and build no step.
         """
-        return member_of(AcquireMode, layer_config['acquire']) is not None
+        return member_of(AcquireMode, channel_config['acquire']) is not None
 
     @staticmethod
     def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
@@ -2613,7 +2613,7 @@ class Protocol:
         self,
         step_index: int,
         layer: str,
-        layer_config: dict,
+        channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
         stim_configs: dict,
@@ -2662,18 +2662,18 @@ class Protocol:
             'X': plate_position.x_mm,
             'Y': plate_position.y_mm,
             'Z': plate_position.z_um,
-            'Auto_Focus': layer_config['autofocus'],
+            'Auto_Focus': channel_config['autofocus'],
             'Color': layer,
-            'False_Color': layer_config['false_color'],
-            'Illumination': layer_config['illumination_ma'],
-            'Gain': layer_config['gain_db'],
-            'Auto_Gain': layer_config['auto_gain'],
-            'Exposure': layer_config['exposure_ms'],
-            'Sum': layer_config['sum'],
+            'False_Color': channel_config['false_color'],
+            'Illumination': channel_config['illumination_ma'],
+            'Gain': channel_config['gain_db'],
+            'Auto_Gain': channel_config['auto_gain'],
+            'Exposure': channel_config['exposure_ms'],
+            'Sum': channel_config['sum'],
             'Objective': objective_id,
             'Turret Slot': turret_slot,
-            'Acquire': layer_config['acquire'],
-            'Video Config': copy.deepcopy(layer_config['video_config']),
+            'Acquire': channel_config['acquire'],
+            'Video Config': copy.deepcopy(channel_config['video_config']),
             'Stim_Config': copy.deepcopy(stim_configs),
         }
         typed = {column: self._typed_value(column, value) for column, value in values.items()}
@@ -2710,7 +2710,7 @@ class Protocol:
         self,
         step_name: str | None,
         layer: str,
-        layer_config: dict,
+        channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
         stim_configs: dict,
@@ -2770,14 +2770,14 @@ class Protocol:
             x=plate_position.x_mm,
             y=plate_position.y_mm,
             z=plate_position.z_um,
-            af=layer_config['autofocus'],
+            af=channel_config['autofocus'],
             color=layer,
-            fc=layer_config['false_color'],
-            ill=layer_config['illumination_ma'],
-            gain=layer_config['gain_db'],
-            auto_gain=layer_config['auto_gain'],
-            exp=layer_config['exposure_ms'],
-            sum=layer_config['sum'],
+            fc=channel_config['false_color'],
+            ill=channel_config['illumination_ma'],
+            gain=channel_config['gain_db'],
+            auto_gain=channel_config['auto_gain'],
+            exp=channel_config['exposure_ms'],
+            sum=channel_config['sum'],
             objective=objective_id,
             well=well,
             tile=tile,
@@ -2785,8 +2785,8 @@ class Protocol:
             custom_step=custom_step,
             tile_group_id=tile_group_id,
             zstack_group_id=zstack_group_id,
-            acquire=layer_config['acquire'],
-            video_config=layer_config['video_config'],
+            acquire=channel_config['acquire'],
+            video_config=channel_config['video_config'],
             stim_config=copy.deepcopy(stim_configs),
             auto_named=auto_named,
             channel_group_id=channel_group_id,
@@ -3289,7 +3289,7 @@ class Protocol:
         # layer focus for matching steps. New Protocol does NOT populate it by
         # default -- the carry-over was removed (see
         # ProtocolSettings.new_protocol); this path is kept dormant for a
-        # future opt-in. Empty / missing falls back to layer_config['focus'].
+        # future opt-in. Empty / missing falls back to channel_config['focus'].
         previous_well_z = input_config.get('previous_well_z') or {}
 
         # Stored under the catalogue's key: a plate renamed since the caller
@@ -3297,7 +3297,7 @@ class Protocol:
         # carries the name every later reader resolves.
         labware_id = wellplate_loader.resolve_plate_key(input_config['labware_id'])
         objective_id = input_config['objective_id']
-        layer_configs = input_config['channel_configs']
+        channel_configs = input_config['channel_configs']
         period = input_config['period']
         duration = input_config['duration']
         stim_config = input_config['stim_config']
@@ -3308,7 +3308,7 @@ class Protocol:
         # The objective is stamped into every step; a protocol with none --
         # an empty one -- is built with no objective (None), since there may
         # be none in the light path to name. A named one is the catalogue's.
-        acquiring = any(cls.layer_acquires(cfg) for cfg in layer_configs.values())
+        acquiring = any(cls.layer_acquires(cfg) for cfg in channel_configs.values())
         if objective_id is None:
             if acquiring:
                 _refuse_build(
@@ -3368,8 +3368,8 @@ class Protocol:
         # One step per acquiring layer per position; the grid and the stack
         # are built over these by apply_tiling and apply_zstacking.
         for pos in actual_positions:
-            for layer_name, layer_config in layer_configs.items():
-                if not cls.layer_acquires(layer_config):
+            for layer_name, channel_config in channel_configs.items():
+                if not cls.layer_acquires(channel_config):
                     continue
 
                 # Each axis as given: one of X and Y without the other is
@@ -3392,8 +3392,8 @@ class Protocol:
                     z = tuned_z
                 elif pos['z'] is not None:
                     z = pos['z']
-                elif layer_config['focus'] is not None:
-                    z = layer_config['focus']
+                elif channel_config['focus'] is not None:
+                    z = channel_config['focus']
                 elif current_z is not None:
                     z = current_z
                 else:
@@ -3408,20 +3408,20 @@ class Protocol:
                 if z is not None:
                     z = round(z, common_utils.max_decimal_precision('z'))
 
-                autofocus = layer_config['autofocus']
-                false_color = layer_config['false_color']
+                autofocus = channel_config['autofocus']
+                false_color = channel_config['false_color']
                 illumination = round(
-                    layer_config['illumination_ma'],
+                    channel_config['illumination_ma'],
                     common_utils.max_decimal_precision('illumination'),
                 )
-                sum = int(layer_config['sum'])
-                gain = round(layer_config['gain_db'], common_utils.max_decimal_precision('gain'))
-                auto_gain = common_utils.to_bool(layer_config['auto_gain'])
+                sum = int(channel_config['sum'])
+                gain = round(channel_config['gain_db'], common_utils.max_decimal_precision('gain'))
+                auto_gain = common_utils.to_bool(channel_config['auto_gain'])
                 exposure = round(
-                    layer_config['exposure_ms'],
+                    channel_config['exposure_ms'],
                     common_utils.max_decimal_precision('exposure'),
                 )
-                video_config = layer_config['video_config']
+                video_config = channel_config['video_config']
 
                 well_label = pos['name']
                 if position_source == 'from_labware':
@@ -3451,7 +3451,7 @@ class Protocol:
                     custom_step=custom_step,
                     tile_group_id=-1,
                     zstack_group_id=-1,
-                    acquire=layer_config['acquire'],
+                    acquire=channel_config['acquire'],
                     video_config=video_config,
                     stim_config=stim_config,
                     auto_named=True,
@@ -3503,7 +3503,7 @@ class Protocol:
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = TilingGrids.no_tiling_label()
-        layer_configs = {}
+        channel_configs = {}
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
@@ -3515,7 +3515,7 @@ class Protocol:
             'zstack_params': zstack_params,
             'use_zstacking': use_zstacking,
             'tiling': tiling,
-            'channel_configs': layer_configs,
+            'channel_configs': channel_configs,
             'period': period,
             'duration': duration,
             'frame_dimensions': frame_dimensions,

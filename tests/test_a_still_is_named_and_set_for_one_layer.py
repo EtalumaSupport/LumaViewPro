@@ -117,7 +117,7 @@ def test_after_a_still_the_camera_holds_the_shown_layer(session):
 def test_a_still_after_a_run_is_one_layers(session, tmp_path):
     """BF shown before a one-step LED 0 scan: the still after it is named for
     the layer shown and taken at that layer's settings, whichever it is."""
-    for layer in session.get_layer_configs():
+    for layer in session.get_channel_configs():
         session.set_channel_acquire(layer, None)
     session.set_channel_acquire(LED0, 'image')
     protocol = session.new_protocol()

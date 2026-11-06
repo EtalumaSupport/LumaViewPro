@@ -38,15 +38,15 @@ OBJECTIVE = TEST_TURRET_OBJECTIVES[1]
 def _layer_configs(**acquire_by_layer):
     """The production layer configs with the named layers set to acquire."""
     settings = complete_settings()
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = acquire_by_layer.get(layer)
-    return config_helpers.get_layer_configs(settings)
+    return config_helpers.get_channel_configs(settings)
 
 
-def _add(scope, protocol, layer_configs, **kwargs):
+def _add(scope, protocol, channel_configs, **kwargs):
     return scope.protocols.add_step(
         protocol,
-        layer_configs=layer_configs,
+        channel_configs=channel_configs,
         stim_configs={},
         plate_position=PLATE_POSITION,
         **kwargs,
@@ -170,7 +170,7 @@ def session():
 
 class TestAScriptAddsAStepThroughTheSession:
     def test_the_session_composes_the_add_from_its_own_settings(self, session):
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         session.settings['BF']['acquire'] = 'image'
         protocol = session.scope.protocols.create_protocol(
@@ -188,7 +188,7 @@ class TestAScriptAddsAStepThroughTheSession:
         # The viewed channel's focus is the better guess for every channel,
         # and each saved focus stays where New starts the next protocol.
         saved = {'BF': 7000.0, LED0: 8000.0, LED1: 9000.0}
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         for layer, focus in saved.items():
             session.settings[layer]['acquire'] = 'image'
@@ -208,9 +208,9 @@ class TestAScriptAddsAStepThroughTheSession:
     def test_a_script_adds_the_layers_it_names_where_it_names_without_changing_the_settings(
         self, session
     ):
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
-        before = config_helpers.get_layer_configs(session.settings)
+        before = config_helpers.get_channel_configs(session.settings)
         protocol = session.create_empty_protocol()
         at = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
 
@@ -221,10 +221,10 @@ class TestAScriptAddsAStepThroughTheSession:
         assert steps['Color'].tolist() == [LED0, 'BF']
         assert steps['Acquire'].tolist() == ['image', 'image']
         assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
-        assert config_helpers.get_layer_configs(session.settings) == before
+        assert config_helpers.get_channel_configs(session.settings) == before
 
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
@@ -240,7 +240,7 @@ class TestAScriptAddsAStepThroughTheSession:
 
 
 def _only_acquiring(session, *layers):
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = 'image' if layer in layers else None
 
 

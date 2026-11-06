@@ -34,7 +34,7 @@ def _insert_step(proto, *, step_name):
         turret_slot=-1,
         step_name=step_name,
         layer='BF',
-        layer_config=_add_layer_config(),
+        channel_config=_add_layer_config(),
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},

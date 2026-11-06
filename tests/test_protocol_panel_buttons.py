@@ -564,7 +564,7 @@ def _one_step_protocol(z_um):
         turret_slot=-1,
         step_name=None,
         layer='BF',
-        layer_config={
+        channel_config={
             'autofocus': False,
             'false_color': False,
             'illumination_ma': 100.0,

@@ -59,7 +59,7 @@ def reported(monkeypatch):
 
 def _bf_steps_at(session, xs_um):
     """One BF step at each X in ``xs_um``, in that order, mid-travel in Y and Z."""
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
     session.scope.motion.move_xy(y_um=40000)
@@ -190,7 +190,7 @@ class TestTiling:
 
 def _bf_steps_at_center(session):
     """One BF step where a stage-less scope's steps are: wherever the stage is."""
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
     session.scope.motion.move_z(5000.0)
@@ -252,7 +252,7 @@ class TestZStacking:
 
 def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
     """New with the stack ticked: BF autofocusing, LED 0 not, each at its own saved focus."""
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
         session.settings[layer]['autofocus'] = False
     for layer, focus in (('BF', bf_focus), (LED0, blue_focus)):
@@ -316,7 +316,7 @@ def wide_field_session():
 
 def _new_bf_and_blue_tiled(session, tiling):
     """New tiled: BF saved at 5000, LED 0 below it at 4990."""
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
     for layer, focus in (('BF', 5000.0), (LED0, 4990.0)):
         session.set_channel_acquire(layer, 'image')

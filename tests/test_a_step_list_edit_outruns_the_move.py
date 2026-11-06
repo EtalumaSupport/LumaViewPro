@@ -96,7 +96,7 @@ def _insert(
     *,
     x,
     objective,
-    layer_config=LAYER_CONFIG,
+    channel_config=LAYER_CONFIG,
     before_step_index=None,
     after_step_index=None,
 ):
@@ -105,7 +105,7 @@ def _insert(
         turret_slot=-1,
         step_name=None,
         layer='BF',
-        layer_config=layer_config,
+        channel_config=channel_config,
         plate_position=PlateLocation(x_mm=x, y_mm=10.0, z_um=0.0),
         objective_id=objective,
         stim_configs={},
@@ -380,7 +380,7 @@ def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(
         panel._protocol,
         x=BASE_X_MM,
         objective=env.objective,
-        layer_config={**LAYER_CONFIG, 'exposure_ms': 0.0},
+        channel_config={**LAYER_CONFIG, 'exposure_ms': 0.0},
         after_step_index=-1,
     )
     panel.curr_step = 0

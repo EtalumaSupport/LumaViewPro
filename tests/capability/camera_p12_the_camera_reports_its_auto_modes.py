@@ -193,7 +193,7 @@ def _probe(session):
     # Every step below arms a loop this camera does not have.
     if not has_auto_gain:
         return
-    bf_ma = session.get_layer_configs(['BF'])['BF']['illumination_ma']
+    bf_ma = session.get_channel_configs(['BF'])['BF']['illumination_ma']
     figure('BF mA, the layer stored', bf_ma)
     scope.illumination.led_on('BF', bf_ma)
     try:

@@ -56,10 +56,10 @@ def test_a_row_whose_action_names_no_read_is_named():
     planted = {
         'bookmark': settings_paths.SettingMember('ScopeSession', 'save_bookmark'),
         'objective_confirmed': settings_paths.SettingMember(
-            'ScopeSession', 'confirm_objective', 'get_layer_configs'
+            'ScopeSession', 'confirm_objective', 'get_channel_configs'
         ),
     }
     assert _unread(planted) == [
         'bookmark: ScopeSession.save_bookmark names its read nowhere',
-        'objective_confirmed: get_layer_configs is not a published read',
+        'objective_confirmed: get_channel_configs is not a published read',
     ]

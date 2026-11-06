@@ -157,7 +157,7 @@ def test_before_a_home_the_run_is_refused_as_not_homed(unhomed_session, member):
     """The position is read on the snapshot's plate without asking about
     the axes; the run's own gate answers, as it does for every run kind."""
     settings = unhomed_session.settings
-    for layer in config_helpers.get_layer_configs(settings):
+    for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = 'image' if layer in ('BF', LED1) else None
     settings['zstack'].update({'range': 20.0, 'step_size': 5.0})
     runner = unhomed_session.protocol_runner()

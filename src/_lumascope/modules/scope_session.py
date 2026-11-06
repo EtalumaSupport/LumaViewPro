@@ -2146,24 +2146,31 @@ class ScopeSession:
         }
         return remedies[remedy.member]()
 
-    def get_layer_configs(self, specific_layers: list | None = None) -> dict:
-        """The stored settings of each layer, or of ``specific_layers``.
+    def get_channel_configs(self, specific_channels: list | None = None) -> dict:
+        """Each channel's settings block in the session's settings, or only
+        those of ``specific_channels``, as ``config_helpers.get_channel_configs``
+        builds them.
+
+        Unlike that builder, it refuses a name that is not a channel of this
+        release, and on a scope with no Z axis each dict's ``autofocus``
+        reads False (``_read_autofocus_as_off_without_z``); the stored
+        settings are not changed.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` or
-                ``'no_channel_selected'``, a name in ``specific_layers`` is
-                not a layer.
+                ``'no_channel_selected'``, a name in ``specific_channels`` is
+                not a channel.
         """
         import _lumascope.modules.config_helpers as config_helpers
 
-        for layer in specific_layers or ():
+        for layer in specific_channels or ():
             refuse_unknown_channel(layer)
 
-        layer_configs = config_helpers.get_layer_configs(self.settings, specific_layers)
-        self._read_autofocus_as_off_without_z(layer_configs.values())
-        return layer_configs
+        channel_configs = config_helpers.get_channel_configs(self.settings, specific_channels)
+        self._read_autofocus_as_off_without_z(channel_configs.values())
+        return channel_configs
 
-    def _read_autofocus_as_off_without_z(self, layer_entries: Iterable[dict]) -> None:
+    def _read_autofocus_as_off_without_z(self, channel_configs: Iterable[dict]) -> None:
         """Turn off the autofocus switch in copies read from a scope with no Z.
 
         Autofocus moves Z, so a run that asks for it on this scope is
@@ -2175,7 +2182,7 @@ class ScopeSession:
         """
         if self.scope.capabilities.has_focus:
             return
-        for entry in layer_entries:
+        for entry in channel_configs:
             entry['autofocus'] = False
 
     @api(reads=True)
@@ -2909,10 +2916,11 @@ class ScopeSession:
         for key, seconds in (('period', period_s), ('duration', duration_s)):
             if seconds is not None:
                 config[key] = schedule_from_units(key, seconds, judged=False, unit='seconds')
-        layer_configs = config['channel_configs']
-        self.scope.protocols.refuse_no_acquiring_layer(layer_configs)
+        channel_configs = config['channel_configs']
+        self.scope.protocols.refuse_no_acquiring_layer(channel_configs)
         if any(
-            Protocol.layer_acquires(cfg) and cfg['focus'] is None for cfg in layer_configs.values()
+            Protocol.layer_acquires(cfg) and cfg['focus'] is None
+            for cfg in channel_configs.values()
         ):
             self.scope.motion.refuse_unknown_positions(
                 ('Z',), recording=True, then='make a new protocol'
@@ -3009,7 +3017,7 @@ class ScopeSession:
             StepEditRefusedError: ``'step_value_refused'``, both given.
         """
         if channels is None:
-            layer_configs = self.get_layer_configs()
+            channel_configs = self.get_channel_configs()
             channel_order = self.settings['step_channel_order']
         else:
             channels = tuple(channels)
@@ -3017,12 +3025,12 @@ class ScopeSession:
                 self.scope.channel_identity.refuse_unless_on_scope(
                     channel, 'add_step', then='take a step'
                 )
-            layer_configs = self.get_layer_configs(list(channels))
+            channel_configs = self.get_channel_configs(list(channels))
             # A layer named is acquired whatever its stored acquire, as a
             # still unless it is stored as a video.
-            for layer_config in layer_configs.values():
-                if layer_config['acquire'] is None:
-                    layer_config['acquire'] = AcquireMode.IMAGE
+            for channel_config in channel_configs.values():
+                if channel_config['acquire'] is None:
+                    channel_config['acquire'] = AcquireMode.IMAGE
             channel_order = list(channels)
         zstack_params = None
         if use_zstacking:
@@ -3032,7 +3040,7 @@ class ScopeSession:
                 zstack_params = config_helpers.get_zstack_params_from_settings(self.settings)
         return self.scope.protocols.add_step(
             protocol,
-            layer_configs=layer_configs,
+            channel_configs=channel_configs,
             stim_configs=self.get_stim_configs(),
             plate_position=at if at is not None else self.plate_position_on(protocol.labware_id()),
             channel_order=channel_order,
@@ -3100,7 +3108,7 @@ class ScopeSession:
             protocol,
             step_index,
             layer=channel,
-            layer_configs=self.get_layer_configs(),
+            channel_configs=self.get_channel_configs(),
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware_id()),
             label=label,
@@ -3903,7 +3911,7 @@ class ScopeSession:
         stimulation spans every layer it names, and each takes its own.
         """
         color = step['Color']
-        layer_values = {
+        channel_config = {
             'autofocus': step['Auto_Focus'],
             'false_color': step['False_Color'],
             'illumination_ma': step['Illumination'],
@@ -3914,10 +3922,10 @@ class ScopeSession:
         }
         video_config = step.get('Video Config')
         if isinstance(video_config, dict):
-            layer_values['video_config'] = copy.deepcopy(video_config)
+            channel_config['video_config'] = copy.deepcopy(video_config)
         stim_configs = step.get('Stim_Config')
         with self.settings_lock:
-            for key, value in layer_values.items():
+            for key, value in channel_config.items():
                 self._store_setting(f'{color}.{key}', value)
             self._write_layer_acquire(color, step['Acquire'])
             if isinstance(stim_configs, dict):

@@ -34,7 +34,7 @@ def session():
     session = ScopeSession.create(settings, simulate=True)
     try:
         home_sim_scope(session.scope)
-        for layer in config_helpers.get_layer_configs(session.settings):
+        for layer in config_helpers.get_channel_configs(session.settings):
             session.settings[layer]['acquire'] = None
         for layer, focus in (('BF', 5000.0), (LED0, 5020.0)):
             session.set_channel_acquire(layer, 'image')

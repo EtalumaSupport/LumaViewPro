@@ -792,7 +792,7 @@ class LayerControl(BoxLayout):
         finally:
             self._initializing = was_initializing
 
-    def render_layer_values_from_settings(self, layer_settings=None):
+    def render_layer_values_from_settings(self, channel_config=None):
         """Render this layer's stored illumination, gain and exposure.
 
         The one store-to-widget path for the three settings that appear on both
@@ -801,22 +801,22 @@ class LayerControl(BoxLayout):
         honor is wrong in the store, not merely too large for the slider, and
         pinning the slider would hide it instead of correcting it.
 
-        Pass *layer_settings* when the caller already holds a snapshot of this
+        Pass *channel_config* when the caller already holds a snapshot of this
         layer's settings. Reading the store again here would take the lock a
         second time and could see a DIFFERENT state, leaving some widgets
         rendered from one snapshot and some from another; a caller with no
         snapshot passes nothing and this reads the store once, under the lock.
         """
-        if layer_settings is None:
+        if channel_config is None:
             ctx = _app_ctx.ctx
             with ctx.settings_lock:
                 stored = ctx.settings[self.layer]
-                layer_settings = {
+                channel_config = {
                     key: stored[key] for _, _, key in _LAYER_VALUE_WIDGETS if key in stored
                 }
         for slider_id, text_id, settings_key in _LAYER_VALUE_WIDGETS:
-            if settings_key in layer_settings:
-                self._show_value_on_widgets(slider_id, text_id, layer_settings[settings_key])
+            if settings_key in channel_config:
+                self._show_value_on_widgets(slider_id, text_id, channel_config[settings_key])
 
     def sync_widgets_from_settings(self):
         """Point every widget of this layer at its stored settings.
@@ -837,41 +837,41 @@ class LayerControl(BoxLayout):
         """
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
-            layer_settings = copy.deepcopy(ctx.settings[self.layer])
+            channel_config = copy.deepcopy(ctx.settings[self.layer])
 
         gui_logger.display(f'LAYER_PANEL_{self.layer}', 'settings')
         self._initializing = True
         try:
-            if 'composite_brightness_threshold' in layer_settings:
+            if 'composite_brightness_threshold' in channel_config:
                 show_on_slider(
                     self.ids['composite_threshold_slider'],
-                    layer_settings['composite_brightness_threshold'],
+                    channel_config['composite_brightness_threshold'],
                 )
 
-            self.render_layer_values_from_settings(layer_settings)
+            self.render_layer_values_from_settings(channel_config)
 
-            self.ids['false_color'].active = layer_settings['false_color']
-            show_on_slider(self.ids['sum_slider'], layer_settings.get('sum', 1))
+            self.ids['false_color'].active = channel_config['false_color']
+            show_on_slider(self.ids['sum_slider'], channel_config.get('sum', 1))
 
-            if layer_settings['acquire'] == AcquireMode.IMAGE:
+            if channel_config['acquire'] == AcquireMode.IMAGE:
                 self.ids['acquire_image'].active = True
-            elif layer_settings['acquire'] == AcquireMode.VIDEO:
+            elif channel_config['acquire'] == AcquireMode.VIDEO:
                 self.ids['acquire_video'].active = True
             else:
                 self.ids['acquire_none'].active = True
 
-            video_config = layer_settings['video_config']
+            video_config = channel_config['video_config']
             self.ids['video_duration_text'].text = str(video_config['duration'])
             show_on_slider(self.ids['video_duration_slider'], video_config['duration'])
 
-            self.ids['autofocus'].active = layer_settings['autofocus']
+            self.ids['autofocus'].active = channel_config['autofocus']
             # The box shows the enable actually in force, not the bare
             # stored preference, the same way apply_settings shows it.
             self.ids['auto_gain'].active = self.effective_auto_gain()
 
             # Shipped settings carry no stim_config on the transmitted
             # layers, and a None is representable.
-            stim_config = layer_settings.get('stim_config')
+            stim_config = channel_config.get('stim_config')
             if stim_config:
                 # Default to hidden until enabled
                 self.show_stim_controls = False

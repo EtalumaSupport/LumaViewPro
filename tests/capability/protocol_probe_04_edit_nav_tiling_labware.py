@@ -29,14 +29,14 @@ try:
     banner('ADD a step (insert_step)')
     pos = session.get_current_plate_position()
     obj_id, _ = session.scope.runtime_state.resolve_current_objective()
-    lc = config_helpers.get_layer_configs(settings, specific_layers=['BF'])['BF']
+    lc = config_helpers.get_channel_configs(settings, specific_channels=['BF'])['BF']
     lc['acquire'] = 'image'
     idx = p.insert_step(
         channel_group_id=p.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
         layer='BF',
-        layer_config=lc,
+        channel_config=lc,
         stim_configs=config_helpers.get_stim_configs(settings),
         plate_position=pos,
         objective_id=obj_id,
@@ -54,7 +54,7 @@ try:
         step_index=1,
         label='probe_renamed',
         layer='BF',
-        layer_config=lc2,
+        channel_config=lc2,
         stim_configs=config_helpers.get_stim_configs(settings),
         plate_position=pos,
         objective_id=obj_id,

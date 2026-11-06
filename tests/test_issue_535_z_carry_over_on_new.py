@@ -4,7 +4,7 @@
 Behavior
 --------
 New Protocol resets every step to its channel's saved focus baseline
-(layer_config['focus']). A per-(well, channel) Z carry-over from the prior
+(channel_config['focus']). A per-(well, channel) Z carry-over from the prior
 in-memory protocol was added on an external request, but it harvested
 autofocus-refined Z along with user-tuned Z and overrode a freshly-saved
 focus, so it was removed as the default. Per-well focus is re-established on
@@ -18,7 +18,7 @@ Test approach
 -------------
 1. Functional tests on Protocol.from_config lock the dormant opt-in
    machinery: an explicit previous_well_z map is applied; an empty/missing
-   map falls back to layer_config['focus'].
+   map falls back to channel_config['focus'].
 2. AST structural lock on ProtocolSettings.new_protocol: it must NOT build a
    previous_well_z carry-over (New resets to the per-channel baseline).
 """
@@ -103,7 +103,7 @@ def test_protocol_from_config_applies_previous_well_z(scale_capabilities):
 
 
 def test_protocol_from_config_no_previous_well_z_falls_through(scale_capabilities):
-    """No previous_well_z key -> every well uses layer_config focus."""
+    """No previous_well_z key -> every well uses channel_config focus."""
     from _lumascope.modules.protocol import Protocol
 
     cfg = _build_input_config()  # no previous_well_z

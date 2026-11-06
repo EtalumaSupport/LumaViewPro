@@ -243,7 +243,7 @@ class TestDarkFloorKeysOnLedDrivability:
         # recreate the settings/commanded divergence.
         src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
         assert (
-            "layer in common_utils.get_layers_with_led() and layer_configs[layer]['illumination_ma'] > 0"
+            "layer in common_utils.get_layers_with_led() and channel_configs[layer]['illumination_ma'] > 0"
         ) not in src, 'the settings-store dark-floor predicate must stay retired'
 
 

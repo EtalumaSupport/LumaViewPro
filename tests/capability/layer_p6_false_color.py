@@ -16,7 +16,9 @@ try:
     s.update_settings(f'{LED0}.false_color', not before)
     after = s.get_settings_snapshot()[LED0]['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
-    print('1: session.get_layer_configs sees:', s.get_layer_configs([LED0])[LED0]['false_color'])
+    print(
+        '1: session.get_channel_configs sees:', s.get_channel_configs([LED0])[LED0]['false_color']
+    )
 
     # 2) does it change the bytes on disk?
     from _lumascope.modules.image_save import save_image

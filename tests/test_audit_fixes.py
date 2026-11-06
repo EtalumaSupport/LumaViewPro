@@ -7169,7 +7169,7 @@ class TestImagingParamNamesUseUnitSuffix:
     the L2 surface and the driver contract drop bare ``gain`` / ``t`` /
     ``exposure`` / ``min_gain`` / ``max_gain`` parameter names that fail to
     disambiguate units from the four parallel namespaces uncovered by the
-    2026-05-20 units-consistency audit (raw settings, derived layer_config,
+    2026-05-20 units-consistency audit (raw settings, derived channel_config,
     camera-cache, API-param). Lock these so a revert breaking either the
     L2 contract or the driver contract trips immediately."""
 

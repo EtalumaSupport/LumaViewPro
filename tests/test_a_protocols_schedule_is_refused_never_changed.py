@@ -233,7 +233,7 @@ class TestAValueInItsUnits:
 
 
 def _acquire_only_bf(session):
-    for layer in config_helpers.get_layer_configs(session.settings):
+    for layer in config_helpers.get_channel_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
 

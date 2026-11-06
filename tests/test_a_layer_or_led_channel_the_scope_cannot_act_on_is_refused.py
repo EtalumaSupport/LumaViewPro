@@ -66,7 +66,7 @@ NAME_MEMBERS = {
     'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
     'saved_focus_z_um': lambda s, v: s.saved_focus_z_um(v),
     'save_channel_focus': lambda s, v: s.save_channel_focus(v, 0.0),
-    'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
+    'get_channel_configs': lambda s, v: s.get_channel_configs([v]),
     'show_channel': lambda s, v: s.show_channel(v),
     'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, channel=v),
 }

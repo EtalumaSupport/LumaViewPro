@@ -102,7 +102,7 @@ def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
     `settings[layer]['ill_ma'/'exp_ms']` -> `illumination_ma`/`exposure_ms`,
     and `stim_config['illumination']` -> `illumination_ma`. The storage dict
     is the L2 API surface, so its keys are the names callers write; these
-    spellings had to match what `get_layer_configs` already emitted.
+    spellings had to match what `get_channel_configs` already emitted.
 
     Must run before the settings.json default-merge: the merge only ADDS
     missing keys, so without this fold an install carrying ill_ma = 150
@@ -232,12 +232,12 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         if layer not in settings:
             logger.warning(f'[Settings ] {filepath}: missing layer "{layer}"')
             continue
-        layer_settings = settings[layer]
-        if not isinstance(layer_settings, dict):
+        channel_config = settings[layer]
+        if not isinstance(channel_config, dict):
             logger.warning(f'[Settings ] {filepath}: "{layer}" should be dict')
             continue
         for field, _expected_type in _REQUIRED_LAYER_FIELDS.items():
-            if field not in layer_settings:
+            if field not in channel_config:
                 logger.warning(f'[Settings ] {filepath}: "{layer}" missing "{field}"')
 
     # Validate motion settings
@@ -498,20 +498,20 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
             changed = True
 
     for layer in get_layers():
-        layer_settings = settings_dict.get(layer)
-        if not isinstance(layer_settings, dict):
+        channel_config = settings_dict.get(layer)
+        if not isinstance(channel_config, dict):
             continue
 
         # A filename prefix every layer once shipped, which nothing reads:
         # a capture's name is built by the writer that saves it.
-        if 'file_root' in layer_settings:
-            del layer_settings['file_root']
+        if 'file_root' in channel_config:
+            del channel_config['file_root']
             changed = True
 
-        video_config = layer_settings.get('video_config')
+        video_config = channel_config.get('video_config')
         if not isinstance(video_config, dict):
             video_config = {}
-            layer_settings['video_config'] = video_config
+            channel_config['video_config'] = video_config
             changed = True
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
@@ -547,12 +547,12 @@ def forget_shipped_focus(settings_dict: dict) -> list[str]:
 
     forgotten = []
     for layer in get_layers():
-        layer_settings = settings_dict.get(layer)
+        channel_config = settings_dict.get(layer)
         if (
-            isinstance(layer_settings, dict)
-            and layer_settings.get('focus') == _RETIRED_SHIPPED_FOCUS_UM
+            isinstance(channel_config, dict)
+            and channel_config.get('focus') == _RETIRED_SHIPPED_FOCUS_UM
         ):
-            layer_settings['focus'] = None
+            channel_config['focus'] = None
             forgotten.append(layer)
     return forgotten
 
