@@ -84,6 +84,20 @@ class PathAnswer(pydantic.BaseModel):
     host_path: str
 
 
+class StillAsked(pydantic.BaseModel):
+    """What a full-depth still is asked with (``POST /api/v1/still``)."""
+
+    model_config = _MODEL_CONFIG
+    exposed_after_call: bool = pydantic.Field(
+        default=False,
+        description=(
+            'True keeps only a frame exposed after this call, for a caller that '
+            'changed what the camera sees outside LVP (its own light or shutter) '
+            'and waited for it to settle (`ScopeSession.capture_still`).'
+        ),
+    )
+
+
 class RemedyAnswer(pydantic.BaseModel):
     """The one action that answers a refusal: the remedy to send back to ``apply_remedy``, and the words that offer it."""
 

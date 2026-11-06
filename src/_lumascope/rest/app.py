@@ -23,6 +23,7 @@ import contextlib
 import dataclasses
 import hashlib
 import inspect
+import json
 import logging
 import pathlib
 import time
@@ -32,6 +33,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 import fastapi
 import fastapi.routing
+import numpy as np
 import pydantic
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -44,6 +46,7 @@ from _lumascope.modules.exceptions import (
     ServerRefusedError,
     UnfitArgument,
 )
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.scope_session import ScopeSession
@@ -62,6 +65,7 @@ from _lumascope.rest.routes import (
     Job,
     PathAnswer,
     Route,
+    StillAsked,
     routes,
     sent_of_query,
 )
@@ -78,7 +82,9 @@ PREFIX = f'/api/{VERSION}'
 CONTROL_SESSION_HEADER = 'control-session'
 # The first path segments the server answers itself; a Session member of
 # one of these names would be shadowed, so one fails the build.
-SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'previews', 'live', 'live.jpg'})
+SERVER_SEGMENTS = frozenset(
+    {'handles', 'jobs', 'events', 'files', 'previews', 'live', 'live.jpg', 'still'}
+)
 # What any member answers when its call outlives what the client will wait.
 _ANSWERED_AS_JOB = {
     'model': Job,
@@ -240,6 +246,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
     _add_upload_route(app, session, jobs, closing, keys)
+    _add_still_route(app, session, jobs, closing)
     _add_preview_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
@@ -366,8 +373,80 @@ def _add_upload_route(
     )
 
 
+def _add_still_route(
+    app: fastapi.FastAPI, session: ScopeSession, jobs: JobRegistry, closing: Closing
+) -> None:
+    async def still(request: fastapi.Request, asked: StillAsked | None = None) -> fastapi.Response:
+        """A still at the camera's own depth, with the camera as set: its record, then its pixels.
+
+        ``ScopeSession.capture_still`` with no layer held and no 8-bit
+        conversion, reached as every write is: on a call thread, as a REST
+        client, in the control session the ``Control-Session`` header names.
+        The body is the still's ``FrameRecord`` as UTF-8 JSON, then the
+        image's bytes, row by row, little-endian, in the array's own type;
+        ``X-Record-Length`` is the record's length in bytes, ``X-Image-Shape``
+        the rows and columns, ``X-Image-Dtype`` the type and
+        ``X-Significant-Bits`` the depth (``CapturedStill.significant_bits``).
+        It is answered when the still is taken, however long that is: a job's
+        answer is JSON and cannot carry the pixels. A refusal or a failure is
+        the member's problem. An ``Idempotency-Key`` is not held: a still
+        writes nothing, and asked again it takes another.
+        """
+        _refuse_query(request)
+        if closing.begun:
+            raise problems.server_closing()
+        jobs.admit(returns_job=False)
+        exposed_after_call = (asked or StillAsked()).exposed_after_call
+        request_id = request.state.request_id
+        control_id = request.headers.get(CONTROL_SESSION_HEADER)
+        # The pixels travel beside the answer, which holds only the record.
+        taken: list[CapturedStill] = []
+
+        def work() -> object:
+            with _acting_in(session, control_id):
+                captured = session.capture_still(
+                    None, force_to_8bit=False, exposed_after_call=exposed_after_call
+                )
+            taken.append(captured)
+            return wire_encoding.encode(
+                captured.record,
+                live_folder=session.get_setting('live_folder'),
+                handle=_no_handle,
+                job=_no_handle,
+            )
+
+        reply = await jobs.run(lambda: _answered(work, request_id), 'capture_still', request_id)
+        if reply.is_problem:
+            return reply.response()
+        image = taken[0].image
+        record = json.dumps(reply.body).encode()
+        pixels = np.ascontiguousarray(image, dtype=image.dtype.newbyteorder('<')).tobytes()
+        return fastapi.Response(
+            record + pixels,
+            media_type='application/octet-stream',
+            headers={
+                'X-Record-Length': str(len(record)),
+                'X-Image-Shape': ','.join(str(n) for n in image.shape),
+                'X-Image-Dtype': image.dtype.name,
+                'X-Significant-Bits': str(taken[0].significant_bits),
+            },
+        )
+
+    app.add_api_route(
+        f'{PREFIX}/still',
+        still,
+        methods=['POST'],
+        tags=['capture'],
+        **_not_json(
+            'application/octet-stream',
+            "The still's record as JSON, `X-Record-Length` bytes, then its pixels.",
+            {'type': 'string', 'format': 'binary'},
+        ),
+    )
+
+
 def _no_handle(value: object) -> object:
-    """A file's path answers no handle and no job."""
+    """A file's path and a still's record answer no handle and no job."""
     raise wire_encoding.NoWireFormError(type(value).__name__)
 
 

@@ -1353,6 +1353,13 @@ event is `closing`.
   capture.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width`).
+- `POST /api/v1/still` -- a still with the camera as set, at its own depth,
+  saved nowhere (`ScopeSession.capture_still`): the body is the still's record
+  as JSON, `X-Record-Length` bytes, then its pixels, row by row, little-endian,
+  shaped by `X-Image-Shape`, `X-Image-Dtype` and `X-Significant-Bits`. Its
+  JSON body, `{"exposed_after_call": true}`, keeps only a frame exposed after
+  the call, for a light or shutter LVP did not switch. It answers when the
+  still is taken, never as a job.
 
 The live view and previews are display: 8-bit grey, lossy, with no metadata.
 The data is the file. Every answer carries `X-Request-ID`, which a problem
