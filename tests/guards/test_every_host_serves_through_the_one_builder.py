@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 
 from tests.ast_seams import REPO_ROOT as _REPO, tracked_files
+from tests.guards.test_api_doc_guard import guide_texts
 
 _THE_BUILDER = 'src/_lumascope/rest/server.py'
 _SERVING = ('uvicorn.Config(', 'uvicorn.run(')
@@ -58,4 +59,4 @@ def test_no_published_document_serves_without_the_builder():
         for doc in docs
     }
     assert {doc: said for doc, said in found.items() if said} == {}
-    assert 'build_server(session' in (_REPO / 'docs' / 'lumascope-skills.md').read_text('utf-8')
+    assert any('build_server(session' in text for _, text in guide_texts())

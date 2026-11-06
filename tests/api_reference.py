@@ -75,7 +75,7 @@ _PREFACE = f"""\
 
 <!-- Generated from the code; do not edit. Regenerate: {REGENERATE} -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is the guide: `lumascope-skills.md`, and the files its map names under `guide/`.
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 

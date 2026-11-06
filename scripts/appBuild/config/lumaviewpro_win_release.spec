@@ -24,10 +24,11 @@ datas = [
     ('docs/LICENSE', 'docs'),
     ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
     ('docs/CONTRIBUTORS.md', 'docs'),
-    # The API's documents, for the reader of an installation: the guide,
+    # The API's documents, for the reader of an installation: the guide (its hub and its files),
     # the generated reference, the plugin tutorial the guide links to, and
     # the examples with their REST twins. The app opens none of them.
     ('docs/lumascope-skills.md', 'docs'),
+    ('docs/guide/*.md', 'docs/guide'),
     ('docs/api-reference.md', 'docs'),
     ('docs/plugin-tutorial.md', 'docs'),
     ('docs/api_examples/*.py', 'docs/api_examples'),

@@ -19,12 +19,13 @@ import ast
 from pathlib import PurePosixPath
 
 from tests.ast_seams import REPO_ROOT, tracked_files
-from tests.guards.test_api_doc_guard import fence_info
+from tests.guards.test_api_doc_guard import fence_info, guide_files
 
 _PUBLIC = 'lumascope'
+# The guide is the hub and the files its map names, read as the guide guard reads them.
 _DOCS = (
     'README.md',
-    'docs/lumascope-skills.md',
+    *guide_files(),
     'docs/plugin-tutorial.md',
     'docs/api_examples/README.md',
 )
@@ -109,7 +110,7 @@ def test_the_docs_import_only_lumascope():
         '`lumascope`, the one public module. Import the name from `lumascope`.\n'
         + '\n'.join(failures)
     )
-    assert {'docs/lumascope-skills.md', 'docs/plugin-tutorial.md'} <= read, (
+    assert {*guide_files(), 'docs/plugin-tutorial.md'} <= read, (
         f'the walk read no Python fence of a doc it must read: it read {sorted(read)}'
     )
 

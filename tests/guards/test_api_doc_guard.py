@@ -1,4 +1,12 @@
-"""Structural guard: lumascope-skills.md's code is the API's, and it runs.
+"""Structural guard: the guide's code is the API's, and it runs.
+
+The guide is the hub, ``docs/lumascope-skills.md``, and the files its map
+names under ``docs/guide/`` (``guide_files``): every check below reads each
+file on its own -- its chapters, its fences' names, its Changelog -- and the
+coverage checks read their union. The map is the one list of the files: a
+file under ``docs/guide/`` that no row names, or a row naming a file git does
+not track, is reported, and so is a task whose files pass the load ceiling
+(``guide_set_failures``).
 
 Every call form a reader could copy out of the guide must resolve on a real
 object (polarity 1) AND accept the arguments the guide passes it (polarity
@@ -9,7 +17,7 @@ still reject the documented call, which is how the guide came to publish
 had neither parameter. Binding is not enough either: a call can bind and
 still fail on the shipped settings, as the guide's unlit still, its
 ``new_protocol(..., use_zstacking=True)`` with no stack configured, and its
-moves on an unhomed scope did. When this test goes red the DOC is what gets
+moves on an unhomed scope did. When this test goes red the guide is what gets
 corrected -- the guide follows the API, never the reverse. Adding a method
 because a doc line names it is the failure mode this guard exists to make
 visible, not to license.
@@ -71,6 +79,7 @@ import inspect
 import json
 import re
 import shlex
+import subprocess
 import traceback
 import urllib.parse
 import warnings
@@ -81,7 +90,7 @@ from _lumascope.lib.lumascope_error import LumascopeError
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
-DOC = REPO_ROOT / 'docs' / 'lumascope-skills.md'
+HUB = 'docs/lumascope-skills.md'
 
 # Receivers the reference uses for the live objects an L2 caller holds.
 # `scope` is the Lumascope composition root, `session` the ScopeSession L2
@@ -117,6 +126,67 @@ def fence_info(line):
         key, sep, value = word.partition('=')
         options[key] = value if sep else True
     return (words[0] if words else ''), options
+
+
+# The bytes a task's files may come to, the hub among them: 80% of the guide
+# when it was one file (75,492 B at LVP a9d53d105), so the split cuts every
+# reader's load by at least a fifth. A task past it is answered by splitting a
+# file further, never by raising the ceiling.
+LOAD_CEILING = 60_000
+
+_MAP_HEADING = '## The map'
+_MAP_LINK = re.compile(r'\]\((guide/[^)#\s]+\.md)\)')
+
+
+def guide_map(root=None):
+    """``[(task, (file, ...)), ...]``: each row of the hub's map and the files it loads.
+
+    The files are repo-relative, the hub left out (every task loads it). The
+    map is the one list of the guide's files; a row's links into ``guide/``
+    are what it loads.
+    """
+    root = REPO_ROOT if root is None else root
+    rows, inside = [], False
+    for line in (root / HUB).read_text(encoding='utf-8').splitlines():
+        if line.startswith('## '):
+            inside = line == _MAP_HEADING
+            continue
+        if inside and line.startswith('|'):
+            task, *_, load = (cell.strip() for cell in line.strip('|').split('|'))
+            files = tuple(f'docs/{f}' for f in _MAP_LINK.findall(load))
+            if files:
+                rows.append((task, files))
+    return rows
+
+
+def guide_files(root=None):
+    """The guide's files, repo-relative: the hub, then each file the map names, in its order."""
+    names = [HUB]
+    for _, files in guide_map(root):
+        names += [f for f in files if f not in names]
+    return names
+
+
+def guide_texts(root=None):
+    """``[(path, text), ...]`` for each of the guide's files."""
+    root = REPO_ROOT if root is None else root
+    return [(root / rel, (root / rel).read_text(encoding='utf-8')) for rel in guide_files(root)]
+
+
+def guide_set_failures(root=None):
+    """A line per file the map and git disagree on, and per task whose load passes the ceiling."""
+    root = REPO_ROOT if root is None else root
+    named = set(guide_files(root)) - {HUB}
+    tracked = set(tracked_files(('docs/guide',), '*.md', root=root))
+    failures = [f'  {f}  no row of the map names it' for f in sorted(tracked - named)]
+    failures += [
+        f'  {f}  the map names it and git tracks no such file' for f in sorted(named - tracked)
+    ]
+    for task, files in guide_map(root):
+        load = sum((root / f).stat().st_size for f in (HUB, *files) if f in tracked | {HUB})
+        if load > LOAD_CEILING:
+            failures.append(f'  "{task}" loads {load} B, past the {LOAD_CEILING} B ceiling')
+    return failures
 
 
 def _fenced_call_forms(text):
@@ -199,14 +269,14 @@ def _documented_calls(text):
 
 
 @pytest.fixture(scope='module')
-def doc_text():
-    """The published reference, read once for the module.
+def guide():
+    """The guide's files and their texts, read once for the module.
 
     pin-justified: the guard's subject IS the document text, so there is no
     AST seam to assert instead -- the doc-example case the source-pin ratchet
-    names as justified. One read site serves both checks.
+    names as justified. One read site serves every check.
     """
-    return DOC.read_text(encoding='utf-8')
+    return guide_texts()
 
 
 @pytest.fixture(scope='module')
@@ -277,26 +347,88 @@ def _first_missing_attr(root, receiver, chain):
     return '.'.join((receiver, *chain[: depth + 1]))
 
 
-class TestLumascopeSkillsCallFormsResolve:
-    """Polarity 1: documented call forms exist on the live API surface."""
-
-    def test_every_fenced_call_form_resolves(self, live_objects, doc_text):
-        failures = []
-        for receiver, chain, lineno in _fenced_call_forms(doc_text):
+def unresolved_call_forms(guide, live_objects):
+    """A line per fenced call form of ``guide``'s files that does not resolve on the live API."""
+    failures = []
+    for path, text in guide:
+        for receiver, chain, lineno in _fenced_call_forms(text):
             missing = _first_missing_attr(live_objects[receiver], receiver, chain)
             if missing:
                 failures.append(
-                    f'  {DOC}:{lineno}  {receiver}.{".".join(chain)}  -> no attribute {missing}'
+                    f'  {path}:{lineno}  {receiver}.{".".join(chain)}  -> no attribute {missing}'
                 )
+    return failures
 
+
+def _planted_tree(root, rows, files):
+    """A git tree at ``root`` holding a hub whose map has ``rows``, and ``files`` by repo path."""
+    (root / 'docs' / 'guide').mkdir(parents=True)
+    hub = '# Hub\n\n## The map\n\n| Task | Load |\n|---|---|\n' + ''.join(
+        f'| {task} | ' + ', '.join(f'[`{f}`](guide/{f})' for f in loads) + ' |\n'
+        for task, loads in rows
+    )
+    (root / HUB).write_text(hub + '\n## Changelog\n', encoding='utf-8')
+    for rel, text in files.items():
+        (root / rel).write_text(text, encoding='utf-8')
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    return root
+
+
+class TestTheGuideIsTheMapsFiles:
+    """The hub's map is the one list of the guide's files, and each task's load fits."""
+
+    def test_the_map_names_every_file_and_every_task_fits(self):
+        failures = guide_set_failures()
         assert not failures, (
-            'lumascope-skills.md documents call forms that do not resolve on the '
+            "The guide's map and its files disagree, or a task loads past the ceiling: name "
+            'each file under docs/guide/ in a row of the map, and split a file that makes a '
+            'task too large.\n' + '\n'.join(failures)
+        )
+
+    def test_a_file_the_map_names_is_read(self, tmp_path, live_objects):
+        root = _planted_tree(
+            tmp_path,
+            [('Plant', ['planted.md'])],
+            {'docs/guide/planted.md': '# Planted\n\n```python\nsession.no_such_member()\n```\n'},
+        )
+        assert guide_files(root) == [HUB, 'docs/guide/planted.md']
+        assert unresolved_call_forms(guide_texts(root), live_objects) == [
+            f'  {root / "docs/guide/planted.md"}:4  session.no_such_member  '
+            '-> no attribute session.no_such_member'
+        ]
+
+    def test_a_file_the_map_does_not_name_and_a_task_past_the_ceiling_are_reported(self, tmp_path):
+        root = _planted_tree(
+            tmp_path,
+            [('Fits', ['small.md']), ('Too much', ['small.md', 'big.md']), ('Gone', ['gone.md'])],
+            {
+                'docs/guide/small.md': '# Small\n',
+                'docs/guide/big.md': '# Big\n' + 'x' * LOAD_CEILING,
+                'docs/guide/stray.md': '# Stray\n',
+            },
+        )
+        assert guide_set_failures(root) == [
+            '  docs/guide/stray.md  no row of the map names it',
+            '  docs/guide/gone.md  the map names it and git tracks no such file',
+            f'  "Too much" loads {(root / HUB).stat().st_size + 8 + 6 + LOAD_CEILING} B, '
+            f'past the {LOAD_CEILING} B ceiling',
+        ]
+
+
+class TestLumascopeSkillsCallFormsResolve:
+    """Polarity 1: documented call forms exist on the live API surface."""
+
+    def test_every_fenced_call_form_resolves(self, live_objects, guide):
+        failures = unresolved_call_forms(guide, live_objects)
+        assert not failures, (
+            'The guide documents call forms that do not resolve on the '
             'live API. An L2 reader copying these lines gets AttributeError.\n'
             'Correct the DOCUMENT to match the surface -- do not add a member to '
             'satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
         )
 
-    def test_every_fenced_call_form_is_api(self, live_objects, doc_text):
+    def test_every_fenced_call_form_is_api(self, live_objects, guide):
         """Each step of a copyable call form is a marked member.
 
         Resolving is not enough: an unmarked member resolves too, and a reader
@@ -306,17 +438,18 @@ class TestLumascopeSkillsCallFormsResolve:
         not ours to mark.
         """
         unmarked = []
-        for receiver, chain, lineno in _fenced_call_forms(doc_text):
-            step = _first_unmarked_step(live_objects[receiver], receiver, chain)
-            if step:
-                unmarked.append(f'  {DOC}:{lineno}  {receiver}.{".".join(chain)}  -> {step}')
+        for path, text in guide:
+            for receiver, chain, lineno in _fenced_call_forms(text):
+                step = _first_unmarked_step(live_objects[receiver], receiver, chain)
+                if step:
+                    unmarked.append(f'  {path}:{lineno}  {receiver}.{".".join(chain)}  -> {step}')
         assert not unmarked, (
-            'lumascope-skills.md teaches call forms through members that are not API '
+            'The guide teaches call forms through members that are not API '
             '(no @api, not in @api_fields). Rewrite the line to the marked door, or '
             'drop it.\n' + '\n'.join(sorted(set(unmarked)))
         )
 
-    def test_guard_actually_reaches_the_reference(self, doc_text):
+    def test_guard_actually_reaches_the_reference(self, guide):
         """The extractor is wired to real content, not silently finding nothing.
 
         A regex or fence-tracking regression would make the check above pass
@@ -324,7 +457,7 @@ class TestLumascopeSkillsCallFormsResolve:
         today, so a run that misses one means the extractor broke, not that
         the doc got smaller.
         """
-        receivers = {r for r, _, _ in _fenced_call_forms(doc_text)}
+        receivers = {r for _, text in guide for r, _, _ in _fenced_call_forms(text)}
         assert receivers == {'scope', 'session', 'caps'}, (
             f'expected call forms for every documented receiver, saw {receivers or "none"} -- '
             'the fence tracker or the call-form pattern has regressed'
@@ -367,31 +500,32 @@ class TestLumascopeSkillsCallFormsBind:
     the drift, not the naming half.
     """
 
-    def test_every_documented_call_binds(self, bind_roots, doc_text):
+    def test_every_documented_call_binds(self, bind_roots, guide):
         failures = []
-        for receiver, chain, nargs, kwnames, lineno in _documented_calls(doc_text):
-            root = bind_roots.get(receiver)
-            if root is None:
-                continue
-            target, _ = _walk_chain(root, chain)
-            if target is None or not callable(target):
-                continue
-            form = '.'.join((receiver, *chain))
-            try:
-                inspect.signature(target).bind(
-                    *(_SENTINEL,) * nargs, **dict.fromkeys(kwnames, _SENTINEL)
-                )
-            except TypeError as exc:
-                failures.append(f'  {DOC}:{lineno}  {form}(...)  -> {exc}')
+        for path, text in guide:
+            for receiver, chain, nargs, kwnames, lineno in _documented_calls(text):
+                root = bind_roots.get(receiver)
+                if root is None:
+                    continue
+                target, _ = _walk_chain(root, chain)
+                if target is None or not callable(target):
+                    continue
+                form = '.'.join((receiver, *chain))
+                try:
+                    inspect.signature(target).bind(
+                        *(_SENTINEL,) * nargs, **dict.fromkeys(kwnames, _SENTINEL)
+                    )
+                except TypeError as exc:
+                    failures.append(f'  {path}:{lineno}  {form}(...)  -> {exc}')
 
         assert not failures, (
-            'lumascope-skills.md documents calls the live signature will not accept. '
+            'The guide documents calls the live signature will not accept. '
             'An L2 reader copying these lines gets TypeError.\n'
             'Correct the DOCUMENT to match the signature -- do not add a parameter '
             'to satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
         )
 
-    def test_bind_check_reaches_the_receivers_that_carry_arguments(self, doc_text):
+    def test_bind_check_reaches_the_receivers_that_carry_arguments(self, guide):
         """The extractor is wired to real content, not silently finding nothing.
 
         A fence-tracking or parse regression would make the check above pass
@@ -403,7 +537,7 @@ class TestLumascopeSkillsCallFormsBind:
         for property reads, so requiring a CALL form there would pin a wording
         choice rather than a contract.
         """
-        receivers = {r for r, _, _, _, _ in _documented_calls(doc_text)}
+        receivers = {r for _, text in guide for r, _, _, _, _ in _documented_calls(text)}
         expected = {'scope', 'session', *_CONSTRUCTOR_RECEIVERS}
         assert expected <= receivers, (
             f'no documented calls found for {sorted(expected - receivers)} -- the fence '
@@ -623,10 +757,10 @@ def _doc_project_name_failures(text, label):
 class TestLumascopeSkillsTeachesOnlyApi:
     """What the reference has a reader import from the project, or names by path, is API."""
 
-    def test_every_project_name_the_reference_teaches_is_api(self, doc_text):
-        failures = _doc_project_name_failures(doc_text, DOC)
+    def test_every_project_name_the_reference_teaches_is_api(self, guide):
+        failures = [f for path, text in guide for f in _doc_project_name_failures(text, path)]
         assert not failures, (
-            'lumascope-skills.md teaches a project name that is not API (an exception, an '
+            'The guide teaches a project name that is not API (an exception, an '
             'enum, a class with marked members or published fields, or a marked function), '
             'or calls one with arguments it will not take. Teach the member that does the '
             'job, or say in words what the API does.\n' + '\n'.join(failures)
@@ -663,13 +797,13 @@ class TestLumascopeSkillsTeachesOnlyApi:
             assert expected in reported, reported
 
 
-def test_the_reference_names_each_protocol_constructor_and_each_is_api():
-    """A presence claim the call-form check does not make: the reference
+def test_the_reference_names_each_protocol_constructor_and_each_is_api(guide):
+    """A presence claim the call-form check does not make: the guide
     teaches the three ways to get a protocol, and each is a marked member."""
     from _lumascope.modules.api_surface import API, mark_of
     from _lumascope.modules.scope_session import ScopeSession
 
-    doc = DOC.read_text(encoding='utf-8')
+    doc = '\n'.join(text for _, text in guide)
     for member in ('load_protocol', 'new_protocol', 'create_empty_protocol'):
         assert f'session.{member}(' in doc, member
         assert mark_of(getattr(ScopeSession, member)) == API, member
@@ -851,10 +985,10 @@ class TestLumascopeSkillsFencesRun:
     """Polarity 3: every ``python`` fence runs on the simulator as its info string states."""
 
     @pytest.mark.slow
-    def test_every_python_fence_runs(self, doc_text):
-        failures = guide_fence_failures(doc_text, DOC)
+    def test_every_python_fence_runs(self, guide):
+        failures = [f for path, text in guide for f in guide_fence_failures(text, path)]
         assert not failures, (
-            'lumascope-skills.md has python fences that do not run on the simulator as '
+            'The guide has python fences that do not run on the simulator as '
             'written. A fence that teaches a refusal states it (```python '
             'raises=<Class>:<reason>) and ends in it; one that needs a board says tier= or '
             'model=; one no simulator can run is ```python norun.\n' + '\n'.join(failures)
@@ -1085,10 +1219,13 @@ class TestLumascopeSkillsWalkthroughRuns:
     """Polarity 4: the REST walkthrough's ``curl`` lines answer what their comments state."""
 
     @pytest.mark.slow
-    def test_every_curl_line_answers_as_stated(self, doc_text):
-        failures = _walk(doc_text, DOC)
+    def test_every_curl_line_answers_as_stated(self, guide):
+        # One shell per file: a walkthrough's lines read the ids its own earlier lines made.
+        walked = [(path, text) for path, text in guide if any(bash_fence_lines(text))]
+        assert walked, 'no file of the guide holds a bash fence: the walkthrough went unread'
+        failures = [f for path, text in walked for f in _walk(text, path)]
         assert not failures, (
-            'lumascope-skills.md has a curl line that does not answer as its comment '
+            'The guide has a curl line that does not answer as its comment '
             'states, on a simulated server. Correct the line or its comment.\n'
             + '\n'.join(failures)
         )
@@ -1245,17 +1382,22 @@ def prose_name_failures(text, label, owners):
 class TestLumascopeSkillsProseNamesResolve:
     """Polarity 5: a name the guide's prose states resolves, by its kind, at its owner."""
 
-    def test_every_prose_name_resolves(self, doc_text, prose_owners):
-        failures, _ = prose_name_failures(doc_text, DOC, prose_owners)
+    def test_every_prose_name_resolves(self, guide, prose_owners):
+        failures = [
+            f for path, text in guide for f in prose_name_failures(text, path, prose_owners)[0]
+        ]
         assert not failures, (
-            'lumascope-skills.md names something in its prose that does not resolve: a '
+            'The guide names something in its prose that does not resolve: a '
             'member or field that is not API, a route no route answers, a settings path '
             'that is no setting, or a quoted reason no published outcome carries. Correct '
             'the DOCUMENT.\n' + '\n'.join(failures)
         )
 
-    def test_the_check_reaches_every_kind(self, doc_text, prose_owners):
-        _, counts = prose_name_failures(doc_text, DOC, prose_owners)
+    def test_the_check_reaches_every_kind(self, guide, prose_owners):
+        counts = sum(
+            (prose_name_failures(text, path, prose_owners)[1] for path, text in guide),
+            collections.Counter(),
+        )
         kinds = {'member', 'route', 'setting', 'reason'}
         assert kinds <= counts.keys(), (
             f'prose names found by kind: {dict(counts)}; a kind with none means the '
@@ -1300,11 +1442,10 @@ def anchors_of(text):
 
 
 def published_docs():
-    """Every document LumaViewPro publishes: the repo's README and its ``docs/``."""
+    """Every document LumaViewPro publishes: the repo's README and each markdown file under ``docs/``."""
     return [
         REPO_ROOT / 'README.md',
-        *[REPO_ROOT / rel for rel in tracked_files(('docs',), '*.md')],
-        REPO_ROOT / 'docs' / 'api_examples' / 'README.md',
+        *[REPO_ROOT / rel for rel in tracked_files(('docs',), '**/*.md')],
     ]
 
 

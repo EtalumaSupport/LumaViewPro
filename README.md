@@ -36,7 +36,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 - **Simulate Mode** -- run without hardware using `python lumaviewpro.py --simulate`
 - **API** -- the scope driven from Python through a `ScopeSession`, or over REST, with or without the GUI
 
-The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md). A program that uses the API imports it from one module, `lumascope` (`from lumascope import ScopeSession`), and is run with the Python the install scripts set up, from any folder.
+The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide, whose map says which of its files under [`docs/guide/`](docs/guide) a task loads; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md). A program that uses the API imports it from one module, `lumascope` (`from lumascope import ScopeSession`), and is run with the Python the install scripts set up, from any folder.
 
 ## Getting Started
 
