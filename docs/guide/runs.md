@@ -6,8 +6,15 @@ Protocols, runs, and post-processing.
 channel, and how to capture it -- with a schedule. Three members give you one:
 `session.new_protocol(...)` builds one over every well of the selected plate,
 `session.create_empty_protocol()` starts one with no steps, and
-`session.load_protocol(path)` reads a file. Which channels a built protocol
-captures is each channel's acquire setting (`set_channel_acquire`).
+`session.load_protocol(path)` reads a file and puts the scope on its plate -- a
+write, refused under another's control session and when the scope cannot be on
+that plate. `new_protocol` and `add_step` capture each channel whose acquire
+setting is on (`set_channel_acquire`); `add_step(channels=...)` names the
+channels instead, one acquiring nothing added as an image step. A step captures
+an image or a video, as its channel's acquire mode says
+([`AcquireMode`](../api-reference.md#AcquireMode)), and carries each
+fluorescence channel's stimulation (`StepRecord.stim_config`, a
+[`Stimulation`](../api-reference.md#Stimulation) per channel).
 
 ```python
 session.set_channel_acquire('BF', 'image')       # BF is captured by every step
@@ -39,20 +46,24 @@ caller turned autofocus on or moved.
 
 `update_step` on a slice of a z-stack writes the channel's light and camera
 to every slice of that channel in the stack, and the live X, Y and objective
-to every slice of the stack, every channel; the slice keeps its own Z and
-label. So a caller that updates a slice without first going to it
-(`go_to_step`) moves the whole stack to where the stage is.
+to every slice of the stack, every channel. The slice alone takes the live Z,
+its label changes only when `label` is given, and naming another channel is
+refused (`'step_value_refused'`). So a caller that updates a slice without
+first going to it (`go_to_step`) moves the whole stack to where the stage is.
 
-A protocol read to run gives each tile of a z-stack its own group, so a file
-in which one group spans several tiles (saved by a build that tiled an
-already-stacked protocol) reads as one stack per tile, with a warning in the
-log.
+A file in which one z-stack spans several tiles is read as one stack per tile,
+with a warning in the log.
 
 A protocol is edited only through the session (`add_step`, `update_step`,
 `rename_step`, `delete_step`, `apply_tiling`, `apply_zstacking`,
-`set_protocol_schedule`, ...), and each edit is a guarded write, refused under
+`set_protocol_schedule`, `set_protocol_labware`, `set_protocol_capture_root`,
+`set_step_autofocus`, `apply_focus_to_channel_steps`,
+`point_steps_at_turret_slot`, ...), and each edit is a write, refused under
 another's control session. Its records (`step_records()`) are read-only, and a
-run works on its own copy.
+run works on its own copy. `protocol_size_advisory(protocol)` says, before a
+run, whether it is large enough to warn about, and
+`start_go_to_step(protocol, step_index)` moves the scope to a step: its
+objective, its X, Y and Z.
 
 **The schedule** is in seconds in the API: `period_s` between scans and
 `duration_s` in all. The protocol file keeps them in minutes and hours.
@@ -64,8 +75,9 @@ assert protocol.num_scans() == 6
 
 **The protocol file** is tab-separated. Its first row is
 `Protocol.PROTOCOL_FILE_HEADER`, then the version, the period (minutes), the
-duration (hours), the plate and the capture root, then a table of steps whose
-columns are `Protocol.CURRENT_COLUMNS`:
+duration (hours), the plate and the capture root; then a Layer Settings block,
+a row of each channel's settings the protocol carries; then a table of steps
+whose columns are `Protocol.CURRENT_COLUMNS`:
 
 ```python
 from lumascope import Protocol
@@ -75,10 +87,16 @@ print(Protocol.CURRENT_VERSION, Protocol.CURRENT_COLUMNS)
 
 `X` and `Y` are plate millimetres from the plate's top-left, `Z` stage
 micrometres, `Illumination` milliamps, `Gain` dB, `Exposure` milliseconds, and
-`Sum` the frames summed. A file of an earlier version is converted when it is
-read; a newer one is refused (`ProtocolFormatError`). Loading is strict about a
-cell's type and lenient about its value: a value no run could use is reported
-when the file is read, and refused when a run starts.
+`Sum` the frames summed. A file of version 2 or later is converted when it is
+read; version 1 and a newer one than this release's are refused
+(`ProtocolFormatError`). A load refuses a plate the installation does not know
+(`ProtocolFormatError`); glass this scope cannot put in the light path, or a
+step on a channel it does not have, with the reason a run would give
+(`ProtocolRunRefusedError`; `'channel_unknown'` for a channel no release has);
+a Layer Settings value no channel setting takes (`'values_out_of_range'`); and a
+schedule no run could keep (`ProtocolScheduleRefusedError`). A step's value is the one thing
+loading is lenient about: one no run could use is reported when the file is
+read, and refused when a run starts.
 
 **Runs.** A run is started by the session's protocol runner and returns an
 `Operation` at once:
@@ -88,7 +106,7 @@ when the file is read, and refused when a run starts.
 | `start_single_scan(protocol)` | every step once |
 | `start_protocol(protocol)` | every scan of the schedule |
 | `start_autofocus(channel)` | an autofocus where the stage is |
-| `start_autofocus_all_steps(protocol)` | an autofocus at each step (once per z-stack), written into the protocol |
+| `start_autofocus_all_steps(protocol)` | an autofocus at each step (once per z-stack), written into the protocol when the scan completes and its steps did not change (`RunOutcome.focus_written`) |
 | `start_zstack(channel)` | a stack of the stored range where the stage is |
 | `start_composite(...)` | one capture per acquiring channel, merged |
 
@@ -103,15 +121,32 @@ print(outcome.captures)                     # asked, captured, failed, saturated
 print(started.files.result(timeout=60))     # the run's images: written, or how many were not
 ```
 
-A run that cannot start is refused before it takes the scope:
+A run that cannot start is refused before it takes the scope, mostly
 `ProtocolRunRefusedError`, its `reason` naming why (`'position_unknown'`,
-`'zstack_not_configured'`, `'exclusive_activity_running'`, ...). Once started, a run
+`'zstack_not_configured'`, `'exclusive_activity_running'`, ...); each start's
+`Raises:` lists the rest. Once started, a run
 always ends with a `RunOutcome` -- it does not raise -- whose `status` is one of
 `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`, with a
 `reason` and the words a person reads.
 
-**Where a run writes.** Under the live folder, `ProtocolData/<time>`: one
-image per step and channel, the protocol it ran, and a record of each capture.
+**A run's files.** A run lets go of the scope before its images are on disk:
+its operation ends with the run, and `files`, its own operation, once they are
+written ([Operations](python.md#operations); over REST, the run's job and its
+`files` job, [Jobs](rest.md#jobs)). Read the run's folder, or start the next
+run, after `files`. In a time-lapse each autofocus step starts its next
+interval's sweep from the focus it last found, kept in the run's copy; the
+protocol you passed keeps its Z.
+
+**Where a run writes.** Under the live folder, unless its `parent_dir` names
+another:
+
+| Run | Folder |
+|---|---|
+| a scan or a protocol | `ProtocolData/<date>_<time>`: an image per step and channel, the protocol it ran, a record of each capture |
+| a z-stack | `Manual/Z-Stacks` |
+| a composite | `Manual/Composites` |
+| an autofocus | nothing, unless `save_characterization_data` asks: `Autofocus Characterization` |
+
 A run's video steps record as a manual recording does
 ([Saved files](captures-and-files.md#saved-files)), and its hyperstacks are built once the run ends.
 
@@ -119,5 +154,13 @@ A run's video steps record as a manual recording does
 `session.post_processing.build(folder, zproject=..., stitch=..., composite=...,
 video=...)` builds the projections first, then the stitches, the composites
 and the videos, each group of a run from every frame it recorded or not at all.
-A build runs on its own lane, beside the next run, and is refused while the
-run it would read is still writing.
+Each build takes only what the one before it in the call carried forward, so
+`zproject` and `stitch` together stitch the projections, and the same call made
+again rebuilds nothing already made and resumes where it stopped. A build does
+not start while a run, a recording, a home or a diagnostic holds the scope
+(`'scope_held'`) or a run's files are being written (`'files_writing'`); one
+already running when a run starts runs on, on its own lane.
+
+`session.post_processing` also enhances an image (`enhance`), counts cells
+(`count_cells`, with saved methods: `save_cell_count_method`,
+`load_cell_count_method`) and draws graphs of what was counted (`graph`).
