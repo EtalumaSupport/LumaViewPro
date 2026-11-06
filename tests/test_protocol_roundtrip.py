@@ -34,7 +34,7 @@ from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.layer_record import release_catalogue
 from _lumascope.modules.objectives_loader import ObjectiveLoader
-from _lumascope.modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules.protocol import ChannelSettings, Protocol, ProtocolFormatError
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -2275,7 +2275,7 @@ class TestV6LayerSettings:
                 ),
             ]
         )
-        # Save WITHOUT layer_settings (legacy save path)
+        # Save WITHOUT channel_settings (legacy save path)
         filepath = tmp_path / 'v5_shape.tsv'
         proto.to_file(filepath)
         reloaded = protocol_from_file(
@@ -2291,124 +2291,75 @@ class TestV6LayerSettings:
         assert inferred[LED2].exposure_ms == 100.0
 
     def test_explicit_block_round_trips(self, tmp_path):
-        """Save with layer_settings kwarg, reload, expect identical values
-        back from channel_settings(), each typed by the protocol's one reader."""
+        """Records written as the block read back as the same records, a None
+        field a blank cell and each cell typed by the protocol's one reader."""
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
                 _make_step(name=f'A1_{LED0}', color=LED0, acquire='image', illumination=150.0),
             ]
         )
-        ls_in = {
-            'BF': {
-                'Layer': 'BF',
-                'Acquire': 'image',
-                'Illumination': 2.0,
-                'Gain': 1.0,
-                'Auto_Gain': False,
-                'Exposure': 2.0,
-                'False_Color': False,
-                'Sum': 1,
-                'Stim_Enabled': '',
-            },
-            LED0: {
-                'Layer': LED0,
-                'Acquire': 'image',
-                'Illumination': 150.0,
-                'Gain': 0.0,
-                'Auto_Gain': False,
-                'Exposure': 100.0,
-                'False_Color': True,
-                'Sum': 1,
-                'Stim_Enabled': False,
-            },
+        records = {
+            'BF': ChannelSettings(
+                acquire=AcquireMode.IMAGE,
+                illumination_ma=2.0,
+                gain_db=1.0,
+                auto_gain=False,
+                exposure_ms=2.0,
+                false_color=False,
+                frames_summed=1,
+                stim_enabled=None,
+            ),
+            LED0: ChannelSettings(
+                acquire=AcquireMode.VIDEO,
+                illumination_ma=150.0,
+                gain_db=0.0,
+                auto_gain=True,
+                exposure_ms=100.0,
+                false_color=True,
+                frames_summed=3,
+                stim_enabled=False,
+            ),
         }
         filepath = tmp_path / 'v6.tsv'
-        proto.to_file(filepath, layer_settings=ls_in)
+        proto.to_file(filepath, channel_settings=records)
 
-        # File should contain the block markers
-        text = filepath.read_text()
-        assert 'Layer Settings' in text
-        assert 'Stim_Enabled' in text
+        assert protocol_from_file(filepath).channel_settings() == records
 
-        reloaded = protocol_from_file(
-            filepath,
-        )
-        ls_out = reloaded.channel_settings()
-        assert set(ls_out.keys()) == {'BF', LED0}
-        assert ls_out['BF'].acquire == 'image'
-        assert ls_out[LED0].illumination_ma == 150.0
-        assert ls_out[LED0].false_color is True
-        assert ls_out[LED0].stim_enabled is False
-
-    def test_disabled_layers_omitted(self, tmp_path):
-        """Layers with Acquire not in (image, video) should NOT be written
-        to disk; reload should not see them."""
-        proto = _build_protocol([_make_step(color='BF', acquire='image')])
-        ls_in = {
-            'BF': {
-                'Layer': 'BF',
-                'Acquire': 'image',
-                'Illumination': 2.0,
-                'Gain': 1.0,
-                'Auto_Gain': False,
-                'Exposure': 2.0,
-                'False_Color': False,
-                'Sum': 1,
-            },
-            LED0: {'Layer': LED0, 'Acquire': None, 'Illumination': 150.0},  # disabled
-            'PC': {'Layer': 'PC', 'Acquire': '', 'Illumination': 5.0},  # disabled
-        }
-        filepath = tmp_path / 'v6_partial.tsv'
-        proto.to_file(filepath, layer_settings=ls_in)
-        reloaded = protocol_from_file(
-            filepath,
-        )
-        ls_out = reloaded.channel_settings()
-        assert 'BF' in ls_out
-        assert LED0 not in ls_out
-        assert 'PC' not in ls_out
-
-    def test_to_file_falls_back_to_stored_layer_settings(self, tmp_path):
-        """If caller doesn't pass layer_settings, to_file() picks up
-        anything that was loaded into self._config -- enabling clean
-        v6 round-trip without re-passing the dict every save."""
+    def test_a_file_read_and_written_again_is_the_same_file(self, tmp_path):
+        """A loaded protocol's stored records are what to_file writes when no
+        records are passed, so a file LVP wrote re-saves byte for byte."""
         proto1 = _build_protocol([_make_step(color='BF', acquire='image')])
         filepath1 = tmp_path / 'v6_first.tsv'
         proto1.to_file(
             filepath1,
-            layer_settings={
-                'BF': {
-                    'Layer': 'BF',
-                    'Acquire': 'image',
-                    'Illumination': 7.5,
-                    'Gain': 1.0,
-                    'Auto_Gain': False,
-                    'Exposure': 2.0,
-                    'False_Color': False,
-                    'Sum': 1,
-                },
+            channel_settings={
+                'BF': ChannelSettings(
+                    acquire=AcquireMode.IMAGE,
+                    illumination_ma=7.5,
+                    gain_db=1.0,
+                    auto_gain=False,
+                    exposure_ms=2.0,
+                    false_color=False,
+                    frames_summed=1,
+                    stim_enabled=None,
+                ),
             },
         )
 
-        reloaded1 = protocol_from_file(
-            filepath1,
-        )
         filepath2 = tmp_path / 'v6_second.tsv'
-        # No layer_settings kwarg this time
-        reloaded1.to_file(filepath2)
+        protocol_from_file(filepath1).to_file(filepath2)
 
-        text = filepath2.read_text()
-        assert 'Layer Settings' in text
-        reloaded2 = protocol_from_file(
-            filepath2,
-        )
-        ls = reloaded2.channel_settings()
-        assert ls['BF'].acquire == 'image'
-        assert ls['BF'].illumination_ma == 7.5
+        def block(path):
+            lines = path.read_text().splitlines()
+            start = lines.index('Layer Settings')
+            return lines[start : lines.index('Steps')]
 
-    def test_no_layer_settings_no_block_written(self, tmp_path):
-        """Saving without layer_settings AND with no stored block should
+        assert block(filepath2) == block(filepath1)
+        assert block(filepath1)[2] == 'BF\timage\t7.5\t1.0\tFalse\t2.0\tFalse\t1\t'
+
+    def test_no_channel_settings_no_block_written(self, tmp_path):
+        """Saving without channel_settings AND with no stored block should
         produce a file containing no 'Layer Settings' marker."""
         proto = _build_protocol([_make_step(color='BF', acquire='image')])
         filepath = tmp_path / 'no_block.tsv'

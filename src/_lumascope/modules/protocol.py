@@ -951,6 +951,18 @@ _LAYER_SETTINGS_CELLS = (
 )
 
 
+def _channel_settings_cells(record: ChannelSettings) -> list[str]:
+    """A record's Layer Settings cells after 'Layer', in column order; None is blank.
+
+    The writer's half of ``_LAYER_SETTINGS_CELLS``: what it writes,
+    ``_channel_settings`` reads back as the same record.
+    """
+    return [
+        '' if getattr(record, field) is None else str(getattr(record, field))
+        for _, field, _ in _LAYER_SETTINGS_CELLS
+    ]
+
+
 def _channel_settings(row: dict) -> ChannelSettings:
     """One Layer Settings row as its record, each cell read as its column's type.
 
@@ -1360,17 +1372,11 @@ class Protocol:
     # Header columns for the v6 'Layer Settings' block. Order is the
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
     # blank for transmitted layers) are still valid as long as the leading
-    # required columns are present.
+    # required columns are present. The cells after 'Layer' are
+    # _LAYER_SETTINGS_CELLS', the one map of a column to its field.
     LAYER_SETTINGS_COLUMNS: ClassVar[list] = [
         'Layer',
-        'Acquire',
-        'Illumination',
-        'Gain',
-        'Auto_Gain',
-        'Exposure',
-        'False_Color',
-        'Sum',
-        'Stim_Enabled',
+        *(column for column, _, _ in _LAYER_SETTINGS_CELLS),
     ]
 
     # Counts the changes to which steps this protocol holds and in what
@@ -1553,18 +1559,18 @@ class Protocol:
         its steps records video, else 'image'. ``stim_enabled`` is not
         inferred: a v5 step carries its stimulation per step.
 
-        Every cell is read as its column's type (``ChannelSettings``); a
-        blank cell but Acquire is None, and so is an inferred one its step
-        cannot supply (see _channel_settings_inferred_from_steps).
+        Every cell is its column's type (``ChannelSettings``), read once
+        when the file was read; a blank cell but Acquire is None, and so is
+        an inferred one its step cannot supply (see
+        _channel_settings_inferred_from_steps).
 
         Raises:
-            ProtocolFormatError: A block cell is not of its column's type. A
-                file is refused at load for it, so a loaded protocol does not.
+            Nothing.
         """
-        rows = self._config.get('layer_settings')
-        if rows is None:
+        records = self._config.get('channel_settings')
+        if records is None:
             return self._channel_settings_inferred_from_steps()
-        return {name: _channel_settings(row) for name, row in rows.items()}
+        return dict(records)
 
     def has_saved_layer_settings(self) -> bool:
         """Whether the protocol carries its own Layer Settings block.
@@ -1572,7 +1578,7 @@ class Protocol:
         False for a v5 file or a protocol built in memory, whose
         ``channel_settings()`` are inferred from its steps.
         """
-        return self._config.get('layer_settings') is not None
+        return self._config.get('channel_settings') is not None
 
     def _channel_settings_inferred_from_steps(self) -> dict[str, ChannelSettings]:
         """Each channel's record, typed, from its steps.
@@ -1611,17 +1617,15 @@ class Protocol:
     def copy_for_execution(self) -> 'Protocol':
         """Lightweight copy for protocol execution.
 
-        Copies the config dict, the steps DataFrame (which get mutated by
-        autofocus Z updates) and the Layer Settings, so nothing the run
-        writes reaches the caller's protocol; shares the read-only dicts in
-        the step cells and the read-only TilingGrids. Much cheaper than
-        copy.deepcopy() for large protocols with many steps.
+        Copies the config dict and the steps DataFrame (which get mutated by
+        autofocus Z updates), so nothing the run writes reaches the caller's
+        protocol; shares the read-only dicts in the step cells, the frozen
+        Layer Settings records and the read-only TilingGrids. Much cheaper
+        than copy.deepcopy() for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
         if 'steps' in new_config:
             new_config['steps'] = new_config['steps'].copy()
-        if 'layer_settings' in new_config:
-            new_config['layer_settings'] = copy.deepcopy(new_config['layer_settings'])
         new = Protocol.__new__(Protocol)
         new._config = new_config
         new._tiling_grids = self._tiling_grids  # shared, read-only
@@ -1629,7 +1633,11 @@ class Protocol:
         new._runnable = self._runnable
         return new
 
-    def to_file(self, file_path: FilePath, layer_settings: dict | None = None) -> None:
+    def to_file(
+        self,
+        file_path: FilePath,
+        channel_settings: Mapping[str, ChannelSettings] | None = None,
+    ) -> None:
         """Write the protocol to a TSV file, whole or not at all.
 
         Not published: ``ScopeSession.save_protocol`` is the one way a
@@ -1643,15 +1651,13 @@ class Protocol:
 
         Args:
             file_path: Destination path.
-            layer_settings: Optional dict mapping layer name to a dict
-                of per-layer UI settings (Acquire, Illumination, Gain,
-                Auto_Gain, Exposure, False_Color, Sum, Stim_Enabled).
-                Only layers whose Acquire is 'image' or 'video' are
-                written. When None, falls back to any layer_settings
-                stored on the Protocol (set by load); when both are absent
-                the file is written without a 'Layer Settings'
-                block (channel-enable state will be inferred from
-                steps on reload, matching the v5 fallback path).
+            channel_settings: Each channel's record to write as its Layer
+                Settings row, keyed by channel; a None field is a blank
+                cell. When None, the records stored on the Protocol (set
+                by load) are written; when both are absent the file is
+                written without a 'Layer Settings' block (channel-enable
+                state will be inferred from steps on reload, matching the
+                v5 fallback path).
 
         A missing folder is made where ``file_path`` sends it.
 
@@ -1665,8 +1671,8 @@ class Protocol:
         """
         file_path = path_utils.file_to_write(file_path, extension='.tsv')
         tmp_loc = file_path.with_name(file_path.name + '.tmp')
-        if layer_settings is None:
-            layer_settings = self._config.get('layer_settings')
+        if channel_settings is None:
+            channel_settings = self._config.get('channel_settings')
         # Manual Z-Stack + single-shot capture pass period=None /
         # duration=None into the Protocol config (ui/zstack.py:187-188).
         # The loader accepts 0 as the single-scan marker (Period < 0 and
@@ -1702,35 +1708,17 @@ class Protocol:
                     ]
                 )
 
-                # v6 Layer Settings block -- emitted only when the caller
-                # passes layer_settings AND at least one layer is enabled.
+                # v6 Layer Settings block -- emitted only when there is a
+                # record to write; every record acquires, so each is a row.
                 # Older readers tolerate the block (the 'find Steps' loop
                 # in from_file already skips unknown rows until it hits
                 # 'Steps'); this lets v6 files round-trip cleanly without
                 # breaking any v5-aware downstream tooling.
-                if layer_settings:
-                    enabled = [
-                        (name, vals)
-                        for name, vals in layer_settings.items()
-                        if member_of(AcquireMode, vals.get('Acquire')) is not None
-                    ]
-                    if enabled:
-                        fp.write('\nLayer Settings\n')
-                        csvwriter.writerow(self.LAYER_SETTINGS_COLUMNS)
-                        for name, vals in enabled:
-                            csvwriter.writerow(
-                                [
-                                    name,
-                                    vals.get('Acquire', ''),
-                                    vals.get('Illumination', ''),
-                                    vals.get('Gain', ''),
-                                    vals.get('Auto_Gain', ''),
-                                    vals.get('Exposure', ''),
-                                    vals.get('False_Color', ''),
-                                    vals.get('Sum', ''),
-                                    vals.get('Stim_Enabled', ''),
-                                ]
-                            )
+                if channel_settings:
+                    fp.write('\nLayer Settings\n')
+                    csvwriter.writerow(self.LAYER_SETTINGS_COLUMNS)
+                    for name, record in channel_settings.items():
+                        csvwriter.writerow([name, *_channel_settings_cells(record)])
 
                 fp.write('\nSteps\n')
 
@@ -3773,8 +3761,9 @@ class Protocol:
         protocol -- post-processing a finished run reads its record and never
         its period -- so its names are kept as the run's files carry them,
         and a file saved before the period had a floor, or with a blank step
-        cell a run would refuse, stays readable there; a step cell that is
-        neither blank nor its column's type refuses the file either way.
+        cell a run would refuse, stays readable there; a step cell or a
+        Layer Settings cell that is neither blank nor its column's type
+        refuses the file either way.
         """
         runnable = unit is not StoredNames.KEPT
 
@@ -3954,7 +3943,9 @@ class Protocol:
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
         # followed by one row per enabled layer. Block ends at the first
-        # blank row or at the 'Steps' marker.
+        # blank row or at the 'Steps' marker. Its rows are typed into
+        # records once the channel names are read as the unit's.
+        block_rows = None
         if next_row[0] != 'Steps':  # Check to ensure compatibility with no capture_root field
             found_steps = False
             try:
@@ -3975,7 +3966,7 @@ class Protocol:
                         # 'Layer' column is refused: an inference from the
                         # steps would put back settings the file never held.
                         ls_header = None
-                        config['layer_settings'] = {}
+                        block_rows = {}
                         for sub_row in csvreader:
                             if len(sub_row) == 0 or sub_row[0] == '':
                                 if ls_header is not None:
@@ -3999,14 +3990,14 @@ class Protocol:
                                     'a row of its Layer Settings block names no layer.',
                                     file=file_path,
                                 )
-                            config['layer_settings'][layer_name] = row_dict
+                            block_rows[layer_name] = row_dict
             except StopIteration:
                 raise ProtocolFormatError(
                     "Missing 'Steps' section in protocol file", file=file_path
                 ) from None
             # The writer never writes a block with no rows; one that has none
             # would turn every layer off at a restore.
-            if config.get('layer_settings') == {}:
+            if block_rows == {}:
                 raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
         try:
@@ -4191,11 +4182,11 @@ class Protocol:
                 ),
                 object,
             )
-            if 'layer_settings' in config:
-                config['layer_settings'] = {
+            if block_rows is not None:
+                block_rows = {
                     key: {**row, 'Layer': key}
                     for key, row in _in_unit_keys(
-                        config['layer_settings'], unit, 'its Layer Settings block', file_path
+                        block_rows, unit, 'its Layer Settings block', file_path
                     ).items()
                 }
 
@@ -4278,13 +4269,15 @@ class Protocol:
         protocol._render_step_names()
         protocol_df = protocol._config['steps']
 
-        # A Layer Settings cell the reader cannot type refuses the file here,
-        # naming it, as a step cell does; a loaded protocol's channel_settings()
-        # then cannot raise. A run's protocol read back for post-processing
-        # is not judged: nothing there reads its layer settings.
-        if runnable:
+        # The Layer Settings rows are typed into the protocol's records here,
+        # once, and only the records are kept. A cell the reader cannot type
+        # refuses the file, naming it, as a step cell does, on every read:
+        # post-processing's included.
+        if block_rows is not None:
             try:
-                protocol.channel_settings()
+                protocol._config['channel_settings'] = {
+                    name: _channel_settings(row) for name, row in block_rows.items()
+                }
             except ProtocolFormatError as e:
                 raise ProtocolFormatError(str(e), file=file_path) from None
 

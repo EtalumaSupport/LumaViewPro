@@ -456,13 +456,12 @@ is logged and dropped.
 
 **Raises**
 
-- `ProtocolFormatError`: A protocol built in memory carries a Layer Settings cell that is not of its column's type; no layer is changed. A loaded protocol was refused at load.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its layer setting's range, each named by layer, column and bound; no layer is changed. A loaded protocol was refused at load.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolFormatError`](#ProtocolFormatError): `protocol_invalid`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `values_out_of_range`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `values_out_of_range`
 
 <a id="ScopeSession.apply_focus_to_channel_steps"></a>
 ### `ScopeSession.apply_focus_to_channel_steps`
@@ -11265,17 +11264,14 @@ record seeded from its first step, `acquire` 'video' when any of
 its steps records video, else 'image'. `stim_enabled` is not
 inferred: a v5 step carries its stimulation per step.
 
-Every cell is read as its column's type (`ChannelSettings`); a
-blank cell but Acquire is None, and so is an inferred one its step
-cannot supply (see _channel_settings_inferred_from_steps).
+Every cell is its column's type (`ChannelSettings`), read once
+when the file was read; a blank cell but Acquire is None, and so is
+an inferred one its step cannot supply (see
+_channel_settings_inferred_from_steps).
 
 **Raises**
 
-- `ProtocolFormatError`: A block cell is not of its column's type. A file is refused at load for it, so a loaded protocol does not.
-
-**Refusals by REST status**
-
-- 422: [`ProtocolFormatError`](#ProtocolFormatError): `protocol_invalid`
+Nothing.
 
 <a id="Protocol.duration_s"></a>
 ### `Protocol.duration_s`

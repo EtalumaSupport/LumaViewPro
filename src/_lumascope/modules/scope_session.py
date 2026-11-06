@@ -170,16 +170,16 @@ _COUNTED_WORK_NAMES = {
     live_work.WorkKind.PLUGIN_RUN: 'An engineering plugin run',
 }
 
-# A protocol's Layer Settings column it is saved as, the ChannelSettings
-# field it is read back as, and the layer-settings key it is saved from and
-# restored into; Acquire and Stim_Enabled are handled apart.
+# A protocol's ChannelSettings field and the layer-settings key it is saved
+# from and restored into; acquire and stim_enabled are handled apart. The
+# file's columns are the protocol's to map (protocol._LAYER_SETTINGS_CELLS).
 _LAYER_SETTINGS_KEYS = (
-    ('Illumination', 'illumination_ma', 'illumination_ma'),
-    ('Gain', 'gain_db', 'gain_db'),
-    ('Auto_Gain', 'auto_gain', 'auto_gain'),
-    ('Exposure', 'exposure_ms', 'exposure_ms'),
-    ('False_Color', 'false_color', 'false_color'),
-    ('Sum', 'frames_summed', 'sum'),
+    ('illumination_ma', 'illumination_ma'),
+    ('gain_db', 'gain_db'),
+    ('auto_gain', 'auto_gain'),
+    ('exposure_ms', 'exposure_ms'),
+    ('false_color', 'false_color'),
+    ('frames_summed', 'sum'),
 )
 
 # ProtocolRunner is referenced only in a return annotation; it is
@@ -2424,9 +2424,6 @@ class ScopeSession:
                 ``load_protocol`` returned it or as built in memory.
 
         Raises:
-            ProtocolFormatError: A protocol built in memory carries a
-                Layer Settings cell that is not of its column's type; no
-                layer is changed. A loaded protocol was refused at load.
             ProtocolRunRefusedError: ``'values_out_of_range'``, a row it
                 would apply holds a value outside its layer setting's range,
                 each named by layer, column and bound; no layer is changed.
@@ -2456,7 +2453,7 @@ class ScopeSession:
                     )
                     continue
                 self._store_setting(f'{name}.acquire', row.acquire)
-                for _, field, key in _LAYER_SETTINGS_KEYS:
+                for field, key in _LAYER_SETTINGS_KEYS:
                     if getattr(row, field) is not None:
                         self._store_setting(f'{name}.{key}', getattr(row, field))
                 stim = self.settings[name].get('stim_config')
@@ -2489,23 +2486,24 @@ class ScopeSession:
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
+        from _lumascope.modules.protocol import ChannelSettings
+
         path = pathlib.Path(file_path)
-        layer_settings = {}
+        records = {}
         with self.settings_lock:
             for name in common_utils.get_layers():
                 layer = self.settings[name]
                 if layer['acquire'] is None:
                     continue
                 stim = layer.get('stim_config')
-                layer_settings[name] = {
-                    'Layer': name,
-                    'Acquire': layer['acquire'],
-                    **{column: layer[key] for column, _, key in _LAYER_SETTINGS_KEYS},
-                    'Stim_Enabled': (
-                        stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else ''
+                records[name] = ChannelSettings(
+                    acquire=layer['acquire'],
+                    **{field: layer[key] for field, key in _LAYER_SETTINGS_KEYS},
+                    stim_enabled=(
+                        stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else None
                     ),
-                }
-        protocol.to_file(file_path=path, layer_settings=layer_settings)
+                )
+        protocol.to_file(file_path=path, channel_settings=records)
         return path
 
     @api(sets='channel_acquire', admitted_by=(Admission.GUARDED_WRITE,))

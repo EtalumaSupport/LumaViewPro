@@ -21,7 +21,8 @@ import pytest
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolNotSavedError
 from _lumascope.modules.layer_record import release_catalogue
-from _lumascope.modules.protocol import ChannelSettings, ProtocolFormatError
+from _lumascope.modules.protocol import ChannelSettings, ProtocolFormatError, StoredNames
+from tests.protocol_fixtures import protocol_from_file
 from tests.scope_fakes import home_sim_scope
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
@@ -240,6 +241,20 @@ class TestTheBlockIsTypedAtLoad:
             session.load_protocol(tsv)
 
         assert refused.value.file == tsv
+
+    def test_post_processing_refuses_a_block_cell_its_column_cannot_hold(self, tmp_path):
+        """A run's record read back for post-processing types its block as a
+        step cell is typed: a cell that is neither blank nor its column's type
+        refuses the file, naming it, the layer and the column."""
+        tsv = _file_with_block(tmp_path, 'BF\timage\tbright\t0.0\tFalse\t2.0\tFalse\t1\t\n')
+
+        with pytest.raises(ProtocolFormatError) as refused:
+            protocol_from_file(tsv, unit=StoredNames.KEPT)
+
+        words = str(refused.value)
+        assert refused.value.file == tsv
+        assert 'Illumination' in words
+        assert 'BF' in words
 
     def test_a_block_with_no_layer_column_is_refused_not_inferred(self, session, tmp_path):
         tsv = _file_with_block(

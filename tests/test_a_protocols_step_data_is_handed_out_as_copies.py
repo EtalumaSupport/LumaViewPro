@@ -22,7 +22,8 @@ import pickle
 import pandas as pd
 import pytest
 
-from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.protocol import ChannelSettings, Protocol
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0
@@ -95,18 +96,17 @@ class TestReadersHandOutCopies:
         path = tmp_path / 'with_block.tsv'
         protocol.to_file(
             path,
-            layer_settings={
-                'BF': {
-                    'Layer': 'BF',
-                    'Acquire': 'image',
-                    'Illumination': 5.0,
-                    'Gain': 0.0,
-                    'Auto_Gain': False,
-                    'Exposure': 2.0,
-                    'False_Color': False,
-                    'Sum': 1,
-                    'Stim_Enabled': '',
-                }
+            channel_settings={
+                'BF': ChannelSettings(
+                    acquire=AcquireMode.IMAGE,
+                    illumination_ma=5.0,
+                    gain_db=0.0,
+                    auto_gain=False,
+                    exposure_ms=2.0,
+                    false_color=False,
+                    frames_summed=1,
+                    stim_enabled=None,
+                )
             },
         )
         loaded = protocol_from_file(
@@ -115,6 +115,7 @@ class TestReadersHandOutCopies:
 
         with pytest.raises(dataclasses.FrozenInstanceError):
             loaded.channel_settings()['BF'].illumination_ma = 999.0
+        loaded.channel_settings()['BF'] = None
 
         assert loaded.channel_settings()['BF'].illumination_ma == 5.0
 
@@ -196,11 +197,3 @@ class TestTheRunsCopyIsItsOwn:
             run_copy._config['steps'].iloc[0][column]['written'] = True
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
-
-    def test_the_run_copys_layer_settings_are_its_own(self, tmp_path, protocol):
-        protocol._config['layer_settings'] = {'BF': {'Layer': 'BF', 'Acquire': 'image'}}
-        run_copy = protocol.copy_for_execution()
-
-        run_copy._config['layer_settings']['BF']['Acquire'] = 'video'
-
-        assert protocol._config['layer_settings']['BF']['Acquire'] == 'image'
