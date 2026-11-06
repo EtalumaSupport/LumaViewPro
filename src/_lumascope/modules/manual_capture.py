@@ -295,7 +295,7 @@ class ManualCaptureController:
 
         The channel is the shown layer, the name a manual recording takes
         too, read on the lane, and the camera holds that layer's stored
-        settings for the grab (``ImagingAPI._capture_holding_layer_impl``),
+        settings for the grab (``ImagingAPI._capture_holding_channel_impl``),
         which refuses it while another LED is lit. The shown layer is read
         again once the frame has passed: a layer shown during the grab
         (``show_channel``) means the frame is taken again on it, and every
@@ -324,7 +324,7 @@ class ManualCaptureController:
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
             # the still it waits for.
-            still = scope.imaging._capture_holding_layer_impl(
+            still = scope.imaging._capture_holding_channel_impl(
                 channel,
                 self._channel_camera_request(channel),
                 _MEMBER,

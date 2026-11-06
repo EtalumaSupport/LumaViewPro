@@ -159,7 +159,7 @@ def test_set_fps_changes_cadence():
 
 def test_update_layer_config_publishes_to_loop():
     t, widget = _make_thread()
-    t.update_layer_config('BF')
+    t.update_channel_config('BF')
     t.start(widget, fps=60)
     time.sleep(0.1)
     t.stop()
@@ -247,7 +247,7 @@ def test_layer_config_thread_safe_under_high_publish_rate():
     def publisher():
         i = 0
         while not stop.is_set():
-            t.update_layer_config(f'L{i}')
+            t.update_channel_config(f'L{i}')
             published.append(i)
             i += 1
 

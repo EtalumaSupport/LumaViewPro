@@ -15,7 +15,7 @@ Public API:
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
   set_fps(fps)          -- runtime FPS-cap change
-  update_layer_config(open_layer)
+  update_channel_config(open_layer)
                         -- UI-thread publishes Kivy widget state for
                            the next frame
   bump_protocol_hold(hold_seconds)
@@ -87,7 +87,7 @@ class ScopeDisplayThread:
         # write whenever state changes. Lock is uncontended in practice
         # (publish rate ~30Hz, render rate <=30Hz).
         self._config_lock = threading.Lock()
-        self._open_layer: str | None = None
+        self._open_channel: str | None = None
         self._fps: int = 30
         self._min_frame_interval: float = 1.0 / 30
         self._protocol_hold_until: float = 0.0
@@ -164,9 +164,9 @@ class ScopeDisplayThread:
             self._fps = fps
             self._min_frame_interval = 0.0 if fps == 0 else 1.0 / max(1, fps)
 
-    def update_layer_config(self, open_layer: str | None) -> None:
+    def update_channel_config(self, open_layer: str | None) -> None:
         with self._config_lock:
-            self._open_layer = open_layer
+            self._open_channel = open_layer
 
     def bump_protocol_hold(self, hold_seconds: float) -> None:
         """Set the protocol-hold deadline to monotonic() + hold_seconds.
@@ -234,7 +234,7 @@ class ScopeDisplayThread:
 
             # Snapshot config under lock; release before doing work.
             with self._config_lock:
-                open_layer = self._open_layer
+                open_layer = self._open_channel
                 min_frame_interval = self._min_frame_interval
                 hold_until = self._protocol_hold_until
 

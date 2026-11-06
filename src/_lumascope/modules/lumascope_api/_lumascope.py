@@ -1165,7 +1165,7 @@ class Lumascope:
         # LED state the illumination API keeps: identity says what a
         # layer IS, state says what is lit now.
         self._configured_model = configured_model
-        self.channel_identity = self._resolve_layer_identity()
+        self.channel_identity = self._resolve_channel_identity()
 
         # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
@@ -1269,7 +1269,7 @@ class Lumascope:
             except Exception as _e:
                 logger.warning(f'[SCOPE API ] atexit registration failed: {_e}')
 
-    def _resolve_layer_identity(self, override_model: str | None = None):
+    def _resolve_channel_identity(self, override_model: str | None = None):
         """Run the identity resolver against the current drivers and config."""
         from _lumascope.modules.channel_record import release_channels, resolve_channel_identity
 
@@ -1291,7 +1291,7 @@ class Lumascope:
             override_model=override_model,
         )
 
-    def refresh_layer_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
+    def refresh_channel_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
         """Re-resolve layer identity and atomically replace the snapshot.
 
         Not how a model selection takes effect: the capabilities are fixed
@@ -1311,7 +1311,7 @@ class Lumascope:
         Returns:
             The new ChannelIdentity snapshot (also on `self.channel_identity`).
         """
-        self.channel_identity = self._resolve_layer_identity(override_model=override_model)
+        self.channel_identity = self._resolve_channel_identity(override_model=override_model)
         return self.channel_identity
 
     def initialize(self, config: 'ScopeInitConfig') -> None:

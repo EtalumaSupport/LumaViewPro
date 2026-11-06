@@ -6,7 +6,7 @@ on the camera was the GUI's layer control. A script, and the GUI itself at
 start-up, ran at the camera's default until a layer control was touched
 (LS850T, Pylon: 10 ms / 0 dB after bring-up and after ``go_to_step``, the
 step asking for 100 ms / 10 dB), and the files recorded those values.
-``ScopeSession.apply_layer_camera`` is now that apply for every caller:
+``ScopeSession.apply_channel_camera`` is now that apply for every caller:
 bring-up applies BF, ``go_to_step`` the step's layer, the GUI the layer
 whose control changed.
 """
@@ -75,11 +75,11 @@ class TestBringUp:
         applied = MagicMock()
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=False),
-            apply_layer_camera=applied,
-            _show_layer=lambda layer: None,
+            apply_channel_camera=applied,
+            _show_channel=lambda layer: None,
         )
         caplog.set_level(logging.INFO)
-        ScopeSession._apply_bring_up_layer(stand_in)
+        ScopeSession._apply_bring_up_channel(stand_in)
         applied.assert_not_called()
         assert any('no camera, so BF is not applied' in line for line in _said(caplog))
 
@@ -87,12 +87,12 @@ class TestBringUp:
         applied = MagicMock()
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=True),
-            apply_layer_camera=applied,
-            _show_layer=lambda layer: None,
-            _layers_on_scope=lambda: set(),
+            apply_channel_camera=applied,
+            _show_channel=lambda layer: None,
+            _channels_on_scope=lambda: set(),
         )
         caplog.set_level(logging.INFO)
-        ScopeSession._apply_bring_up_layer(stand_in)
+        ScopeSession._apply_bring_up_channel(stand_in)
         applied.assert_not_called()
         assert any('no BF layer' in line for line in _said(caplog))
 
@@ -185,7 +185,7 @@ class TestGoingToAStep:
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
         refused = CameraSettingRejected('gain_db', 10.0, message='x')
         # a stand-in by design: the simulated camera takes every in-range value
-        monkeypatch.setattr(session.scope.camera, 'hold_layer', MagicMock(side_effect=refused))
+        monkeypatch.setattr(session.scope.camera, 'hold_channel', MagicMock(side_effect=refused))
 
         with pytest.raises(CameraSettingRejected) as raised:
             session.go_to_step(protocol, blue_idx)
@@ -198,7 +198,7 @@ class TestTheMember:
     def test_a_layer_this_scope_lacks_is_refused_and_nothing_is_applied(self, session):
         before = _camera(session)
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.apply_layer_camera('Lumi')
+            session.apply_channel_camera('Lumi')
         assert refused.value.reason == 'not_on_this_scope'
         assert _camera(session) == before
 
@@ -207,7 +207,7 @@ class TestTheMember:
         held = session.activity_claim.try_claim('diagnostic')
         try:
             with pytest.raises(HardwareCommandRefusedError):
-                session.apply_layer_camera(LED0)
+                session.apply_channel_camera(LED0)
         finally:
             held.release()
         assert _camera(session) == before
@@ -215,9 +215,9 @@ class TestTheMember:
     def test_the_auto_gain_cap_carries_the_installations_override(self, session, monkeypatch):
         session.settings['ag_ae_max_exposure_ms'] = {'fluorescence': 123.0}
         applied = MagicMock(return_value=None)
-        monkeypatch.setattr(session.scope.camera, 'hold_layer', applied)
+        monkeypatch.setattr(session.scope.camera, 'hold_channel', applied)
 
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
         layer, sent = applied.call_args.args
         assert layer == LED0
@@ -231,56 +231,56 @@ class TestTheHeldLayer:
     cleared by every raw camera door, carried by a camera snapshot."""
 
     def test_the_layer_applied_is_the_layer_held(self, session):
-        session.apply_layer_camera(LED0)
-        assert session.scope.camera.get_held_layer() == LED0
+        session.apply_channel_camera(LED0)
+        assert session.scope.camera.get_held_channel() == LED0
 
     def test_applying_the_held_layer_again_writes_nothing(self, session):
         imaging = session.scope.imaging
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
         imaging.capture_still(timeout_s=5.0)
         before = imaging.frame_validity.invalidation_counts
 
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
         assert imaging.frame_validity.invalidation_counts == before
 
     def test_a_store_change_is_written_although_the_layer_is_held(self, session):
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
         session.settings[LED0]['exposure_ms'] = 55.0
 
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
         assert _camera(session) == (55.0, _BLUE['gain_db'])
 
     def test_a_raw_camera_write_leaves_no_layer_held(self, session):
         camera = session.scope.camera
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
         camera.set_exposure_ms(30.0)
 
-        assert camera.get_held_layer() is None
-        session.apply_layer_camera(LED0)
+        assert camera.get_held_channel() is None
+        session.apply_channel_camera(LED0)
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
     def test_a_restored_snapshot_holds_the_layer_it_was_taken_with(self, session):
         camera = session.scope.camera
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
         snapshot = camera.save_camera_state('test')
         camera.set_gain_db(1.0)
 
         camera.restore_camera_state(snapshot)
 
-        assert camera.get_held_layer() == LED0
+        assert camera.get_held_channel() == LED0
 
     def test_a_trimmed_restore_leaves_no_layer_held(self, session):
         camera = session.scope.camera
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
         snapshot = camera.save_camera_state('test')
         del snapshot['gain_db']
 
         camera.restore_camera_state(snapshot)
 
-        assert camera.get_held_layer() is None
+        assert camera.get_held_channel() is None
 
     def test_an_inverted_auto_gain_range_does_not_stop_a_layer_that_does_not_arm_it(self, session):
         # Two writes each bound allows leave the range inverted; it is the
@@ -288,7 +288,7 @@ class TestTheHeldLayer:
         session.update_settings('protocol.autogain.max_gain_db', 2.0)
         session.update_settings('protocol.autogain.min_gain_db', 10.0)
 
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
@@ -302,13 +302,13 @@ class TestTheHeldLayer:
             MagicMock(side_effect=CameraSettingRejected('gain_db', 10.0, message='x')),
         )
         with pytest.raises(CameraSettingRejected):
-            session.apply_layer_camera(LED0)
-        assert camera.get_held_layer() is None
+            session.apply_channel_camera(LED0)
+        assert camera.get_held_channel() is None
 
         monkeypatch.setattr(camera, '_apply_settings_impl', real)
-        session.apply_layer_camera(LED0)
+        session.apply_channel_camera(LED0)
 
-        assert camera.get_held_layer() == LED0
+        assert camera.get_held_channel() == LED0
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
 

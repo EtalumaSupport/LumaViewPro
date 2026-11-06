@@ -1221,7 +1221,7 @@ def _refuse_a_name_that_would_be_false(scope, layer: str) -> None:
                 'named for the shown channel. Turn it off, or show its channel, then record.'
             ),
         )
-    held = scope.camera.get_held_layer()
+    held = scope.camera.get_held_channel()
     if held is not None and held != layer:
         raise RecordingRefusedError(
             reason='camera_holds_another_channel',

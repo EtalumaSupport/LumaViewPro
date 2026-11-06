@@ -49,7 +49,7 @@ def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(session
     session.scope._motion_driver.motorconfig.update_from_board(
         {'Channels': {LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
     )
-    session.scope.refresh_layer_identity()
+    session.scope.refresh_channel_identity()
 
     from_the_unit = session.channel_colors()
     session.update_settings(f'{LED0}.display_color', MAGENTA)

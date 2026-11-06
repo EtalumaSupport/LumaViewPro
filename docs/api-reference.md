@@ -1523,7 +1523,7 @@ It raises what `start_go_to_step` raises, and the following.
 
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The layer and the preview are the step's.
-- `CameraSettingRejected`: the camera refused a setting of the step's layer, raised once the stage has arrived; see `apply_layer_camera`.
+- `CameraSettingRejected`: the camera refused a setting of the step's layer, raised once the stage has arrived; see `apply_channel_camera`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
 **Refusals by REST status**
@@ -1634,7 +1634,7 @@ then put its stored camera settings on the camera.
 
 Every other LED is dark either way. A layer this unit gives no LED
 has nothing to light, and stays dark. The camera is left on the
-layer's stored settings (`apply_layer_camera`; nothing is written
+layer's stored settings (`apply_channel_camera`; nothing is written
 when it holds them already), unless no camera is connected.
 
 **Args**
@@ -2933,7 +2933,7 @@ uses; `scope.camera.set_auto_gain` is a raw camera write, which the
 next layer the camera holds replaces.
 
 For the shown layer the camera follows when this returns: turning it
-on arms the camera's auto loop (`apply_layer_camera`); turning it
+on arms the camera's auto loop (`apply_channel_camera`); turning it
 off locks the standing arm (`scope.camera.lock_auto_gain`) and
 stores what the camera reached as the layer's manual setting: the
 lock's `gain_db` and its `stored_exposure_ms`, rounded to 0.1 dB
@@ -3539,7 +3539,7 @@ another layer was shown meanwhile the step's layer is shown again,
 lit or dark as the shown channel was.
 
 Once that task has run, the step's layer goes on the camera
-(`apply_layer_camera`) before this returns, so a still asked after
+(`apply_channel_camera`) before this returns, so a still asked after
 it is taken at the step's settings. It waits on the camera lane, so
 it is refused on the UI thread; a click calls it from a worker.
 
@@ -9664,7 +9664,7 @@ A channel's stored camera settings, read from its store, for the camera to take.
 A record: it crosses the wire as its data.
 
 A channel and its stored camera settings, for a capture to hold: the pair
-`CameraAPI.hold_layer` takes, in one value so neither travels without
+`CameraAPI.hold_channel` takes, in one value so neither travels without
 the other. The Session reads `request` from the channel's store.
 
 **Fields**
@@ -10264,7 +10264,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.frames_summed"></a>`frames_summed`: `int` -- Number of frames summed into the image.
 - <a id="FrameRecord.gain_db"></a>`gain_db`: `float | None` -- Gain the frame was taken at; None as `exposure_ms` is.
 - <a id="FrameRecord.gain_source"></a>`gain_source`: `SettingSource | None` -- Whether `gain_db` is the frame's own or the setting read beside the grab; None exactly when `gain_db` is.
-- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab (`CameraAPI.get_held_layer`); None when it held no layer's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
+- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab (`CameraAPI.get_held_channel`); None when it held no layer's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
 - <a id="FrameRecord.illumination_ma"></a>`illumination_ma`: `Mapping[int, float]` -- Drive current of each LED address lit for the frame, by address. An address that was off is absent.
 - <a id="FrameRecord.illumination_timing"></a>`illumination_timing`: `LightTiming` -- When those currents were read (`LightTiming`).
 - <a id="FrameRecord.judgments"></a>`judgments`: `tuple[Judgment, ...] | None` -- The frame judged against each source's last change (`FrameValidity.judgments`): for a summed capture, the first frame summed. Empty when no change has been recorded; None for a recorded frame, which is never judged.

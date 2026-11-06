@@ -714,7 +714,7 @@ class ScopeSession:
         # go_to_step and a run's steps write it. Whether it is lit is the
         # LED store's, read at each read, never kept here. The GUI opens on
         # BF, and so does the store.
-        self._shown_layer = common_utils.DEFAULT_LAYER
+        self._shown_channel = common_utils.DEFAULT_LAYER
         self._shown_channel_listeners: list = []
         # The layer shown as a run's first lit step found it, shown again
         # once the run's cleanup has restored the camera; None outside a run
@@ -773,7 +773,7 @@ class ScopeSession:
         self.manual_recording = ManualRecordingController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_channel=lambda: self._shown_layer,
+            shown_channel=lambda: self._shown_channel,
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
@@ -785,8 +785,8 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_channel=lambda: self._shown_layer,
-            channel_camera_request=self._layer_camera_request,
+            shown_channel=lambda: self._shown_channel,
+            channel_camera_request=self._channel_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
         )
@@ -816,7 +816,7 @@ class ScopeSession:
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
             on_step_lit=self._step_lit_by_run,
-            on_run_ending=self._show_the_layer_shown_before_the_run,
+            on_run_ending=self._show_the_channel_shown_before_the_run,
         )
         self._protocol_runner = None
 
@@ -2015,7 +2015,7 @@ class ScopeSession:
         the absent-layer check judge each where this unit holds it."""
         session._place_old_channel_blocks(old_channel_blocks)
         session._configure_scope(replaced)
-        session._stop_acquiring_absent_layers()
+        session._stop_acquiring_absent_channels()
         # The one marker for "the session is up": a host measures its own
         # consumer's start against it. It says whether the camera is
         # grabbing, which a launch without a camera does not.
@@ -2294,7 +2294,7 @@ class ScopeSession:
         limits = capabilities.camera_limits
         record = self.scope.channel_identity.find(channel)
         lit = record is not None and bool(record.led_addresses)
-        return config_helpers.layer_slider_maxima(
+        return config_helpers.channel_slider_maxima(
             channel,
             exposure_cap_ms=None if limits is None else limits.exposure_max_ms,
             illumination_cap_ma=capabilities.led_max_ma if lit else None,
@@ -2401,7 +2401,7 @@ class ScopeSession:
         self.select_labware(protocol.labware_id())
         return protocol
 
-    def _layers_on_scope(self) -> set[str]:
+    def _channels_on_scope(self) -> set[str]:
         """The layers this scope has, by key name: none when unresolved."""
         return {record.key_name for record in self.scope.channel_identity.channels}
 
@@ -2442,7 +2442,7 @@ class ScopeSession:
             )
         )
 
-    def _stop_acquiring_absent_layers(self) -> None:
+    def _stop_acquiring_absent_channels(self) -> None:
         """Turn acquiring off on every layer this scope does not have.
 
         A saved setting from another scope (a configuration carried between
@@ -2451,7 +2451,7 @@ class ScopeSession:
         build steps for it. The stored value is replaced by what this scope
         can deliver, and each replacement is logged.
         """
-        present = self._layers_on_scope()
+        present = self._channels_on_scope()
         with self.settings_lock:
             for name in common_utils.get_layers():
                 if name in present or self.settings[name].get('acquire') is None:
@@ -2490,7 +2490,7 @@ class ScopeSession:
         self.scope.protocols.refuse_layer_settings_out_of_range(protocol)
         rows = protocol.channel_settings()
         layers = common_utils.get_layers()
-        present = self._layers_on_scope()
+        present = self._channels_on_scope()
         with self.settings_lock:
             for name in layers:
                 self._store_setting(f'{name}.acquire', None)
@@ -2597,7 +2597,7 @@ class ScopeSession:
                 channel, 'set_channel_acquire', then='be set to acquire'
             )
         with self.settings_lock:
-            self._write_layer_acquire(channel, mode)
+            self._write_channel_acquire(channel, mode)
 
     @api(reads=True)
     def channel_acquire(self, channel: str) -> AcquireMode | None:
@@ -2613,7 +2613,7 @@ class ScopeSession:
         mode = self.settings[channel]['acquire']
         return None if mode is None else AcquireMode(mode)
 
-    def _write_layer_acquire(self, layer: str, mode: AcquireMode | None) -> None:
+    def _write_channel_acquire(self, layer: str, mode: AcquireMode | None) -> None:
         """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
         self._store_setting(f'{layer}.acquire', mode)
         if mode is not None and self.settings[layer].get('stim_config') is not None:
@@ -2629,7 +2629,7 @@ class ScopeSession:
         next layer the camera holds replaces.
 
         For the shown layer the camera follows when this returns: turning it
-        on arms the camera's auto loop (``apply_layer_camera``); turning it
+        on arms the camera's auto loop (``apply_channel_camera``); turning it
         off locks the standing arm (``scope.camera.lock_auto_gain``) and
         stores what the camera reached as the layer's manual setting: the
         lock's ``gain_db`` and its ``stored_exposure_ms``, rounded to 0.1 dB
@@ -2667,7 +2667,7 @@ class ScopeSession:
 
         refuse_unknown_channel(channel)
         lock = None
-        holds = self.scope.camera.get_held_layer() == channel
+        holds = self.scope.camera.get_held_channel() == channel
         if enabled:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_auto_gain', then='run auto-gain'
@@ -2684,14 +2684,14 @@ class ScopeSession:
             if lock is not None:
                 self._auto_gain_locks[channel] = lock
         if (
-            channel == self._shown_layer
+            channel == self._shown_channel
             and (enabled or holds)
             and not self._an_activity_holds_the_scope()
             and self.scope.camera_connected
         ):
             # Armed for the shown layer; or, after the lock, the camera
             # recorded as holding the layer at the values just stored.
-            self.apply_layer_camera(channel)
+            self.apply_channel_camera(channel)
         return lock
 
     @api(reads=True)
@@ -2730,11 +2730,11 @@ class ScopeSession:
         with self.settings_lock:
             return self._auto_gain_locks.get(channel)
 
-    def apply_layer_camera(self, layer: str) -> dict | None:
+    def apply_channel_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
 
         Nothing is written when the camera already holds ``layer`` at its
-        stored settings (``scope.camera.hold_layer``).
+        stored settings (``scope.camera.hold_channel``).
 
         The one way a layer's settings reach the camera outside a run,
         in-process: ``show_channel`` (the public way), bring-up's BF,
@@ -2745,7 +2745,7 @@ class ScopeSession:
         camera without hardware auto-gain applies the layer manually.
 
         Returns:
-            What ``scope.camera.hold_layer`` returns: the gain and exposure
+            What ``scope.camera.hold_channel`` returns: the gain and exposure
             now in effect.
 
         Raises:
@@ -2760,9 +2760,9 @@ class ScopeSession:
                 were applied.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
-            layer, 'apply_layer_camera', then='be applied to the camera'
+            layer, 'apply_channel_camera', then='be applied to the camera'
         )
-        return self.scope.camera.hold_layer(layer, self._layer_camera_request(layer))
+        return self.scope.camera.hold_channel(layer, self._channel_camera_request(layer))
 
     @api(in_process=True)
     def capture_still(
@@ -2860,9 +2860,9 @@ class ScopeSession:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'capture_still', then='be captured'
             )
-            if channel != self._shown_layer:
+            if channel != self._shown_channel:
                 raise HardwareCommandRefusedError('channel_not_shown', 'capture_still')
-            hold = ChannelHold(channel=channel, request=self._layer_camera_request(channel))
+            hold = ChannelHold(channel=channel, request=self._channel_camera_request(channel))
         still = self.scope.imaging.capture_still(
             hold,
             force_to_8bit=force_to_8bit,
@@ -2881,7 +2881,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError('other_led_lit', 'capture_still')
         return still
 
-    def _layer_camera_request(self, layer: str) -> ChannelCameraRequest:
+    def _channel_camera_request(self, layer: str) -> ChannelCameraRequest:
         """``layer``'s stored gain, exposure and auto-gain, with the auto-gain
         bounds its channel class and the installation's override give it."""
         import _lumascope.modules.config_helpers as config_helpers
@@ -3201,7 +3201,7 @@ class ScopeSession:
         )
         step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z_um(then='save the focus')
-        self._store_layer_focus(channel, z)
+        self._store_channel_focus(channel, z)
         if step is None or step['channel'] != channel:
             logger.info(f'[Session  ] Focus saved: {channel} Z={z}, no step written')
             return SavedFocus(z_um=z, step_index=None)
@@ -3242,10 +3242,10 @@ class ScopeSession:
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'save_channel_focus', then='take a focus'
         )
-        z = self._store_layer_focus(channel, z_um)
+        z = self._store_channel_focus(channel, z_um)
         logger.info(f'[Session  ] Focus saved: {channel} Z={z}')
 
-    def _store_layer_focus(self, layer: str, z_um: float) -> float:
+    def _store_channel_focus(self, layer: str, z_um: float) -> float:
         """The one write of a layer's focus, refused unless Z can reach it; returns the Z stored.
 
         ``save_all_bookmarks`` alone writes a focus beside it: it stores the
@@ -3423,7 +3423,7 @@ class ScopeSession:
                 place it is passing through. Nothing is written.
         """
         z = self.scope.protocols.focus_z_um(then='save the bookmarks')
-        layers = sorted(self._layers_on_scope())
+        layers = sorted(self._channels_on_scope())
         with self.settings_lock:
             self._store_setting('bookmark.z', z)
             for layer in layers:
@@ -3460,7 +3460,7 @@ class ScopeSession:
             channel, 'apply_focus_to_channel_steps', then='take a focus'
         )
         z = self.scope.protocols.focus_z_um(then='apply the focus')
-        self._store_layer_focus(channel, z)
+        self._store_channel_focus(channel, z)
         updated = self.scope.protocols.apply_focus_to_channel_steps(protocol, channel, z)
         logger.info(f'[Session  ] Focus applied: {channel} Z={z} to {updated} step(s)')
         return updated
@@ -3748,7 +3748,7 @@ class ScopeSession:
                 The layer and the preview are the step's.
             CameraSettingRejected: the camera refused a setting of the
                 step's layer, raised once the stage has arrived; see
-                ``apply_layer_camera``.
+                ``apply_channel_camera``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_step``. Nothing
                 was started.
@@ -3757,10 +3757,10 @@ class ScopeSession:
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
         layer = protocol.step_row(step_index=step_index)['channel']
-        with self._a_layer_change(layer, 'go_to_step'):
+        with self._a_channel_change(layer, 'go_to_step'):
             going = self._start_moving_to_step(protocol, step_index)
             try:
-                self.apply_layer_camera(layer)
+                self.apply_channel_camera(layer)
             finally:
                 # A refused apply still waits out the travel it started, so
                 # the caller is never handed a raise with the stage still moving.
@@ -3798,7 +3798,7 @@ class ScopeSession:
         lit or dark as the shown channel was.
 
         Once that task has run, the step's layer goes on the camera
-        (``apply_layer_camera``) before this returns, so a still asked after
+        (``apply_channel_camera``) before this returns, so a still asked after
         it is taken at the step's settings. It waits on the camera lane, so
         it is refused on the UI thread; a click calls it from a worker.
 
@@ -3847,9 +3847,9 @@ class ScopeSession:
         """
         refuse_waiting_on_ui_thread('start_go_to_step')
         layer = protocol.step_row(step_index=step_index)['channel']
-        with self._a_layer_change(layer, 'start_go_to_step'):
+        with self._a_channel_change(layer, 'start_go_to_step'):
             going = self._start_moving_to_step(protocol, step_index)
-            self.apply_layer_camera(layer)
+            self.apply_channel_camera(layer)
         return going
 
     def _start_moving_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
@@ -3911,8 +3911,8 @@ class ScopeSession:
         # A first visit is the step's preview. A repeat leaves the LEDs as the
         # person left them while the step's layer is shown, and moves the shown
         # channel, lit or dark as its LED reads, back to it when another was shown.
-        was_lit = self._layer_lit(self._shown_layer)
-        moves_light = shows or self._shown_layer != step['channel']
+        was_lit = self._channel_lit(self._shown_channel)
+        moves_light = shows or self._shown_channel != step['channel']
         lit = self.settings['protocol_led_on'] if shows else was_lit
         if moves_light and lit and self._led_address(step['channel']) is not None:
             # A preview that would light needs the LED controller, asked
@@ -3936,7 +3936,7 @@ class ScopeSession:
             moves = (motion.start_move_xy(targets.x_um, targets.y_um),)
             if targets.z_um is not None:
                 moves += (motion.start_move_z(targets.z_um),)
-        self._load_step_into_layer(step)
+        self._load_step_into_channel(step)
         self._last_step_gone_to = (protocol, step_index)
         if not moves_light:
             return moves
@@ -3945,10 +3945,10 @@ class ScopeSession:
         # The step's values are now its layer's, so the layer lights at the
         # step's current.
         self._show_leds(step['channel'], lit)
-        self._show_layer(step['channel'], was_lit=was_lit)
+        self._show_channel(step['channel'], was_lit=was_lit)
         return moves
 
-    def _load_step_into_layer(self, step) -> None:
+    def _load_step_into_channel(self, step) -> None:
         """The step's values into its layer's live settings, under ``settings_lock``.
 
         A run never writes here: it reads its steps from the protocol, and
@@ -3975,7 +3975,7 @@ class ScopeSession:
         with self.settings_lock:
             for key, value in channel_config.items():
                 self._store_setting(f'{color}.{key}', value)
-            self._write_layer_acquire(color, step['Acquire'])
+            self._write_channel_acquire(color, step['Acquire'])
             if isinstance(stim_configs, dict):
                 for stim_layer, stim_config in stim_configs.items():
                     self._store_setting(f'{stim_layer}.stim_config', copy.deepcopy(stim_config))
@@ -4016,7 +4016,7 @@ class ScopeSession:
             ),
         )
 
-    def _layer_lit(self, layer: str) -> bool:
+    def _channel_lit(self, layer: str) -> bool:
         """Whether ``layer``'s LED reads lit in the LED store."""
         address = self.scope.illumination.led_address_of(layer)
         if address is None or not self.scope.led_connected:
@@ -4024,7 +4024,7 @@ class ScopeSession:
         readings = self.scope.illumination.get_led_states()
         return any(r.address == address and r.state == LedState.LIT for r in readings)
 
-    def _show_layer(self, layer: str, *, was_lit: bool | None = None) -> None:
+    def _show_channel(self, layer: str, *, was_lit: bool | None = None) -> None:
         """Make ``layer`` the shown layer, and tell the listeners when it moved
         or when the act that called this changed its light.
 
@@ -4033,10 +4033,10 @@ class ScopeSession:
         hear of the LED only once it has changed), whose light the LED
         event tells.
         """
-        lit = self._layer_lit(layer)
-        if layer == self._shown_layer and (was_lit is None or was_lit == lit):
+        lit = self._channel_lit(layer)
+        if layer == self._shown_channel and (was_lit is None or was_lit == lit):
             return
-        self._shown_layer = layer
+        self._shown_channel = layer
         from _lumascope.modules.notification_center import notifications
 
         notifications.tell_listeners(
@@ -4046,10 +4046,10 @@ class ScopeSession:
     def _step_lit_by_run(self, layer: str) -> None:
         """A run's step has shown ``layer``: it is the shown layer."""
         if self._shown_before_run is None:
-            self._shown_before_run = self._shown_layer
-        self._show_layer(layer)
+            self._shown_before_run = self._shown_channel
+        self._show_channel(layer)
 
-    def _show_the_layer_shown_before_the_run(self) -> None:
+    def _show_the_channel_shown_before_the_run(self) -> None:
         """The run's cleanup has restored the camera: show the layer shown
         before the run again, at its stored settings.
 
@@ -4062,9 +4062,9 @@ class ScopeSession:
         before, self._shown_before_run = self._shown_before_run, None
         if before is None:
             return
-        self._show_layer(before)
+        self._show_channel(before)
         if self.scope.camera_connected:
-            self.apply_layer_camera(before)
+            self.apply_channel_camera(before)
 
     @api(reads=True)
     @property
@@ -4077,8 +4077,8 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        layer = self._shown_layer
-        return ShownChannel(layer, self._layer_lit(layer))
+        layer = self._shown_channel
+        return ShownChannel(layer, self._channel_lit(layer))
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def show_channel(self, channel: str) -> ShownChannel:
@@ -4114,7 +4114,7 @@ class ScopeSession:
                 layer; its LEDs are already shown.
         """
         self.scope.channel_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
-        with self._a_layer_change(channel, 'show_channel'):
+        with self._a_channel_change(channel, 'show_channel'):
             # The light is decided on the lane, in the task that writes it: read
             # off it, another show's switch could be caught between its old
             # LED going dark and its new one lighting.
@@ -4123,17 +4123,17 @@ class ScopeSession:
                 'show_channel',
                 timeout_s=None,
             )
-            self.apply_layer_camera(channel)
+            self.apply_channel_camera(channel)
         return self.shown_channel
 
     def _show_channel_light_on_lane(self, channel: str) -> None:
         """The lane half of ``show_channel``: ``channel`` lit if the shown layer is, every other LED dark."""
-        was_lit = self._layer_lit(self._shown_layer)
+        was_lit = self._channel_lit(self._shown_channel)
         self._show_leds(channel, was_lit)
-        self._show_layer(channel, was_lit=was_lit)
+        self._show_channel(channel, was_lit=was_lit)
 
     @contextlib.contextmanager
-    def _a_layer_change(self, layer: str, member: str):
+    def _a_channel_change(self, layer: str, member: str):
         """Change the shown layer to ``layer`` with no recording running.
 
         A manual recording's frames are named for one layer, so a change of
@@ -4150,7 +4150,7 @@ class ScopeSession:
             ControlSessionRefusedError: ``'control_session_held'``, naming
                 the session.
         """
-        if layer == self._shown_layer:
+        if layer == self._shown_channel:
             yield
             return
         claim = self.activity_claim
@@ -4172,7 +4172,7 @@ class ScopeSession:
 
         Every other LED is dark either way. A layer this unit gives no LED
         has nothing to light, and stays dark. The camera is left on the
-        layer's stored settings (``apply_layer_camera``; nothing is written
+        layer's stored settings (``apply_channel_camera``; nothing is written
         when it holds them already), unless no camera is connected.
 
         Args:
@@ -4198,15 +4198,15 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LED is already lit or dark.
         """
-        layer = self._shown_layer
+        layer = self._shown_channel
         self.scope.channel_identity.refuse_unless_on_scope(
             layer, 'light_shown_channel', then='be lit'
         )
-        was_lit = self._layer_lit(layer)
+        was_lit = self._channel_lit(layer)
         self._show_leds(layer, lit)
-        self._show_layer(layer, was_lit=was_lit)
+        self._show_channel(layer, was_lit=was_lit)
         if self.scope.camera_connected:
-            self.apply_layer_camera(layer)
+            self.apply_channel_camera(layer)
         return self.shown_channel
 
     @api(in_process=True, event=SettingsChanged)
@@ -4490,7 +4490,7 @@ class ScopeSession:
         the camera from the store. While a manual recording runs its
         illumination is stored only: the recording refuses every light.
         """
-        layer = self._shown_layer
+        layer = self._shown_channel
         with self.settings_lock:
             auto_gain = self.settings[layer]['auto_gain']
         camera = path in (f'{layer}.gain_db', f'{layer}.exposure_ms') or (
@@ -4499,7 +4499,7 @@ class ScopeSession:
         holder = self.activity_claim.holder
         led = (
             path == f'{layer}.illumination_ma'
-            and self._layer_lit(layer)
+            and self._channel_lit(layer)
             and (holder is None or holder.kind != WorkKind.RECORDING)
         )
         if not (camera or led):
@@ -4509,7 +4509,7 @@ class ScopeSession:
         if led:
             self._show_leds(layer, True)
         if camera and self.scope.camera_connected:
-            self.apply_layer_camera(layer)
+            self.apply_channel_camera(layer)
 
     @api(in_process=True)
     @_guarded_write
@@ -5035,7 +5035,7 @@ class ScopeSession:
         scope the objective stays unknown until the turret is in a known
         slot. The scope reads the plate and objective from these settings
         whenever it acts on them. Last, the camera takes BF's stored
-        settings (``apply_layer_camera``), the one step that waits on the
+        settings (``apply_channel_camera``), the one step that waits on the
         camera lane; a setting it does not take, a write that outlasts the
         lane's bound and a camera that leaves are kept on the bring-up
         record and told once, and the bring-up goes on. The
@@ -5116,10 +5116,10 @@ class ScopeSession:
             logger.info(
                 '[Session  ] objective at bring-up: unknown until the turret is in a known slot'
             )
-        self._tell_capped_layers()
-        self._apply_bring_up_layer()
+        self._tell_capped_channels()
+        self._apply_bring_up_channel()
 
-    def _tell_capped_layers(self) -> None:
+    def _tell_capped_channels(self) -> None:
         """Tell, as one notice, every saved layer gain or exposure the attached camera cannot reach.
 
         A saved layer value above the camera's range is kept as saved and
@@ -5149,7 +5149,7 @@ class ScopeSession:
             ChannelSettingCappedNotice(capped), solicited=False, category='Camera'
         )
 
-    def _apply_bring_up_layer(self) -> None:
+    def _apply_bring_up_channel(self) -> None:
         """Show BF dark and put its stored camera settings on the camera, as the GUI opens on BF.
 
         Bring-up has darkened every LED, so BF is shown dark whatever was
@@ -5165,17 +5165,17 @@ class ScopeSession:
         of the bring-up record and told once, and the scope comes up.
         """
         layer = common_utils.DEFAULT_LAYER
-        self._show_layer(layer)
+        self._show_channel(layer)
         if not self.scope.camera_connected:
             logger.info(f'[Session  ] bring-up: no camera, so {layer} is not applied to it')
             return
-        if layer not in self._layers_on_scope():
+        if layer not in self._channels_on_scope():
             logger.info(
                 f'[Session  ] bring-up: this scope has no {layer} layer, '
                 'so no layer is applied to the camera'
             )
             return
-        self.scope.write_camera_at_bring_up(lambda: self.apply_layer_camera(layer))
+        self.scope.write_camera_at_bring_up(lambda: self.apply_channel_camera(layer))
 
     @api(reads=True)
     def bring_up_record(self) -> 'BringUpRecord':

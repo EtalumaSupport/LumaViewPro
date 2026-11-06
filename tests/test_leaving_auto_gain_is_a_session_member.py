@@ -136,7 +136,7 @@ def test_turning_off_the_shown_layer_leaves_the_camera_holding_it(sim_session):
     sim_session.set_channel_auto_gain('BF', False)
 
     camera = sim_session.scope.camera
-    assert camera.get_held_layer() == 'BF'
+    assert camera.get_held_channel() == 'BF'
     assert camera.read_auto_gain() is CameraAutoMode.OFF
     assert round(camera.gain_db, 1) == sim_session.get_setting('BF.gain_db')
 

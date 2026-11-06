@@ -112,12 +112,12 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
     layer's settings."""
     camera = session.scope.camera
     session.update_settings(f'{LED0}.exposure_ms', 88.0)
-    session.apply_layer_camera(LED0)
-    assert camera.get_held_layer() == LED0
+    session.apply_channel_camera(LED0)
+    assert camera.get_held_channel() == LED0
 
     session.light_shown_channel(True)
 
-    assert camera.get_held_layer() == 'BF'
+    assert camera.get_held_channel() == 'BF'
     assert round(camera.read_exposure_ms(), 3) == session.settings['BF']['exposure_ms']
 
 
@@ -171,7 +171,7 @@ def test_a_runs_end_shows_the_layer_shown_before_it(tmp_path):
         _run_one_blue_step(built, tmp_path)
 
         assert built.shown_channel.channel == 'BF'
-        assert built.scope.camera.get_held_layer() == 'BF'
+        assert built.scope.camera.get_held_channel() == 'BF'
         assert round(built.scope.camera.read_exposure_ms(), 3) == 2.0
     finally:
         built.shutdown()
@@ -303,4 +303,4 @@ def test_putting_a_layer_on_the_camera_is_not_a_rest_route():
     names = {route.member.name for route in rest_routes.routes(ScopeSession, handed_out=handed_out)}
 
     assert 'show_channel' in names
-    assert 'apply_layer_camera' not in names
+    assert 'apply_channel_camera' not in names

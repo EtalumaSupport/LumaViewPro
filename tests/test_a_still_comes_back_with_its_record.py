@@ -127,13 +127,13 @@ class TestTheStillIsHandedBackWithItsRecord:
 
 class TestTheStillIsRefusedBeforeAnythingIsCaptured:
     def test_a_name_that_is_no_layer_is_refused(self, session):
-        before = session.scope.camera.get_held_layer()
+        before = session.scope.camera.get_held_channel()
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.capture_still('Not a layer')
 
         assert refused.value.reason == 'channel_unknown'
-        assert session.scope.camera.get_held_layer() == before
+        assert session.scope.camera.get_held_channel() == before
 
     def test_a_layer_not_shown_is_refused(self, session):
         """BF shown: a still of LED 0 would leave the camera on LED 0's
@@ -142,7 +142,7 @@ class TestTheStillIsRefusedBeforeAnythingIsCaptured:
             session.capture_still(LED0)
 
         assert refused.value.reason == 'channel_not_shown'
-        assert session.scope.camera.get_held_layer() == 'BF'
+        assert session.scope.camera.get_held_channel() == 'BF'
 
     def test_another_led_lit_is_refused(self, session):
         session.scope.illumination.led_on(LED0, 100.0)

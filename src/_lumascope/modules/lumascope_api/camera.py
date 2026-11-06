@@ -176,7 +176,7 @@ class ChannelCameraRequest:
 @dataclasses.dataclass(frozen=True)
 class ChannelHold:
     """A channel and its stored camera settings, for a capture to hold: the pair
-    ``CameraAPI.hold_layer`` takes, in one value so neither travels without
+    ``CameraAPI.hold_channel`` takes, in one value so neither travels without
     the other. The Session reads ``request`` from the channel's store.
 
     Attributes:
@@ -189,7 +189,7 @@ class ChannelHold:
 
 
 @dataclasses.dataclass(frozen=True)
-class _HeldLayer:
+class _HeldChannel:
     """The layer whose stored settings the camera holds.
 
     ``request`` is what the layer's store asked for: the comparison that
@@ -642,7 +642,7 @@ class CameraAPI:
         # capture: every camera write invalidates it, the capture drains it.
         self.frame_validity = frame_validity
 
-        # _state_lock guards _auto_gain_arm and _held_layer. The camera
+        # _state_lock guards _auto_gain_arm and _held_channel. The camera
         # driver itself is serialized by the camera lane: every read and
         # write of the camera runs there.
         self._state_lock = threading.Lock()
@@ -663,9 +663,9 @@ class CameraAPI:
         self._auto_gain_arm: _AutoGainArm | None = None
 
         # The layer whose stored settings the camera holds, or None when it
-        # holds no layer's: only ``_hold_layer_impl`` sets a layer, and every
-        # raw camera door clears it (``_no_layers_write``). Under _state_lock.
-        self._held_layer: _HeldLayer | None = None
+        # holds no layer's: only ``_hold_channel_impl`` sets a layer, and every
+        # raw camera door clears it (``_no_channels_write``). Under _state_lock.
+        self._held_channel: _HeldChannel | None = None
 
         # When True, programmatic value-range warnings (sub-0.1ms exposure,
         # future similar setters) are silenced. Internal callers that sweep
@@ -768,14 +768,14 @@ class CameraAPI:
         camera is gone.
         """
         self._commit_camera_writes(_no_camera_cache())
-        self._forget_held_layer()
+        self._forget_held_channel()
 
-    def _forget_held_layer(self) -> None:
+    def _forget_held_channel(self) -> None:
         """Record that the camera holds no layer's stored settings."""
         with self._state_lock:
-            self._held_layer = None
+            self._held_channel = None
 
-    def _no_layers_write(self, impl):
+    def _no_channels_write(self, impl):
         """``impl``, run once the camera is recorded as holding no layer.
 
         A raw door writes numbers that are no layer's, so after it the camera
@@ -784,7 +784,7 @@ class CameraAPI:
         """
 
         def write(*args, **kwargs):
-            self._forget_held_layer()
+            self._forget_held_channel()
             return impl(*args, **kwargs)
 
         return write
@@ -1453,7 +1453,7 @@ class CameraAPI:
             unit='dB',
         )
         return self._dispatch_camera(
-            self._no_layers_write(self._set_gain_db_impl),
+            self._no_channels_write(self._set_gain_db_impl),
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -1504,7 +1504,7 @@ class CameraAPI:
             unit='ms',
         )
         return self._dispatch_camera(
-            self._no_layers_write(self._set_exposure_ms_impl),
+            self._no_channels_write(self._set_exposure_ms_impl),
             'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -1557,7 +1557,7 @@ class CameraAPI:
         """
         _refuse_unless_auto_gain_settings(settings, 'settings')
         return self._dispatch_camera(
-            self._no_layers_write(self._set_auto_gain_impl),
+            self._no_channels_write(self._set_auto_gain_impl),
             'set_auto_gain',
             args=(state, settings),
             kwargs={'resume_after_capture': resume_after_capture},
@@ -1676,7 +1676,7 @@ class CameraAPI:
         # The lock waits for a frame taken under the arm before it writes.
         wait_s = self._grab_wait_s() + self._CAMERA_WRITE_TIMEOUT_S
         return self._dispatch_camera(
-            self._no_layers_write(self._lock_auto_gain_impl),
+            self._no_channels_write(self._lock_auto_gain_impl),
             'lock_auto_gain',
             timeout_s=wait_s,
             satisfied_when_absent=AutoGainLock(state=None),
@@ -1903,7 +1903,7 @@ class CameraAPI:
         """
         _refuse_unless_settable_auto_mode(mode, 'mode')
         return self._dispatch_camera(
-            self._no_layers_write(self._set_auto_exposure_impl),
+            self._no_channels_write(self._set_auto_exposure_impl),
             'set_auto_exposure',
             args=(mode,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -3522,7 +3522,7 @@ class CameraAPI:
             }
         with self._state_lock:
             snapshot['auto_gain_arm'] = self._auto_gain_arm
-            snapshot['held_layer'] = self._held_layer
+            snapshot['held_layer'] = self._held_channel
         _api_log.log(
             VERBOSE,
             f'save_camera_state tag={tag}: '
@@ -3689,7 +3689,7 @@ class CameraAPI:
         # The camera holds the snapshot's layer only once every one of its
         # settings is back; until then, and after a trimmed or refused restore,
         # it holds none.
-        self._forget_held_layer()
+        self._forget_held_channel()
         self._restore_camera_geometry_and_save(snapshot)
         writes = []
         if arm_action == 'disarmed':
@@ -3715,7 +3715,7 @@ class CameraAPI:
                 self._report_refused_write(rejected)
         if gain_known and exposure_known and arm_recorded and not refused:
             with self._state_lock:
-                self._held_layer = snapshot.get('held_layer')
+                self._held_channel = snapshot.get('held_layer')
 
     def _restore_camera_geometry_and_save(self, snapshot: dict) -> None:
         """Write back the snapshot's settings beyond gain and exposure, then save them.
@@ -3796,10 +3796,10 @@ class CameraAPI:
                     self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
-    def hold_layer(self, layer: str, request: ChannelCameraRequest) -> dict | None:
+    def hold_channel(self, layer: str, request: ChannelCameraRequest) -> dict | None:
         """Put ``layer``'s stored settings on the camera unless it holds them, and wait.
 
-        See ``_hold_layer_impl``; this adds the dispatch described on
+        See ``_hold_channel_impl``; this adds the dispatch described on
         ``_dispatch_camera``. In-process only: the Session reads the layer's
         store and hands it in.
         """
@@ -3808,13 +3808,13 @@ class CameraAPI:
         if request.auto_gain:
             _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'auto_gain_settings')
         return self._dispatch_camera(
-            self._hold_layer_impl,
-            'hold_layer',
+            self._hold_channel_impl,
+            'hold_channel',
             args=(layer, request),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def get_held_layer(self) -> str | None:
+    def get_held_channel(self) -> str | None:
         """The layer whose stored settings the camera holds, read from the record.
 
         Returns:
@@ -3826,23 +3826,23 @@ class CameraAPI:
                 layer, or no camera is connected.
         """
         with self._state_lock:
-            held = self._held_layer
+            held = self._held_channel
         if held is None or held.request is None:
             return None
         return held.layer
 
-    def _holding(self, layer: str, request: ChannelCameraRequest) -> _HeldLayer | None:
+    def _holding(self, layer: str, request: ChannelCameraRequest) -> _HeldChannel | None:
         """The record, when the camera holds ``layer`` at ``request``; else None."""
         with self._state_lock:
-            held = self._held_layer
+            held = self._held_channel
         if held is not None and held.layer == layer and held.request == request:
             return held
         return None
 
-    def _hold_layer_for_capture(
+    def _hold_channel_for_capture(
         self, layer: str, request: ChannelCameraRequest, member: str
     ) -> None:
-        """``_hold_layer_impl`` from inside a capture's own camera-lane task.
+        """``_hold_channel_impl`` from inside a capture's own camera-lane task.
 
         The capture is already the task its taking admitted, so this is not
         admitted again against whatever holds the scope now: a run that took
@@ -3857,10 +3857,10 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 naming the recording, when a write is needed while one runs;
                 nothing was written.
-            CameraSettingRejected: as ``_hold_layer_impl`` says.
+            CameraSettingRejected: as ``_hold_channel_impl`` says.
         """
         with self._state_lock:
-            held = self._held_layer
+            held = self._held_channel
         if held is None or self._holding(layer, request) is not None:
             return
         claim = self._scope._activity_claim
@@ -3873,12 +3873,12 @@ class CameraAPI:
         # and that recording is not refused for this write -- the capture's
         # one write, already under way when the session was taken.
         try:
-            self._hold_layer_impl(layer, request)
+            self._hold_channel_impl(layer, request)
         finally:
             if claim is not None and refusing is None:
                 claim.leave_falsifying_change()
 
-    def _hold_layer_impl(self, layer: str, request: ChannelCameraRequest) -> dict | None:
+    def _hold_channel_impl(self, layer: str, request: ChannelCameraRequest) -> dict | None:
         """Put ``layer``'s stored settings on the camera unless it holds them.
 
         The one writer of the camera's held layer. Nothing is written when
@@ -3899,7 +3899,7 @@ class CameraAPI:
         held = self._holding(layer, request)
         if held is not None:
             return held.taken
-        self._forget_held_layer()
+        self._forget_held_channel()
         try:
             taken = self._apply_settings_impl(
                 request.gain_db,
@@ -3911,11 +3911,11 @@ class CameraAPI:
         except CameraSettingRejected:
             now = {'gain_db': self.gain_db, 'exposure_ms': self.exposure_ms}
             with self._state_lock:
-                self._held_layer = _HeldLayer(layer, None, now)
+                self._held_channel = _HeldChannel(layer, None, now)
             raise
         if taken is not None:
             with self._state_lock:
-                self._held_layer = _HeldLayer(layer, request, taken)
+                self._held_channel = _HeldChannel(layer, request, taken)
         return taken
 
     @api(admitted_by=(Admission.LANE_CALL,))
@@ -4003,7 +4003,7 @@ class CameraAPI:
             unit='ms',
         )
         return self._dispatch_camera(
-            self._no_layers_write(self._apply_settings_impl),
+            self._no_channels_write(self._apply_settings_impl),
             'apply',
             args=(gain_db, exposure_ms),
             kwargs={
@@ -4158,7 +4158,7 @@ class CameraAPI:
                 camera, with none connected or one removed during the write.
         """
         self._dispatch_camera(
-            self._no_layers_write(self._auto_gain_once_impl),
+            self._no_channels_write(self._auto_gain_once_impl),
             'auto_gain_once',
             args=(state, target_brightness, min_gain_db, max_gain_db),
             kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},

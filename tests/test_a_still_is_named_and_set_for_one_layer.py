@@ -7,7 +7,7 @@ for one layer and taken at another's: after a run (named for its last step
 at the pre-run layer's settings), after a typed value, and pressed between a
 show's LED and camera halves. The still has the camera hold the shown layer
 inside its own camera-lane task (``manual_capture``,
-``ImagingAPI._capture_holding_layer_impl``), unless a raw camera write came
+``ImagingAPI._capture_holding_channel_impl``), unless a raw camera write came
 last: then the raw values stand and the frame's record says no layer was
 held. A still named for the lit LED left the camera holding that LED's
 layer while another was shown, so another LED lit refuses the still,
@@ -82,7 +82,7 @@ def test_a_still_with_another_led_lit_is_refused_and_the_camera_keeps_the_shown_
         session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
     assert refused.value.reason == 'other_led_lit'
-    assert session.scope.camera.get_held_layer() == 'BF'
+    assert session.scope.camera.get_held_channel() == 'BF'
     assert _files(tmp_path) == []
 
 
@@ -95,7 +95,7 @@ def test_a_still_with_two_leds_lit_is_refused(session, tmp_path):
         session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
     assert refused.value.reason == 'other_led_lit'
-    assert session.scope.camera.get_held_layer() == LED0
+    assert session.scope.camera.get_held_channel() == LED0
     assert _files(tmp_path) == []
 
 
@@ -103,15 +103,15 @@ def test_after_a_still_the_camera_holds_the_shown_layer(session):
     """The camera off the shown layer (another layer's settings put on it)
     is put back on the shown layer by the still, and stays there."""
     session.show_channel(LED0)
-    session.apply_layer_camera(LED1)
-    assert session.scope.camera.get_held_layer() == LED1
+    session.apply_channel_camera(LED1)
+    assert session.scope.camera.get_held_channel() == LED1
 
     name, record = _still(session)
 
     assert f'_{LED0}_' in name
     assert _settings_of(record) == _stored(LED0)
     assert record.held_channel == LED0
-    assert session.scope.camera.get_held_layer() == LED0
+    assert session.scope.camera.get_held_channel() == LED0
 
 
 def test_a_still_after_a_run_is_one_layers(session, tmp_path):
@@ -273,15 +273,15 @@ def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
     try:
         # Camera settings stay open during a recording; another layer's put
         # on the camera means a still of the shown layer would change them.
-        session.apply_layer_camera(LED0)
-        assert session.scope.camera.get_held_layer() == LED0
+        session.apply_channel_camera(LED0)
+        assert session.scope.camera.get_held_channel() == LED0
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
         assert refused.value.reason == 'exclusive_activity_running'
         assert refused.value.holder == 'recording'
-        assert session.scope.camera.get_held_layer() == LED0
+        assert session.scope.camera.get_held_channel() == LED0
     finally:
         recording.stop()
         recording.result(timeout=60)

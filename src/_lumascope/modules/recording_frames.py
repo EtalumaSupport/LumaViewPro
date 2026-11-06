@@ -315,7 +315,7 @@ def arrival(
             chunks=frame.chunks,
             frame_significant_bits=frame.significant_bits,
             lit=dict(snapshot_lit_pairs(readings)),
-            held_channel=scope.camera.get_held_layer(),
+            held_channel=scope.camera.get_held_channel(),
             binning_size=camera.binning_size,
             camera_model=camera.camera_model,
             camera_tick_hz=camera.camera_tick_hz,

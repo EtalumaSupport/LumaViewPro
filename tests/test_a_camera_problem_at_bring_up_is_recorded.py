@@ -133,13 +133,13 @@ def test_a_camera_that_left_outranks_a_stream_that_did_not_start(monkeypatch):
     # a stand-in by design: the simulator arms no fault at the start of a
     # hold, so the departure is made there by wrapping the hold; the
     # departure itself is the simulated FX2's own unplug.
-    real_hold = camera_api.CameraAPI._hold_layer_impl
+    real_hold = camera_api.CameraAPI._hold_channel_impl
 
     def leave_then_hold(self, layer, request):
         self._scope.simulation.remove_camera()
         return real_hold(self, layer, request)
 
-    monkeypatch.setattr(camera_api.CameraAPI, '_hold_layer_impl', leave_then_hold)
+    monkeypatch.setattr(camera_api.CameraAPI, '_hold_channel_impl', leave_then_hold)
     heard = []
     session = _create(heard, microscope='LS620', refused_stream_starts=1)
     try:
@@ -181,11 +181,11 @@ def test_after_a_refused_bf_gain_showing_bf_writes_it_again():
     heard = []
     session = _create(heard, Refusal('gain', 'false'))
     try:
-        assert session.scope.camera.get_held_layer() is None
+        assert session.scope.camera.get_held_channel() is None
 
         session.show_channel('BF')
 
-        assert session.scope.camera.get_held_layer() == 'BF'
+        assert session.scope.camera.get_held_channel() == 'BF'
     finally:
         session.shutdown()
 

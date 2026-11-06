@@ -134,7 +134,7 @@ class TestNothingReselectsARunningScope:
         # Re-resolving the layers for a new selection is what split one scope
         # into two models; the override stays for tests.
         with pytest.raises(TypeError):
-            ls620_session.scope.refresh_layer_identity(configured_model='LS560')
+            ls620_session.scope.refresh_channel_identity(configured_model='LS560')
 
     def test_the_session_is_the_only_writer_of_the_stored_model(self):
         from tests.ast_seams import writers_of_settings_keys
@@ -155,7 +155,7 @@ class TestNothingReselectsARunningScope:
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'refresh_layer_identity'
+            and node.func.attr == 'refresh_channel_identity'
         )
         assert callers == []
 

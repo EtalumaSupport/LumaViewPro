@@ -51,17 +51,17 @@ class TestFusion:
         assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Skylight')
 
     def test_identity_narrowed_layer_on_raises_by_name(self, scope):
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         with pytest.raises(HardwareCommandRefusedError, match=LED1) as refused:
             scope.illumination.led_on(channel=LED1, illumination_ma=50)
         assert refused.value.missing == MissingPart.led(LED1)
 
     def test_identity_narrowed_layer_off_still_noops(self, scope):
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         scope.illumination.led_off(channel=LED1)
 
     def test_no_led_layer_resolves_to_no_channel_without_error(self, scope):
-        scope.refresh_layer_identity(override_model='Lumi')
+        scope.refresh_channel_identity(override_model='Lumi')
         assert scope.channel_identity.find('Lumi') is not None
         assert scope.illumination.led_address_of('Lumi') is None
         scope.illumination.led_off(channel='Lumi')
@@ -71,7 +71,7 @@ class TestTwoResolverSplit:
     def test_identity_answers_by_record(self, scope):
         assert scope.illumination.led_address_of(LED1) == 1
         assert scope.channel_identity.key_at(1) == LED1
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         assert scope.illumination.led_address_of(LED1) is None
         assert scope.channel_identity.key_at(1) is None
 
@@ -80,7 +80,7 @@ class TestTwoResolverSplit:
         store, reported by its address with no name, and the extinguish
         that rides that record still reaches it."""
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         assert LedReading(1, None, LedState.LIT, 50.0) in scope.illumination.get_led_states()
         scope.illumination.led_off_by_address(1)
         assert led_reading(scope, 1).state is LedState.DARK
@@ -104,7 +104,7 @@ class TestTwoResolverSplit:
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
         snapshot = scope.illumination.get_led_states()
         scope.illumination.led_off(channel=LED1)
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         for light in (
             lambda: scope.illumination.led_on_by_address(1, 50),
             lambda: scope.illumination.restore_led_state(snapshot),
@@ -117,7 +117,7 @@ class TestTwoResolverSplit:
 
 class TestOverrideScope:
     def test_override_is_session_scoped_not_sticky(self, scope):
-        scope.refresh_layer_identity(override_model='LS850-0')
+        scope.refresh_channel_identity(override_model='LS850-0')
         assert scope.channel_identity.find(LED1) is None
-        scope.refresh_layer_identity()
+        scope.refresh_channel_identity()
         assert scope.channel_identity.find(LED1) is not None

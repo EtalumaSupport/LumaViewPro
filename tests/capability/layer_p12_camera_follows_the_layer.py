@@ -2,7 +2,7 @@
 
 Asked of the API alone, as a script or REST would: bring-up puts BF's stored
 settings on the camera, and `go_to_step` the step's layer's
-(`ScopeSession.apply_layer_camera`). Before that member, only the GUI's
+(`ScopeSession.apply_channel_camera`). Before that member, only the GUI's
 layer control set the camera, and the LS850T read the Pylon default
 (10 ms / 0 dB) after bring-up and after each go.
 

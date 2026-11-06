@@ -198,7 +198,7 @@ class TestTheRecord:
         assert record.frames_summed == 1
         assert (record.binning_size, record.camera_model, record.camera_tick_hz) == A_CAMERA
         assert record.illumination_timing is LightTiming.ON_ARRIVAL
-        assert record.held_channel == sim_scope.camera.get_held_layer()
+        assert record.held_channel == sim_scope.camera.get_held_channel()
 
     def test_a_frame_without_chunks_states_no_exposure_or_gain(self, sim_scope):
         """A setting can change while a recording runs, so a frame with no

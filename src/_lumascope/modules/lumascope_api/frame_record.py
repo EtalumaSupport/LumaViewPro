@@ -253,7 +253,7 @@ class FrameRecord:
             any frame was. None when the capture did not judge it (no LED
             on, or ``accept_dark``).
         held_channel: The channel whose stored settings the camera held for the
-            grab (``CameraAPI.get_held_layer``); None when it held no
+            grab (``CameraAPI.get_held_channel``); None when it held no
             layer's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
             above either way.

@@ -683,7 +683,7 @@ class TestTheBoardsChannelBlock:
             session.scope._motion_driver.motorconfig.update_from_board(
                 {'Layers': LS560_ROWS, 'Filterset': 'Custom-X'}
             )
-            identity = session.scope.refresh_layer_identity()
+            identity = session.scope.refresh_channel_identity()
         finally:
             session.shutdown()
         assert (identity.source, identity.model) == ('scopes', 'LS850')

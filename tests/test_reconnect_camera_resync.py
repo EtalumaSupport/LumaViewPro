@@ -41,7 +41,7 @@ from types import SimpleNamespace
 from _lumascope.modules.config_helpers import (
     DEFAULT_MAX_GAIN_DB,
     camera_max_gain_for_ui,
-    layer_slider_maxima,
+    channel_slider_maxima,
 )
 from _lumascope.modules.channel_record import release_catalogue
 from tests.stock_channels import LED0, LED1, LED2
@@ -259,7 +259,7 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
 def layer_max_exposure_ms(camera_max_ms: float, layer: str) -> float:
     """The exposure slider maximum the session publishes for ``layer`` under a
     camera capped at ``camera_max_ms``."""
-    return layer_slider_maxima(
+    return channel_slider_maxima(
         layer, exposure_cap_ms=camera_max_ms, illumination_cap_ma=None
     ).slider_max_exposure_ms
 
@@ -317,8 +317,8 @@ class TestManualExposurePolicy:
         # and is overridable per install; reusing it here would let auto-exposure
         # tuning silently resize the manual slider. The resolver takes no settings
         # argument, so no install override can reach it.
-        assert 'settings' not in inspect.signature(layer_slider_maxima).parameters
-        assert 'overrides' not in inspect.signature(layer_slider_maxima).parameters
+        assert 'settings' not in inspect.signature(channel_slider_maxima).parameters
+        assert 'overrides' not in inspect.signature(channel_slider_maxima).parameters
 
 
 class TestTheTypedExposureHasNoWidgetCeiling:

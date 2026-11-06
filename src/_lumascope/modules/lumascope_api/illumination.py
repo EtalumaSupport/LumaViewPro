@@ -405,7 +405,7 @@ def lit_other_than(
     """Every LED lit but ``layer``'s, by channel name, else by board address.
 
     The one answer to whether a frame named for ``layer`` is lit by another
-    light: a capture held at a layer (``ImagingAPI._capture_holding_layer_impl``),
+    light: a capture held at a layer (``ImagingAPI._capture_holding_channel_impl``),
     the still and a manual recording's start each refuse when it is not empty.
 
     Args:

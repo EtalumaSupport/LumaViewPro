@@ -64,7 +64,7 @@ _STEPS = (
     ('the session constructor', ScopeSession, '__init__', None),
     ('the old channel blocks', ScopeSession, '_place_old_channel_blocks', None),
     ('the scope configuration', ScopeSession, '_configure_scope', None),
-    ('the absent layers', ScopeSession, '_stop_acquiring_absent_layers', None),
+    ('the absent layers', ScopeSession, '_stop_acquiring_absent_channels', None),
     ('the streaming check', ImagingAPI, 'is_streaming', None),
     (
         'the held file lane',

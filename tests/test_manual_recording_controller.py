@@ -93,7 +93,7 @@ class _FakeCamera:
     def frame_size(self):
         return self._frame_size
 
-    def get_held_layer(self):
+    def get_held_channel(self):
         # Read as each recorded frame arrives; this fake holds no layer's
         # settings.
         return None

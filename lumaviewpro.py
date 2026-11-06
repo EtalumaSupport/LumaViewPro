@@ -1223,7 +1223,7 @@ class LumaViewProApp(TooltipMixin, App):
         def _publish_layer_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
-            ctx.scope_display_thread.update_layer_config(
+            ctx.scope_display_thread.update_channel_config(
                 ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
             )
 

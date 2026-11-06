@@ -122,13 +122,13 @@ def _dispatches(path: Path):
                 ):
                     timeout = next(k.value for k in call.keywords if k.arg == 'timeout_s')
                     impl = call.args[0]
-                    # A raw door hands its body over through _no_layers_write,
+                    # A raw door hands its body over through _no_channels_write,
                     # and a stored setting through _saved_after; each runs
                     # the same body.
                     if (
                         isinstance(impl, ast.Call)
                         and isinstance(impl.func, ast.Attribute)
-                        and impl.func.attr in ('_no_layers_write', '_saved_after')
+                        and impl.func.attr in ('_no_channels_write', '_saved_after')
                     ):
                         impl = impl.args[0]
                     yield cls.name, fn, impl, timeout

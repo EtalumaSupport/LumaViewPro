@@ -63,7 +63,7 @@ def _imaging(chunk_reads=None):
     camera._camera_cache_lock = threading.Lock()
     camera._camera_cache = {'binning': 1}
     camera._state_lock = threading.Lock()
-    camera._held_layer = None
+    camera._held_channel = None
     # The fresh reads a frame's record takes on the lane, beside the grab.
     camera._read_fresh = {'exposure_ms': LIVE_EXPOSURE_MS, 'gain_db': LIVE_GAIN_DB}.get
     camera._read_black_level_impl = lambda: None

@@ -1,13 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every camera write either keeps the camera's held-layer record true or is layer-neutral.
+"""Every camera write either keeps the camera's held-channel record true or is channel-neutral.
 
-``CameraAPI`` records which layer's stored settings the camera holds, and a
+``CameraAPI`` records which channel's stored settings the camera holds, and a
 capture is named and set by it. A write that changed the camera without
-touching the record would leave the record naming a layer whose settings
+touching the record would leave the record naming a channel whose settings
 the camera no longer holds. So every reference to a camera write body is
-one of: a public door that hands it to ``_no_layers_write`` (the record
-then says no layer), the record's own writers (``_hold_layer_impl``, the
-restore), or a write that leaves the layer as it was (the in-capture lock
+one of: a public door that hands it to ``_no_channels_write`` (the record
+then says no channel), the record's own writers (``_hold_channel_impl``, the
+restore), or a write that leaves the channel as it was (the in-capture lock
 and resume of a standing arm, the arm's own ceiling clamp, the batched
 apply's own steps). No module outside ``camera.py`` reaches a write body but
 the capture's (``imaging.py``), whose lock and resume of a standing arm are
@@ -36,7 +36,7 @@ _WRITE_BODIES = MemberNames(
 
 # Where a write body may be called directly, each with why the record stays true.
 _RECORD_KEPT_IN = {
-    '_hold_layer_impl': 'the record writer',
+    '_hold_channel_impl': 'the record writer',
     'restore_camera_state': "dispatches the restore, which sets the snapshot's record",
     '_restore_camera_state_impl': "clears the record, then sets the snapshot's once it is whole",
     '_apply_settings_impl': 'its own steps, under whichever door called it',
@@ -48,7 +48,7 @@ _RECORD_KEPT_IN = {
 
 
 def _write_body_references(tree: ast.AST):
-    """(line, write body, enclosing function, whether handed to _no_layers_write)."""
+    """(line, write body, enclosing function, whether handed to _no_channels_write)."""
     found = []
 
     def walk(node, function, wrapped):
@@ -58,7 +58,7 @@ def _write_body_references(tree: ast.AST):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == '_no_layers_write'
+            and node.func.attr == '_no_channels_write'
         ):
             for arg in node.args:
                 walk(arg, function, True)
@@ -76,7 +76,7 @@ def _write_body_references(tree: ast.AST):
 _CAMERA_MODULES = ('camera.py', 'imaging.py')
 
 
-def test_every_camera_write_keeps_the_held_layer_true():
+def test_every_camera_write_keeps_the_held_channel_true():
     references = [
         (name, *reference)
         for name in _CAMERA_MODULES

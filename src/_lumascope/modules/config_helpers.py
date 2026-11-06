@@ -923,7 +923,7 @@ def _narrowed(cap: float | None, ceiling: float | None) -> float | None:
     return min(ceiling, cap)
 
 
-def layer_slider_maxima(
+def channel_slider_maxima(
     layer: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
 ) -> ChannelSliderMaxima:
     """One layer's manual slider maxima: the connected camera's exposure cap

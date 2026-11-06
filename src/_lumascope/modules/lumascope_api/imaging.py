@@ -1208,13 +1208,13 @@ class ImagingAPI:
             raise failed.error(member)
         return CapturedStill(image=grabbed.image, record=record)
 
-    def _capture_holding_layer_impl(
+    def _capture_holding_channel_impl(
         self, layer: str, request: ChannelCameraRequest, member: str, **capture
     ) -> CapturedStill:
         """``_capture_still_impl``, with the camera holding ``layer``'s stored settings.
 
         For a capture that is already its own camera-lane task (the still):
-        the camera's hold for a capture (``CameraAPI._hold_layer_for_capture``)
+        the camera's hold for a capture (``CameraAPI._hold_channel_for_capture``)
         runs inline, as the capture body does, so neither is admitted again
         against whatever holds the scope now. ``capture`` is the capture
         body's keyword arguments. A frame named and set for ``layer`` is lit
@@ -1223,13 +1223,13 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'other_led_lit'``, an LED other
                 than ``layer``'s is lit; nothing was written or captured. As
-                ``_hold_layer_for_capture`` says, and whatever the capture
+                ``_hold_channel_for_capture`` says, and whatever the capture
                 raises.
-            CameraSettingRejected: as ``_hold_layer_for_capture`` says.
+            CameraSettingRejected: as ``_hold_channel_for_capture`` says.
         """
         if lit_other_than(self._scope.illumination, layer):
             raise HardwareCommandRefusedError('other_led_lit', member)
-        self._camera._hold_layer_for_capture(layer, request, member)
+        self._camera._hold_channel_for_capture(layer, request, member)
         return self._capture_still_impl(member=member, **capture)
 
     def _build_frame_record(
@@ -1276,7 +1276,7 @@ class ImagingAPI:
             judgments=judgments,
             saturated_fraction=saturated_fraction,
             dark=dark,
-            held_channel=self._camera.get_held_layer(),
+            held_channel=self._camera.get_held_channel(),
             auto_gain=auto_gain,
         )
 
@@ -1442,9 +1442,9 @@ class ImagingAPI:
         capture's; a caller that needs only the pixels reads ``.image``.
 
         Given ``hold``, the camera holds that layer's stored settings for the
-        grab (``CameraAPI.hold_layer``), in the same camera-lane task; given
+        grab (``CameraAPI.hold_channel``), in the same camera-lane task; given
         None, it captures with the camera as set. In-process only, as
-        ``hold_layer`` is: the Session reads the layer's store and hands it
+        ``hold_channel`` is: the Session reads the layer's store and hands it
         in (``ScopeSession.capture_still``), so a still is held at no
         settings but its layer's.
 
@@ -1539,7 +1539,7 @@ class ImagingAPI:
             _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
         # The hold's writes run in the same task, ahead of the capture.
         return self._camera._dispatch_camera(
-            self._capture_holding_layer_impl,
+            self._capture_holding_channel_impl,
             'capture_still',
             args=(hold.channel, hold.request, 'capture_still'),
             kwargs=capture,
