@@ -695,7 +695,7 @@ def _add_handle_routes(
             summary=f"Forget a {cls.__name__} handle's id, never its object.",
             description=(
                 "A run goes on, and its stop is its own member. The session's protocol "
-                "runner is every client's, and its id is kept (409). While a control "
+                "runner is every client's, and its id is kept (422 handle_shared). While a control "
                 'session is held, only its holder forgets an id (409 control_session_held).'
             ),
             tags=['handles'],
