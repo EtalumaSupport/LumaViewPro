@@ -1157,9 +1157,24 @@ On the scope PC:
 - **Connect the network before LumaViewPro starts.** An unplugged cable takes
   its address with it, so a server started before the cable is in cannot take
   the address; it says so, and REST is off until LumaViewPro restarts.
-- **The firewall.** Windows asks, the first time LumaViewPro serves on a
-  network, whether to allow it; allow it on the network type the link is. On
-  Linux, a firewall that is on (firewalld on Fedora and RHEL, ufw when enabled
+- **The firewall.** The installer adds no firewall rule: only REST on a
+  network address needs one. Windows asks, the first time LumaViewPro serves
+  on a network, whether to allow it, and answering needs an administrator.
+  Allow it on Public networks too: a direct cable with fixed addresses is an
+  unidentified network, which Windows counts as Public. Cancelling the prompt
+  makes Windows block LumaViewPro, and a block outranks any allow. Where no
+  one can answer the prompt, or after a cancel, an administrator opens it in
+  a Command Prompt run as administrator, the first line removing any block:
+
+  ```
+  netsh advfirewall firewall delete rule name=all dir=in program="C:\Program Files\LumaViewPro\lumaviewpro.exe"
+  netsh advfirewall firewall add rule name="LumaViewPro REST" dir=in action=allow program="C:\Program Files\LumaViewPro\lumaviewpro.exe" enable=yes
+  ```
+
+  `netsh advfirewall firewall delete rule name="LumaViewPro REST"` removes
+  it. A site whose policy ignores local rules needs its IT to add the rule.
+  A copy run from source serves through its `python.exe`, and Windows asks
+  for that program instead. On Linux, a firewall that is on (firewalld on Fedora and RHEL, ufw when enabled
   on Ubuntu) drops the connection with no prompt and no message: open the port,
   for example `sudo firewall-cmd --permanent --add-port=8000/tcp && sudo
   firewall-cmd --reload`, or `sudo ufw allow from 192.168.10.3 to any port 8000
