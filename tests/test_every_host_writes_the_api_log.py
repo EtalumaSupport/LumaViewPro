@@ -4,15 +4,14 @@
 The two files were attached by the GUI alone, after its session was built and
 its plugins mounted, and only in engineering mode or a beta: a launch's
 bring-up never reached api.log, and the REST server and a script wrote
-neither file at all. They are attached when the API is imported, as
-camera.log is, so a host has nothing to call and no point after which they
-start. Being always on, autofocus.log rotates into one file, so it cannot
+neither file at all. They are attached when the process starts its log
+files, as camera.log is, which a session's first call does, so a host has
+nothing to call and no point after which they start. Being always on, autofocus.log rotates into one file, so it cannot
 pile up.
 
 The check runs in a child Python: the suite replaces ``lvp_logger`` with a
 stand-in (``tests/conftest.py``), so only a fresh interpreter imports the
-real one. The child imports the API the way the REST server and a script
-do, and nothing else.
+real one. The child makes a script's first session call, and nothing else.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ _CHILD = """
 import json, logging
 from _lumascope.modules.scope_session import ScopeSession
 import _lumascope.lvp_logger
+ScopeSession.load_user_settings('.')
 
 def files(name):
     return sorted(
@@ -48,7 +48,7 @@ print(json.dumps({
 """
 
 
-def test_importing_the_api_attaches_api_log_and_autofocus_log():
+def test_a_sessions_first_call_attaches_api_log_and_autofocus_log():
     result = subprocess.run(
         [sys.executable, '-c', _CHILD],
         cwd=REPO,

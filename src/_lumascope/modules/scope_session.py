@@ -1584,9 +1584,10 @@ class ScopeSession:
         protocol_thread (started) and scope_display_thread (constructed,
         not started).
 
-        The settings' log level and autofocus score log are applied to the
-        process's logging first, so every host logs as its settings say,
-        bring-up included.
+        A process that has not started its logging starts the log folder
+        here, as ``load_user_settings`` does. The settings' log level and
+        autofocus score log are applied to the process's logging first, so
+        every host logs as its settings say, bring-up included.
 
         The scope is brought up before this returns (``configure_scope``,
         then the camera start gate released) and is torn down by
@@ -1661,7 +1662,7 @@ class ScopeSession:
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
         """
-        from _lumascope.lvp_logger import log_environment_banner, version
+        from _lumascope.lvp_logger import log_environment_banner, start_session_logging, version
         from _lumascope.modules.app_environment import camera_sdk_probe
         from _lumascope.modules.lumascope_api._lumascope import (
             _fire_pre_release_warning,
@@ -1675,7 +1676,9 @@ class ScopeSession:
         # the REST server, a script or a probe names its host, build, camera
         # SDKs and drivers as the GUI's does, a bring-up that fails included.
         # The build's own files (version.txt, build_id.txt) ship in the build
-        # root, never in the data folder ``source_path`` names.
+        # root, never in the data folder ``source_path`` names. A session's
+        # first call starts the log folder, unless the process already has.
+        start_session_logging()
         log_environment_banner(
             str(build_root()), version, camera_sdk_probe(), driver_availability_lines()
         )
@@ -1875,7 +1878,8 @@ class ScopeSession:
         simulate=...)``. Reading is its own call rather than a default of
         ``create`` so a caller that meant to pass settings and forgot is
         refused for the missing argument instead of quietly configured
-        from whatever is on disk.
+        from whatever is on disk. A process that has not started its logging
+        starts the log folder here.
 
         Args:
             source_path: The installation folder whose settings are read:
@@ -1891,8 +1895,12 @@ class ScopeSession:
                 whose layer vocabulary the settings are checked against, or
                 its ``settings.json`` template, is missing or unusable.
         """
+        from _lumascope.lvp_logger import start_session_logging
         from _lumascope.modules.settings_init import settings as default_settings
 
+        # A session's first call starts the log folder, so the repairs and
+        # merges the preparation below logs are in the bundle.
+        start_session_logging()
         if default_settings is not None:
             return default_settings.copy()
         # Settings not loaded yet (e.g. headless/test usage) -- resolve

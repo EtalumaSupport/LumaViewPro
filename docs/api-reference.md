@@ -1069,9 +1069,10 @@ gets the topology the GUI runs: FILE + WORKER_POOL executors plus
 protocol_thread (started) and scope_display_thread (constructed,
 not started).
 
-The settings' log level and autofocus score log are applied to the
-process's logging first, so every host logs as its settings say,
-bring-up included.
+A process that has not started its logging starts the log folder
+here, as `load_user_settings` does. The settings' log level and
+autofocus score log are applied to the process's logging first, so
+every host logs as its settings say, bring-up included.
 
 The scope is brought up before this returns (`configure_scope`,
 then the camera start gate released) and is torn down by
@@ -1821,7 +1822,8 @@ For a host with no GUI -- a script, a server -- to pass to
 simulate=...)``. Reading is its own call rather than a default of
 `create` so a caller that meant to pass settings and forgot is
 refused for the missing argument instead of quietly configured
-from whatever is on disk.
+from whatever is on disk. A process that has not started its logging
+starts the log folder here.
 
 **Args**
 
@@ -15852,6 +15854,31 @@ wrong kind, before the member reads or writes it.
 | `outside_live_folder` | request | 422 |
 | `path_not_found` | request | 422 |
 | `wrong_extension` | request | 422 |
+
+<a id="LoggingStartRefusedError"></a>
+### `lumascope.LoggingStartRefusedError`
+
+A refusal; bases `Refusal`, `Exception`.
+
+LumaViewPro's logging was not started as asked: this process already started it another way.
+
+Raised by `start_logging` when the process's logging already started
+otherwise: a decline after the log files opened, the files after a
+decline, or either in a process a LumaViewPro program owns. A process's
+logging starts once and is never changed, so nothing was changed: files
+already open stay open and keep being written, and a process that
+declined them opens none. Asking for what the process already has is no
+refusal.
+
+**Attributes**
+
+- `reason`: `'logging_started_otherwise'`.
+- `has`: How this process's logging started: `'declined'`, `'lumascope'` or `'root'`.
+- `asked`: What the refused call asked for, in the same words.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `logging_started_otherwise` | restart | 503 |
 
 <a id="MotionInterlockError"></a>
 ### `lumascope.MotionInterlockError`

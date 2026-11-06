@@ -1,4 +1,4 @@
-"""Regression: the bundle file handlers have a single owner (the root logger).
+"""Regression: the bundle file handlers have a single owner, so a record is written to the bundle once.
 
 Bug shape (pre-fix): the same RotatingFileHandler instances that write the
 shared bundle (lvpmain.log / errors.log) were attached to the root logger AND
@@ -8,57 +8,62 @@ root's copy of the same handler. This was masked only by disabling propagation
 in non-debug, so a debug run -- exactly when the bundle matters for diagnosis --
 doubled every LVP line.
 
-Fix: root is the single owner of the bundle handlers; every ordinary logger
-reaches the bundle by propagating to root, and no logger holds its own copy.
-The deliberately-separate firehose loggers (camera/protocol/serial/... write
-their own .log and stay out of the main bundle via propagate=False + their own
-handlers) are a different, intentional routing and are left alone.
+Fix: one owner holds the bundle handlers, and every ordinary logger reaches
+them by propagation. A LumaViewPro program's start hangs them on root; a
+session's start in an integrator's process hangs them on LumaViewPro's two
+logger roots, which still propagate to the integrator's root. In both, a
+warning from each of `LVP.*`, `lvp_logger` and (for a program) `kivy` lands
+once in the main log and once in the errors log.
 
-Asserted from source: the live logger tree is global state that pytest's
-logging capture and other tests mutate between runs, so runtime handler/
-propagate checks are unstable (the existing root-logging tests assert on source
-for the same reason).
+Run in a child per shape: logging is process-wide, and the suite's conftest
+stands a MagicMock in for ``lvp_logger``.
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
 
-_SRC = (Path(__file__).resolve().parents[1] / 'src/_lumascope/lvp_logger.py').read_text(
-    encoding='utf-8'
-)
+REPO = pathlib.Path(__file__).resolve().parents[1]
 
-
-def _stmt(holder: str, tail: str) -> re.Pattern:
-    # Anchor the holder at the start of a line so `logger` / `_lvp_parent` /
-    # `kivy_logger` do not spuriously match the firehose loggers whose names
-    # END in 'logger' (camera_logger, protocol_logger, serial_logger, ...).
-    return re.compile(rf'^{re.escape(holder)}{re.escape(tail)}', re.MULTILINE)
-
-
-def test_root_is_sole_owner_of_bundle_handlers():
-    # Root owns them...
-    assert '_root_logger.addHandler(file_handler)' in _SRC
-    assert '_root_logger.addHandler(error_file_handler)' in _SRC
-    # ...and the ordinary LVP loggers must NOT re-attach the same instances
-    # (that duplicate attachment is what doubled the bundle on propagation).
-    for holder in ('logger', '_lvp_parent', 'kivy_logger'):
-        for handler in ('file_handler', 'error_file_handler'):
-            assert not _stmt(holder, f'.addHandler({handler})').search(_SRC), (
-                f'{holder} re-attaches {handler}, which the root logger already '
-                f'owns; a propagated record would write the bundle twice. It '
-                f'must reach the bundle by propagation to root, not its own copy.'
-            )
+_CHILD = """
+import json, logging, sys
+sys.path.insert(0, 'src')
+from _lumascope import lvp_logger
+getattr(lvp_logger, sys.argv[1])()
+names = ['LVP.some_module', 'lvp_logger'] + (['kivy'] if sys.argv[1] == 'start_program_logging' else [])
+for name in names:
+    logging.getLogger(name).warning(f'once from {name}')
+for handler in (lvp_logger.file_handler, lvp_logger.error_file_handler):
+    handler.flush()
+print(json.dumps([lvp_logger.LOG_FILE, lvp_logger.ERRORS_LOG_FILE, names]))
+"""
 
 
-def test_ordinary_lvp_loggers_reach_bundle_by_propagation():
-    # propagate=False on these was the mask that hid the double-write; it must
-    # not come back (the firehose loggers keep their own propagate=False -- a
-    # different, intentional routing -- so target these three by name).
-    for holder in ('logger', '_lvp_parent', 'kivy_logger'):
-        assert not _stmt(holder, '.propagate = False').search(_SRC), (
-            f'{holder}.propagate must stay True so it reaches the single bundle '
-            f'owner (root) by propagation; propagate=False was the double-write '
-            f'mask.'
-        )
+def _bundle_counts(tmp_path, start):
+    folder = tmp_path / start
+    folder.mkdir()
+    for item in ('src', 'version.txt'):
+        (folder / item).symlink_to(REPO / item)
+    shutil.copytree(REPO / 'data', folder / 'data')
+    done = subprocess.run(
+        [sys.executable, '-c', _CHILD, start],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr[-3000:]
+    main, errors, names = json.loads(done.stdout.strip().splitlines()[-1])
+    texts = [pathlib.Path(p).read_text(encoding='utf-8') for p in (main, errors)]
+    return {name: [text.count(f'once from {name}') for text in texts] for name in names}
+
+
+def test_each_shape_writes_a_propagated_record_to_the_bundle_once(tmp_path):
+    for start in ('start_program_logging', 'start_session_logging'):
+        counts = _bundle_counts(tmp_path, start)
+        doubled = {name: c for name, c in counts.items() if c != [1, 1]}
+        assert not doubled, f'{start}: (main, errors) counts other than once: {doubled}'

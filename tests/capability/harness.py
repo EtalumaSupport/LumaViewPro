@@ -108,6 +108,13 @@ def _open_record():
 # The run's two files share this path stem (THE RECORD).
 RECORD = _open_record()
 
+# A probe owns its process's logging, as LumaViewPro does, so its sessions'
+# records and every root record land in the log folder the support zip
+# carries; started before the API's imports below.
+import _lumascope.lvp_logger
+
+_lumascope.lvp_logger.start_program_logging()
+
 # Imported once the repo is on the path and the console is recorded, as a
 # probe's own imports are.
 from tests.stock_channels import LED0

@@ -59,11 +59,12 @@ class TestConsoleGuardedOnStderr:
         # all LVP + framework output as terminal noise. It is also guarded on
         # the process's stderr -- a packaged windowed build has None, and a
         # StreamHandler over a missing stream raises on emit.
-        assert 'if debug and sys.__stderr__ is not None:' in _SRC
+        # Root's console belongs to a program that owns its process alone.
+        assert 'if take_root and debug and sys.__stderr__ is not None:' in _SRC
         assert 'logging.StreamHandler(sys.__stderr__)' in _SRC
 
 
-# A process that loads Kivy before lvp_logger, as the sim-walk harness does,
+# A process that loads Kivy before it starts its logging, as the sim-walk harness does,
 # with debug on: Kivy has replaced sys.stderr by the time the console is made.
 _KIVY_FIRST = r"""
 import os, sys
@@ -73,7 +74,8 @@ sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 import kivy.logger
 import _lumascope.modules.settings_init as settings_init
 settings_init.load_debug_setting = lambda directory: True
-from _lumascope.lvp_logger import logger
+from _lumascope.lvp_logger import logger, start_program_logging
+start_program_logging()
 logger.info('a line logged after Kivy loaded')
 print('LOGGED')
 """
@@ -92,13 +94,14 @@ def test_a_debug_console_made_after_kivy_loaded_logs_without_looping(tmp_path):
 
 
 # The drivers and src/_lumascope/lib/ take their loggers from src/_lumascope/lib/log_helpers, never from
-# lvp_logger; the real lvp_logger configures those same objects by name.
+# lvp_logger; the real lvp_logger's start configures those same objects by name.
 _A_DRIVERS_LINES = r"""
 import os, sys
 sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 import _lumascope.modules.settings_init as settings_init
 settings_init.load_debug_setting = lambda directory: True
 import _lumascope.lvp_logger
+_lumascope.lvp_logger.start_program_logging()
 from _lumascope.lib.log_helpers import camera_logger, logger
 logger.debug('a driver debug line')
 camera_logger.info('a camera line')

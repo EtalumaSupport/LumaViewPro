@@ -3,7 +3,7 @@
 
 The GUI, the REST server, a headless script and a test runner all write to
 one log, and only the GUI writes the startup banner, so a support bundle
-could not tell what any other process was. Importing ``lvp_logger`` now
+could not tell what any other process was. Starting its log files now
 writes one line before anything else: version, runtime, the folder the
 process was launched from, its data root, and its PID.
 """
@@ -21,6 +21,7 @@ _CHILD = """
 import os, sys
 sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
 import _lumascope.lvp_logger
+_lumascope.lvp_logger.start_program_logging()
 print(os.getpid())
 """
 

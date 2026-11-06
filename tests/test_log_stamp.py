@@ -3,9 +3,10 @@
 
 The FX2 driver step runs as LocalSystem at uninstall and the profiler runs
 under sudo; both take the stamp from ``_lumascope.modules.log_stamp`` and never import
-``lvp_logger``, which creates the log folder and attaches its handlers when
-it loads. A stamp module that did either would write root-owned files into
-a user's data folder, or log into the live log it reads.
+``lvp_logger``, which loads the settings layer and whose start creates the
+log folder and attaches its handlers. A stamp module that did either would
+write root-owned files into a user's data folder, or log into the live log
+it reads.
 """
 
 import json

@@ -953,6 +953,47 @@ class ScopeInUseError(Refusal, Exception):
         )
 
 
+_LOGGING_STARTS = {
+    'declined': 'with no log files',
+    'lumascope': "with its log files on LumaViewPro's own loggers",
+    'root': 'by a LumaViewPro program, its log files on the root logger',
+}
+
+
+class LoggingStartRefusedError(Refusal, Exception):
+    """LumaViewPro's logging was not started as asked: this process already started it another way.
+
+    Raised by ``start_logging`` when the process's logging already started
+    otherwise: a decline after the log files opened, the files after a
+    decline, or either in a process a LumaViewPro program owns. A process's
+    logging starts once and is never changed, so nothing was changed: files
+    already open stay open and keep being written, and a process that
+    declined them opens none. Asking for what the process already has is no
+    refusal.
+
+    Attributes:
+        reason: ``'logging_started_otherwise'``.
+        has: How this process's logging started: ``'declined'``,
+            ``'lumascope'`` or ``'root'``.
+        asked: What the refused call asked for, in the same words.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'logging_started_otherwise': RefusalCause.RESTART
+    }
+    title = 'Logging Already Started'
+
+    def __init__(self, *, has: str, asked: str):
+        self.has = has
+        self.asked = asked
+        super().__init__(
+            f"LumaViewPro's logging was not started {_LOGGING_STARTS[asked]}: this process "
+            f'already started it {_LOGGING_STARTS[has]}, and that is unchanged. A process '
+            'starts its logging once; to choose, call start_logging before the first '
+            'session call.'
+        )
+
+
 class BringUpError(_Umbrella, Exception):
     """A part of the scope did not come up as it should have; the rest of the scope runs.
 

@@ -35,7 +35,10 @@ from _lumascope.drivers.exceptions import (
 )
 from _lumascope.drivers.usb_driver_binding import DeviceBinding
 
-log = logging.getLogger(__name__)
+# Under LVP, never ``__name__``: a session's logging hangs the bundle on
+# LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
+# module would write nowhere a support bundle collects.
+log = logging.getLogger('LVP.winusb_iso')
 
 # ---------------------------------------------------------------------------
 # Constants

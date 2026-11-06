@@ -428,6 +428,11 @@ def _print_homing_summary(results, axes):
 
 
 def main():
+    # The tool owns its process and drives the board with no session, so it
+    # starts the logging itself: the board traffic lands in the log folder.
+    from _lumascope.lvp_logger import start_program_logging
+
+    start_program_logging()
     parser = argparse.ArgumentParser(
         description='Firmware management tools (uses production drivers)'
     )

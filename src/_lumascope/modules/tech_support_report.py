@@ -43,7 +43,7 @@ import platformdirs
 
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_driver_binding import DeviceBinding
-from _lumascope.lvp_logger import collect_installed_packages
+from _lumascope.lvp_logger import collect_installed_packages, logging_started
 from _lumascope.modules import recording_frames, settings_init
 from _lumascope.modules import wall_time
 from _lumascope.modules.exceptions import (
@@ -77,7 +77,10 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api.illumination import IlluminationAPI
     from _lumascope.modules.lumascope_api.motion import MotionAPI
 
-logger = logging.getLogger(__name__)
+# Under LVP, never ``__name__``: a session's logging hangs the bundle on
+# LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
+# module would write nowhere a support bundle collects.
+logger = logging.getLogger('LVP.support_report')
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -2503,6 +2506,15 @@ class TechSupportReport:
             )
 
     def _step_logs(self, tmp):
+        # A process that declined its log files wrote none: the folder, if
+        # there is one, is another LumaViewPro process's, and the report says
+        # so rather than pass it off as this one's.
+        if logging_started() == 'declined':
+            (tmp / 'logs').mkdir(exist_ok=True)
+            (tmp / 'logs' / 'NOT_THIS_PROCESS.txt').write_text(
+                'This process started no log files (start_logging(log_files=False)). '
+                "Any logs here are another LumaViewPro process's.\n"
+            )
         logs_dir = _get_lvp_logs_dir()
         if not logs_dir or not logs_dir.is_dir():
             return

@@ -144,7 +144,6 @@ _FRAGILE_PIN = {
     'tests/test_issue_749_color2ch_contract.py': 1,
     'tests/test_least_astonishment_fixes.py': 7,
     'tests/test_led_ack_and_tsr_filename.py': 1,
-    'tests/test_logger_bundle_single_owner.py': 1,
     'tests/test_manual_recording_controller.py': 1,
     'tests/test_popup_close_button.py': 2,
     'tests/test_protocol_modules.py': 1,

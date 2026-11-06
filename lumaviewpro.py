@@ -48,6 +48,12 @@ import matplotlib
 matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
 
 if __name__ == '__main__':
+    # LumaViewPro owns this process, so it starts the logging first, the
+    # bundle on the root logger, before anything below can write a record.
+    from _lumascope.lvp_logger import start_program_logging
+
+    start_program_logging()
+
     disable_homing = False
     simulate_mode = '--simulate' in sys.argv
     if simulate_mode:

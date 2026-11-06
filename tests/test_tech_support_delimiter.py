@@ -24,7 +24,7 @@ def test_delimiter_does_not_append_to_the_newest_log_file(sim_session, tmp_path,
     report = TechSupportReport(sim_session)
     with (
         patch.object(tech_support_report, '_get_lvp_logs_dir', return_value=tmp_path),
-        caplog.at_level(logging.INFO, logger='_lumascope.modules.tech_support_report'),
+        caplog.at_level(logging.INFO, logger='LVP.support_report'),
     ):
         report._write_log_delimiter()
 
@@ -36,7 +36,7 @@ def test_delimiter_does_not_append_to_the_newest_log_file(sim_session, tmp_path,
 
 def test_the_delimiter_names_the_report_once(sim_session, caplog):
     report = TechSupportReport(sim_session)
-    with caplog.at_level(logging.INFO, logger='_lumascope.modules.tech_support_report'):
+    with caplog.at_level(logging.INFO, logger='LVP.support_report'):
         report._write_log_delimiter()
 
     message = next(

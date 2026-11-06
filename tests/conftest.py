@@ -298,6 +298,13 @@ def _install_kivy_uix_stubs():
 # Run at conftest import time -- before any test file is collected.
 install_mock_deps()
 
+# A bench run owns its process's logging, as LumaViewPro does: importing the
+# real logger configures nothing, so the run starts it, before any test.
+if BENCH_RUN:
+    from _lumascope.lvp_logger import start_program_logging
+
+    start_program_logging()
+
 
 def _install_host_absent_production_modules():
     """A production module this host cannot import gets an importable shell.

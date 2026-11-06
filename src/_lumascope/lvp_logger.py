@@ -3,13 +3,18 @@
 
 """
 src/_lumascope/lvp_logger.py configures a standard python logger for LumaViewPro.
+
+Importing it configures nothing: no file, handler or level. A process's
+logging starts at one call -- ``start_program_logging`` by a LumaViewPro
+program, ``start_session_logging`` from a session's first call, or an
+integrator's own ``start_logging`` -- and at most once.
 """
 
 import os
 
 # Suppress Kivy's own file/console logging before any Kivy import can fire.
-# LVP routes the `kivy` logger into its file_handler / error_handler below,
-# so Kivy diagnostics still land in the main LVP logs -- just not in
+# A LumaViewPro program's start routes the `kivy` logger into its file_handler /
+# error_handler (_hang_the_bundle_on_root), so Kivy diagnostics still land in the main LVP logs -- just not in
 # ~/.kivy/logs/. The app entry point (lumaviewpro.py) sets the same vars,
 # but lvp_logger is imported earlier by most code paths (tests, scripts,
 # standalone imports), so set them here too.
@@ -55,8 +60,8 @@ lvp_appdata = str(get_source_root())
 from _lumascope.modules.settings_init import load_debug_setting
 
 
+# The log folder's path; the start makes the folder.
 log_dir = str(get_log_dir())
-os.makedirs(log_dir, exist_ok=True)
 
 # files to which messages are logged
 LOG_FILE = os.path.join(log_dir, 'lumaviewpro.log')
@@ -154,22 +159,11 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 
 
 # The main and camera loggers are named in src/_lumascope/lib/log_helpers, where the drivers
-# and src/_lumascope/lib/ take them without importing this module; this module configures them.
+# and src/_lumascope/lib/ take them without importing this module; this module's start configures them.
 from _lumascope.lib import log_helpers
 from _lumascope.lib.log_helpers import camera_logger, logger
 
 _lvp_parent = logging.getLogger('LVP')
-
-# The root logger is the single owner of the bundle file handlers (set up
-# below); every logger reaches the bundle by propagating to root, and no logger
-# holds its own copy of those handler instances. Propagation is therefore
-# load-bearing -- it is the only path LVP output takes to the bundle -- so it
-# stays enabled (the default). (An earlier design attached the same handler
-# instances to both the LVP loggers and root; a propagated record then wrote
-# the bundle line twice, masked only by disabling propagation in non-debug,
-# which left debug runs -- when the bundle matters most -- double-logged.)
-logger.propagate = True
-_lvp_parent.propagate = True
 
 
 def rotated_log_name(name: str) -> str:
@@ -226,16 +220,6 @@ def _rotating_handler(path: str, *, layout: str, delay: bool):
     return handler
 
 
-file_handler = _rotating_handler(LOG_FILE, layout=MAIN_LAYOUT, delay=False)
-file_handler.addFilter(ThreadPauseFilter())
-
-# Additional rotating file handler for errors and critical logs only
-error_file_handler = _rotating_handler(ERRORS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
-error_file_handler.addFilter(ThreadPauseFilter())
-
-# Accept all levels on the handler but filter to ERROR+ or forced records
-error_file_handler.setLevel(logging.NOTSET)
-
 """
 
 Example of forcing a log record to also go to the errors log file:
@@ -254,14 +238,6 @@ class ErrorOrForcedFilter(logging.Filter):
         return bool(getattr(record, 'force_error', False))
 
 
-error_file_handler.addFilter(ErrorOrForcedFilter())
-
-# REST API log handler -- captures records marked with extra={'api_request': True}
-# Don't create the file until the first REST API log message.
-rest_api_handler = _rotating_handler(REST_API_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
-rest_api_handler.addFilter(ThreadPauseFilter())
-
-
 class RestAPIFilter(logging.Filter):
     """Only allows records explicitly marked as REST API traffic."""
 
@@ -269,48 +245,20 @@ class RestAPIFilter(logging.Filter):
         return bool(getattr(record, 'api_request', False))
 
 
-rest_api_handler.addFilter(RestAPIFilter())
-
-# Serial log -- dedicated file for all serial command/response traffic with timing.
-# Uses its own logger (LVP.serial) with propagate=False so serial traffic
-# does NOT appear in the main log.  Errors still go to the errors log.
-serial_logger = logging.getLogger('LVP.serial')
-serial_logger.propagate = False  # Keep serial traffic out of the main log
-
-
 # How many lines each trace log keeps before a warning.
 _HELD_LINES = 200
 
-# The trace logs (serial, camera, api) are written at the session's level,
-# DEBUG under debug_mode, else logging.default.level; that level is their
-# files' (log_helpers.apply_session_level). The loggers themselves pass VERBOSE
-# always, so the lines a file at INFO leaves out are held for the next warning.
-serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
-serial_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(serial_logger, serial_file_handler, held_lines=_HELD_LINES)
-# Also send serial errors/warnings to the errors log
-serial_logger.addHandler(error_file_handler)
-
-# Camera log -- dedicated file for all camera SDK command traffic with
-# timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
-# camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
-# StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
-# Per-frame callback events are NOT logged here -- they're in the per-frame
-# pylon_callback_trace.csv when profile_trace_enabled is set in
-# settings.json. Always-on (not engineering-gated) to match serial.log
-# behavior.
-# Under debug_mode it is the firehose for camera debugging: every
-# per-frame check, every SDK-call return value, every state transition.
-# Main log stays uncluttered via propagate=False;
-# the dual-write helper `_log_cam` in pyloncamera.py mirrors load-bearing
-# events (identity, connect, GetArray failures) to both files.
-camera_logger.propagate = False  # Keep camera traffic out of the main log
-
-camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
-camera_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(camera_logger, camera_file_handler, held_lines=_HELD_LINES)
-# Also send camera errors/warnings to the errors log
-camera_logger.addHandler(error_file_handler)
+# The lanes: each writes its own file and the errors log, and none reaches the
+# main log (start_logging sets each one's propagate False). The loggers are
+# named here, where the modules that write to them take them; the start gives
+# them their files.
+serial_logger = logging.getLogger('LVP.serial')
+metrics_logger = logging.getLogger('LVP.metrics')
+protocol_logger = logging.getLogger('LVP.protocol')
+af_logger = logging.getLogger('LVP.autofocus')
+api_logger = logging.getLogger('LVP.api')
+gui_logger = logging.getLogger('LVP.gui_interactions')
+kivy_logger = logging.getLogger('kivy')
 
 # Re-exported from _lumascope.lib.log_helpers so callers can `from
 # _lumascope.lvp_logger import log_to` next to `logger` without learning a separate import
@@ -319,112 +267,7 @@ camera_logger.addHandler(error_file_handler)
 # real log_to.
 from _lumascope.lib.log_helpers import log_to  # noqa: F401  intentional re-export so callers can import log_to from lvp_logger
 
-# Metrics log -- dedicated file for periodic runtime-health snapshots
-# (system metrics, handle/GC counts, buffer churn, frame-interval
-# percentiles). Routed here instead of errors.log so errors.log stays
-# signal-only. Written in the main log's layout.
-metrics_logger = logging.getLogger('LVP.metrics')
-metrics_logger.setLevel(logging.INFO)
-metrics_logger.propagate = False  # Keep metrics out of the main log
 
-metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
-metrics_file_handler.addFilter(ThreadPauseFilter())
-metrics_logger.addHandler(metrics_file_handler)
-# Metrics errors/warnings still hit the errors log
-metrics_logger.addHandler(error_file_handler)
-
-# Protocol log -- volume-offload lane for the stills writer's per-capture
-# narrative (the one producer: protocol_image_writer's image-captured /
-# execution-record lines). A long protocol soak emits tens of thousands
-# of these per run; routing them here keeps the main log readable. The
-# admission criterion is VOLUME, not topic -- low-volume protocol
-# narrative (runner lifecycle, video-step summaries at a few rows per
-# step) deliberately stays in the main log, where one file tells the
-# run's causal story. propagate=False keeps the firehose out of the main
-# log; warnings/errors still mirror to the errors log.
-protocol_logger = logging.getLogger('LVP.protocol')
-protocol_logger.propagate = False  # Keep protocol detail out of the main log
-
-# Don't create the file until the first write -- absence means no stills protocol ran.
-protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
-protocol_file_handler.addFilter(ThreadPauseFilter())
-protocol_logger.addHandler(protocol_file_handler)
-# Protocol errors/warnings still hit the errors log
-protocol_logger.addHandler(error_file_handler)
-
-# Autofocus log -- dedicated file for AF sweep data, scores, timing.
-# Always-on, attached at import like camera.log, so every host writes it.
-af_logger = logging.getLogger('LVP.autofocus')
-af_logger.setLevel(logging.INFO)
-af_logger.propagate = False  # Keep AF data out of the main log
-# Always send AF errors to the errors log
-af_logger.addHandler(error_file_handler)
-
-# Don't create the file until the first write.
-_af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, layout='%(message)s', delay=True)
-_af_file_handler.addFilter(ThreadPauseFilter())
-af_logger.addHandler(_af_file_handler)
-
-# API log -- internal Lumascope API calls (state-changing operations).
-# Always-on, attached at import like camera.log: every host -- the GUI, the
-# REST server, a script -- writes it from the first call of bring-up.
-api_logger = logging.getLogger('LVP.api')
-api_logger.propagate = False  # Keep API traffic out of the main log
-# Always send API errors to the errors log
-api_logger.addHandler(error_file_handler)
-
-# Don't create the file until the first write.
-_api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
-_api_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(api_logger, _api_file_handler, held_lines=_HELD_LINES)
-
-# Only the REST sink is logger-specific; the bundle file handlers live on root
-# (the single owner) and are reached by propagation.
-logger.addHandler(rest_api_handler)
-
-# GUI interaction log -- every user action for crash forensics, at INFO.
-# What the window shows as it changes (gui_logger.display) is DEBUG; the
-# logger takes the session's level, so debug_mode brings those lines in.
-gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
-gui_logger = logging.getLogger('LVP.gui_interactions')
-gui_logger.addHandler(gui_handler)
-gui_logger.propagate = False
-
-# Route Kivy framework errors to LVP main log + errors log
-kivy_logger = logging.getLogger('kivy')
-# Pin the level so Kivy does not inherit the root logger's DEBUG level (root
-# runs at DEBUG so standalone scripts' DEBUG per-run logs survive). Without
-# this pin, Kivy's framework INFO chatter would flood the bundle. WARNING
-# matches Kivy's prior effective level (it was unset, inheriting root's default).
-kivy_logger.setLevel(logging.WARNING)
-# Kivy reaches the bundle by propagating to root (the single handler owner);
-# the WARNING floor keeps its framework chatter out. It previously held its own
-# copies of the bundle handlers and set propagate False to avoid writing the
-# bundle twice through root's copies -- the same shared-handler duplication the
-# LVP loggers carried.
-kivy_logger.propagate = True
-
-# LVP.* records reach the bundle by propagating through _lvp_parent to root
-# (the single handler owner); no per-logger bundle handler is attached here.
-
-
-# Single logging config: the root logger writes to the shared bundle (and, when
-# a console stream exists, to it too), so any entry point that logs on the root
-# logger -- a standalone CLI script's logging.info(), or a third-party library
-# -- is captured by default without rolling its own logging setup. Root sits at
-# DEBUG so a script's own DEBUG-level per-run file handler still receives
-# records; the bundle handler passes LVP's own records at whatever level the
-# LVP loggers let through (logging.default.level, set by the session) and
-# everything else from INFO up, so a root / library DEBUG firehose does not
-# flood the bundle. The console handler echoes to the
-# terminal only in debug: every logger now propagates to root, so a non-debug
-# console would surface all LVP + framework output as terminal noise (the
-# reason the old non-debug path stripped root's stream handlers). It writes to
-# the process's own stderr, never to whatever sys.stderr is at import: Kivy
-# replaces sys.stderr with a stream that logs each line, so a handler made after
-# Kivy loaded wrote into it and logged its own output until the recursion limit.
-# It is also gated on that stream -- a packaged windowed build has none, and a
-# StreamHandler over a missing stream raises on emit.
 class _MainLogFloor(logging.Filter):
     """LVP's records at the level its loggers allow; anyone else's from INFO up."""
 
@@ -432,45 +275,320 @@ class _MainLogFloor(logging.Filter):
         return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', logger.name)
 
 
-file_handler.addFilter(_MainLogFloor())
-_root_logger = logging.getLogger()
-_root_logger.setLevel(logging.DEBUG)
-_root_logger.addHandler(file_handler)
-_root_logger.addHandler(error_file_handler)
+# debug_mode as the start read it from the installation; False until a start
+# reads it, and in a process that declined the files.
+debug = False
 
-# debug_mode is read once the log files are open. A shipped settings file
-# that cannot answer stops the launch (InstallationFileError, naming the
-# file), and the main log records it once as the crash it is: the crash hook
-# is not installed until after this import, and a debug flag read as off
-# would hide the broken installation behind a quieter log.
-try:
-    debug = load_debug_setting(lvp_appdata)
-except Exception:
-    custom_except_hook(*sys.exc_info())
-    raise
+# What this process's logging is, written by the start alone: None until one;
+# then 'declined' (no files), 'lumascope' (the files on LumaViewPro's own
+# loggers: an integrator's process) or 'root' (the files on root: a
+# LumaViewPro program owns the process).
+_started: str | None = None
+_start_lock = threading.Lock()
 
-# The level until a session is created: DEBUG when debug_mode is on (the
-# installation's switch for a detailed log, so startup is in it too), INFO
-# otherwise. After that the session applies its own (scope_session._apply_logging).
-# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
-# logger's own level (it was silently starving camera.log of DEBUG) and split
-# the toggle into two gates. The per-logger level is the canonical mechanism.
-log_helpers.apply_session_level(logging.DEBUG if debug else logging.INFO)
 
-if debug and sys.__stderr__ is not None:
-    _root_console = logging.StreamHandler(sys.__stderr__)
-    _root_console.addFilter(_MainLogFloor())
-    _root_console.setFormatter(make_formatter(MAIN_LAYOUT))
-    _root_logger.addHandler(_root_console)
+def start_logging(*, log_files: bool = True) -> None:
+    """Start LumaViewPro's log files in this process, or say there will be none.
 
-# Every process that imports this module shares the log, so each one's first
-# record says what it is: the GUI, the REST server, a headless script and a
-# test runner alike. A process that brings up a scope then writes the banner
-# (log_environment_banner), from its first session's creation.
-logger.info(
-    f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
-    f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
-)
+    A script logs by default: its first ``ScopeSession.load_user_settings``
+    or ``ScopeSession.create`` starts the log folder, so it leaves the support
+    bundle. Call this before that only to catch what comes earlier, or with
+    ``log_files=False`` to open no file at all. The files hang off
+    LumaViewPro's own loggers (``LVP`` and ``lvp_logger``): the root logger,
+    ``logging.basicConfig()`` and the script's own records stay the
+    script's, and LumaViewPro's records also reach the script's logging as
+    any library's do.
+
+    Args:
+        log_files: False to open no log file in this process; the session
+            then starts none either.
+
+    Raises:
+        LoggingStartRefusedError: ``'logging_started_otherwise'``, the
+            process already started logging another way: a decline after
+            the files opened, the files after a decline, or either in a
+            LumaViewPro program, which owns its process's logging. Nothing
+            was changed. Asking for what the process has is a no-op.
+    """
+    _start('lumascope' if log_files else 'declined', refuse_otherwise=True)
+
+
+def start_program_logging() -> None:
+    """Start the logging of a process a LumaViewPro program owns, as it starts.
+
+    The GUI, the headless REST server, the tools, the Scripts and the bench
+    harnesses own their process, so the bundle's files hang on the root
+    logger: a third-party library's and the program's own root records reach
+    the bundle, Kivy's warnings with them, the debug console echoes them, and
+    on Windows the console window is minimized.
+
+    Raises:
+        LoggingStartRefusedError: ``'logging_started_otherwise'``, a session
+            or a script already started logging in this process.
+    """
+    _start('root', refuse_otherwise=True)
+
+
+def start_session_logging() -> None:
+    """The start a session's first call makes: the files on LumaViewPro's loggers, unless anything started.
+
+    ``ScopeSession.load_user_settings`` and ``ScopeSession.create`` call it
+    first, so every scope run leaves the support bundle without a line of
+    setup. After any start, or a decline, it does nothing: it asks for
+    whatever the process has, so it never refuses.
+    """
+    _start('lumascope', refuse_otherwise=False)
+
+
+def logging_started() -> str | None:
+    """What this process's logging is: None before a start, else 'declined', 'lumascope' or 'root'."""
+    return _started
+
+
+def _start(asked: str, *, refuse_otherwise: bool) -> None:
+    global _started
+    with _start_lock:
+        if _started is None:
+            if asked != 'declined':
+                _open_the_files(take_root=asked == 'root')
+            _started = asked
+            if asked != 'declined':
+                _write_the_process_line()
+            if asked == 'root':
+                minimize_logger_window()
+        elif _started != asked and refuse_otherwise:
+            from _lumascope.modules.exceptions import LoggingStartRefusedError
+
+            raise LoggingStartRefusedError(has=_started, asked=asked)
+
+
+def _open_the_files(*, take_root: bool) -> None:
+    """Open the log folder's files and hang them on their loggers: the bundle's two on root
+    when the program owns the process, else on LumaViewPro's own loggers."""
+    global debug, file_handler, error_file_handler, rest_api_handler, serial_file_handler
+    global camera_file_handler, metrics_file_handler, protocol_file_handler
+    global _af_file_handler, _api_file_handler, gui_handler
+
+    os.makedirs(log_dir, exist_ok=True)
+
+    file_handler = _rotating_handler(LOG_FILE, layout=MAIN_LAYOUT, delay=False)
+    file_handler.addFilter(ThreadPauseFilter())
+
+    # Additional rotating file handler for errors and critical logs only
+    error_file_handler = _rotating_handler(ERRORS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
+    error_file_handler.addFilter(ThreadPauseFilter())
+
+    # Accept all levels on the handler but filter to ERROR+ or forced records
+    error_file_handler.setLevel(logging.NOTSET)
+    error_file_handler.addFilter(ErrorOrForcedFilter())
+
+    # REST API log handler -- captures records marked with extra={'api_request': True}
+    # Don't create the file until the first REST API log message.
+    rest_api_handler = _rotating_handler(REST_API_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
+    rest_api_handler.addFilter(ThreadPauseFilter())
+    rest_api_handler.addFilter(RestAPIFilter())
+
+    # Serial log -- dedicated file for all serial command/response traffic with timing.
+    # Uses its own logger (LVP.serial) with propagate=False so serial traffic
+    # does NOT appear in the main log.  Errors still go to the errors log.
+    serial_logger.propagate = False  # Keep serial traffic out of the main log
+
+    # The trace logs (serial, camera, api) are written at the session's level,
+    # DEBUG under debug_mode, else logging.default.level; that level is their
+    # files' (log_helpers.apply_session_level). The loggers themselves pass VERBOSE
+    # always, so the lines a file at INFO leaves out are held for the next warning.
+    serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
+    serial_file_handler.addFilter(ThreadPauseFilter())
+    log_helpers.write_trace_log(serial_logger, serial_file_handler, held_lines=_HELD_LINES)
+    # Also send serial errors/warnings to the errors log
+    serial_logger.addHandler(error_file_handler)
+
+    # Camera log -- dedicated file for all camera SDK command traffic with
+    # timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
+    # camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
+    # StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
+    # Per-frame callback events are NOT logged here -- they're in the per-frame
+    # pylon_callback_trace.csv when profile_trace_enabled is set in
+    # settings.json. Always-on (not engineering-gated) to match serial.log
+    # behavior.
+    # Under debug_mode it is the firehose for camera debugging: every
+    # per-frame check, every SDK-call return value, every state transition.
+    # Main log stays uncluttered via propagate=False;
+    # the dual-write helper `_log_cam` in pyloncamera.py mirrors load-bearing
+    # events (identity, connect, GetArray failures) to both files.
+    camera_logger.propagate = False  # Keep camera traffic out of the main log
+
+    camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
+    camera_file_handler.addFilter(ThreadPauseFilter())
+    log_helpers.write_trace_log(camera_logger, camera_file_handler, held_lines=_HELD_LINES)
+    # Also send camera errors/warnings to the errors log
+    camera_logger.addHandler(error_file_handler)
+
+    # Metrics log -- dedicated file for periodic runtime-health snapshots
+    # (system metrics, handle/GC counts, buffer churn, frame-interval
+    # percentiles). Routed here instead of errors.log so errors.log stays
+    # signal-only. Written in the main log's layout.
+    metrics_logger.setLevel(logging.INFO)
+    metrics_logger.propagate = False  # Keep metrics out of the main log
+
+    metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
+    metrics_file_handler.addFilter(ThreadPauseFilter())
+    metrics_logger.addHandler(metrics_file_handler)
+    # Metrics errors/warnings still hit the errors log
+    metrics_logger.addHandler(error_file_handler)
+
+    # Protocol log -- volume-offload lane for the stills writer's per-capture
+    # narrative (the one producer: protocol_image_writer's image-captured /
+    # execution-record lines). A long protocol soak emits tens of thousands
+    # of these per run; routing them here keeps the main log readable. The
+    # admission criterion is VOLUME, not topic -- low-volume protocol
+    # narrative (runner lifecycle, video-step summaries at a few rows per
+    # step) deliberately stays in the main log, where one file tells the
+    # run's causal story. propagate=False keeps the firehose out of the main
+    # log; warnings/errors still mirror to the errors log.
+    protocol_logger.propagate = False  # Keep protocol detail out of the main log
+
+    # Don't create the file until the first write -- absence means no stills protocol ran.
+    protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
+    protocol_file_handler.addFilter(ThreadPauseFilter())
+    protocol_logger.addHandler(protocol_file_handler)
+    # Protocol errors/warnings still hit the errors log
+    protocol_logger.addHandler(error_file_handler)
+
+    # Autofocus log -- dedicated file for AF sweep data, scores, timing.
+    # Always-on, attached by the start like camera.log, so every host writes it.
+    af_logger.setLevel(logging.INFO)
+    af_logger.propagate = False  # Keep AF data out of the main log
+    # Always send AF errors to the errors log
+    af_logger.addHandler(error_file_handler)
+
+    # Don't create the file until the first write.
+    _af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, layout='%(message)s', delay=True)
+    _af_file_handler.addFilter(ThreadPauseFilter())
+    af_logger.addHandler(_af_file_handler)
+
+    # API log -- internal Lumascope API calls (state-changing operations).
+    # Always-on, attached by the start like camera.log: every host -- the GUI,
+    # the REST server, a script -- writes it from the first call of bring-up.
+    api_logger.propagate = False  # Keep API traffic out of the main log
+    # Always send API errors to the errors log
+    api_logger.addHandler(error_file_handler)
+
+    # Don't create the file until the first write.
+    _api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
+    _api_file_handler.addFilter(ThreadPauseFilter())
+    log_helpers.write_trace_log(api_logger, _api_file_handler, held_lines=_HELD_LINES)
+
+    # Only the REST sink is logger-specific; the bundle file handlers live on
+    # their owners (below) and are reached by propagation.
+    logger.addHandler(rest_api_handler)
+
+    # GUI interaction log -- every user action for crash forensics, at INFO.
+    # What the window shows as it changes (gui_logger.display) is DEBUG; the
+    # logger takes the session's level, so debug_mode brings those lines in.
+    gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
+    gui_logger.addHandler(gui_handler)
+    gui_logger.propagate = False
+
+    file_handler.addFilter(_MainLogFloor())
+    if take_root:
+        _hang_the_bundle_on_root()
+    else:
+        # An integrator's process: root, its basicConfig() and its own records
+        # are the integrator's. The bundle hangs off LumaViewPro's two logger
+        # roots, which still propagate, so their records also reach the
+        # integrator's handlers, and none is written to the bundle twice.
+        for bundle_owner in (_lvp_parent, logger):
+            bundle_owner.addHandler(file_handler)
+            bundle_owner.addHandler(error_file_handler)
+
+    # debug_mode is read once the log files are open. A shipped settings file
+    # that cannot answer stops the start (InstallationFileError, naming the
+    # file), and the main log records it once as the crash it is: the crash
+    # hook is not installed until after the start, and a debug flag read as
+    # off would hide the broken installation behind a quieter log.
+    try:
+        debug = load_debug_setting(lvp_appdata)
+    except Exception:
+        custom_except_hook(*sys.exc_info())
+        raise
+
+    # The level until a session is created: DEBUG when debug_mode is on (the
+    # installation's switch for a detailed log, so startup is in it too), INFO
+    # otherwise. After that the session applies its own (scope_session._apply_logging).
+    # Note: do NOT reintroduce a global logging.disable() here -- it overrides every
+    # logger's own level (it was silently starving camera.log of DEBUG) and split
+    # the toggle into two gates. The per-logger level is the canonical mechanism.
+    log_helpers.apply_session_level(logging.DEBUG if debug else logging.INFO)
+
+    if take_root and debug and sys.__stderr__ is not None:
+        _root_console = logging.StreamHandler(sys.__stderr__)
+        _root_console.addFilter(_MainLogFloor())
+        _root_console.setFormatter(make_formatter(MAIN_LAYOUT))
+        logging.getLogger().addHandler(_root_console)
+
+
+# Single logging config when a LumaViewPro program owns the process: the root
+# logger writes to the shared bundle (and, when a console stream exists, to it
+# too), so any entry point that logs on the root logger -- a standalone CLI
+# script's logging.info(), or a third-party library -- is captured by default
+# without rolling its own logging setup. Root sits at DEBUG so a script's own
+# DEBUG-level per-run file handler still receives records; the bundle handler
+# passes LVP's own records at whatever level the LVP loggers let through
+# (logging.default.level, set by the session) and everything else from INFO up,
+# so a root / library DEBUG firehose does not flood the bundle. The console
+# handler echoes to the terminal only in debug: every logger now propagates to
+# root, so a non-debug console would surface all LVP + framework output as
+# terminal noise (the reason the old non-debug path stripped root's stream
+# handlers). It writes to the process's own stderr, never to whatever
+# sys.stderr is at the start: Kivy replaces sys.stderr with a stream that logs
+# each line, so a handler made after Kivy loaded wrote into it and logged its
+# own output until the recursion limit. It is also gated on that stream -- a
+# packaged windowed build has none, and a StreamHandler over a missing stream
+# raises on emit.
+def _hang_the_bundle_on_root() -> None:
+    # The root logger is the single owner of the bundle file handlers; every
+    # logger reaches the bundle by propagating to root, and no logger holds its
+    # own copy of those handler instances. Propagation is therefore
+    # load-bearing -- it is the only path LVP output takes to the bundle -- so it
+    # stays enabled (the default). (An earlier design attached the same handler
+    # instances to both the LVP loggers and root; a propagated record then wrote
+    # the bundle line twice, masked only by disabling propagation in non-debug,
+    # which left debug runs -- when the bundle matters most -- double-logged.)
+    logger.propagate = True
+    _lvp_parent.propagate = True
+
+    # Route Kivy framework errors to LVP main log + errors log
+    # Pin the level so Kivy does not inherit the root logger's DEBUG level (root
+    # runs at DEBUG so standalone scripts' DEBUG per-run logs survive). Without
+    # this pin, Kivy's framework INFO chatter would flood the bundle. WARNING
+    # matches Kivy's prior effective level (it was unset, inheriting root's default).
+    kivy_logger.setLevel(logging.WARNING)
+    # Kivy reaches the bundle by propagating to root (the single handler owner);
+    # the WARNING floor keeps its framework chatter out. It previously held its own
+    # copies of the bundle handlers and set propagate False to avoid writing the
+    # bundle twice through root's copies -- the same shared-handler duplication the
+    # LVP loggers carried.
+    kivy_logger.propagate = True
+
+    # LVP.* records reach the bundle by propagating through _lvp_parent to root
+    # (the single handler owner); no per-logger bundle handler is attached here.
+    _root_logger = logging.getLogger()
+    _root_logger.setLevel(logging.DEBUG)
+    _root_logger.addHandler(file_handler)
+    _root_logger.addHandler(error_file_handler)
+
+
+def _write_the_process_line() -> None:
+    # Every process that starts logging shares the log folder, so each one's
+    # first record says what it is: the GUI, the REST server, a headless
+    # script and a bench run alike. A process that brings up a scope then
+    # writes the banner (log_environment_banner), from its first session's
+    # creation.
+    logger.info(
+        f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
+        f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
+    )
 
 
 def _collect_installed_packages() -> dict:
@@ -593,14 +711,14 @@ def log_environment_banner(
     Logs git hash, the process ID, run time, host/OS, Python interpreter +
     version, Kivy, the camera-SDK lines and the driver lines, so a support bundle identifies
     the exact environment that produced the log. The PID ties the banner to
-    its process: every process that imports this module writes to the same
+    its process: every process that starts its log files writes to the same
     log, and the CPU profiler finds the build it profiles by it.
 
     Written once per process, by ``ScopeSession.create``, the one bring-up
     every host makes, so a log from the REST server, a script or a probe
     names its environment as the GUI's does; a later call writes nothing,
     because the banner describes the process, not a session. Every process
-    that imports this module first writes its one ``[Process]`` line:
+    that starts its log files first writes its one ``[Process]`` line:
     version, runtime, launch folder, data root and PID.
     """
     global _banner_written
@@ -688,17 +806,24 @@ def log_environment_banner(
     # support bundle alone answers "was debug on, and where is it set?" --
     # the live value is read from current.json once that exists, so editing
     # settings.json has no effect on an established install.
-    # This is the level the log started at, read from the installation's
-    # file when this module was imported; a session then puts its own
-    # settings' level on the log, which a host that hands in its settings
-    # can set otherwise, and states it in its "[Session  ] Log level" line.
+    # This is the level the log started at, read from the launch folder's
+    # installation when the process started its log files; a session then
+    # puts its own settings' level on the log, which a host that hands in its
+    # settings can set otherwise, and states it in its "[Session  ] Log level"
+    # line. A process that declined the files read nothing.
     from _lumascope.modules import settings_init as _si
 
-    logger.info(
-        f"[LVP Main  ] Debug:     debug_mode={debug} at the log's start "
-        f'(from {_si.debug_setting_source or "default -- settings file unread"}); '
-        f'each session states its own level'
-    )
+    if _started == 'declined':
+        logger.info(
+            '[LVP Main  ] Debug:     not read -- this process started no log files '
+            '(start_logging(log_files=False)); each session states its own level'
+        )
+    else:
+        logger.info(
+            f"[LVP Main  ] Debug:     debug_mode={debug} at the log's start "
+            f'(from {_si.debug_setting_source or "default -- settings file unread"}); '
+            f'each session states its own level'
+        )
 
     # Host + OS + Python + key library versions.
     try:
@@ -799,6 +924,3 @@ def install_crash_hooks() -> None:
     """
     sys.excepthook = custom_except_hook
     threading.excepthook = _thread_except_hook
-
-
-minimize_logger_window()

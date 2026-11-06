@@ -2,9 +2,9 @@
 """The loggers the drivers and src/_lumascope/lib/ write to, by name, and their composition helpers.
 
 No Kivy / platformdirs / config dependencies, so the lower layers import
-their loggers from here without importing ``lvp_logger``, which reads the
-settings layer to set itself up. A logger is a process-wide object found by
-its name: ``lvp_logger`` takes these same objects and attaches the handlers,
+their loggers from here without importing ``lvp_logger``, which loads the
+settings layer. A logger is a process-wide object found by its name:
+``lvp_logger``'s start takes these same objects and attaches the handlers,
 levels and files to them, so a line written here lands where it always has.
 The ``log_to`` helper is the shared dual / multi-write primitive that
 subsystem-mirroring callers use (camera.log today; motor.log / led.log /

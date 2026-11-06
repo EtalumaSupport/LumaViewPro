@@ -32,6 +32,7 @@ def test_a_log_under_a_folder_named_with_log_keeps_its_backups_and_its_newest_re
     log_dir.mkdir(parents=True)
     code = (
         'import json, logging, pathlib, _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
         'from logging.handlers import RotatingFileHandler\n'
         f'log_dir = pathlib.Path({str(log_dir)!r})\n'
         "handler = RotatingFileHandler(log_dir / 'lumaviewpro.log', maxBytes=2000, backupCount=5)\n"
@@ -55,6 +56,7 @@ def test_a_log_under_a_folder_named_with_log_keeps_its_backups_and_its_newest_re
 def test_every_shipped_log_names_its_backups_by_the_one_namer():
     code = (
         'import json, _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
         'from logging.handlers import RotatingFileHandler\n'
         'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         "namer = getattr(_lumascope.lvp_logger, 'rotated_log_name', None)\n"
@@ -91,6 +93,7 @@ def _run_with_data_root(data_root: pathlib.Path, code: str):
 def test_every_log_rotates_at_its_row_of_the_one_cap_table(tmp_path):
     code = (
         'import json, os, _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
         'from logging.handlers import RotatingFileHandler\n'
         'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         'print(json.dumps([\n'
@@ -110,6 +113,7 @@ def test_every_log_is_written_as_utf8_whatever_the_platform(tmp_path):
     written here."""
     code = (
         'import json, os, _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
         'from logging.handlers import RotatingFileHandler\n'
         'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         'print(json.dumps([\n'
@@ -135,7 +139,7 @@ def test_every_log_at_its_cap_fits_the_bundle_budget(tmp_path):
     assert whole <= budget, f'the logs at every cap hold {whole} bytes, past the {budget} budget'
 
 
-def test_a_backup_past_its_logs_count_is_removed_when_the_logger_loads(tmp_path):
+def test_a_backup_past_its_logs_count_is_removed_when_the_log_starts(tmp_path):
     log_dir = tmp_path / 'logs' / 'LVP_Log'
     log_dir.mkdir(parents=True)
     planted = [f'{stem}.{n}.log' for stem in ('lumaviewpro', 'autofocus') for n in range(1, 6)]
@@ -143,6 +147,7 @@ def test_a_backup_past_its_logs_count_is_removed_when_the_logger_loads(tmp_path)
         (log_dir / name).write_text('x')
     code = (
         'import json, os, _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
         'from logging.handlers import RotatingFileHandler\n'
         'counts = {\n'
         '    os.path.basename(v.baseFilename): v.backupCount\n'

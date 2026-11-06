@@ -40,6 +40,7 @@ sys.frozen = True
 sys._MEIPASS = {repo!r}
 sys.executable = {exe!r}
 import _lumascope.lvp_logger
+_lumascope.lvp_logger.start_program_logging()
 from logging.handlers import RotatingFileHandler
 
 handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]

@@ -82,6 +82,7 @@ def test_the_banner_reads_the_commit_guid_from_line_3_and_names_no_branch(tmp_pa
     (tmp_path / 'version.txt').write_text('4.0.0-x\n2026-10-09 00:00\nabcd1234\n')
     code = (
         'import json, logging, _lumascope.lvp_logger; lines = []; '
+        '_lumascope.lvp_logger.start_program_logging(); '
         'handler = logging.Handler(); handler.emit = lambda r: lines.append(r.getMessage()); '
         '_lumascope.lvp_logger.logger.addHandler(handler); '
         f'_lumascope.lvp_logger.log_environment_banner({str(tmp_path)!r}, "4.0.0-x", [], []); '

@@ -76,6 +76,7 @@ def test_two_sessions_in_one_process_log_one_banner_from_the_script_root(tmp_pat
 _DRIVERS = """
 import json, logging, sys
 import _lumascope.lvp_logger
+_lumascope.lvp_logger.start_program_logging()
 for name in ('', 'LVP', 'lvp_logger'):
     logging.getLogger(name).setLevel(logging.DEBUG)
 heard = []

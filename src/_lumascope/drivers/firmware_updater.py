@@ -56,7 +56,10 @@ from _lumascope.lib.lumascope_error import Fault, RefusalCause
 from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError, HardwareError
 from _lumascope.drivers.serialboard import SerialBoard
 
-logger = logging.getLogger(__name__)
+# Under LVP, never ``__name__``: a session's logging hangs the bundle on
+# LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
+# module would write nowhere a support bundle collects.
+logger = logging.getLogger('LVP.firmware_updater')
 
 # ---------------------------------------------------------------------------
 # Enums and data classes

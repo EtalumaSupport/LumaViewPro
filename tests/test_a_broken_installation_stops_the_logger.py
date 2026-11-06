@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A shipped settings file the logger cannot read stops the launch and names it.
 
-``lvp_logger`` reads ``debug_mode`` before the settings are prepared. When
-the installation's own ``settings.json`` cannot answer, the import raises
+``lvp_logger``'s start reads ``debug_mode`` before the settings are prepared. When
+the installation's own ``settings.json`` cannot answer, the start raises
 ``InstallationFileError`` naming the file, which the packaged build's
 bootloader shows, and the main log records it once as a crash; reading the
 flag as off would hide the broken installation behind a quieter log.
@@ -19,27 +19,28 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
-def test_importing_the_logger_with_no_shipped_settings_raises_naming_the_file(tmp_path):
+def test_starting_the_log_with_no_shipped_settings_raises_naming_the_file(tmp_path):
     exe = tmp_path / 'LumaViewPro.exe'
     # A frozen process has the bundle's folder beside sys.frozen; this
     # checkout's holds the build's files.
     code = (
         f'import sys\nsys.frozen = True\nsys._MEIPASS = {str(REPO)!r}\n'
         f'sys.executable = {str(exe)!r}\nimport _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
     )
 
     done = subprocess.run(
         [sys.executable, '-c', code], capture_output=True, text=True, timeout=60, cwd=str(REPO)
     )
 
-    assert done.returncode != 0, 'the import must not carry on with debug read as off'
+    assert done.returncode != 0, 'the start must not carry on with debug read as off'
     last = done.stderr.strip().splitlines()[-1]
     assert last.startswith(
         '_lumascope.modules.exceptions.InstallationFileError: settings.json in '
     ), last
     assert str(tmp_path / 'data') in last
     # The main log records it once, as the crash it is: no crash hook exists
-    # yet at import, so the bundle would otherwise say nothing of the stop.
+    # yet at the start, so the bundle would otherwise say nothing of the stop.
     log = (tmp_path / 'logs' / 'LVP_Log' / 'lumaviewpro.log').read_text()
     assert log.count('CRASH - Uncaught Exception') == 1, log
     assert 'InstallationFileError: settings.json in ' in log

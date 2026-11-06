@@ -59,13 +59,14 @@ class TestPyspyPath:
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
-# A child LumaViewPro process: it imports the real lvp_logger from a folder of
+# A child LumaViewPro process: it starts the real lvp_logger from a folder of
 # links, so its log is that folder's (as the simulator recipe's launch is), then
 # does what its mode says and waits, holding the log open, until stdin closes.
 _CHILD = """
 import os, sys
 sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 import _lumascope.lvp_logger
+_lumascope.lvp_logger.start_program_logging()
 mode = sys.argv[2]
 if mode in ('banner', 'rotated'):
     _lumascope.lvp_logger.log_environment_banner(sys.argv[1], _lumascope.lvp_logger.version, [], [])

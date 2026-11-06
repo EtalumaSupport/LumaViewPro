@@ -34,6 +34,8 @@ class _Keep(logging.Handler):
 for handler in list(_lumascope.lvp_logger.logger.handlers):
     _lumascope.lvp_logger.logger.removeHandler(handler)
 _lumascope.lvp_logger.logger.addHandler(_Keep())
+# The level a started log gives the logger; importing it sets none.
+_lumascope.lvp_logger.logger.setLevel(logging.INFO)
 
 shown = []
 # a stand-in by design: the Windows console, which no test host but Windows has
