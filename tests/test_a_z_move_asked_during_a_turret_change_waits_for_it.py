@@ -40,7 +40,7 @@ def test_a_z_move_asked_mid_change_runs_after_the_restore(sim_turreted_session):
     try:
         changing = threading.Thread(target=call, args=('turret', lambda: motion.move_turret(2)))
         changing.start()
-        assert held.wait(_WAIT_S), 'the turret never got part of the way'
+        held.result(_WAIT_S)
 
         lane = scope.io_lane()
         asking = threading.Thread(target=call, args=('z', lambda: motion.move_z(_ASKED_Z_UM)))

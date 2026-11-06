@@ -578,7 +578,7 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(
     home_sim_scope(session.scope)
     held = session.scope.simulation.hold_axis('Z')
     first = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 100.0}).json()
-    assert held.wait(10), 'the first job never got part of the way'
+    held.result(10)
     monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 1)
 
     refused = client.post('/api/v1/scope/motion/start_home')

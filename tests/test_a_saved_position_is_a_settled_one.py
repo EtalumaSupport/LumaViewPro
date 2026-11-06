@@ -49,7 +49,7 @@ def _held_move(session, axis):
         move = motion.start_move_z(motion.get_current_position('Z') + 1000.0)
     else:
         move = motion.start_move_xy(x_um=motion.get_current_position('X') + 10000.0)
-    assert reached.wait(_HOLD_WAIT_S), 'the move never got part of the way'
+    reached.result(_HOLD_WAIT_S)
     assert motion.get_axis_state(axis) == AxisState.MOVING
     return move
 

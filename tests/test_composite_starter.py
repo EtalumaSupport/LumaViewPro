@@ -133,7 +133,7 @@ def _click_held(homed, starter):
     the test or the teardown ends it."""
     reached = homed.scope.simulation.hold_axis('Z')
     _click(starter)
-    assert reached.wait(_HOLD_WAIT_S), "the composite's first move never started"
+    reached.result(_HOLD_WAIT_S)
     return starter._composite_run
 
 

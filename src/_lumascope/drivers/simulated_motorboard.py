@@ -60,11 +60,18 @@ class TravelHold:
             every poll of a moving axis.
     """
 
-    def __init__(self, board: 'SimulatedMotorBoard', axis: str, at_fraction: float):
+    def __init__(
+        self,
+        board: 'SimulatedMotorBoard',
+        axis: str,
+        at_fraction: float,
+        on_end: Callable[[str | None], None] | None,
+    ):
         self._board = board
         self.axis = axis
         self.at_fraction = at_fraction
         self.reached = threading.Event()
+        self._on_end = on_end
         # Whether the move it holds has had its target written. Read and
         # written under the board's thread_lock.
         self._bound = False
@@ -72,6 +79,17 @@ class TravelHold:
     def release(self) -> None:
         """Let the held move travel on and finish; no-op once the hold has ended."""
         self._board._release_hold(self)
+
+    def _reach(self) -> None:
+        if self.reached.is_set():
+            return
+        self.reached.set()
+        if self._on_end is not None:
+            self._on_end(None)
+
+    def _end_unreached(self, how: str) -> None:
+        if not self.reached.is_set() and self._on_end is not None:
+            self._on_end(how)
 
 
 @motor_registry.register('sim', priority=100, is_simulator=True)
@@ -269,12 +287,22 @@ class SimulatedMotorBoard:
 
         return undo
 
-    def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
+    def hold_travel(
+        self,
+        axis: str,
+        at_fraction: float = 0.5,
+        on_end: Callable[[str | None], None] | None = None,
+    ) -> TravelHold:
         """Hold ``axis``'s next move part of the way along; see ``TravelHold``.
 
         Args:
             axis: The axis whose next target write starts the held move.
             at_fraction: How far along its travel the move halts.
+            on_end: Called once, under the board's lock, when the hold is
+                over: with None once the move has halted at it, or, when it
+                ended before that, with how: ``'stopped'`` (a STOP),
+                ``'superseded'`` (a new target on the held move),
+                ``'homed'`` (a home of its axis) or ``'released'``.
 
         Returns:
             The hold: wait on its ``reached``, act, then ``release()`` it or
@@ -294,9 +322,15 @@ class SimulatedMotorBoard:
         with self.thread_lock:
             if axis in self._holds:
                 raise ValueError(f'{axis} already has a hold')
-            hold = TravelHold(self, axis, at_fraction)
+            hold = TravelHold(self, axis, at_fraction, on_end)
             self._holds[axis] = hold
             return hold
+
+    def _end_hold(self, axis: str, how: str) -> None:
+        # Called under the board's lock by what ends a held move.
+        hold = self._holds.pop(axis, None)
+        if hold is not None:
+            hold._end_unreached(how)
 
     def _release_hold(self, hold: TravelHold) -> None:
         with self.thread_lock:
@@ -304,6 +338,7 @@ class SimulatedMotorBoard:
                 return
             del self._holds[hold.axis]
             if not hold.reached.is_set():
+                hold._end_unreached('released')
                 return
             if not self._simulate_move_duration:
                 # A move with no duration finishes the moment it is let go.
@@ -674,7 +709,7 @@ class SimulatedMotorBoard:
                 self._target[ax] = self._actual[ax]
                 self._move_end_time[ax] = 0.0
                 # The held move is over; the stage stays where it stood.
-                self._holds.pop(ax, None)
+                self._end_hold(ax, 'stopped')
             return 'STOP OK'
 
         return f'ERROR: unknown command {cmd}'
@@ -695,7 +730,7 @@ class SimulatedMotorBoard:
             if now >= halts_at:
                 start = self._move_start_pos[axis]
                 self._actual[axis] = int(start + hold.at_fraction * (self._target[axis] - start))
-                hold.reached.set()
+                hold._reach()
                 return
         if now >= end:
             self._actual[axis] = self._target[axis]
@@ -764,7 +799,7 @@ class SimulatedMotorBoard:
         if hold is not None:
             if hold._bound:
                 # A new target ends the held move.
-                del self._holds[axis]
+                self._end_hold(axis, 'superseded')
             else:
                 hold._bound = True
         self._move_start_pos[axis] = self._actual[axis]
@@ -811,7 +846,7 @@ class SimulatedMotorBoard:
             self._target[axis] = 0
             self._homed[axis] = True
             self._move_end_time[axis] = 0.0
-            self._holds.pop(axis, None)
+            self._end_hold(axis, 'homed')
 
     def _make_status(self, axis):
         status = 0

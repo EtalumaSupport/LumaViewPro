@@ -49,7 +49,7 @@ def _start_held(session, tmp_path):
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     return run
 
 

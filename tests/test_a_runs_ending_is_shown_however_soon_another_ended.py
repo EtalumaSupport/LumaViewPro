@@ -69,7 +69,7 @@ def _stopped_mid_move(session, tmp_path):
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     session.scope.motion.stop_motion()
     return run.result(timeout=COMPLETION_TIMEOUT)
 
@@ -168,7 +168,7 @@ def _failed_mid_run(session, tmp_path, *, faults=1):
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     for _ in range(faults):
         session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
     session.scope.motion.stop_motion()

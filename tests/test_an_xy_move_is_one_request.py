@@ -47,7 +47,7 @@ def _lose_y(scope, monkeypatch):
     monkeypatch.setattr(scope.motion, '_MOVE_STALL_WINDOW_S', 0.1)
     held = scope.simulation.hold_axis('Y')
     y = scope.motion.start_move_xy(y_um=_START['Y'] + 2_000.0)
-    assert held.wait(10.0)
+    held.result(10.0)
     with pytest.raises(MoveFaultError) as lost:
         y.result()
     assert lost.value.reason == 'stalled'
@@ -96,7 +96,7 @@ class TestAnAxisNotAskedForIsLeftAsItIs:
     def test_an_x_move_leaves_a_travelling_y_to_arrive_as_its_own(self, scope):
         held = scope.simulation.hold_axis('Y')
         y = scope.motion.start_move_xy(y_um=_START['Y'] + 2_000.0)
-        assert held.wait(10.0)
+        held.result(10.0)
 
         scope.motion.move_xy(x_um=_START['X'] - 500.0)
 

@@ -68,7 +68,7 @@ def _pull_the_cable_mid_move(session, axes, monkeypatch) -> threading.Thread:
     halted = [session.scope.simulation.hold_axis(axis) for axis in axes]
 
     def pull():
-        if all(event.wait(_TRAVEL_WAIT_S) for event in halted):
+        if all(halt.exception(_TRAVEL_WAIT_S) is None for halt in halted):
             session.scope.simulation.unplug('motor')
 
     puller = threading.Thread(target=pull, name='cable-pull', daemon=True)
@@ -211,7 +211,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         held = session.scope.simulation.hold_axis('X')
         motion.start_move_xy(x_um=_far_x(motion))
         closer = threading.Thread(
-            target=lambda: held.wait(_TRAVEL_WAIT_S) and session.scope.disconnect(),
+            target=lambda: held.exception(_TRAVEL_WAIT_S) is None and session.scope.disconnect(),
             name='close',
             daemon=True,
         )
@@ -518,7 +518,7 @@ class TestAStartedMoveIsAnOperation:
         target = _z_target(motion)
         halted = session.scope.simulation.hold_axis('Z')
         move = motion.start_move_z(target)
-        assert halted.wait(_TRAVEL_WAIT_S), 'the move never reached its hold'
+        halted.result(_TRAVEL_WAIT_S)
 
         with pytest.raises(TimeoutError):
             move.result(timeout=0.05)

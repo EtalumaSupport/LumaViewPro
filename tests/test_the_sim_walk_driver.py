@@ -763,8 +763,8 @@ def test_the_walk_file_parser_names_each_defect():
         # A read, and a member kept off the wire, are not faults a walk injects.
         ('[{"do": "inject", "fault": "injected"}]', "unknown fault 'injected'"),
         (
-            '[{"do": "inject", "fault": "hold_axis", "args": {"axis": "X"}}]',
-            "unknown fault 'hold_axis'",
+            '[{"do": "inject", "fault": "exposed_under", "args": {"frame": 1}}]',
+            "unknown fault 'exposed_under'",
         ),
         ('[{"do": "inject", "fault": "unplug", "args": ["led"]}]', 'args is an object'),
         (

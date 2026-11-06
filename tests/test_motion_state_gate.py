@@ -206,7 +206,7 @@ def _stall(scope, axis, start):
     up, and the axis is UNKNOWN with every other axis as it was."""
     held = scope.simulation.hold_axis(axis)
     operation = start()
-    assert held.wait(_HOLD_WAIT_S), f'the {axis} move never got part of the way'
+    held.result(_HOLD_WAIT_S)
     return operation
 
 

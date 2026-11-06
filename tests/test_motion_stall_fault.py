@@ -84,7 +84,7 @@ def test_a_held_axis_is_given_up_stalled_and_halted(session, centre_posts):
     halts = _stop_count(motion)
     held = session.scope.simulation.hold_axis('X')
     operation = motion.start_move_xy(x_um=60000.0)
-    assert held.wait(_GIVE_UP_WAIT_S), 'the move never reached its hold'
+    held.result(_GIVE_UP_WAIT_S)
     held_at = time.monotonic()
 
     assert _ended(operation) == 'stalled'

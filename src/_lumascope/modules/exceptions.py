@@ -4910,6 +4910,42 @@ class MoveWaitExpiredError(MoveNotCompletedError, Quiet, TimeoutError):
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 
 
+class HoldEndedError(Notice, Exception):
+    """A simulated hold on an axis ended before its move reached it: nothing failed.
+
+    Raised by the operation ``SimulationAPI.hold_axis`` returns, which is
+    otherwise done once the held move has halted at the hold. A notice, as
+    a stopped move is: the hold's caller acted on a move that was already
+    over, and a REST caller is answered 409.
+
+    Attributes:
+        axis: The axis the hold was on.
+        reason: ``'stopped'`` -- a STOP ended the move, or came before it.
+            ``'superseded'`` -- a new target on the axis ended the held
+            move. ``'homed'`` -- a home of the axis ended it.
+            ``'released'`` -- the hold was cleared (``clear``) before the
+            move reached it.
+    """
+
+    title = 'Hold Ended'
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'stopped': 'the motors were stopped first.',
+        'superseded': 'another target on the {axis} axis ended the held move.',
+        'homed': 'the {axis} axis was homed.',
+        'released': 'the hold was cleared.',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
+    same_fact_as = (MoveStoppedError,)
+
+    def __init__(self, axis: str, reason: str):
+        super().__init__(
+            f'The hold on {axis} ended before its move reached it: '
+            + self._SENTENCES[reason].format(axis=axis)
+        )
+        self.axis = axis
+        self.reason = reason
+
+
 class LaneCallStillRunningError(Fault, Exception):
     """The caller is no longer waiting for a call that has not finished.
 

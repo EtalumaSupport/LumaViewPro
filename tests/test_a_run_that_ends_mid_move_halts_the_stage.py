@@ -47,7 +47,7 @@ def _start_held(session, tmp_path):
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     return run, session.scope.motion.get_target_positions()['X']
 
 
@@ -133,7 +133,7 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
         # own move: the next X move is the image step's.
         assert recording.wait(_HOLD_WAIT_S), "the video step's frames never reached the disk"
         held = session.scope.simulation.hold_axis('X')
-        assert held.wait(_HOLD_WAIT_S * 3), "the image step's move never got part of the way"
+        held.result(_HOLD_WAIT_S * 3)
         target = session.scope.motion.get_target_positions()['X']
 
         run.stop()

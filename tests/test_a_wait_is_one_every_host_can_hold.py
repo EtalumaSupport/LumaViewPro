@@ -41,7 +41,7 @@ def z_held_moving(session):
     motion = session.scope.motion
     held = session.scope.simulation.hold_axis('Z')
     motion.start_move_z(motion.get_current_position(axis='Z') + 500.0)
-    assert held.wait(_HOLD_WAIT_S), 'the Z move never reached the hold'
+    held.result(_HOLD_WAIT_S)
     yield
     session.scope.simulation.clear()
     motion.stop_motion()

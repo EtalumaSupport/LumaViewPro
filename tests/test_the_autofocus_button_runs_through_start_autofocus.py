@@ -112,7 +112,7 @@ def _press_held(homed, button):
     its go-to-step until the test or the teardown ends it."""
     reached = homed.session.scope.simulation.hold_axis('Z')
     button.run_autofocus_from_ui()
-    assert reached.wait(_HOLD_WAIT_S), "the autofocus run's first move never started"
+    reached.result(_HOLD_WAIT_S)
     return button._autofocus_run
 
 
@@ -227,7 +227,7 @@ def test_a_protocols_autofocus_is_not_this_buttons_to_show(homed):
     this button started nothing: it draws idle."""
     reached = homed.session.scope.simulation.hold_axis('Z')
     homed.session.protocol_runner().start_autofocus(channel='BF')
-    assert reached.wait(_HOLD_WAIT_S)
+    reached.result(_HOLD_WAIT_S)
     homed.button.button.state = 'normal'
 
     homed.button.draw_autofocus_button()

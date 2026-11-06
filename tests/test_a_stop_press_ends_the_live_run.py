@@ -55,7 +55,7 @@ def test_stop_pressed_mid_move_ends_the_run_and_tells_it_once(session, tmp_path,
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
 
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
@@ -149,7 +149,7 @@ class _HoldAfterFrame:
             self._armed.set()
 
     def wait(self):
-        return self._armed.wait(COMPLETION_TIMEOUT) and self._held.wait(_HOLD_WAIT_S)
+        return self._armed.wait(COMPLETION_TIMEOUT) and self._held.exception(_HOLD_WAIT_S) is None
 
 
 def _every_minute_for_three(protocol):
@@ -172,7 +172,7 @@ def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
         protocol=_build_real_protocol([{**_steps(60.0)[0], 'Objective': '4x Oly'}]),
         parent_dir=str(tmp_path),
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's turret move never got part of the way"
+    held.result(_HOLD_WAIT_S)
 
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
@@ -249,7 +249,7 @@ def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
     run = runner.start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
 
     session.scope.motion.stop_motion()
@@ -267,7 +267,7 @@ def test_a_stop_the_board_fails_still_ends_the_run(session, tmp_path, monkeypatc
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
-    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    held.result(_HOLD_WAIT_S)
     # a stand-in by design: a board that does not answer the STOP, as the
     # failed-stop tests make it; the simulator cannot fail its STOP yet.
     _stop_fails(session.scope, monkeypatch)
@@ -300,10 +300,10 @@ def start_an_autofocus_held_mid_sweep(session):
     session.scope.motion.move_z(5000.0)
     to_the_step = session.scope.simulation.hold_axis('Z')
     run = session.protocol_runner().start_autofocus('BF')
-    assert to_the_step.wait(_HOLD_WAIT_S), "the autofocus run's go-to-step never started"
+    to_the_step.result(_HOLD_WAIT_S)
     session.scope.simulation.clear()
     in_the_sweep = session.scope.simulation.hold_axis('Z')
-    assert in_the_sweep.wait(_HOLD_WAIT_S), 'no move of the sweep got part of the way'
+    in_the_sweep.result(_HOLD_WAIT_S)
     return run
 
 

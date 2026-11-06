@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
+    HoldEndedError,
     HomingFailedError,
     MotorStopFailedError,
     MoveNotCompletedError,
@@ -327,11 +328,43 @@ def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
     start = scope.motion.get_actual_position('X')
     halted = scope.simulation.hold_axis('X')
     handle = scope.motion.start_move_xy(x_um=20_000.0)
-    assert halted.wait(10.0), 'the held move never halted'
+    halted.result(10.0)
     assert 20_000.0 < scope.motion.get_actual_position('X') < start
     scope.simulation.clear()
     handle.result()
     assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)
+
+
+def test_a_hold_its_move_never_reached_ends_saying_what_ended_it(scope):
+    """A hold that ends before its move halts at it ends its operation in
+    ``HoldEndedError`` naming what ended it -- a STOP, a new target on the
+    held move, a home of its axis, or ``clear`` -- so a caller waiting to act
+    mid-move is told the move it waited for is over, and is never left
+    waiting on an operation that cannot end."""
+    # Realistic timing, so the held move travels before it halts and a new
+    # target can end it first; the switch stays until it has a seam.
+    scope.motion._driver.set_timing_mode('realistic')
+    superseded = scope.simulation.hold_axis('X')
+    scope.motion.start_move_xy(x_um=100_000.0)
+    scope.motion.start_move_xy(x_um=10_000.0).result(30.0)
+    stopped = scope.simulation.hold_axis('X')
+    scope.motion.stop_motion()
+    homed = scope.simulation.hold_axis('Z')
+    scope.motion.home('Z')
+    released = scope.simulation.hold_axis('Y')
+    scope.simulation.clear()
+
+    ended = {}
+    for expected, hold in (
+        ('superseded', superseded),
+        ('stopped', stopped),
+        ('homed', homed),
+        ('released', released),
+    ):
+        with pytest.raises(HoldEndedError) as raised:
+            hold.result(10.0)
+        ended[expected] = raised.value.reason
+    assert ended == {reason: reason for reason in ended}
 
 
 def test_an_answered_model_is_what_the_board_reports_until_cleared(scope):
@@ -469,6 +502,40 @@ def test_a_fault_injected_over_the_wire_meets_the_next_call(client):
 
     assert client.post('/api/v1/scope/simulation/clear', json={}).status_code == 200
     assert client.get('/api/v1/scope/simulation/injected').json() == []
+
+
+def _ended(client, answer):
+    """The job ``answer`` started, read once it has ended."""
+    assert answer.status_code == 202, answer.text
+    return client.get(answer.headers['Location'], headers={'Prefer': 'wait=30'}).json()
+
+
+def test_a_hold_over_the_wire_is_a_job_that_ends_when_its_move_halts_or_the_hold_ends(client):
+    """A wire client holds a move as a Python caller does: the hold is a job,
+    completed once the move has halted at it, so the client acts mid-move
+    without a clock; a hold ended before its move reached it fails its job
+    with the hold's notice, 409."""
+    homed = _ended(client, client.post('/api/v1/scope/motion/start_home', json={}))
+    assert homed['status'] == 'completed', homed
+    hold = client.post('/api/v1/scope/simulation/hold_axis', json={'axis': 'X'})
+    move = client.post('/api/v1/scope/motion/start_move_xy', json={'x_um': 20_000.0})
+
+    assert _ended(client, hold)['status'] == 'completed'
+    running = client.get(move.headers['Location'], headers={'Prefer': 'respond-async'}).json()
+    assert running['status'] == 'running', 'the move is held part of the way'
+
+    unreached = client.post('/api/v1/scope/simulation/hold_axis', json={'axis': 'Y'})
+    assert client.post('/api/v1/scope/simulation/clear', json={}).status_code == 200
+    assert _ended(client, move)['status'] == 'completed', 'clear lets the held move arrive'
+    ended = _ended(client, unreached)
+    error = ended['error']
+    assert (ended['status'], error['status'], error['kind'], error['reason'], error['title']) == (
+        'failed',
+        409,
+        'notice',
+        'released',
+        'Hold Ended',
+    )
 
 
 def test_a_held_control_session_refuses_another_callers_fault_and_admits_its_holders(client):

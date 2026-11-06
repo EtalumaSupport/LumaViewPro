@@ -172,7 +172,7 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
         headers={'Prefer': 'wait=0'},
     )
     assert started.status_code == 202
-    assert held.wait(10), 'the move never got part of the way'
+    held.result(10)
 
     assert client.post('/api/v1/scope/motion/stop_motion').status_code == 200
     job = client.get(started.headers['Location'], headers={'Prefer': 'wait=10'}).json()

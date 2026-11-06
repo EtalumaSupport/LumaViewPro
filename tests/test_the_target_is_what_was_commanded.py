@@ -70,7 +70,7 @@ def test_a_stopped_move_answers_the_poll(session):
     driver.set_timing_mode('realistic')
     held = session.scope.simulation.hold_axis('X')
     handle = motion.start_move_xy(x_um=60000.0)
-    assert held.wait(10.0)
+    held.result(10.0)
     motion.stop_motion()
     with pytest.raises(MoveNotCompletedError):
         handle.result()

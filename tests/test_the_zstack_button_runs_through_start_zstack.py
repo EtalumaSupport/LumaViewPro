@@ -129,7 +129,7 @@ def _click_held(stacked):
     its first slice until the test or the teardown ends it."""
     reached = stacked.session.scope.simulation.hold_axis('Z')
     stacked.starter.run_zstack_acquire_from_ui()
-    assert reached.wait(_HOLD_WAIT_S), "the stack's first move never started"
+    reached.result(_HOLD_WAIT_S)
     return stacked.starter._zstack_run
 
 

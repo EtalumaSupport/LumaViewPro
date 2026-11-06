@@ -30,7 +30,7 @@ def test_a_plate_move_of_x_alone_leaves_a_y_move_under_way(session):
     halted = scope.simulation.hold_axis('Y')
     y_move = motion.start_move_xy(y_um=60_000.0)
     try:
-        assert halted.wait(10.0), 'the held Y move never halted'
+        halted.result(10.0)
 
         motion.move_to_plate(PlateLocation(x_mm=40.0, y_mm=None, z_um=None))
 

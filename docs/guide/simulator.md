@@ -41,12 +41,18 @@ member's own fault, and its arguments, are in the
 | `silence`, `unsilence` | motor | refused | TMCM-6110; FX2 (no `unsilence`) |
 | `unplug`, `replug` | motor | motor, LED | TMCM-6110; FX2 (no `replug`) |
 | `fail_home` | refused | every way | TMCM-6110, `switch_never_trips` |
-| `hold_axis` (in-process) | motor | refused | refused |
+| `hold_axis` | motor | refused | refused |
 | `interlock` | refused | refused | TMCM-6110 |
 | `answer_model` | motor | refused | refused |
 | `remove_camera` | camera | camera | FX2 |
 | `refuse_camera_write`, `refuse_camera_read`, `stall_stream`, `delay_delivery`, `light_outside` | camera | camera | refused |
 | `refuse_stream_start`, `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
+
+`hold_axis` halts the axis's next move part of the way and returns an
+operation done once it has halted there (over REST, a job), so a caller acts
+on a move while it travels without a clock; the move travels on after
+`clear()`, and a hold that a stop, a new target, a home or `clear()` ends first
+raises `HoldEndedError`.
 
 A fault is armed for the next command, not the one in flight. A removed camera,
 an unplugged or silenced FX2 and a reboot under way stay as they are after

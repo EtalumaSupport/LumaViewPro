@@ -23,9 +23,9 @@ A fault is armed for the next command, not the one in flight.
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import enum
-import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -40,10 +40,11 @@ from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from _lumascope.modules.activity_claim import guarded_write
 from _lumascope.modules.api_surface import Admission, api, api_fields
 from _lumascope.modules.closed_sets import refuse_unless_offered
-from _lumascope.modules.exceptions import ArgumentRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError, HoldEndedError
 from _lumascope.modules.finite_number import WAIT_S, refuse_unless_finite_number
 from _lumascope.modules.axes import Axis
 from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.operation import Operation
 
 if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
@@ -611,9 +612,9 @@ class SimulationAPI:
             raise self._not_injectable('fail_home', target)
         self._record('fail_home', undo, axis=axis, how=how)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> threading.Event:
+    def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> Operation[None]:
         """``axis``'s next move halts part of the way and never arrives, until ``clear``.
 
         A stop, a home or a new target on the axis ends the move it holds,
@@ -624,10 +625,12 @@ class SimulationAPI:
             at_fraction: How far along its travel it halts, above 0 and below 1.
 
         Returns:
-            An event set once the move has halted at the hold, for a caller
-            acting on a move while it travels: waited on, it replaces a
-            guess with a clock at how far the move has got. ``clear``
-            releases the move, which then travels the rest.
+            An operation done once the move has halted at the hold, for a
+            caller acting on a move while it travels: waited on, it
+            replaces a guess with a clock at how far the move has got; over
+            REST it is a job. Its ``result()`` raises ``HoldEndedError``
+            when the hold ended before the move reached it. It has no stop:
+            ``clear`` releases the move, which then travels the rest.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'`` for ``axis``;
@@ -643,9 +646,17 @@ class SimulationAPI:
         target = self._board('hold_axis', Part.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('hold_axis', target)
-        hold = target.hold_travel(axis, at_fraction)
+        halted: Operation[None] = Operation()
+
+        def ended(how: str | None) -> None:
+            if how is None:
+                concurrent.futures.Future.set_result(halted, None)
+            else:
+                concurrent.futures.Future.set_exception(halted, HoldEndedError(axis, how))
+
+        hold = target.hold_travel(axis, at_fraction, on_end=ended)
         self._record('hold_axis', hold.release, axis=axis, at_fraction=at_fraction)
-        return hold.reached
+        return halted
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write

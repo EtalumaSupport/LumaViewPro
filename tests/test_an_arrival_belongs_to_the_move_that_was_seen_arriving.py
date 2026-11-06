@@ -168,7 +168,7 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
     # arrives only then, however late any thread runs.
     held = session.scope.simulation.hold_axis('X')
     a = motion.start_move_xy(x_um=10200.0)
-    assert held.wait(_HOLD_WAIT_S), 'A never got part of the way'
+    held.result(_HOLD_WAIT_S)
 
     def start_b():
         b['h'] = motion.start_move_xy(x_um=13000.0)
@@ -222,7 +222,7 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
     # Move 1 stands part of the way until move 2's first target ends it.
     held = session.scope.simulation.hold_axis('Z')
     m1 = motion.start_move_z(6000.0)
-    assert held.wait(_HOLD_WAIT_S), 'move 1 never got part of the way'
+    held.result(_HOLD_WAIT_S)
     m2 = {}
     t = _start_in_thread(lambda: m2.update(h=motion.start_move_z(3000.0, overshoot_enabled=True)))
     m1_out = _outcome(m1)

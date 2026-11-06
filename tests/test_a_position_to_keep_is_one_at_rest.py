@@ -63,7 +63,7 @@ def _held_z(session):
     motion = session.scope.motion
     reached = session.scope.simulation.hold_axis('Z')
     move = motion.start_move_z(motion.get_current_position('Z') + 1000.0)
-    assert reached.wait(_HOLD_WAIT_S), 'the move never got part of the way'
+    reached.result(_HOLD_WAIT_S)
     assert motion.get_axis_state('Z') == AxisState.MOVING
     return move
 

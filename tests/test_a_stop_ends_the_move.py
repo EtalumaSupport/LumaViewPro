@@ -68,7 +68,7 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     start = driver.current_pos('X')
     held = session.scope.simulation.hold_axis('X')
     handle = motion.start_move_xy(x_um=20000.0)
-    assert held.wait(_HOLD_WAIT_S), 'the move never got part of the way'
+    held.result(_HOLD_WAIT_S)
     motion.stop_motion()
 
     assert _reason(handle) == 'stopped'
@@ -124,7 +124,7 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
         # The leg runs inside the move's body, before start_move_z
         # returns, so the stop comes from another thread, once the leg
         # stands part of the way down.
-        assert held.wait(_HOLD_WAIT_S), 'the leg never got part of the way'
+        held.result(_HOLD_WAIT_S)
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_leg)
@@ -173,7 +173,7 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     driver = motion._driver
     held = session.scope.simulation.hold_axis('X')
     first = motion.start_move_xy(x_um=60000.0)
-    assert held.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
+    held.result(_HOLD_WAIT_S)
     real_send = motion._send_drive
 
     def a_stop_lands_first(axis, stop_generation, send, member):
@@ -252,7 +252,7 @@ def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session
     held = turret_session.scope.simulation.hold_axis('T')
 
     def stop_during_the_turn():
-        assert held.wait(_HOLD_WAIT_S), 'the turn never got part of the way'
+        held.result(_HOLD_WAIT_S)
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_turn)

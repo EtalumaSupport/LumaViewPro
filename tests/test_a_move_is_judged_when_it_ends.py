@@ -61,7 +61,7 @@ def _held_move(session, axis='X', target=60000.0):
     motion._driver.set_timing_mode('realistic')
     held = session.scope.simulation.hold_axis(axis)
     handle = start_axis_move(motion, axis, target)
-    assert held.wait(_WAIT_S), 'the move never got part of the way'
+    held.result(_WAIT_S)
     return handle
 
 
@@ -148,7 +148,7 @@ def test_a_move_that_ended_is_answered_while_a_later_one_travels(session):
     driver.set_timing_mode('realistic')
     held = session.scope.simulation.hold_axis('X')
     motion.start_move_xy(x_um=60000.0)
-    assert held.wait(_WAIT_S), 'the later move never got part of the way'
+    held.result(_WAIT_S)
 
     reasons = []
     waiter = threading.Thread(target=lambda: reasons.append(_reason(first)), daemon=True)

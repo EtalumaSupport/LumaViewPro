@@ -157,7 +157,7 @@ def test_a_stop_during_a_turret_changes_park_closes_the_command(scope):
     parked = scope.simulation.hold_axis('Z')
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         change = pool.submit(scope.motion.move_turret, 2)
-        assert parked.wait(_WAIT_S), 'the park never got part of the way'
+        parked.result(_WAIT_S)
         scope.motion.stop_motion()
         with pytest.raises(MoveStoppedError):
             change.result(timeout=_WAIT_S)

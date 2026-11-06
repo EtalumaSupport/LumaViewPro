@@ -8792,10 +8792,11 @@ Route: `POST /api/v1/scope/simulation/fail_home`.
 ### `SimulationAPI.hold_axis`
 
 ```python
-def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> threading.Event
+def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> Operation[None]
 ```
 
-Marks: in-process.
+Marks: enters: `guarded_write`.  
+Route: `POST /api/v1/scope/simulation/hold_axis`.
 
 `axis`'s next move halts part of the way and never arrives, until `clear`.
 
@@ -8809,15 +8810,16 @@ and with it the hold, as on a real stage.
 
 **Returns**
 
-An event set once the move has halted at the hold, for a caller acting on a move while it travels: waited on, it replaces a guess with a clock at how far the move has got. `clear` releases the move, which then travels the rest.
+An operation done once the move has halted at the hold, for a caller acting on a move while it travels: waited on, it replaces a guess with a clock at how far the move has got; over REST it is a job. Its `result()` raises `HoldEndedError` when the hold ended before the move reached it. It has no stop: `clear` releases the move, which then travels the rest.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'` for `axis`; `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for a fraction outside 0 to 1; `'fault_unknown'` for a scope with no motor board; `'not_injectable_on_board'` on every board but the fast motor board: the firmware's axis reaches its target whatever is injected, and the TMCM-6110's arrives too.
 
-**Refusals**
+**Refusals by REST status**
 
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `fault_unknown`, `not_injectable_on_board`
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `fault_unknown`, `not_injectable_on_board`
 
 <a id="SimulationAPI.injected"></a>
 ### `SimulationAPI.injected`
@@ -10819,7 +10821,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -15666,6 +15668,30 @@ A fault in the hardware (motor, LED, camera): the subject, never raised itself.
 `except HardwareError` catches every one; the child raised says which
 fault it was, with its own reason and title.
 
+<a id="HoldEndedError"></a>
+### `lumascope.HoldEndedError`
+
+A notice; bases `Notice`, `Exception`.
+
+A simulated hold on an axis ended before its move reached it: nothing failed.
+
+Raised by the operation `SimulationAPI.hold_axis` returns, which is
+otherwise done once the held move has halted at the hold. A notice, as
+a stopped move is: the hold's caller acted on a move that was already
+over, and a REST caller is answered 409.
+
+**Attributes**
+
+- `axis`: The axis the hold was on.
+- `reason`: `'stopped'` -- a STOP ended the move, or came before it. `'superseded'` -- a new target on the axis ended the held move. `'homed'` -- a home of the axis ended it. `'released'` -- the hold was cleared (`clear`) before the move reached it.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `homed` | state | 409 |
+| `released` | state | 409 |
+| `stopped` | state | 409 |
+| `superseded` | state | 409 |
+
 <a id="HomingFailedError"></a>
 ### `lumascope.HomingFailedError`
 
@@ -17923,6 +17949,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/simulation/delay_reply` | [`SimulationAPI.delay_reply`](#SimulationAPI.delay_reply) |
 | `POST` | `/api/v1/scope/simulation/drop_replies` | [`SimulationAPI.drop_replies`](#SimulationAPI.drop_replies) |
 | `POST` | `/api/v1/scope/simulation/fail_home` | [`SimulationAPI.fail_home`](#SimulationAPI.fail_home) |
+| `POST` | `/api/v1/scope/simulation/hold_axis` | [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis) |
 | `GET` | `/api/v1/scope/simulation/injected` | [`SimulationAPI.injected`](#SimulationAPI.injected) |
 | `POST` | `/api/v1/scope/simulation/interlock` | [`SimulationAPI.interlock`](#SimulationAPI.interlock) |
 | `POST` | `/api/v1/scope/simulation/light_outside` | [`SimulationAPI.light_outside`](#SimulationAPI.light_outside) |

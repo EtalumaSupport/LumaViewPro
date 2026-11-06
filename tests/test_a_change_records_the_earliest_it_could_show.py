@@ -73,7 +73,7 @@ def test_a_moves_change_is_earliest_at_the_last_read_that_saw_it_moving():
         z = scope.motion.get_current_position('Z')
         halted = scope.simulation.hold_axis('Z')
         handle = scope.motion.start_move_z(z + 500.0)
-        assert halted.wait(10.0), 'the held move never halted'
+        halted.result(10.0)
         # The monitor tells the position listeners after each poll: one
         # after the halt has read the held axis still moving.
         polled = threading.Event()
@@ -100,7 +100,7 @@ def test_a_commands_change_is_earliest_at_the_last_read_that_saw_its_moves_movin
     halted = scope.simulation.hold_axis('T')
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         changing = pool.submit(scope.motion.move_turret, 2)
-        assert halted.wait(10.0), 'the held turn never halted'
+        halted.result(10.0)
         polled = threading.Event()
         scope.motion.add_turret_listener(lambda _at: polled.set())
         assert polled.wait(5.0), 'the monitor never read the held turret'
