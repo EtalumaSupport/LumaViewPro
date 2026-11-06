@@ -10,8 +10,6 @@
   {"do":"read","path":"ProtocolSettings/step_total_input","props":["text"]},
   {"do":"read","path":"ProtocolSettings/step_name_input","props":["text"]},
   {"do":"type","path":"ProtocolSettings/capture_root","text":"plate1","commit":true,"settle_s":1},
-  {"do":"press","path":"ProtocolSettings/Label[text=Time Settings]","settle_s":1,"note":"a label: the press only scrolls the panel to its top"},
-  {"do":"shot","name":"../images/protocol-panel-top-ls850","path":"MotionSettings/motionsettings_protocol_accordion_id","note":"the drawer alone, scrolled to its top"},
   {"do":"press","path":"ProtocolSettings/Label[text=Enable Z-Stack]","settle_s":1,"note":"a label: the press only scrolls the panel down"},
   {"do":"shot","name":"../images/protocol-panel-steps-ls850","path":"MotionSettings/motionsettings_protocol_accordion_id","note":"the drawer alone, scrolled to its step editor"},
   {"do":"select","path":"ProtocolSettings/tiling_size_spinner","value":"3x3","settle_s":1},

@@ -8,15 +8,9 @@ scan.
 
 Protocols are built, saved, loaded and run in the [Protocol]{.guilabel}
 drawer of the left panel (@fig-protocol-panel). The panel is longer than
-most screens; scroll it to reach the controls below the plate map.
+the window; scroll it to reach its top and its bottom.
 
-::: {#fig-protocol-panel layout-ncol=2}
-![Its top: the time settings, the labware, the file buttons and the plate map](images/protocol-panel-top-ls850.png){#fig-protocol-panel-top width=62%}
-
-![Scrolled down: the step editor, tiling and Z-stacking](images/protocol-panel-steps-ls850.png){#fig-protocol-panel-steps width=62%}
-
-The Protocol drawer on an LS850, with a 6-well plate tiled 2x2
-:::
+![The Protocol drawer on an LS850, with a 6-well plate tiled 2x2](images/protocol-panel-steps-ls850.png){#fig-protocol-panel width=35%}
 
 ## A time-lapse of a plate {#sec-protocol-quick-start}
 
