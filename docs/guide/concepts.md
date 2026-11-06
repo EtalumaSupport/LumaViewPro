@@ -404,14 +404,3 @@ scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
 print(session.get_current_plate_position())                 # X, Y in plate mm; Z in um
 ```
-
-**A position to keep is read at rest.** A position you will act on later -- a
-step, a bookmark, a sweep's centre -- is read while its axes are still, by
-`scope.motion.positions_to_keep`. It is refused `'axis_moving'` while an axis it
-names moves, and `'position_unknown'` while one is unhomed: a number is never
-answered for a position the controller cannot vouch for.
-
-```python
-kept = scope.motion.positions_to_keep(('X', 'Y', 'Z'), then='saving a step')
-print(kept['Z'])
-```
