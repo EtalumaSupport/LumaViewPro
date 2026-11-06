@@ -113,6 +113,11 @@ def test_a_record_that_is_no_measurement_is_refused_naming_why():
             "'focus_wobble'",
         ),
         'no measure': (_record({'gain': {'up': [no_measure]}}), 'no measure'),
+        # XY moves the sample: its count is the shipped one, never measured.
+        'an XY count': (
+            _record({'xy_move': {'out': [_measured()]}}),
+            "'xy_move', a move that keeps its shipped count",
+        ),
         # The clock rule a delay was measured for is retired: a record that
         # still holds one is refused by its name, with or without a count.
         'a delay': (
@@ -212,17 +217,14 @@ def test_the_largest_count_over_the_microscopes_is_taken_with_its_microscope():
     assert (gain.count, gain.provenance['microscope']) == (4, 'LS720')
 
 
-def test_a_measured_move_count_is_every_moves():
-    """A move's count is the camera's whatever the axis: an ``xy_move`` entry
-    sets the count of all three moves."""
-    record = _record({'xy_move': {'out': [_measured(5)]}, 'z_move': {'up': [_measured(3)]}})
+def test_a_measured_move_count_is_z_and_the_turrets_and_xy_keeps_its_shipped_count():
+    """Z's measured count is the turret's too, since a turret change ends in
+    Z's restore. XY keeps its shipped 2 whatever Z measures: it moves the
+    sample, whose settling no camera measurement predicts (Eric,
+    2026-11-05). A Z of 1 is below XY's 2, so a shared count would lower it."""
+    rules = FrameValidity.rules_from_record(_record({'z_move': {'down': [_measured(1)]}}))
 
-    rules = FrameValidity.rules_from_record(record)
-
-    moves = {source: rules[source].count for source in rules}
-    assert {source: moves[source] for source in FrameValidity.MOTION_SOURCES} == dict.fromkeys(
-        FrameValidity.MOTION_SOURCES, 5
-    )
+    assert (rules['z_move'].count, rules['turret'].count, rules['xy_move'].count) == (1, 1, 2)
 
 
 def test_bring_up_publishes_each_sources_rule_and_a_change_is_judged_by_it(tmp_path, monkeypatch):

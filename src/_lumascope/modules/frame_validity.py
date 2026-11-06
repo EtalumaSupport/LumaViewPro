@@ -350,6 +350,13 @@ class FrameValidity:
         {FrameValiditySource.XY_MOVE, FrameValiditySource.Z_MOVE, FrameValiditySource.TURRET}
     )
 
+    # The moves that wait the camera's measured move count: the frames from
+    # a motor's stop to a stable image, measured on Z. A turret change ends
+    # in Z's restore, so it waits Z's count. XY is not one of them: it moves
+    # the sample, whose own settling no camera measurement predicts, so it
+    # keeps its shipped count and a record never states one for it.
+    MEASURED_MOVE_SOURCES = MOTION_SOURCES - {FrameValiditySource.XY_MOVE}
+
     # Sources carrying per-frame chunk metadata, used to REJECT a frame at
     # capture time -- never to accept one. A chunk reports the register value
     # in force when the camera TAGGED the frame, not the light integrated
@@ -452,7 +459,8 @@ class FrameValidity:
         microscope's, with that entry's provenance: a capture waits the most
         frames any microscope the camera ships in needs, whichever way the
         change went. A move's count is the camera's whatever the axis, so
-        every move takes the largest over the moves the record holds. A
+        every measured move (``MEASURED_MOVE_SOURCES``) takes the largest
+        over the moves the record holds; XY keeps its shipped count. A
         source the record measured no count for keeps its shipped count,
         with no provenance.
 
@@ -474,7 +482,7 @@ class FrameValidity:
         counted = {
             source: entries((source,)) for source in rules if source not in cls.MOTION_SOURCES
         }
-        counted.update(dict.fromkeys(cls.MOTION_SOURCES, entries(cls.MOTION_SOURCES)))
+        counted.update(dict.fromkeys(cls.MEASURED_MOVE_SOURCES, entries(cls.MEASURED_MOVE_SOURCES)))
         for source, measured in counted.items():
             if measured:
                 largest = max(measured, key=lambda e: e['delivered_frames']['max'])
@@ -923,6 +931,11 @@ class FrameValidity:
         for source, directions in validity.items():
             if source not in cls.SKIP_FRAMES:
                 raise ValueError(f'validity names {source!r}, a source with no change')
+            if source in cls.MOTION_SOURCES - cls.MEASURED_MOVE_SOURCES:
+                raise ValueError(
+                    f'validity names {source!r}, a move that keeps its shipped count: '
+                    'it moves the sample, whose settling no camera measurement predicts'
+                )
             if not isinstance(directions, dict):
                 raise ValueError(f'validity.{source} is not a group of directions')
             for direction, entries in directions.items():
