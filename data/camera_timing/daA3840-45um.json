@@ -1,8 +1,503 @@
 {
   "schema": 3,
   "camera_model": "daA3840-45um",
-  "date": "2026-05-08",
-  "validity": {},
+  "date": "2026-11-06",
+  "validity": {
+    "exposure": {
+      "short_to_long": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "long_to_short": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ]
+    },
+    "gain": {
+      "up": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "down": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "burst_up": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        }
+      ],
+      "burst_down": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        }
+      ]
+    },
+    "black_level": {
+      "up": [
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "down": [
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ]
+    },
+    "led": {
+      "off_to_on": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "on_to_off": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "burst_up": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 3.0,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 3.0,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ],
+      "burst_down": [
+        {
+          "delivered_frames": {
+            "p50": 1.5,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ]
+    },
+    "z_move": {
+      "up": [
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "distance": "1mm",
+          "provenance": {
+            "run_id": "2026-11-06_155159_unspecified_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.192",
+            "camera_serial": "40699907",
+            "camera_firmware": "p=du1b_imx334m/s=r/v=2.6.0/i=10405.6/h=232ba9e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS820"
+          }
+        },
+        {
+          "delivered_frames": {
+            "p50": 0.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "distance": "1mm",
+          "provenance": {
+            "run_id": "2026-11-06_150217_unspecified_camera_only",
+            "host": "WINDOWS-PGTAQS8",
+            "os": "Windows-10-10.0.19045-SP0",
+            "lvp_version": "4.0.0-beta43",
+            "plugin_version": "1.0.191",
+            "camera_serial": "40167965",
+            "camera_firmware": "p=du1_imx334m/s=r/v=1.1.0/i=5705.19/h=760308e",
+            "measured_date": "2026-11-06",
+            "microscope": "LS850T"
+          }
+        }
+      ]
+    }
+  },
   "frame_intervals_ms": {
     "1": 56.59,
     "5": 56.59,
