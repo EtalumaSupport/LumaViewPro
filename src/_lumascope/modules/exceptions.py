@@ -1879,6 +1879,7 @@ class CaptureFailedError(Fault, CaptureError):
         'black_level': 'the black level change',
         'conversion_gain_mode': 'the conversion gain mode change',
         'line_noise_reduction': 'the line noise reduction change',
+        'caller': 'the change made before the capture was asked for',
     }
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {

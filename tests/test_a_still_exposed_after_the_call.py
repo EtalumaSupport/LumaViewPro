@@ -5,7 +5,9 @@
 validity holds. A light outside the scope, such as another program's
 shutter, is never recorded, so with frames still on their way to the host a
 still taken just after it keeps a frame made before it, and the frame looks
-right. Each frame is judged by what the simulated sensor made it under
+right. A caller that made such a change says so with
+``exposed_after_call``, and its still keeps only a frame exposed after the
+call. Each frame is judged by what the simulated sensor made it under
 (``scope.simulation.exposed_under``), never by its pixels.
 """
 
@@ -74,6 +76,14 @@ def test_a_still_after_a_light_lvp_did_not_switch_keeps_a_frame_made_before_it(
     made_under = _still_after_outside_light(sim_scope, delivered)
 
     assert made_under.outside_light_ma == 0.0, made_under
+
+
+def test_a_still_exposed_after_the_call_keeps_a_frame_made_after_the_outside_light(
+    sim_scope, delivered
+):
+    made_under = _still_after_outside_light(sim_scope, delivered, exposed_after_call=True)
+
+    assert made_under.outside_light_ma == OUTSIDE_MA, made_under
 
 
 def _still_made_under(scope, delivered):

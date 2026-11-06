@@ -848,6 +848,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
+        exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame guaranteed to reflect the current hardware state.
 
@@ -886,6 +887,9 @@ class ImagingAPI:
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
             sum_iteration_callback: Called after each summed frame.
+            exposed_after_call: Record the caller's change
+                (``FrameValiditySource.CALLER``) once the capture can run,
+                so only a frame exposed after it is kept.
 
         Returns:
             CapturedStill: The captured image with its record.
@@ -940,6 +944,13 @@ class ImagingAPI:
                 'started or stopped) -- refused until the feed is running.'
             )
             raise HardwareCommandRefusedError('camera_not_streaming', member)
+
+        # Past the refusals, so a refused capture records nothing, and
+        # before the deadline is frozen, so it budgets the change's frames.
+        if exposed_after_call:
+            self.frame_validity.invalidate(
+                FrameValiditySource.CALLER, began_ns=host_clock.steady_ns()
+            )
 
         hold_start = time.monotonic()
         hold_mark = _FeedMark.read(self._driver)
@@ -1413,6 +1424,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
+        exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame-valid image on the camera worker, and hand it back with its record.
 
@@ -1460,6 +1472,16 @@ class ImagingAPI:
             sum_delay_s: Seconds between summed frames.
             sum_iteration_callback: Called after each summed frame, on the
                 camera's lane.
+            exposed_after_call: True to keep only a frame exposed after this
+                call, for a caller that changed what the camera sees
+                outside LVP (a light or a shutter of its own) and has
+                waited for it to settle: the capture records a change
+                (``FrameValiditySource.CALLER``) as it starts on the
+                camera's lane, waited out by the LED's count, and a
+                capture refused before it starts records none. False, the
+                default, waits for the changes LVP
+                recorded only, so after a change made outside LVP the frame
+                kept can have been exposed before it.
 
         Returns:
             The frame's ``CapturedStill``: its image, (H, W) for a mono
@@ -1488,7 +1510,13 @@ class ImagingAPI:
             CameraSettingRejected: given ``hold``, the camera refused one of
                 its settings; nothing was captured.
         """
-        wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
+        wait_s = self._capture_wait_s(
+            exclude_sources,
+            timeout_s,
+            sum_count,
+            sum_delay_s,
+            exposed_after_call=exposed_after_call,
+        )
         capture = {
             'force_to_8bit': force_to_8bit,
             'accept_dark': accept_dark,
@@ -1498,6 +1526,7 @@ class ImagingAPI:
             'sum_count': sum_count,
             'sum_delay_s': sum_delay_s,
             'sum_iteration_callback': sum_iteration_callback,
+            'exposed_after_call': exposed_after_call,
         }
         if hold is None:
             return self._camera._dispatch_camera(
@@ -1523,8 +1552,15 @@ class ImagingAPI:
         timeout_s: float,
         sum_count: int,
         sum_delay_s: float,
+        *,
+        exposed_after_call: bool,
     ) -> float:
         """How long a public capture waits for its camera-lane task.
+
+        Args:
+            exposed_after_call: The capture records the caller's change
+                (``FrameValiditySource.CALLER``) on the lane, so its frames
+                are budgeted here, before they are owed.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, as
@@ -1548,6 +1584,9 @@ class ImagingAPI:
             self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
         )
         _, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
+        if exposed_after_call:
+            caller = self.frame_validity.rules()[FrameValiditySource.CALLER].count
+            settle_s += caller * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
             + timeout_s

@@ -721,6 +721,7 @@ def capture_still(
     sum_count: int = 1,
     sum_delay_s: float = 0.0,
     sum_iteration_callback: Callable[[], None] | None = None,
+    exposed_after_call: bool = False,
 ) -> CapturedStill
 ```
 
@@ -741,6 +742,7 @@ In-process: the image does not travel the wire.
 - `sum_count`: How many frames are summed into the image.
 - `sum_delay_s`: The wait, in seconds, between summed frames.
 - `sum_iteration_callback`: Called with no arguments after each summed frame; None calls nothing.
+- `exposed_after_call`: True keeps only a frame exposed after this call, for a caller that changed what the camera sees outside LVP (its own light or shutter) and waited for it to settle. False (the default) waits for LVP's own changes only, so the frame can predate a change made outside LVP.
 
 **Returns**
 
@@ -13556,6 +13558,7 @@ What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAME
 - `black_level`
 - `conversion_gain_mode`
 - `line_noise_reduction`
+- `caller`
 
 <a id="Holder"></a>
 ### `lumascope.Holder`

@@ -93,6 +93,9 @@ class FrameValiditySource(enum.StrEnum):
     BLACK_LEVEL = 'black_level'
     CONVERSION_GAIN_MODE = 'conversion_gain_mode'
     LINE_NOISE_REDUCTION = 'line_noise_reduction'
+    # A change the caller made outside LVP, declared at the call
+    # (``capture_still``'s ``exposed_after_call``).
+    CALLER = 'caller'
 
 
 class Counter(enum.StrEnum):
@@ -336,6 +339,8 @@ class FrameValidity:
         FrameValiditySource.CONVERSION_GAIN_MODE: 2,
         FrameValiditySource.LINE_NOISE_REDUCTION: 2,
     }
+    # A caller's change waits the LED's count (``COUNTED_AS_LED``).
+    SKIP_FRAMES[FrameValiditySource.CALLER] = SKIP_FRAMES[FrameValiditySource.LED]
 
     # One shape for every trace row this class writes. A row records the
     # comparison the gate actually made: the frame's arrival ordinal against
@@ -356,6 +361,15 @@ class FrameValidity:
     # the sample, whose own settling no camera measurement predicts, so it
     # keeps its shipped count and a record never states one for it.
     MEASURED_MOVE_SOURCES = MOTION_SOURCES - {FrameValiditySource.XY_MOVE}
+
+    # The changes that wait the LED's count, shipped or measured. A
+    # caller's change (an outside light, its shutter already settled when
+    # the capture is asked for) needs the camera's own pipeline flushed from
+    # the call, which is what the LED's count measures from the board
+    # write's return; the LED's own rise is in that count too, so it errs
+    # long. A record never states a count of its own for one, so the
+    # count is the LED's alone.
+    COUNTED_AS_LED = frozenset({FrameValiditySource.CALLER})
 
     # Sources carrying per-frame chunk metadata, used to REJECT a frame at
     # capture time -- never to accept one. A chunk reports the register value
@@ -461,6 +475,7 @@ class FrameValidity:
         change went. A move's count is the camera's whatever the axis, so
         every measured move (``MEASURED_MOVE_SOURCES``) takes the largest
         over the moves the record holds; XY keeps its shipped count. A
+        caller's change (``COUNTED_AS_LED``) takes the LED's rule. A
         source the record measured no count for keeps its shipped count,
         with no provenance.
 
@@ -480,9 +495,12 @@ class FrameValidity:
             ]
 
         counted = {
-            source: entries((source,)) for source in rules if source not in cls.MOTION_SOURCES
+            source: entries((source,))
+            for source in rules
+            if source not in cls.MOTION_SOURCES | cls.COUNTED_AS_LED
         }
         counted.update(dict.fromkeys(cls.MEASURED_MOVE_SOURCES, entries(cls.MEASURED_MOVE_SOURCES)))
+        counted.update(dict.fromkeys(cls.COUNTED_AS_LED, entries((FrameValiditySource.LED,))))
         for source, measured in counted.items():
             if measured:
                 largest = max(measured, key=lambda e: e['delivered_frames']['max'])
@@ -915,10 +933,11 @@ class FrameValidity:
 
         Raises:
             ValueError: the record is not ``TIMING_RECORD_SCHEMA``, names a
-                source this gate has no change for, holds a direction that
-                is not a list of entries, or an entry that holds a delay
-                (``apply_delay_us``) or lacks its count, its trials or its
-                provenance.
+                source this gate has no change for or one whose count is
+                not measured as its own (XY, ``COUNTED_AS_LED``), holds a
+                direction that is not a list of entries, or an entry that
+                holds a delay (``apply_delay_us``) or lacks its count, its
+                trials or its provenance.
         """
         if record.get('schema') != TIMING_RECORD_SCHEMA:
             raise ValueError(
@@ -935,6 +954,11 @@ class FrameValidity:
                 raise ValueError(
                     f'validity names {source!r}, a move that keeps its shipped count: '
                     'it moves the sample, whose settling no camera measurement predicts'
+                )
+            if source in cls.COUNTED_AS_LED:
+                raise ValueError(
+                    f"validity names {source!r}, a change that waits the LED's count: "
+                    'the count is measured once, under led'
                 )
             if not isinstance(directions, dict):
                 raise ValueError(f'validity.{source} is not a group of directions')

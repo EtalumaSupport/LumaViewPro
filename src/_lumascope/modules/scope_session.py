@@ -2751,6 +2751,7 @@ class ScopeSession:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
+        exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame-valid image and hand it back with its record.
 
@@ -2786,6 +2787,11 @@ class ScopeSession:
             sum_delay_s: The wait, in seconds, between summed frames.
             sum_iteration_callback: Called with no arguments after each
                 summed frame; None calls nothing.
+            exposed_after_call: True keeps only a frame exposed after this
+                call, for a caller that changed what the camera sees outside
+                LVP (its own light or shutter) and waited for it to settle.
+                False (the default) waits for LVP's own changes only, so the
+                frame can predate a change made outside LVP.
 
         Returns:
             CapturedStill: The image and the instrument's record of its frame.
@@ -2838,6 +2844,7 @@ class ScopeSession:
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
+            exposed_after_call=exposed_after_call,
         )
         if channel is not None and lit_other_than(
             self.scope.illumination, channel, still.record.illumination_ma

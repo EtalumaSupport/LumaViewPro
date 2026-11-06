@@ -262,7 +262,11 @@ class ManualCaptureController:
         layer = self._shown_channel()
         channel_config = config_helpers.get_channel_configs(request.settings, [layer])[layer]
         grab_s = request.scope.imaging._capture_wait_s(
-            (), _CAPTURE_RETRY_BUDGET_S, channel_config['sum'], channel_config['exposure_ms'] / 1000
+            (),
+            _CAPTURE_RETRY_BUDGET_S,
+            channel_config['sum'],
+            channel_config['exposure_ms'] / 1000,
+            exposed_after_call=False,
         )
         return grab_s + request.scope.camera._CAMERA_WRITE_TIMEOUT_S + WRITE_STALL_FATAL_S
 

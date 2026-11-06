@@ -118,6 +118,11 @@ def test_a_record_that_is_no_measurement_is_refused_naming_why():
             _record({'xy_move': {'out': [_measured()]}}),
             "'xy_move', a move that keeps its shipped count",
         ),
+        # A caller's change waits the LED's count, measured once, under led.
+        'a caller count': (
+            _record({'caller': {'on': [_measured()]}}),
+            "'caller', a change that waits the LED's count",
+        ),
         # The clock rule a delay was measured for is retired: a record that
         # still holds one is refused by its name, with or without a count.
         'a delay': (
@@ -225,6 +230,17 @@ def test_a_measured_move_count_is_z_and_the_turrets_and_xy_keeps_its_shipped_cou
     rules = FrameValidity.rules_from_record(_record({'z_move': {'down': [_measured(1)]}}))
 
     assert (rules['z_move'].count, rules['turret'].count, rules['xy_move'].count) == (1, 1, 2)
+
+
+def test_a_callers_change_takes_the_leds_rule_shipped_or_measured():
+    """A change a caller made outside LVP waits the LED's count: the
+    shipped one with no record, and the LED's measured count and run with one."""
+    measured = FrameValidity.rules_from_record(_record({'led': {'on': [_measured(5)]}}))
+    shipped = FrameValidity.credit_rules()
+
+    assert measured['caller'] == measured['led']
+    assert measured['caller'].count == 5
+    assert shipped['caller'] == shipped['led']
 
 
 def test_bring_up_publishes_each_sources_rule_and_a_change_is_judged_by_it(tmp_path, monkeypatch):
