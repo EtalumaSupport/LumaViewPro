@@ -1209,27 +1209,27 @@ class ImagingAPI:
         return CapturedStill(image=grabbed.image, record=record)
 
     def _capture_holding_channel_impl(
-        self, layer: str, request: ChannelCameraRequest, member: str, **capture
+        self, channel: str, request: ChannelCameraRequest, member: str, **capture
     ) -> CapturedStill:
-        """``_capture_still_impl``, with the camera holding ``layer``'s stored settings.
+        """``_capture_still_impl``, with the camera holding ``channel``'s stored settings.
 
         For a capture that is already its own camera-lane task (the still):
         the camera's hold for a capture (``CameraAPI._hold_channel_for_capture``)
         runs inline, as the capture body does, so neither is admitted again
         against whatever holds the scope now. ``capture`` is the capture
-        body's keyword arguments. A frame named and set for ``layer`` is lit
+        body's keyword arguments. A frame named and set for ``channel`` is lit
         by no other LED, so another one lit refuses it before the hold.
 
         Raises:
             HardwareCommandRefusedError: ``'other_led_lit'``, an LED other
-                than ``layer``'s is lit; nothing was written or captured. As
+                than ``channel``'s is lit; nothing was written or captured. As
                 ``_hold_channel_for_capture`` says, and whatever the capture
                 raises.
             CameraSettingRejected: as ``_hold_channel_for_capture`` says.
         """
-        if lit_other_than(self._scope.illumination, layer):
+        if lit_other_than(self._scope.illumination, channel):
             raise HardwareCommandRefusedError('other_led_lit', member)
-        self._camera._hold_channel_for_capture(layer, request, member)
+        self._camera._hold_channel_for_capture(channel, request, member)
         return self._capture_still_impl(member=member, **capture)
 
     def _build_frame_record(
@@ -1441,15 +1441,15 @@ class ImagingAPI:
         image (``CapturedStill``), so the record is the frame's and no later
         capture's; a caller that needs only the pixels reads ``.image``.
 
-        Given ``hold``, the camera holds that layer's stored settings for the
+        Given ``hold``, the camera holds that channel's stored settings for the
         grab (``CameraAPI.hold_channel``), in the same camera-lane task; given
         None, it captures with the camera as set. In-process only, as
-        ``hold_channel`` is: the Session reads the layer's store and hands it
+        ``hold_channel`` is: the Session reads the channel's store and hands it
         in (``ScopeSession.capture_still``), so a still is held at no
-        settings but its layer's.
+        settings but its channel's.
 
         Args:
-            hold: The layer whose stored settings the camera holds for the
+            hold: The channel whose stored settings the camera holds for the
                 grab, or None for the camera as set.
             force_to_8bit: True for an 8-bit image; False for the camera's
                 own depth, in a uint16 array for a 12- or 16-bit camera.
@@ -1506,7 +1506,7 @@ class ImagingAPI:
                 capture; ``'camera_not_streaming'``, connected but not
                 grabbing; or, given ``hold``, a run, a diagnostic or a home
                 holds the scope, or ``'other_led_lit'``, an LED other than its
-                layer's is lit.
+                channel's is lit.
             CameraSettingRejected: given ``hold``, the camera refused one of
                 its settings; nothing was captured.
         """
@@ -1730,7 +1730,7 @@ class ImagingAPI:
                 Shape is (H, W) 2D mono for mono-native cameras and
                 (H, W, 3) RGB for color-native cameras. Probe
                 `scope.capabilities.is_color_native` to disambiguate.
-                This method does NOT apply layer false-color -- apply
+                This method does NOT apply channel false-color -- apply
                 at the display / encode boundary via
                 `image_utils.mono_to_rgb_falsecolor(img, color)`.
 

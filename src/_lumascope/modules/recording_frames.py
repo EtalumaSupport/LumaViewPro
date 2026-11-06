@@ -293,7 +293,7 @@ def arrival(
     The light is one read of the LEDs, so the channel a frame is named for
     and the currents its record states cannot disagree. Called on the camera
     callback, under ``frame_fact``'s rule that nothing here raises: the LED
-    states and the held layer are memory reads.
+    states and the held channel are memory reads.
 
     Args:
         scope: The scope the recording runs against.
@@ -352,7 +352,7 @@ def write_frame(
         fallback_focus: Why the step's autofocus did not focus, for a video
             step recorded at its fallback focus; None otherwise.
         false_color_on: Whether the channel's false-color toggle was on.
-        channel_colors: Every layer's colour as the recording began.
+        channel_colors: Every channel's colour as the recording began.
         save_encoding: The resolved image-mode save encoding.
     """
     fact, light, record = arrived

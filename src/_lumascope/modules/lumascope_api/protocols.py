@@ -165,7 +165,7 @@ class ProtocolsAPI:
                 here, by name, before any object exists: a protocol whose
                 plate the scope cannot be on must never be adopted.
             ProtocolRunRefusedError: The file names glass this scope
-                cannot put in the light path, or has a step on a layer this
+                cannot put in the light path, or has a step on a channel this
                 scope does not have, with the reason a run would give for
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
@@ -262,7 +262,7 @@ class ProtocolsAPI:
             ArgumentRefusedError: ``'protocol_source_ambiguous'``, not
                 exactly one source was given; ``'missing_key'``,
                 ``'wrong_kind'``, ``'not_a_number'``,
-                ``'not_offered'`` (the z-stack's reference or a layer's acquire
+                ``'not_offered'`` (the z-stack's reference or a channel's acquire
                 mode) or ``'channel_unknown'``, a key of the configuration,
                 named by its path in ``argument``.
             CatalogueNameRefusedError: the configuration names a plate or an
@@ -278,7 +278,7 @@ class ProtocolsAPI:
             ConfigError: no session has bound the scope, so it has no stage
                 offset to lay the grid out at.
 
-        A configuration is built flat, one step per acquiring layer per
+        A configuration is built flat, one step per acquiring channel per
         position, then tiled by ``Protocol.apply_tiling`` and stacked by
         ``Protocol.apply_zstacking``, the one grid build and the one z-stack
         build, so a New protocol's tiles and stacks are ordered, grouped,
@@ -344,9 +344,9 @@ class ProtocolsAPI:
         after_step_index: int | None = None,
         zstack_params: dict | None = None,
     ) -> list[str]:
-        """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
+        """Add one step per acquiring channel to ``protocol`` at ``plate_position``.
 
-        The GUI's Add Step and a script's add are this one call. A layer
+        The GUI's Add Step and a script's add are this one call. A channel
         whose ``acquire`` is None contributes no step, and when no channel
         acquires the add is refused rather than silently doing nothing:
         the click used to return bare, so the user saw nothing happen and
@@ -355,9 +355,9 @@ class ProtocolsAPI:
         the light path the add is refused, or the step would record glass
         the scope cannot say it has.
 
-        ``channel_order`` names the layers whose steps come first, in that
-        order; layers it does not name follow in the order given. Each
-        layer's step is placed after the previous layer's, so the protocol
+        ``channel_order`` names the channels whose steps come first, in that
+        order; channels it does not name follow in the order given. Each
+        channel's step is placed after the previous channel's, so the protocol
         reads in that order. The steps of one add share one channel group
         id, and that, not their order, is what makes them one composite:
         two adds at one position are two composites.
@@ -392,30 +392,30 @@ class ProtocolsAPI:
         objective_id = self._recordable_objective(verb='add')
         self.refuse_no_acquiring_channel(channel_configs)
 
-        ordered = [layer for layer in (channel_order or []) if layer in channel_configs]
-        ordered += [layer for layer in channel_configs if layer not in ordered]
+        ordered = [channel for channel in (channel_order or []) if channel in channel_configs]
+        ordered += [channel for channel in channel_configs if channel not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
         if before_step_index is None and after_step_index is None:
             after_step_index = protocol.num_steps() - 1
         acquiring = [
-            layer for layer in ordered if Protocol.channel_acquires(channel_configs[layer])
+            channel for channel in ordered if Protocol.channel_acquires(channel_configs[channel])
         ]
         if zstack_params is not None:
             Protocol.refuse_unbuildable_zstack(
                 zstack_params,
                 self._travel_limits(),
-                [(f'the new {layer} step', plate_position.z_um) for layer in acquiring],
+                [(f'the new {channel} step', plate_position.z_um) for channel in acquiring],
             )
         first_added = before_step_index if before_step_index is not None else after_step_index + 1
 
         names: list[str] = []
         channel_group_id = protocol.new_channel_group_id()
         turret_slot = self._live_turret_slot()
-        for layer in acquiring:
-            channel_config = channel_configs[layer]
+        for channel in acquiring:
+            channel_config = channel_configs[channel]
             name = protocol.insert_step(
                 step_name=None,
-                layer=layer,
+                layer=channel,
                 channel_config=channel_config,
                 stim_configs=stim_configs,
                 plate_position=plate_position,
@@ -426,7 +426,7 @@ class ProtocolsAPI:
                 after_step_index=after_step_index,
             )
             names.append(name)
-            # The next layer goes after this one. Handing every layer the
+            # The next channel goes after this one. Handing every channel the
             # same index puts each new step AT that index, which reads the
             # channels back in reverse. The index is arithmetic, not a
             # name lookup: a loaded file may carry duplicate names.
@@ -450,7 +450,7 @@ class ProtocolsAPI:
         return names
 
     def _refuse_channel_already_in_add(
-        self, protocol: Protocol, step_index: int, layer: str
+        self, protocol: Protocol, step_index: int, channel: str
     ) -> None:
         """Refuse giving step ``step_index`` a channel another step of its add takes.
 
@@ -463,18 +463,18 @@ class ProtocolsAPI:
         are not one another's duplicates.
         """
         step = protocol.step_row(step_index=step_index)
-        if step['Channel Group ID'] == -1 or layer == step['channel']:
+        if step['Channel Group ID'] == -1 or channel == step['channel']:
             return
         group = step['Channel Group ID']
         steps = protocol.steps().reset_index(drop=True)
         same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_index)]
-        if layer in set(same_add['channel']):
+        if channel in set(same_add['channel']):
             self._refuse(
                 reason='channel_already_in_add',
                 message=(
-                    f'Another step added with this one already takes {layer}, and steps '
+                    f'Another step added with this one already takes {channel}, and steps '
                     f'added together are one composite with one image per channel. '
-                    f'Open the drawer of the channel this step takes, or add {layer} '
+                    f'Open the drawer of the channel this step takes, or add {channel} '
                     'as a new step.'
                 ),
             )
@@ -484,20 +484,20 @@ class ProtocolsAPI:
         protocol: Protocol,
         step_index: int,
         *,
-        layer: str,
+        channel: str,
         channel_configs: dict,
         stim_configs: dict,
         plate_position: PlateLocation,
         label: str | None = None,
     ) -> str:
-        """Rewrite step ``step_index`` of ``protocol`` from ``layer`` at ``plate_position``.
+        """Rewrite step ``step_index`` of ``protocol`` from ``channel`` at ``plate_position``.
 
         The GUI's Update Step and a script's update are this one call, and
         it is refused for the same reasons an add is: a step is a saved
         position and the objective it was taken with, whichever button
         saved it.
 
-        ``layer`` is the channel the caller is editing. When that layer's
+        ``channel`` is the channel the caller is editing. When that channel's
         stim config is enabled the edit is a stim edit, not a channel
         change, so the step keeps the channel it already acquires.
         ``label`` renames the step; None keeps its label.
@@ -515,34 +515,34 @@ class ProtocolsAPI:
                 another step of the same add already takes that channel
                 (``'channel_already_in_add'``). The step is unchanged.
             StepEditRefusedError: ``'step_value_refused'``, the step is a
-                slice of a z-stack and ``layer`` is not its channel (raised
+                slice of a z-stack and ``channel`` is not its channel (raised
                 by the protocol). The step is unchanged.
             ObjectiveUnknownError: the active objective is unknown, as an
                 add refuses it; the step is unchanged.
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
                 step of ``protocol`` (raised by the protocol), judged before
                 anything else: an empty protocol has no step to update,
-                whatever the layer.
+                whatever the channel.
         """
         from _lumascope.modules.protocol import Protocol
 
         step = protocol.step_row(step_index=step_index)
         objective_id = self._recordable_objective(verb='update')
 
-        stim_config = channel_configs[layer].get('stim_config')
+        stim_config = channel_configs[channel].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
-            layer = step['channel']
+            channel = step['channel']
 
-        if not Protocol.channel_acquires(channel_configs[layer]):
+        if not Protocol.channel_acquires(channel_configs[channel]):
             self._refuse(
                 reason='no_acquiring_channel',
                 message=(
-                    f'{layer} is not set to acquire, so there is no step to make. '
-                    f'Set {layer} to Image or Video first.'
+                    f'{channel} is not set to acquire, so there is no step to make. '
+                    f'Set {channel} to Image or Video first.'
                 ),
             )
 
-        self._refuse_channel_already_in_add(protocol, step_index, layer)
+        self._refuse_channel_already_in_add(protocol, step_index, channel)
 
         axes = self._scope.capabilities.axes
         has_xy = 'X' in axes and 'Y' in axes
@@ -555,8 +555,8 @@ class ProtocolsAPI:
         protocol.modify_step(
             step_index=step_index,
             label=label,
-            layer=layer,
-            channel_config=channel_configs[layer],
+            layer=channel,
+            channel_config=channel_configs[channel],
             stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
             objective_id=objective_id,
@@ -566,7 +566,7 @@ class ProtocolsAPI:
         return protocol.step_row(step_index=step_index)['Name']
 
     def focus_z_um(self, *, then: str) -> float:
-        """The live Z, as a focus to save into a layer or a step.
+        """The live Z, as a focus to save into a channel or a step.
 
         Rounded to the precision every kept Z is stored at, so a focus and a
         bookmark saved at one Z store one number.
@@ -595,9 +595,9 @@ class ProtocolsAPI:
         return round(z, common_utils.max_decimal_precision('z'))
 
     def check_focus_z(self, z_um: float, *, then: str) -> float:
-        """A given Z, as a focus to save into a layer: one this scope's Z can reach.
+        """A given Z, as a focus to save into a channel: one this scope's Z can reach.
 
-        A layer's focus is where every new step of the layer is born, so a
+        A channel's focus is where every new step of the channel is born, so a
         number no move could reach would be refused at every step made from
         it. This says only that the number is such a Z; where it came from is
         the caller's.
@@ -646,8 +646,8 @@ class ProtocolsAPI:
         self._refuse_no_focus_axis(then="set a step's Z")
         protocol.modify_step_z_height(step_index=step_index, z=z)
 
-    def apply_focus_to_channel_steps(self, protocol: Protocol, layer: str, z: float) -> int:
-        """Write ``z`` as the Z of every step of ``layer``; returns how many.
+    def apply_focus_to_channel_steps(self, protocol: Protocol, channel: str, z: float) -> int:
+        """Write ``z`` as the Z of every step of ``channel``; returns how many.
 
         A slice of a z-stack takes ``z`` plus its offset from its channel's
         reference slice, so each stack is placed with its reference at ``z``
@@ -656,7 +656,7 @@ class ProtocolsAPI:
         Raises:
             ProtocolError: ``z`` is not a number (raised by the protocol).
         """
-        return protocol.apply_focus_all_channel_steps(layer=layer, z=z)
+        return protocol.apply_focus_all_channel_steps(layer=channel, z=z)
 
     def delete_step(self, protocol: Protocol, step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
@@ -911,7 +911,7 @@ class ProtocolsAPI:
         # its reference keeps answering the last number it reported, so the
         # step would save a real-looking place the scope no longer vouches
         # for. Every axis, Z and T included, even when the step's Z comes
-        # from the layer's saved focus -- a step is where the scope will be
+        # from the channel's saved focus -- a step is where the scope will be
         # sent. And ahead of the objective, whose advice (set the slot's
         # objective) is wrong when the slot itself is what is unknown.
         unknown_axes = self._scope.motion.axes_without_position()
@@ -961,9 +961,9 @@ class ProtocolsAPI:
         return stim_configs
 
     def refuse_no_acquiring_channel(self, channel_configs: dict) -> None:
-        """Refuse a step add or a protocol build when no layer is set to acquire.
+        """Refuse a step add or a protocol build when no channel is set to acquire.
 
-        A layer whose ``acquire`` is neither image nor video contributes no
+        A channel whose ``acquire`` is neither image nor video contributes no
         step, so with none acquiring an add adds nothing and a build gives
         an empty protocol; each used to do so silently, the click looking
         dead. The GUI's Add and New and a script's call share this one
@@ -989,8 +989,8 @@ class ProtocolsAPI:
     def refuse_channel_settings_out_of_range(self, protocol: Protocol) -> None:
         """Refuse a protocol whose Layer Settings hold a value no channel setting takes.
 
-        Judged by the settings' layer ranges, for the rows a session applies:
-        those of the layers this scope has, the others being dropped when
+        Judged by the settings' channel ranges, for the rows a session applies:
+        those of the channels this scope has, the others being dropped when
         applied. Asked where a protocol's Layer Settings arrive: a loaded
         file's own block, and ``ScopeSession.apply_channel_settings`` before
         it stores anything, for a protocol built in memory or one whose rows
@@ -1002,7 +1002,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: ``'values_out_of_range'``, naming each
-                value by layer, column and bound.
+                value by channel, column and bound.
         """
         from _lumascope.modules.protocol import (
             channel_settings_values_refused,
@@ -1016,20 +1016,20 @@ class ProtocolsAPI:
         )
 
     def refuse_absent_channels(self, protocol: Protocol) -> None:
-        """Refuse a protocol with a step on a layer this scope does not have.
+        """Refuse a protocol with a step on a channel this scope does not have.
 
         Asked where steps arrive that this scope's settings did not build: a
         loaded file, and a run about to start. A step this session builds
-        (New, Add, Update, a composite) comes from layers set to acquire,
-        and a layer this scope lacks is never set to acquire. A scope whose
+        (New, Add, Update, a composite) comes from channels set to acquire,
+        and a channel this scope lacks is never set to acquire. A scope whose
         channels could not be resolved has none, and the words say so rather
-        than naming a layer it lacks.
+        than naming a channel it lacks.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and a run's start.
 
         A step naming a channel no release has is refused as that first: it
-        is a typo or a hand edit, and no scope has its layer.
+        is a typo or a hand edit, and no scope has its channel.
 
         Raises:
             ProtocolRunRefusedError: reason ``channel_unknown``, naming the

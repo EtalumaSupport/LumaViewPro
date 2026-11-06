@@ -348,7 +348,7 @@ def mono_to_rgb_falsecolor(
     The single Phase-1 boundary helper for mono -> RGB widening. Use at
     encode boundaries (live preview Kivy texture, MP4 / AVI encode) and
     legacy-display paths -- NOT in the save pipeline (mono-native save
-    keeps 2D + layer metadata; widening to RGB at save bakes the false
+    keeps 2D + channel metadata; widening to RGB at save bakes the false
     color into the file).
 
     Args:
@@ -491,7 +491,7 @@ class FactKind(enum.Enum):
     # The one frame: its time, its id, how it was judged. A derived file was
     # not captured, so it states none of them.
     CAPTURE = 'capture'
-    # A layer's settings and light: stated only by a derived file on the
+    # A channel's settings and light: stated only by a derived file on the
     # channel of its inputs.
     CHANNEL = 'channel'
     # The scope, the objective, the plate and the place: stated by a derived
@@ -537,10 +537,10 @@ FILE_FACTS: dict[str, FileFact] = {
     'plate_pos_mm': FileFact(FactKind.SHARED, fields=('x', 'y')),
     'z_pos_um': FileFact(FactKind.SHARED, 'PositionZ', 'um'),
     'illumination_ma': FileFact(FactKind.CHANNEL, 'Illumination', 'mA'),
-    # Every LED lit for the grab, by layer; Illumination is the named
+    # Every LED lit for the grab, by channel; Illumination is the named
     # channel's alone, and the one older files carry.
     'illumination_by_channel_ma': FileFact(
-        FactKind.CHANNEL, 'IlluminationByChannel', 'mA', keyed_by='layer name'
+        FactKind.CHANNEL, 'IlluminationByChannel', 'mA', keyed_by='channel name'
     ),
     # When those currents were read (frame_record.LightTiming).
     'illumination_timing': FileFact(FactKind.CHANNEL, 'IlluminationTiming'),
@@ -590,7 +590,7 @@ FILE_FACTS: dict[str, FileFact] = {
     # full scale, and whether it was kept dark under a lit LED.
     'saturated_fraction': FileFact(FactKind.CAPTURE, 'SaturatedFraction'),
     'dark': FileFact(FactKind.CAPTURE, 'Dark'),
-    # Whether the camera held a layer's stored settings for the frame, and
+    # Whether the camera held a channel's stored settings for the frame, and
     # which: a frame taken after a script's raw gain or exposure write says
     # it held none.
     'camera_held_a_channel': FileFact(FactKind.CAPTURE, 'CameraHeldAChannel'),
@@ -1464,7 +1464,7 @@ def build_postproc_output_metadata(
     Takes every input's record (read_file_record) and states what they agree
     on (agreed_facts), as each fact's kind (``FILE_FACTS``) lets a derived
     file: the shared facts (objective, scale, position, instrument, and the
-    plate with its well), and a layer's settings only when the output is on
+    plate with its well), and a channel's settings only when the output is on
     its inputs' channel. A capture's own facts (its time, its id, how it was
     judged) describe the original capture, not the derived image, and a
     file's own facts are the output's writer's to set.
@@ -1488,7 +1488,7 @@ def build_postproc_output_metadata(
 
     Args:
         input_records: Every input's record, as read_file_record read it.
-        channel: Layer key for the derived output (Ex405 / Ex488 / Ex589
+        channel: Channel key for the derived output (Ex405 / Ex488 / Ex589
             / Lumi / BF / PC / DF), or 'Composite'.
         adds_frames: Whether each output pixel adds its inputs' (a Sum), so
             it integrates more frames than any input states.
@@ -1532,9 +1532,9 @@ def _derived_facts(agreed: dict, *, on_its_inputs_channel: bool, adds_frames: bo
     """The facts a file derived from its inputs states of what they agree on.
 
     The one rule for every derived file, a post-processing output and a
-    hyperstack alike: the shared facts always; a layer's settings only while
-    the layer travels, since a derived output on another channel (a
-    composite) must not pair another layer's exposure, light or display name
+    hyperstack alike: the shared facts always; a channel's settings only while
+    the channel travels, since a derived output on another channel (a
+    composite) must not pair another channel's exposure, light or display name
     with its own channel, and a sum integrates more frames than an input
     states; no capture's own fact, since the derived file was not captured;
     no file's own fact, which is the output's writer's to set.
@@ -1656,8 +1656,8 @@ def build_hyperstack_output_metadata(
 
     States what its input frames agree on (agreed_facts) as any derived file
     does (``_derived_facts``): the scope, the objective, and the plate with
-    its well always, a layer's settings only on a one-channel stack of that
-    layer, no capture's own fact. Per-plane positions arrive as parallel
+    its well always, a channel's settings only on a one-channel stack of that
+    channel, no capture's own fact. Per-plane positions arrive as parallel
     lists (one entry per T*Z*C plane in scan order); they land in the
     OME-XML ``<Plane>`` elements via tifffile's per-axis list convention.
     Every stated fact no schema attribute holds rides in the LVP
@@ -1805,11 +1805,17 @@ def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     raise NotImplementedError('Phase 2 activation pending')
 
 
-def imwrite_color(path, data, *, is_color_native: bool = False, color: str | None = None) -> None:
+def imwrite_color(
+    path: str | pathlib.Path,
+    data: np.ndarray,
+    *,
+    is_color_native: bool = False,
+    color: str | None = None,
+) -> None:
     """Color-camera-aware image write. Phase 2 activation pending.
 
     Stub helper for the color-native save path. Mono fluorescence saves
-    go through ``write_tiff`` with layer metadata; color-camera frames
+    go through ``write_tiff`` with channel metadata; color-camera frames
     will route through this wrapper to keep BGR / RGB / channel-order
     decisions in one place.
 
@@ -1827,7 +1833,7 @@ def imwrite_color(path, data, *, is_color_native: bool = False, color: str | Non
     if not is_color_native:
         raise NotImplementedError(
             'imwrite_color is only meaningful with a color-native camera. '
-            'Use write_tiff for the mono fluorescence + layer-metadata path.'
+            'Use write_tiff for the mono fluorescence + channel-metadata path.'
         )
     raise NotImplementedError('Phase 2 activation pending')
 
@@ -2021,7 +2027,7 @@ def encode_display_jpg(
     if img8.ndim == 3:
         # Already a display RGB image (e.g. a crosshairs / bullseye
         # overlay). These share the false-color RGB convention, so take
-        # it as RGB rather than re-applying the layer color.
+        # it as RGB rather than re-applying the channel color.
         rgb = img8
     else:
         # Bake the channel's displayed color at this encode boundary
@@ -2202,7 +2208,7 @@ def maybe_apply_false_color(
     at 1x file size, so it needs no widening. 16-bit cannot use PALETTE
     (Windows Preview rejects uint16 palette), so default OFF it saves mono +
     an ImageJ LUT -- color in FIJI, grayscale in Windows Preview. Turning the
-    setting ON bakes the layer false color into 3-channel RGB so 12/16-bit
+    setting ON bakes the channel false color into 3-channel RGB so 12/16-bit
     fluorescence also renders in color in Windows Preview / Explorer, at ~3x
     the file size.
 

@@ -86,7 +86,7 @@ class TestTheCappedValueIsWhatReachesTheDriver:
         camera._driver.gain = lambda v: (seen.append(('gain', v)), original_gain(v))[1]
         camera._driver.exposure_t = lambda v: (seen.append(('exp', v)), original_exposure(v))[1]
 
-        camera._apply_settings_impl(48.0, 500.0, layer=LED0)
+        camera._apply_settings_impl(48.0, 500.0, channel=LED0)
 
         assert seen == [('gain', 20.0), ('exp', 200.0)]
 

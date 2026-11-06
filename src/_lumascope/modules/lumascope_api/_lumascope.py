@@ -456,7 +456,7 @@ class Lumascope:
         Raises:
             InstallationFileError: a file is missing, unreadable, or not the
                 shape its reader needs, naming the file; or the release's
-                layer vocabulary is unusable.
+                channel vocabulary is unusable.
         """
         from _lumascope.modules import labware_loader, channel_record, objectives_loader
 
@@ -466,7 +466,7 @@ class Lumascope:
         # Kept so a refusal of one of its rows names the file it came from.
         self._scope_models_path = resolve_data_file('scopes.json', source_path=source_path)
         self._scope_models = channel_record.load_scope_models(self._scope_models_path)
-        # The release's layer vocabulary is process-wide, not this folder's,
+        # The release's channel vocabulary is process-wide, not this folder's,
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
         channel_record.release_catalogue()
@@ -761,7 +761,7 @@ class Lumascope:
                 this as its model (a declared 'LS850' has no turret
                 axis), so the driver and the selection agree from
                 construction. Left None on
-                a unit that also reports no model, layer identity
+                a unit that also reports no model, channel identity
                 resolves empty and LED use fails loudly by name rather
                 than silently guessing.
             sim_tier: Which simulated motor board a simulated scope gets.
@@ -953,30 +953,30 @@ class Lumascope:
         led_fallback: DriverFallback | None = None
 
         def _sim_light_of(address: int) -> float:
-            """The light per mA-second the layer ``address`` lights renders in
+            """The light per mA-second the channel ``address`` lights renders in
             the simulators through the slide and the current objective: the
             catalogue's, times the slide's transmittance, falling with the
-            objective's magnification by the layer's power;
+            objective's magnification by the channel's power;
             the catalogue's own when no objective is known, as
             ``_sim_pixel_size`` draws at no scale then. 0 for an address no
-            layer names or a layer with no LED. Read while a frame is made,
+            channel names or a channel with no LED. Read while a frame is made,
             after the illumination API, the identity and runtime_state exist."""
             from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION, release_channel
 
             name = self.channel_identity.key_at(address)
             if name is None:
                 return 0.0
-            layer = release_channel(name)
-            if layer.sim_light_per_ma_s is None:
+            channel = release_channel(name)
+            if channel.sim_light_per_ma_s is None:
                 return 0.0
-            through_slide = layer.sim_light_per_ma_s * the_slide(sim_slide).transmittance
+            through_slide = channel.sim_light_per_ma_s * the_slide(sim_slide).transmittance
             objective = self.runtime_state.get_current_objective()
             if objective is None:
                 return through_slide
             return (
                 through_slide
                 * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
-                ** layer.sim_light_magnification_power
+                ** channel.sim_light_magnification_power
             )
 
         def _sim_stage_xy() -> tuple[float | None, float | None]:
@@ -1156,14 +1156,14 @@ class Lumascope:
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
 
-        # ----- Layer identity -----
-        # What the layers on this unit ARE (names, LED addresses,
+        # ----- Channel identity -----
+        # What the channels on this unit ARE (names, LED addresses,
         # excitations, filterset) -- resolved from the unit's motorconfig
         # Channels block or the model's scopes.json rows, here at construction
         # so every caller (GUI, headless session, script) holds identity
         # without any separate initialize step. Distinct from the live
         # LED state the illumination API keeps: identity says what a
-        # layer IS, state says what is lit now.
+        # channel IS, state says what is lit now.
         self._configured_model = configured_model
         self.channel_identity = self._resolve_channel_identity()
 
@@ -1292,11 +1292,11 @@ class Lumascope:
         )
 
     def refresh_channel_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
-        """Re-resolve layer identity and atomically replace the snapshot.
+        """Re-resolve channel identity and atomically replace the snapshot.
 
         Not how a model selection takes effect: the capabilities are fixed
-        at construction, so a running scope that re-resolved its layers for
-        a newly selected model would carry one model in its layers and
+        at construction, so a running scope that re-resolved its channels for
+        a newly selected model would carry one model in its channels and
         another in its capabilities and its files. A selection is saved
         (`ScopeSession.select_model`) and applies at the next start.
 
@@ -1318,9 +1318,9 @@ class Lumascope:
         """Configure scope from connected to ready-to-use.
 
         Call once after construction.  Sets all scope-level hardware
-        configuration.  Does NOT set per-layer camera settings (gain,
+        configuration.  Does NOT set per-channel camera settings (gain,
         exposure, auto-gain) -- those are the caller's responsibility
-        for the active layer.
+        for the active channel.
 
         Ends by releasing the camera start gate, so the live feed starts
         once the capture pixel format is on the camera. A start that fails

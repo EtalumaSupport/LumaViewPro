@@ -3942,20 +3942,20 @@ Capture one still and save it; returns at once.
 
 **Args**
 
-- `false_color_on`: Whether the shown layer is displayed in false colour -- how the file is rendered, never what it says was imaged.
+- `false_color_on`: Whether the shown channel is displayed in false colour -- how the file is rendered, never what it says was imaged.
 - `bullseye`: Also save a copy with the bullseye colour map.
 - `crosshairs`: Also save a copy with the centre crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
 
-The still is named for the shown layer (`session.show_channel`),
-read as its frame is taken, and the camera holds that layer's
+The still is named for the shown channel (`session.show_channel`),
+read as its frame is taken, and the camera holds that channel's
 stored settings for the frame and after it; after a raw camera
 write it keeps the written values, and the frame's record says no
-layer was held. In the session's engineering mode the name carries
+channel was held. In the session's engineering mode the name carries
 the turret slot.
 
 **Returns**
 
-An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`ScopeSession.capture_still`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged), and `'scope_disconnected'` when the scope disconnected before the still started; `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given (`'call_overran'`), or the scope disconnected while it ran (`'lane_closed'`): the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
+An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`ScopeSession.capture_still`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown channel's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change channels for the still (nothing is written then, and the recording is unchanged), and `'scope_disconnected'` when the scope disconnected before the still started; `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given (`'call_overran'`), or the scope disconnected while it ran (`'lane_closed'`): the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
 
 **Raises**
 
@@ -4153,13 +4153,13 @@ it is displayed) are independent. Identity is recorded on every
 frame; only rendering is conditional. Collapsing the two is what
 made a brightfield hyperstack impossible to build, since the
 toggle being off left the channel unnamed. The channel is the shown
-channel's layer (`session.show_channel`), read once the recording
-holds the scope, when no light can change and the shown layer cannot
+channel (`session.show_channel`), read once the recording
+holds the scope, when no light can change and the shown channel cannot
 move; a start that would make the name false is refused.
 
 **Args**
 
-- `false_color_on`: Whether the shown layer is displayed in false colour. Controls rendering alone; grayscale when False.
+- `false_color_on`: Whether the shown channel is displayed in false colour. Controls rendering alone; grayscale when False.
 
 **Returns**
 
@@ -4854,7 +4854,7 @@ Reached through `session.scope.camera`; on the wire, `/api/v1/scope/camera/`.
 Held in: [`Lumascope.camera`](#Lumascope.camera).
 
 Camera sub-API. Owns the camera's setters, reads, holds and applies,
-the camera's state (cache, held layer, auto-gain arm, listeners) and the
+the camera's state (cache, held channel, auto-gain arm, listeners) and the
 saving of the stored camera settings.
 
 <a id="CameraAPI.add_exposure_listener"></a>
@@ -4922,7 +4922,7 @@ Route: `GET /api/v1/scope/camera/applied_auto_gain_for`.
 What a stored auto-gain preference becomes on the attached camera.
 
 See `applied_gain_db_for`; the same contract for the mode. A camera
-without hardware auto-gain runs manual whatever the layer stored, and
+without hardware auto-gain runs manual whatever the channel stored, and
 the stored preference is left alone so a camera that has the mode
 takes it again.
 
@@ -9748,7 +9748,7 @@ told it is missing hardware.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`MissingPart.layer`).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`MissingPart.channel`).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this unit's channels could not be resolved, so `channel` cannot `then`.
 
 **Refusals**
@@ -10264,7 +10264,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.frames_summed"></a>`frames_summed`: `int` -- Number of frames summed into the image.
 - <a id="FrameRecord.gain_db"></a>`gain_db`: `float | None` -- Gain the frame was taken at; None as `exposure_ms` is.
 - <a id="FrameRecord.gain_source"></a>`gain_source`: `SettingSource | None` -- Whether `gain_db` is the frame's own or the setting read beside the grab; None exactly when `gain_db` is.
-- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab (`CameraAPI.get_held_channel`); None when it held no layer's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
+- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab (`CameraAPI.get_held_channel`); None when it held no channel's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
 - <a id="FrameRecord.illumination_ma"></a>`illumination_ma`: `Mapping[int, float]` -- Drive current of each LED address lit for the frame, by address. An address that was off is absent.
 - <a id="FrameRecord.illumination_timing"></a>`illumination_timing`: `LightTiming` -- When those currents were read (`LightTiming`).
 - <a id="FrameRecord.judgments"></a>`judgments`: `tuple[Judgment, ...] | None` -- The frame judged against each source's last change (`FrameValidity.judgments`): for a summed capture, the first frame summed. Empty when no change has been recorded; None for a recorded frame, which is never judged.
@@ -10567,7 +10567,7 @@ Returned by: [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states)
 Taken by: [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state).  
 Delivered by: [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener).
 
-One LED address: the layer it lights, what it is doing, and its current.
+One LED address: the channel it lights, what it is doing, and its current.
 
 The answer of every LED read and the `led` event.
 
@@ -10575,7 +10575,7 @@ The answer of every LED read and the `led` event.
 
 - <a id="LedReading.address"></a>`address`: `int` -- The LED board address.
 - <a id="LedReading.illumination_ma"></a>`illumination_ma`: `float | None` -- The commanded current in mA when lit; None otherwise.
-- <a id="LedReading.name"></a>`name`: `str | None` -- The layer the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
+- <a id="LedReading.name"></a>`name`: `str | None` -- The channel the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
 - <a id="LedReading.state"></a>`state`: `LedState` -- Lit, dark, or unknown.
 
 <a id="LiveFolderEntry"></a>
@@ -12228,7 +12228,7 @@ Taken by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
 
-Data, not a callable: the layer that refuses cannot reach the member that
+Data, not a callable: the channel that refuses cannot reach the member that
 answers (a run's engine refuses; the Session recovers), and a REST caller
 receives the remedy as a name it can send back. The Session is the one
 place a name becomes an action (`ScopeSession.apply_remedy`). The offer's
@@ -12394,7 +12394,7 @@ place a JPG's channel, position and frame are stated.
 
 **Fields**
 
-- <a id="SavedStill.channel"></a>`channel`: `str` -- The layer it is named and set for.
+- <a id="SavedStill.channel"></a>`channel`: `str` -- The channel it is named and set for.
 - <a id="SavedStill.file"></a>`file`: `Path` -- The file written.
 - <a id="SavedStill.frame"></a>`frame`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`); an overlay copy carries its frame's.
 - <a id="SavedStill.objective_id"></a>`objective_id`: `str` -- The objective in the light path when it was taken.
@@ -13356,7 +13356,7 @@ Held in: [`AutoGainLock.state`](#AutoGainLock.state), [`FrameRecord.auto_gain`](
 
 Where a continuous auto-gain arm landed when the capture locked it.
 
-CONVERGED: exposure inside the layer class's usable range.
+CONVERGED: exposure inside the channel class's usable range.
 MAXED: exposure pinned at the class ceiling -- the scene is too dark
     for the range, so target brightness was not reached.
 AT_MINIMUM: exposure at or below the class usable floor -- the scene
@@ -15482,7 +15482,7 @@ stored placeholder is what sent every such channel to one fixed height.
 **Attributes**
 
 - `reason`: `'focus_not_saved'`.
-- `layer`: The channel asked about.
+- `channel`: The channel asked about.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15623,7 +15623,7 @@ log.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'other_led_lit'` -- a capture held at a layer would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a layer other than the shown one.
+- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'other_led_lit'` -- a capture held at a channel would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a channel other than the shown one.
 - `member`: The member or task that was refused, for the log.
 - `holder`: The kind of activity holding the scope, when known.
 - `holder_trigger`: The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
@@ -16629,7 +16629,7 @@ prints it prints what the GUI shows.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol fall outside the stage's travel. `'camera_setting_out_of_range'` -- a step's gain or exposure is outside this camera's range. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take or stimulate a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a layer has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- layer settings the protocol would store hold values no channel setting takes; the message names each.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol fall outside the stage's travel. `'camera_setting_out_of_range'` -- a step's gain or exposure is outside this camera's range. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take or stimulate a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
@@ -17333,7 +17333,7 @@ A refusal; bases `Refusal`, `ValueError`.
 A scope model was selected that this release's catalogue does not list.
 
 The selection is the whole identity of a scope that cannot report its
-own model, so an unlisted one would start the scope with no layers, no
+own model, so an unlisted one would start the scope with no channels, no
 optics and no scale. Refused before it is saved, rather than saved and
 found at the next start.
 
@@ -17992,7 +17992,7 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
 | `z_pos_um` | shared | `PositionZ` | um | no | -- |
 | `illumination_ma` | channel | `Illumination` | mA | no | -- |
-| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by layer name |
+| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by channel name |
 | `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- |
 | `exposure_time_ms` | channel | `ExposureTime` | ms | no | -- |
 | `gain_db` | channel | `Gain` | dB | no | -- |

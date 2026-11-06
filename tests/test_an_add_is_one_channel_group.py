@@ -339,7 +339,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
             scope.protocols.update_step(
                 protocol,
                 1,
-                layer='BF',
+                channel='BF',
                 channel_configs=_layer_configs(('BF', LED1)),
                 stim_configs={},
                 plate_position=AT,
@@ -355,7 +355,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
         scope.protocols.update_step(
             protocol,
             1,
-            layer='BF',
+            channel='BF',
             channel_configs=_layer_configs(('BF', LED1)),
             stim_configs={},
             plate_position=AT,

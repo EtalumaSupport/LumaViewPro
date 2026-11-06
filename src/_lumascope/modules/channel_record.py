@@ -319,7 +319,7 @@ class ChannelIdentity:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, naming the
-                channel (``MissingPart.layer``).
+                channel (``MissingPart.channel``).
             ConfigurationDefectError: ``'channels_unresolved'``, this unit's
                 channels could not be resolved, so ``channel`` cannot ``then``.
         """
@@ -327,7 +327,7 @@ class ChannelIdentity:
         if self.find(channel) is not None:
             return
         if self.channels:
-            part = MissingPart.layer(channel)
+            part = MissingPart.channel(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         raise ConfigurationDefectError(
             'channels_unresolved',

@@ -120,7 +120,7 @@ def test_an_led_is_lit_and_darkened_by_its_channels_name_not_a_board_address(ses
 def test_a_layer_the_model_lacks_is_absent_hardware(session, member):
     with pytest.raises(HardwareCommandRefusedError) as refused:
         NAME_MEMBERS[member](session, 'Lumi')
-    assert refused.value.missing == MissingPart.layer('Lumi')
+    assert refused.value.missing == MissingPart.channel('Lumi')
     assert not session.manual_recording.is_busy
 
 

@@ -254,7 +254,7 @@ class FrameRecord:
             on, or ``accept_dark``).
         held_channel: The channel whose stored settings the camera held for the
             grab (``CameraAPI.get_held_channel``); None when it held no
-            layer's, after a raw camera write or with the settings a run's
+            channel's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
             above either way.
         auto_gain: Where the standing auto-gain arm landed when the capture
@@ -413,7 +413,7 @@ def delivered_frame_record(
     what it carries -- exposure, gain, ticks and frame id from its chunks,
     none where it has no chunks, since a setting can change while the
     recording runs -- and what was true as it arrived: the LEDs lit and the
-    layer the camera held. The binning, camera and tick rate are the
+    channel the camera held. The binning, camera and tick rate are the
     recording's, fixed while it runs. No black level (no frame reports
     it), no judgments (a recorded frame is never judged), no clock
     mapping, saturation or auto-gain lock.

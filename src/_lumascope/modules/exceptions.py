@@ -78,7 +78,7 @@ class RemedyName(StrEnum):
 class Remedy:
     """The one action that answers a refusal, offered to whoever was refused.
 
-    Data, not a callable: the layer that refuses cannot reach the member that
+    Data, not a callable: the channel that refuses cannot reach the member that
     answers (a run's engine refuses; the Session recovers), and a REST caller
     receives the remedy as a name it can send back. The Session is the one
     place a name becomes an action (``ScopeSession.apply_remedy``). The offer's
@@ -1508,17 +1508,17 @@ class FocusNotSavedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'focus_not_saved'``.
-        layer: The channel asked about.
+        channel: The channel asked about.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'focus_not_saved': RefusalCause.STATE}
     title = 'No Focus Saved'
 
-    def __init__(self, layer: str):
+    def __init__(self, channel: str):
         super().__init__(
-            f'No focus is saved for {layer}. Focus {layer} and press Save Focus to set one.'
+            f'No focus is saved for {channel}. Focus {channel} and press Save Focus to set one.'
         )
-        self.layer = layer
+        self.channel = channel
 
 
 class ObjectiveUnknownError(Refusal, ConfigError):
@@ -1776,7 +1776,7 @@ class ScopeModelUnknownError(Refusal, ValueError):
     """A scope model was selected that this release's catalogue does not list.
 
     The selection is the whole identity of a scope that cannot report its
-    own model, so an unlisted one would start the scope with no layers, no
+    own model, so an unlisted one would start the scope with no channels, no
     optics and no scale. Refused before it is saved, rather than saved and
     found at the next start.
 
@@ -2065,10 +2065,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             changes objective between steps, and this scope has no turret
             to change it. ``'objective_not_given'`` -- a protocol with a
             channel set to acquire was built from a configuration that
-            names no objective. ``'focus_not_given'`` -- a layer has no
+            names no objective. ``'focus_not_given'`` -- a channel has no
             saved focus, and the configuration names no current Z to image
             it at. ``'overlap_out_of_range'`` -- the tile overlap is outside
-            0 to 50 percent. ``'values_out_of_range'`` -- layer settings the
+            0 to 50 percent. ``'values_out_of_range'`` -- channel settings the
             protocol would store hold values no channel setting takes; the
             message names each.
         title: The heading shown above the sentence, the reason's.
@@ -3656,10 +3656,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
             asked for. ``'not_on_this_scope'`` -- the scope does not have
             another part asked for, such as an LED channel or fan control.
             ``'activity_ended'`` -- the command was made under an activity
-            that has ended. ``'other_led_lit'`` -- a capture held at a layer
+            that has ended. ``'other_led_lit'`` -- a capture held at a channel
             would be lit by another LED, which ``RecordingRefusedError``
             explains as the same fact. ``'channel_not_shown'`` -- a still was
-            asked of a layer other than the shown one.
+            asked of a channel other than the shown one.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
         holder_trigger: The holding run's starter, for a run (``'gui'``,
@@ -3771,13 +3771,13 @@ class MissingPart:
     parts, the LED controller and the camera are the class's constants; an LED is named
     when it is refused, by the channel's name (``MissingPart.led``) or by its
     board address (``MissingPart.led_address``) as the command named it, and
-    a layer by name (``MissingPart.layer``).
+    a channel by name (``MissingPart.channel``).
 
     Attributes:
         name: The part, for the log.
         reason: ``'not_connected'`` for a controller, ``'axis_absent'``
             for a motion part (the motors, an axis, the turret, the XY
-            stage), ``'not_on_this_scope'`` for any other part (a layer, an LED,
+            stage), ``'not_on_this_scope'`` for any other part (a channel, an LED,
             fan control, LED engineering mode, a controller's text commands).
         sentence: What the person at the scope is told.
     """
@@ -3812,7 +3812,7 @@ class MissingPart:
             raise ValueError(f'{axis!r} is not a motion axis') from None
 
     @classmethod
-    def layer(cls, layer: str) -> 'MissingPart':
+    def channel(cls, channel: str) -> 'MissingPart':
         """The part for a channel of this release that this scope's model does not have.
 
         For a command that takes a channel rather than lights an LED: a
@@ -3820,7 +3820,7 @@ class MissingPart:
         so "no Lumi LED" would be true and beside the point.
         """
         return cls(
-            f'{layer} channel', 'not_on_this_scope', f'This microscope has no {layer} channel.'
+            f'{channel} channel', 'not_on_this_scope', f'This microscope has no {channel} channel.'
         )
 
     @classmethod

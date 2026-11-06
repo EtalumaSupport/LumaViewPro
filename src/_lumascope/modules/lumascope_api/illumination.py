@@ -400,17 +400,17 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
 
 
 def lit_other_than(
-    illumination: IlluminationAPI, layer: str, lit: Mapping[int, float] | None = None
+    illumination: IlluminationAPI, channel: str, lit: Mapping[int, float] | None = None
 ) -> list[str]:
-    """Every LED lit but ``layer``'s, by channel name, else by board address.
+    """Every LED lit but ``channel``'s, by channel name, else by board address.
 
-    The one answer to whether a frame named for ``layer`` is lit by another
-    light: a capture held at a layer (``ImagingAPI._capture_holding_channel_impl``),
+    The one answer to whether a frame named for ``channel`` is lit by another
+    light: a capture held at a channel (``ImagingAPI._capture_holding_channel_impl``),
     the still and a manual recording's start each refuse when it is not empty.
 
     Args:
         illumination: The LED store, read for which channel each address is.
-        layer: The layer the frame is named for.
+        channel: The channel the frame is named for.
         lit: The addresses lit, from a frame's record (``FrameRecord.illumination_ma``);
             None reads them from the store now, ``snapshot_lit_pairs``'s meaning.
     """
@@ -420,7 +420,7 @@ def lit_other_than(
     return [
         r.name or f'LED address {r.address}'
         for r in readings
-        if r.address in lit and r.name != layer
+        if r.address in lit and r.name != channel
     ]
 
 
@@ -459,13 +459,13 @@ class LedState(enum.StrEnum):
 @api_fields('address', 'name', 'state', 'illumination_ma')
 @dataclass(frozen=True)
 class LedReading:
-    """One LED address: the layer it lights, what it is doing, and its current.
+    """One LED address: the channel it lights, what it is doing, and its current.
 
     The answer of every LED read and the ``led`` event.
 
     Attributes:
         address: The LED board address.
-        name: The layer the unit's identity names for the address, read at
+        name: The channel the unit's identity names for the address, read at
             the moment of the reading; None when the identity names none,
             which never hides the address.
         state: Lit, dark, or unknown.

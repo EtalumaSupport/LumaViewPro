@@ -2077,4 +2077,4 @@ def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
         assert stated == set(fact.fields) - unmeasured.get(key, set()), key
     rows = {line.split(' | ')[0]: line for line in _file_facts_table().splitlines()}
     assert '`well_label`' in rows['| `plate`']
-    assert 'keyed by layer name' in rows['| `illumination_by_channel_ma`']
+    assert 'keyed by channel name' in rows['| `illumination_by_channel_ma`']

@@ -100,7 +100,7 @@ def write_recorded_frame(
             fallback focus.
         false_color_on: Whether the channel's false-color toggle was on --
             how the frame is shown, never what it is.
-        channel_colors: Every layer's colour as the recording began.
+        channel_colors: Every channel's colour as the recording began.
         save_encoding: The resolved image-mode save encoding.
 
     Raises:
@@ -359,7 +359,7 @@ def generate_image_metadata(
             (``'objective_not_in_catalogue'``).
         ObjectiveUnknownError: ``objective_id`` is None (``'none_selected'``).
         ConfigError: ``labware`` is None.
-        ValueError: If channel is not a known layer or 'Composite'.
+        ValueError: If channel is not a known channel or 'Composite'.
     """
     # This is the last point that can tell a real channel from a placeholder,
     # an index, or a rendering value: past here it is written verbatim and read
@@ -394,7 +394,7 @@ def generate_image_metadata(
         )
 
     captured_at = frame_record.captured_at.at
-    # The model this scope runs as, from its identity -- the one the layers
+    # The model this scope runs as, from its identity -- the one the channels
     # and capabilities carry. The board's own report is None on a scope
     # with no motor board (every FX2 model), so it cannot name the scope.
     microscope_model = scope.channel_identity.model
@@ -418,9 +418,9 @@ def generate_image_metadata(
     if frame_record.black_level is not None:
         _frame_settings['black_level'] = frame_record.black_level
 
-    # Spectral identity from the resolved layer record. Written whatever
+    # Spectral identity from the resolved channel record. Written whatever
     # rung identity resolved from, and a null value is ABSENT: broadband
-    # layers have no excitation, 'Composite' has no record, an unresolved
+    # channels have no excitation, 'Composite' has no record, an unresolved
     # identity has no filterset -- a null or stand-in written here would
     # read downstream as a measured property of the capture. The board
     # address (led_addresses) deliberately stays out of metadata: it changes
@@ -428,8 +428,8 @@ def generate_image_metadata(
     # it would version the files to the wiring.
     identity = scope.channel_identity
     record = identity.find(channel)
-    # Every LED lit for the grab, by the layer it lights, in address order,
-    # so a frame two LEDs lit says both. A lit address no layer names is
+    # Every LED lit for the grab, by the channel it lights, in address order,
+    # so a frame two LEDs lit says both. A lit address no channel names is
     # left out, as every board address is.
     illumination_by_channel_ma = {
         key: round(ma, common_utils.max_decimal_precision('illumination'))
@@ -440,7 +440,7 @@ def generate_image_metadata(
     metadata = {
         'channel': channel,
         # What the channel is called wherever it is shown: a fluorescence
-        # layer's excitation, any other layer's name on this unit.
+        # channel's excitation, any other channel's name on this unit.
         **({'channel_display': record.label} if record is not None else {}),
         **(
             {'excitation_nm': record.excitation_nm}
@@ -524,7 +524,7 @@ def generate_image_metadata(
         metadata['saturated_fraction'] = frame_record.saturated_fraction
     if frame_record.dark is not None:
         metadata['dark'] = frame_record.dark
-    # Whether the camera held a layer's stored settings for the frame, and
+    # Whether the camera held a channel's stored settings for the frame, and
     # which: a frame taken after a script's raw gain or exposure write says
     # it held none, rather than leaving the reader to guess.
     metadata['camera_held_a_channel'] = frame_record.held_channel is not None
@@ -692,7 +692,7 @@ def save_image(
         false_color_on: Whether the channel's false-color toggle was on --
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
-        channel_colors: Every layer's colour, from the Session's one read
+        channel_colors: Every channel's colour, from the Session's one read
             of it; the channel's is the one it is shown in.
         output_format: "TIFF", "OME-TIFF", or "JPG".
         plate_x_mm: Plate X position in mm -- the frame the file records, and
@@ -702,7 +702,7 @@ def save_image(
         plate_y_mm: Plate Y position in mm.
         stage_z_um: Stage Z position in um.
         save_encoding: The derived on-disk encoding from the image_mode
-            config layer (rgb / msb_aligned / right_aligned / 8bit). Required
+            config channel (rgb / msb_aligned / right_aligned / 8bit). Required
             and keyword-only: it is the single value that drives the save
             shape, so no call site can omit the image mode and silently store
             a scaled payload right-aligned (dark).

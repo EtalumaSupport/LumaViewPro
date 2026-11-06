@@ -461,7 +461,7 @@ def test_mp4_writers_pass_layer_color():
     manual_flat = ''.join(manual_src.split())
     cap_flat = ''.join(cap_src.split())
     assert (
-        'color=channel_record.shown_color(plan.layer,false_color_on,plan.channel_colors)'
+        'color=channel_record.shown_color(plan.channel,false_color_on,plan.channel_colors)'
         in manual_flat
     )
     assert (

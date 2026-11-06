@@ -13,7 +13,7 @@ camera, and a sum at the bits it can reach):
   ``8bit``                  -- 8-bit capture, 8-bit mono save
   ``12bit_scientific``      -- full depth, right-aligned + SignificantBits
   ``12bit_scaled``          -- full depth, MSB-aligned to fill the container + SignificantBits
-  ``12bit_false_color_rgb`` -- full depth, 3-channel RGB (per-layer color gated)
+  ``12bit_false_color_rgb`` -- full depth, 3-channel RGB (per-channel color gated)
 
 The 8-bit default preserves the shipped behavior: the retiring
 ``use_full_pixel_depth`` defaulted off, so an unmigrated install captures 8-bit.

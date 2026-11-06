@@ -1,7 +1,7 @@
 # Copyright Etaluma, Inc.
 """Capture a still and save it: the one path for the GUI, scripts and REST.
 
-The caller says only what it alone knows -- whether the shown layer is
+The caller says only what it alone knows -- whether the shown channel is
 displayed in false colour, which overlays it wants -- and every other
 decision (channel, folder, name, summing, format, depth, encoding,
 retry budget, overlay copy) is made here from the session's settings and the
@@ -72,7 +72,7 @@ class SavedStill:
 
     Attributes:
         file: The file written.
-        channel: The layer it is named and set for.
+        channel: The channel it is named and set for.
         objective_id: The objective in the light path when it was taken.
         plate_x_mm: Plate X where it was taken; None when the axis had no
             reference.
@@ -165,7 +165,7 @@ class ManualCaptureController:
         """Capture one still and save it; returns at once.
 
         Args:
-            false_color_on: Whether the shown layer is displayed in false
+            false_color_on: Whether the shown channel is displayed in false
                 colour -- how the file is rendered, never what it says was
                 imaged.
             bullseye: Also save a copy with the bullseye colour map.
@@ -173,11 +173,11 @@ class ManualCaptureController:
                 either overlay, one extra file is written, from the same
                 frame, beside the unmarked one.
 
-        The still is named for the shown layer (``session.show_channel``),
-        read as its frame is taken, and the camera holds that layer's
+        The still is named for the shown channel (``session.show_channel``),
+        read as its frame is taken, and the camera holds that channel's
         stored settings for the frame and after it; after a raw camera
         write it keeps the written values, and the frame's record says no
-        layer was held. In the session's engineering mode the name carries
+        channel was held. In the session's engineering mode the name carries
         the turret slot.
 
         Returns:
@@ -198,12 +198,12 @@ class ManualCaptureController:
             ``HardwareCommandRefusedError`` (reason ``'not_connected'``)
             when the camera is absent or was removed during the still,
             ``'camera_not_streaming'`` when its feed is stopped,
-            ``'other_led_lit'`` when an LED other than the shown layer's is
+            ``'other_led_lit'`` when an LED other than the shown channel's is
             lit before the frame or lit it (nothing is saved), and
             ``'exclusive_activity_running'`` when a run took the scope
             while the still was queued behind other camera work, waiting or
             running when it was put on the lane, or when a recording runs and
-            the camera would have to change layers for the still (nothing is
+            the camera would have to change channels for the still (nothing is
             written then, and the recording is unchanged), and
             ``'scope_disconnected'`` when the scope disconnected before the
             still started; ``LaneCallStillRunningError`` when it has not
@@ -255,12 +255,12 @@ class ManualCaptureController:
 
     def _bound_s(self, request: '_StillRequest') -> float:
         """How long the caller waits for the still: the bound a capture's call
-        has (``ImagingAPI._capture_wait_s``) for the sum of the layer shown
-        now, the camera's hold of that layer, and the write's own stall
-        bound. A still retaken on another shown layer shares the first
+        has (``ImagingAPI._capture_wait_s``) for the sum of the channel shown
+        now, the camera's hold of that channel, and the write's own stall
+        bound. A still retaken on another shown channel shares the first
         capture's budget."""
-        layer = self._shown_channel()
-        channel_config = config_helpers.get_channel_configs(request.settings, [layer])[layer]
+        channel = self._shown_channel()
+        channel_config = config_helpers.get_channel_configs(request.settings, [channel])[channel]
         grab_s = request.scope.imaging._capture_wait_s(
             (),
             _CAPTURE_RETRY_BUDGET_S,
@@ -293,18 +293,18 @@ class ManualCaptureController:
     def _grab_named(self, scope, capture_config) -> tuple[str, CapturedStill]:
         """The still and the channel it was taken under.
 
-        The channel is the shown layer, the name a manual recording takes
-        too, read on the lane, and the camera holds that layer's stored
+        The channel is the shown channel, the name a manual recording takes
+        too, read on the lane, and the camera holds that channel's stored
         settings for the grab (``ImagingAPI._capture_holding_channel_impl``),
-        which refuses it while another LED is lit. The shown layer is read
-        again once the frame has passed: a layer shown during the grab
+        which refuses it while another LED is lit. The shown channel is read
+        again once the frame has passed: a channel shown during the grab
         (``show_channel``) means the frame is taken again on it, and every
         retake shares the first capture's budget. The frame's record says
-        which LEDs lit it, and one other than the shown layer's refuses the
+        which LEDs lit it, and one other than the shown channel's refuses the
         still.
 
         Raises:
-            CaptureFailedError: ``'deadline_expired'``, the shown layer kept
+            CaptureFailedError: ``'deadline_expired'``, the shown channel kept
                 changing past the first capture's budget; and whatever the
                 capture raises.
             HardwareCommandRefusedError: ``'other_led_lit'``, another LED
@@ -344,7 +344,7 @@ class ManualCaptureController:
             if time.monotonic() - started > first_capture['deadline_s']:
                 raise CaptureFailedError('deadline_expired')
             logger.info(
-                f'[ManualCapture] The shown layer changed from {channel} to {shown} while '
+                f'[ManualCapture] The shown channel changed from {channel} to {shown} while '
                 f'the still was taken; it is taken again on {shown}.'
             )
             channel = shown

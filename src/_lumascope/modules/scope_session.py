@@ -3155,7 +3155,7 @@ class ScopeSession:
         return self.scope.protocols.update_step(
             protocol,
             step_index,
-            layer=channel,
+            channel=channel,
             channel_configs=self.get_channel_configs(),
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware_id()),

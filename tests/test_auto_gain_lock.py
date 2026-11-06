@@ -165,7 +165,7 @@ def _logged(caplog, level: int) -> list[str]:
 
 def _arm(camera, settings, *, resume_after_capture):
     camera._apply_settings_impl(
-        layer='BF',
+        channel='BF',
         gain_db=1.0,
         exposure_ms=100.0,
         auto_gain=True,
@@ -405,7 +405,7 @@ def test_arm_clamps_exposure_above_the_class_cap(caplog):
     imaging, camera, cam = _build_inert()
     caplog.clear()
     camera._apply_settings_impl(
-        layer='BF',
+        channel='BF',
         gain_db=1.0,
         exposure_ms=100.0,
         auto_gain=True,
@@ -426,7 +426,7 @@ def test_arm_clamps_exposure_above_the_class_cap(caplog):
     imaging, camera, cam = _build_inert()
     caplog.clear()
     camera._apply_settings_impl(
-        layer='BF',
+        channel='BF',
         gain_db=1.0,
         exposure_ms=20.0,
         auto_gain=True,
@@ -496,7 +496,7 @@ def test_restore_re_arm_clamps_a_trimmed_snapshot():
     any arm."""
     _imaging, camera, cam = _build_inert()
     camera._apply_settings_impl(
-        layer='BF',
+        channel='BF',
         gain_db=1.0,
         exposure_ms=20.0,
         auto_gain=True,
@@ -614,7 +614,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     try:
         for layer in (LED2, 'Lumi'):
             camera._apply_settings_impl(
-                layer=layer,
+                channel=layer,
                 gain_db=20.0,
                 exposure_ms=100.0,
                 auto_gain=False,

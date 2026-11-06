@@ -76,7 +76,7 @@ def _update(
     return scope.protocols.update_step(
         protocol,
         0,
-        layer=layer,
+        channel=layer,
         channel_configs=channel_configs if channel_configs is not None else _layer_configs(),
         stim_configs=stim_configs if stim_configs is not None else {},
         plate_position=UPDATED_TO,
