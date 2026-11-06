@@ -54,11 +54,12 @@ class TestRunUnasked:
 
 
 def test_the_apps_run_state_listener_draws_through_run_unasked():
-    on_start = find_def('lumaviewpro.py', 'on_start', class_name='LumaViewProApp')
-    assert on_start is not None, 'LumaViewProApp.on_start is gone'
+    # The fit step starts the window once the session exists.
+    fit = find_def('lumaviewpro.py', '_fit', class_name='LumaViewProApp')
+    assert fit is not None, 'LumaViewProApp._fit is gone'
     listeners = [
         node
-        for node in ast.walk(on_start)
+        for node in ast.walk(fit)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == 'add_run_state_listener'

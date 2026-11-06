@@ -236,11 +236,17 @@ def _open(n):
     remedy = n.remedy
 
     def _take_remedy():
-        import _lumascope.modules.app_context as _app_ctx
+        from kivy.app import App
+
         from ui.ui_helpers import submit_reported
 
-        session = _app_ctx.ctx.session
-        submit_reported(lambda: session.apply_remedy(remedy), None, 'APPLY_REMEDY')
+        # A bring-up popup's remedy can be confirmed before the window's
+        # context exists: the session is taken from bring-up itself.
+        App.get_running_app().with_the_session(
+            lambda session: submit_reported(
+                lambda: session.apply_remedy(remedy), None, 'APPLY_REMEDY'
+            )
+        )
 
     return show_confirmation_popup(
         title=n.title,

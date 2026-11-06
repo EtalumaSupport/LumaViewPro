@@ -84,7 +84,7 @@ def test_the_close_watch_stops_itself():
 
     Without it the event repeats forever, calling stop() on every tick.
     """
-    watch = _interval_callback(_method(_app_class(_module_tree()), '_close_the_session'))
+    watch = _interval_callback(_method(_app_class(_module_tree()), '_run_the_close'))
 
     returns_false = [
         node
@@ -130,8 +130,12 @@ def test_the_close_attribute_has_a_class_level_default():
 
 
 def test_the_window_close_runs_the_sessions_close_on_its_own_thread():
-    """shutdown runs on a thread the close starts, so the progress can draw."""
-    close = _method(_app_class(_module_tree()), '_close_the_session')
+    """shutdown runs on a thread the close starts, so the progress can draw.
+
+    ``_run_the_close`` is every close's: the window's, and one that landed
+    during bring-up, handed the session when bring-up brings it up.
+    """
+    close = _method(_app_class(_module_tree()), '_run_the_close')
 
     threads = [
         node
@@ -148,7 +152,7 @@ def test_the_window_close_runs_the_sessions_close_on_its_own_thread():
     ]
 
     assert targets == ['_end_the_session'], (
-        f'_close_the_session must start one thread running _end_the_session: {targets}'
+        f'_run_the_close must start one thread running _end_the_session: {targets}'
     )
     assert 'shutdown' in _attrs(_method(_app_class(_module_tree()), '_shut_the_session_down'))
 
@@ -283,7 +287,7 @@ def test_the_close_stops_the_window_listening_before_the_scope_goes():
         return handed[0]
 
     assert listener_handed_to(prepare, 'remove_run_state_listener') == listener_handed_to(
-        _method(class_node, 'on_start'), 'add_run_state_listener'
+        _method(class_node, '_fit'), 'add_run_state_listener'
     ), 'the close removes a different run-state listener from the one the window added'
 
 

@@ -111,7 +111,8 @@ class TestTheDisplayCountsWhatItShows:
 
 
 def test_the_walk_is_handed_what_bring_up_owes_not_the_timer_flag():
-    fn = find_def('lumaviewpro.py', 'on_start')
+    # The fit step starts the walk, once the session exists.
+    fn = find_def('lumaviewpro.py', '_fit', class_name='LumaViewProApp')
     assert fn is not None
     src = ast.unparse(fn)
     assert 'bring_up_owes=self._bring_up_owes' in src, (

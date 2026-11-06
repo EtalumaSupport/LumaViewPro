@@ -292,7 +292,7 @@ class _ExceptionManager:
 def _crash_guard(session):
     """The REAL handle_exception body, compiled out of lumaviewpro.py.
 
-    The guard is a class nested in build(), and lumaviewpro.py is not
+    The guard is a class nested in the fit step, and lumaviewpro.py is not
     importable under the harness, so its FunctionDef is compiled with only
     the module names it closes over supplied: the GUI's context, which
     reaches the plugins through its session.
@@ -341,14 +341,14 @@ def test_the_crash_guard_leaves_our_own_crashes_to_raise(harness_ctx, centre_pos
 
 
 def test_a_failed_mount_goes_to_the_recorder():
-    """The mount loop runs inside build(), with the widget tree; what can be
-    held is its shape: the handler around a plugin's builder() hands the
+    """The mount loop runs inside the fit step, with the widget tree; what can
+    be held is its shape: the handler around a plugin's builder() hands the
     failure to the recorder and does nothing else with it."""
-    build = find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-    assert build is not None
+    fit = find_def('lumaviewpro.py', '_fit', class_name='LumaViewProApp')
+    assert fit is not None
     handlers = [
         node
-        for node in ast.walk(build)
+        for node in ast.walk(fit)
         if isinstance(node, ast.Try)
         and any(
             isinstance(call, ast.Call) and getattr(call.func, 'id', None) == 'builder'

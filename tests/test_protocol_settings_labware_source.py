@@ -84,7 +84,7 @@ def test_module_does_not_import_json():
 
 def test_init_does_not_dereference_ctx_attributes():
     """ProtocolSettings.__init__ runs during KV widget tree construction,
-    BEFORE app_context.ctx is published in LumaViewProApp.build(). Any
+    BEFORE app_context.ctx is published in LumaViewProApp._fit(). Any
     `ctx.X` dereference at __init__ time (other than guarded `if ctx is
     not None`) hits NoneType and crashes startup -- the issue-670 DOA.
 

@@ -648,8 +648,15 @@ class TestTheSettingsFileSetAside:
 
 class TestAFailedStartIsRecordedOnce:
     def test_the_host_does_not_log_a_composition_failure_the_crash_hook_records(self):
-        fn = find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-        handlers = [node for node in ast.walk(fn) if isinstance(node, ast.ExceptHandler)]
+        # The bring-up thread and the compose it runs: what either raises is
+        # raised again by the hand-over on the Kivy thread.
+        handlers = [
+            node
+            for name in ('_bring_up_on_its_thread', '_bring_up_the_session')
+            for node in ast.walk(find_def('lumaviewpro.py', name, class_name='LumaViewProApp'))
+            if isinstance(node, ast.ExceptHandler)
+        ]
+        assert len(handlers) == 2, 'the bring-up thread and the template fallback each have one'
         logging_handlers = [
             h
             for h in handlers
@@ -661,13 +668,13 @@ class TestAFailedStartIsRecordedOnce:
             )
         ]
         assert logging_handlers == [], (
-            'a handler in build() that logs and re-raises writes a second record of a '
+            'a handler in the bring-up that logs and re-raises writes a second record of a '
             'failure the crash hook already records; the late settings rejection is '
             'logged once, by the fallback, with its cause'
         )
 
     def test_no_hardware_is_the_api_s_notice_not_a_popup_the_host_opens(self):
-        fn = find_def('lumaviewpro.py', 'on_start', class_name='LumaViewProApp')
+        fn = find_def('lumaviewpro.py', '_fit', class_name='LumaViewProApp')
         source = ast.unparse(fn)
         assert 'no_hardware' not in source
         assert 'No hardware detected' not in source

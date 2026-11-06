@@ -241,12 +241,24 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         )
 
     def test_the_offer_s_confirm_applies_the_remedy_through_the_session(
-        self, offers, gui_ctx, monkeypatch
+        self, offers, sim_session, monkeypatch
     ):
-        """The confirm hands the remedy to the session, which decides: with no
-        write stuck, its recover refuses (``FileWriterNotStuckError``)."""
+        """The confirm hands the remedy to the session bring-up made, which
+        decides: with no write stuck, its recover refuses
+        (``FileWriterNotStuckError``). The session is taken from bring-up, not
+        the window's context, so an offer made during bring-up can be taken."""
+        from kivy.app import App
+
         import ui.ui_helpers as ui_helpers
         from _lumascope.modules.exceptions import FileWriterNotStuckError, Remedy
+
+        # a stand-in by design: no test builds the App; its with_the_session
+        # hands over the session bring-up made, here the simulated one.
+        monkeypatch.setattr(
+            App,
+            'get_running_app',
+            lambda: SimpleNamespace(with_the_session=lambda use: use(sim_session)),
+        )
 
         remedy = Remedy(
             member='recover_file_writer',

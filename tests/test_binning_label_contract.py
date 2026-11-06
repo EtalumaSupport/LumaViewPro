@@ -131,8 +131,8 @@ class TestTheHostBoundsTheFailure:
     settings judges it (``settings_paths``) and replaces it with the shipped
     one. What only bring-up can refuse -- a stored model the installation's
     catalogue does not list, an objective it does not hold -- reaches
-    ``build()`` from ``ScopeSession.create`` with nothing above it that
-    catches. Without a boundary here such a value does not degrade the
+    the GUI's bring-up (``LumaViewProApp._bring_up_the_session``) from
+    ``ScopeSession.create`` with nothing above it that catches. Without a boundary here such a value does not degrade the
     app, it stops the app from launching at all. The boundary names those
     refusals and nothing else: a program or installation defect is not
     repaired by the template.
@@ -140,7 +140,9 @@ class TestTheHostBoundsTheFailure:
 
     @staticmethod
     def _build_def():
-        return ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+        return ast_seams.find_def(
+            'lumaviewpro.py', '_bring_up_the_session', class_name='LumaViewProApp'
+        )
 
     @staticmethod
     def _caught(handler):
@@ -162,7 +164,7 @@ class TestTheHostBoundsTheFailure:
             'CatalogueNameRefusedError',
             'ObjectiveUnknownError',
         }, (
-            'build() bounds the session compose on the stored values bring-up refuses, '
+            'the bring-up bounds the session compose on the stored values bring-up refuses, '
             'and on nothing the template cannot repair'
         )
 

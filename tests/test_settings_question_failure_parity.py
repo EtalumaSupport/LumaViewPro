@@ -373,9 +373,14 @@ class TestTheQuestionIsAskable:
             if name in resolvable:
                 walked[name] = resolvable[name]
 
-        # Non-vacuity: build() really does call into a resolvable method,
-        # so a refactor that renamed everything would not silently pass.
-        assert len(walked) > 1, 'the transitive walk resolved nothing -- the pin is vacuous'
+        # Non-vacuity: this build() is the one that makes the window's first
+        # root, so a refactor that moved the root elsewhere would not
+        # silently pass. It calls no method of the app's: the control
+        # surface, and every question it asks, comes in the fit step, after
+        # the root has attached.
+        assert 'BringUpView' in direct_call_names(build), (
+            'build() no longer makes the bring-up view -- the pin is reading the wrong method'
+        )
 
         offenders = [
             (owner, call)
@@ -531,25 +536,32 @@ class TestTheProvisionalStateIsTheSessions:
 
         teardown = methods['_shut_the_session_down']
         assert any(
-            node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
+            node.func.attr == 'shutdown' and _chain(node.func.value) == ['session']
             for node in _calls(teardown)
         ), 'the close must still tear the session (and its hardware) down'
 
         # Each way the app closes runs the host's part first, then reaches the
         # session's close through _end_the_session (directly, or inside a
         # served REST server's close): on_stop calls it; the window's close
-        # starts the thread that runs it.
+        # runs the close (_run_the_close), which starts the thread that runs it.
         assert any(
             isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
             for n in ast.walk(methods['_end_the_session'])
         ), "_end_the_session must reach the session's close"
-        for name in ('on_stop', '_close_the_session'):
+        assert any(
+            isinstance(n, ast.Attribute) and n.attr == '_end_the_session'
+            for n in ast.walk(methods['_run_the_close'])
+        ), "_run_the_close must reach the session's close"
+        for name, reach in (
+            ('on_stop', '_end_the_session'),
+            ('_close_the_session', '_run_the_close'),
+        ):
             method = methods[name]
             prepared = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
             torn = [
                 n.lineno
                 for n in ast.walk(method)
-                if isinstance(n, ast.Attribute) and n.attr == '_end_the_session'
+                if isinstance(n, ast.Attribute) and n.attr == reach
             ]
             assert prepared and torn, f"{name} must prepare, then reach the session's close"
             assert min(prepared) < min(torn), f"{name} must prepare BEFORE the session's close"
@@ -562,7 +574,7 @@ class TestTheProvisionalStateIsTheSessions:
                 for node in _calls(methods[name])
                 if node.func.attr
                 in ('disconnect', 'shutdown_threads', 'stop_motion', 'disable_metrics')
-                or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
+                or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session'])
                 or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
             ]
             assert stray == [], f'{name} performs teardown steps itself: {stray}'

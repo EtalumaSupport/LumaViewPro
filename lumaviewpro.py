@@ -40,8 +40,10 @@ from _lumascope.modules.app_environment import preload_camera_sdks
 preload_camera_sdks()
 
 import concurrent.futures
+import enum
 import pathlib
 import threading
+import typing
 
 import matplotlib
 
@@ -516,6 +518,7 @@ from ui.post_processing import (
 from ui.protocol_settings import ProtocolSettings
 from ui.scope_display import ScopeDisplay
 from ui.shader import ShaderViewer
+from ui.bring_up_view import BringUpView
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
@@ -533,6 +536,17 @@ from ui.ui_helpers import (
 from ui.homing_banner import HomingBanner
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
+
+
+class _Phase(enum.Enum):
+    """Where the window is in its bring-up; written only on the Kivy thread."""
+
+    # The scope is coming up on the bring-up thread; no session exists here.
+    BRINGING_UP = 'bringing up'
+    # A close landed during bring-up: the session went to the close, never to the window.
+    HANDED_TO_THE_CLOSE = 'handed to the close'
+    # The control surface is built over the session.
+    FITTED = 'fitted'
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -578,6 +592,18 @@ class LumaViewProApp(TooltipMixin, App):
     # motion is refused once it is. The session's own closing is set later,
     # on the close's thread, so it cannot answer a tick that runs between.
     _closing_begun = False
+
+    # Bring-up's one outcome: the session the bring-up thread brought up, or
+    # what it raised. Set once, on that thread; the hand-over, the close and
+    # a bring-up popup's remedy all take the session from it, so nothing else
+    # holds it before the window's context does.
+    _bring_up: concurrent.futures.Future | None = None
+    _phase = _Phase.BRINGING_UP
+    # What the window shows until the fit, written from bring-up's steps.
+    _bring_up_view: BringUpView | None = None
+    # The close's popup (popup, set_message, set_discard_shown) while a close
+    # that landed during bring-up waits for it; None otherwise.
+    _bring_up_close = None
 
     def _on_run_state(self) -> None:
         """The window's one run-state listener: draw the edge on the UI thread.
@@ -635,178 +661,19 @@ class LumaViewProApp(TooltipMixin, App):
         draw_shared_run_displays(self.lock, self.live_work)
 
     def on_start(self) -> None:
-        """Kivy lifecycle hook: fires after build() and before the main loop runs."""
-        # A window that opens at its final size sends no resize, so its
-        # geometry is recorded from here.
-        self._geometry_changed()
-        # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
-        lumaview = ctx.lumaview
+        """Kivy lifecycle hook: fires after build() and before the main loop runs; starts bring-up.
 
-        # The bridge subscribes the GUI to the scope's state events. It
-        # lives in ui/ because every one of its handlers ends in a widget
-        # write; a non-GUI host subscribes to the same events itself.
-        from ui.listener_bridge import UIListenerBridge
-
-        ctx.ui_listener_bridge = UIListenerBridge(
-            scope=lumaview.scope,
-            ctx=ctx,
-            stage=ctx.stage,
-        )
-        ctx.ui_listener_bridge.register_all()
-
-        ctx.session.add_run_state_listener(self._on_run_state)
-
-        # Slow idle refresh (1Hz) for display elements that may change without motion
-        # (e.g., labware selection, stage offset changes)
-        Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
-        Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
-
-        # Publish the shown channel to scope_display_thread at 30Hz, in
-        # engineering mode, for the image stats. The Session's shown channel
-        # follows a run's steps as they light, so the stats follow the firing
-        # LED. The thread reads it under _config_lock at each frame start;
-        # staleness is bounded by 33ms (one tick).
-        def _publish_layer_config(dt):
-            if ctx is None or ctx.scope_display_thread is None:
-                return
-            ctx.scope_display_thread.update_layer_config(
-                ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
-            )
-
-        Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
+        The scope is brought up on a daemon thread, so the window draws and
+        stays live meanwhile: daemon, so a crash on this thread is not held
+        open until bring-up returns, with the instance lock still bound;
+        every exit that must wait for it waits on ``_bring_up``.
+        """
         Clock.schedule_interval(report_ui_thread_hold, UI_HOLD_TICK_S)
-
-        # Clear app initialization flag and apply settings for the default opened layer
-        def complete_initialization(dt):
-            if ctx is not None:
-                ctx.ready = True
-
-                # Sync Z slider to actual motor position. Without this the
-                # .kv hardcodes obj_position.value=0 and the first user
-                # click snaps Z to 0 regardless of where the motor is.
-                try:
-                    _handle_ui_update_for_axis('Z')
-                except Exception as e:  # grain: ignore NAKED_EXCEPT
-                    logger.warning(f'[INIT      ] Z slider sync failed: {e}')
-
-                settings = ctx.settings
-                for layer in common_utils.get_layers():
-                    ls = settings[layer]
-                    logger.info(
-                        f'[INIT      ] {layer:6s}: gain={ls["gain_db"]:>6}, '
-                        f'exp={ls["exposure_ms"]:>8}ms, ill={ls["illumination_ma"]:>6}mA, '
-                        f'af={ls["autofocus"]}, acquire={ls["acquire"]}'
-                    )
-
-            # Hide the composite-threshold and false-colour controls on the
-            # transmitted channels, which have no colour to composite.
-            #
-            # This does NOT bound illumination, whatever its name suggests:
-            # the transmitted slider cap is applied by the capability sync,
-            # which the settings panel already runs at startup.
-            try:
-                ctx.image_settings.update_transmitted()
-            except Exception as e:  # grain: ignore NAKED_EXCEPT
-                logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
-
-            # On startup stay where homing left the stage -- do NOT drive to
-            # protocol step 1. A loaded protocol's steps stay available (the
-            # steps table is rendered by load_protocol) and the user navigates
-            # to them explicitly. Nothing is shown here either: bring-up has
-            # already shown BF and put its settings on the camera, skipping a
-            # missing camera it has already reported, so showing it again here
-            # writes nothing and repeats that report.
-
-        if sim_walk is not None:
-            from ui.sim_walk import SimWalk
-
-            _walk_path, _walk_steps = sim_walk
-            # Held on the app: the Clock keeps only weak references to the
-            # walk's bound methods. A shot lands where it names, under the walk file's
-            # folder; the picture of a stop goes beside the log.
-            self._sim_walk = SimWalk(
-                _walk_steps,
-                source=str(_walk_path),
-                bring_up_owes=self._bring_up_owes,
-                in_flight=ctx.session.in_flight_named,
-                simulation=ctx.scope.simulation,
-                shot_dir=_walk_path.parent,
-                stop_dir=pathlib.Path(log_dir),
-            )
-            self._sim_walk.start()
-
-        # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
-        # logging so adding a new periodic metric only requires editing one module.
+        self._bring_up = concurrent.futures.Future()
+        threading.Thread(target=self._bring_up_on_its_thread, name='bring-up', daemon=True).start()
+        self._bring_up.add_done_callback(lambda done: schedule_ui(lambda dt: self._hand_over(done)))
 
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
-
-        def after_the_startup_motion() -> None:
-            # Everything here followed the startup motion when it blocked
-            # this thread, and still does, in the same order, with the scope
-            # free: several of these do nothing while the scope is held.
-            move_home_cb('ALL')
-            ctx.image_settings.draw_shown_channel()
-            complete_initialization(None)
-            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
-
-            # Both startup questions may only fire once the session is up and
-            # the frame has rendered; each helper owns its own deferral. The
-            # settings question comes first -- while it is unresolved, every
-            # save is refused and the objective prompt suppresses itself.
-            self._ask_about_rejected_settings()
-            self._prompt_objective_if_needed()
-
-            # Objective and LEDs are set by scope.initialize() during load_settings();
-            # the shown channel's settings are applied by the Session's bring-up.
-
-            # The session owns the metrics lifecycle (it owns the session
-            # scheduler, and logs the environment fingerprint ahead of the
-            # first tick). Cadence is hourly in production and 60 s in
-            # engineering mode; settings.profiling.metrics_interval_s
-            # overrides both (gen2_depth + handle/thread counts are the
-            # signals worth sub-minute granularity on a short leak hunt).
-            ctx.session.enable_metrics(display=ctx.scope_display)
-
-            # Served after the metrics, as the headless launcher serves after
-            # its own. A port already taken is reported, and the window runs
-            # on without a server.
-            run_unasked(self._start_the_rest_server, 'START_REST_SERVER')
-
-            # The atexit emergency-shutdown hook is registered in Lumascope.__init__
-            # so every Lumascope user gets the same safety net automatically.
-
-        def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
-
-            # The window's close began, in this tick or an earlier one.
-            if self._closing_begun:
-                return
-            # The app is closing: the close found the motion unstarted, began
-            # before it took the scope, or closed its lane while it ran.
-            exception = done.exception()
-            if isinstance(exception, SessionClosingError) or (
-                isinstance(exception, LaneCallStillRunningError)
-                and exception.reason == 'lane_closed'
-            ):
-                return
-            live = ctx.session.live_work
-            if live.closing or live.closed:
-                return
-            # Raised here, on this thread, where the app's one exception
-            # handler takes it, as it took it from on_start when the motion
-            # blocked; a reported failed home settles with None.
-            done.result()
-            after_the_startup_motion()
-
-        # ScopeSession owns startup orchestration so REST API, headless tools and
-        # the GUI all hit the same path. The window draws and stays live while
-        # the startup motion runs; the scope is the motion's until it ends.
-        from ui.ui_helpers import move_home_cb, set_title_event_text
-
-        started = ctx.session.start_application_session(disable_homing=disable_homing)
-        if not started.done():
-            set_title_event_text('Homing, please wait...')
-        started.add_done_callback(lambda done: schedule_ui(lambda dt: startup_motion_settled(done)))
 
         if app_runtime().frozen:
             pyi_splash.close()
@@ -954,8 +821,14 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_once(_present, 0)
 
-    def build(self) -> 'MainDisplay':
-        """Kivy lifecycle hook: construct the widget tree and return the root widget."""
+    def build(self) -> 'BoxLayout':
+        """Kivy lifecycle hook: set the window up and return its one root, showing the bring-up view.
+
+        No session exists yet: ``on_start`` brings the scope up on a thread of
+        its own, and the fit step (``_fit``) puts the control surface in the
+        root once it is up. The root never changes, so a popup opened during
+        bring-up stays above the control surface too.
+        """
         logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
         # Lock was claimed in __main__ before any Kivy import (issue #559);
@@ -964,15 +837,7 @@ class LumaViewProApp(TooltipMixin, App):
         # take it onto self for symmetry with the rest of the app state.
         self._lvp_lock = _lvp_lock_singleton
 
-        # video_creation_controls, stitch_controls, zprojection_controls, and
-        # composite_gen_controls register themselves on ctx in their __init__.
         global Window
-        global ctx
-
-        # AppContext binds these two as kwargs below; declared as locals here
-        # so the kwargs don't NameError at runtime.
-        live_histo_setting = False
-        last_save_folder = None
 
         self.icon = build_file('data/icons/icon.png')
 
@@ -987,25 +852,11 @@ class LumaViewProApp(TooltipMixin, App):
         self.title = f'LumaViewPro {_title_version}'
         logger.info(f'[LVP Main  ] Window title: {self.title}')
 
-        # Load engineering mode early so _init_ui() methods see the correct value.
-        # ENGINEERING_MODE is build-only; intentionally a local, not a global.
-        ENGINEERING_MODE = _load_mode(settings)
-
-        stage = Stage()
-
-        # The popups are one subscriber to the session's outcomes, given to
-        # the factory below so it hears bring-up: the factory registers it
-        # before it builds the scope, whose boards and camera report what
-        # failed to come up while they connect. The bridge opens what the
-        # API says is shown and decides nothing more.
-        from ui.notification_popup import notification_popup_bridge
-
         from kivy.core.window import Window
 
         # Window min size uses SDL point coordinates -- do NOT use dp()
         Window.minimum_width = 1024
         Window.minimum_height = 600
-        Window.bind(on_resize=self._on_resize)
         Window.bind(on_request_close=self.on_request_close)
         # Window-level lifecycle bindings -- log every event the OS /
         # window manager / global keyboard shortcut can deliver
@@ -1040,9 +891,52 @@ class LumaViewProApp(TooltipMixin, App):
         )
         # Half a second after the last resize, move, zoom or pan
         # (``_geometry_changed``), so a drag records where it settled, not
-        # every step. Built before the main loop, the first that delivers one.
+        # every step. Built before the main loop, the first that delivers one; the
+        # moves, resizes and the viewer are bound to it in the fit step.
         self._geometry_settled = Clock.create_trigger(self._log_geometry, 0.5)
-        Window.bind(on_move=self._geometry_changed)
+
+        self._bring_up_view = BringUpView(splash=build_file('data/icons/etaluma_splash.png'))
+        root = BoxLayout()
+        root.add_widget(self._bring_up_view)
+        return root
+
+    def _bring_up_on_its_thread(self) -> None:
+        """The bring-up thread's one job: bring the session up as the GUI and set the outcome on ``_bring_up``.
+
+        The thread decides nothing: what it raised is the future's, raised
+        again by the hand-over on the Kivy thread.
+        """
+        from _lumascope.modules.caller import Caller, calling
+
+        try:
+            with calling(Caller.GUI):
+                session = self._bring_up_the_session()
+        except BaseException as raised:
+            self._bring_up.set_exception(raised)
+        else:
+            self._bring_up.set_result(session)
+
+    def _bring_up_the_session(self) -> 'ScopeSession':
+        """Compose the session, on the shipped template if the stored settings cannot configure the scope.
+
+        Runs on the bring-up thread. Each step bring-up reports is shown on
+        the bring-up view, the newest one only when the Kivy thread is late.
+        """
+        # Read before the factory, which a plugin may then turn on; the
+        # fallback's second compose starts from the same mode.
+        engineering_mode = _load_mode(settings)
+
+        # The popups are one subscriber to the session's outcomes, given to
+        # the factory below so it hears bring-up: the factory registers it
+        # before it builds the scope, whose boards and camera report what
+        # failed to come up while they connect. The bridge opens what the
+        # API says is shown and decides nothing more.
+        from ui.notification_popup import notification_popup_bridge
+
+        def on_progress(percent: float, step: str | None) -> None:
+            schedule_ui_latest(
+                (self, 'bring_up_step'), lambda dt: self._show_bring_up_step(percent, step)
+            )
 
         # The Session composes the instrument -- the scope (the camera
         # registry picks by priority, Pylon -> IDS -> FX2, reading the
@@ -1060,17 +954,18 @@ class LumaViewProApp(TooltipMixin, App):
                 source_path=source_path,
                 simulate=simulate_mode,
                 warn_pre_release=False,
-                engineering_mode=ENGINEERING_MODE,
+                engineering_mode=engineering_mode,
                 no_engineering=no_engineering,
                 simulated=simulated_scope,
                 outcome_listener=notification_popup_bridge,
                 settings_file=ScopeSession.user_settings_file(source_path),
+                on_progress=on_progress,
             )
 
         # A stored value the scope refuses to be configured from -- a model
         # the installation's catalogue does not list, an objective it does
         # not hold -- reaches here as that refusal, and there is nothing
-        # above build() to catch it, so without this the app does not
+        # above the bring-up to catch it, so without this the app does not
         # launch at all. Come up on the shipped template instead, the same
         # recovery settings_init already runs for an unreadable
         # current.json. Only these: a program or installation defect is
@@ -1081,7 +976,7 @@ class LumaViewProApp(TooltipMixin, App):
         # raise out of here is the process's crash, recorded once by the
         # crash hook.
         try:
-            scope_session = _compose(settings)
+            return _compose(settings)
         except (
             ScopeModelUnknownError,
             CatalogueNameRefusedError,
@@ -1093,15 +988,78 @@ class LumaViewProApp(TooltipMixin, App):
             # here instead would strand every other holder of this dict on
             # the rejected values.
             fall_back_to_template(logger, source_path, str(unusable))
-            scope_session = _compose(settings)
-        self.lock = scope_session.controls_lock
-        self.live_work = scope_session.live_work
-        self.control = scope_session.control
-        lumaview = MainDisplay(scope=scope_session.scope)
-        cell_count_method = scope_session.post_processing.default_cell_count_method()
+            return _compose(settings)
+
+    def _show_bring_up_step(self, percent: float, step: str | None) -> None:
+        """Show bring-up's step on the bring-up view, and in the close's popup while a close waits on it."""
+        self._bring_up_view.show_step(percent, step)
+        if self._bring_up_close is not None:
+            _popup, set_message, _set_discard_shown = self._bring_up_close
+            set_message(self._closing_once_up())
+
+    def _closing_once_up(self) -> str:
+        """The close's message while it waits for bring-up: what bring-up is doing."""
+        return f'Closing LumaViewPro once the scope is up.\n{self._bring_up_view.step}'
+
+    def _hand_over(self, done: concurrent.futures.Future) -> None:
+        """Hand the session bring-up made to the close, if one began while it ran, else to the fit; once, on the Kivy thread.
+
+        A raise from bring-up is raised here, so it ends the process through
+        the crash hook, as a raise from ``build()`` did. ``_closing_begun`` is
+        written and read only on this thread, so a close lands either before
+        this (it takes the session here) or after it (the fit has run, and
+        the window's own close runs).
+        """
+        session = done.result()
+        if self._closing_begun:
+            self._phase = _Phase.HANDED_TO_THE_CLOSE
+            popup, set_message, set_discard_shown = self._bring_up_close
+            self._run_the_close(session, popup, set_message, set_discard_shown)
+            return
+        self._phase = _Phase.FITTED
+        self._fit(session)
+
+    def with_the_session(self, use: typing.Callable[['ScopeSession'], None]) -> None:
+        """Hand ``use`` the session on the Kivy thread: once bring-up has brought it up, or at once if it has.
+
+        For what is offered before the window's context exists, a bring-up
+        popup's remedy. Never called when bring-up raised: that ends the
+        process (``_hand_over``).
+        """
+
+        def _brought_up(done: concurrent.futures.Future) -> None:
+            if done.exception() is None:
+                schedule_ui(lambda dt: use(done.result()))
+
+        self._bring_up.add_done_callback(_brought_up)
+
+    def _fit(self, session: 'ScopeSession') -> None:
+        """Build the control surface over the session and put it in the window's root; then start it.
+
+        On the Kivy thread, in one tick, once bring-up has handed the session
+        over: the widget tree, the window's context and its wiring, the
+        plugins, then what the window starts once the scope is up. The
+        widgets' first-tick ``_init_ui``s run in the next tick and find the
+        context set.
+        """
+        # video_creation_controls, stitch_controls, zprojection_controls, and
+        # composite_gen_controls register themselves on ctx in their __init__.
+        global ctx
+
+        # AppContext binds these two as kwargs below; declared as locals here
+        # so the kwargs don't NameError at runtime.
+        live_histo_setting = False
+        last_save_folder = None
+        stage = Stage()
+
+        self.lock = session.controls_lock
+        self.live_work = session.live_work
+        self.control = session.control
+        lumaview = MainDisplay(scope=session.scope)
+        cell_count_method = session.post_processing.default_cell_count_method()
         cell_count_content = CellCountControls(
             method=cell_count_method,
-            size_scale=scope_session.post_processing.cell_count_size_scale(cell_count_method),
+            size_scale=session.post_processing.cell_count_size_scale(cell_count_method),
         )
         graphing_controls = GraphingControls()
 
@@ -1113,7 +1071,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Create AppContext -- central service registry over the session.
         ctx = AppContext.over_session(
-            scope_session,
+            session,
             lumaview=lumaview,
             version=version,
             source_path=source_path,
@@ -1218,7 +1176,188 @@ class LumaViewProApp(TooltipMixin, App):
                 '[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit'
             )
 
-        return lumaview
+        # The bring-up view goes; the root stays, so the popups stay above.
+        # Laid out now, in this tick, as the Window sized the surface when it
+        # was the root: its accordions lay themselves out on their first
+        # frame, and at the widget's default size they find no room.
+        self.root.clear_widgets()
+        self.root.add_widget(lumaview)
+        self.root.do_layout()
+
+        # Bound now that the widgets they read exist.
+        from kivy.core.window import Window
+
+        Window.bind(on_resize=self._on_resize)
+        Window.bind(on_move=self._geometry_changed)
+
+        # A window that opens at its final size sends no resize, so its
+        # geometry is recorded from here.
+        self._geometry_changed()
+        # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
+        lumaview = ctx.lumaview
+
+        # The bridge subscribes the GUI to the scope's state events. It
+        # lives in ui/ because every one of its handlers ends in a widget
+        # write; a non-GUI host subscribes to the same events itself.
+        from ui.listener_bridge import UIListenerBridge
+
+        ctx.ui_listener_bridge = UIListenerBridge(
+            scope=lumaview.scope,
+            ctx=ctx,
+            stage=ctx.stage,
+        )
+        ctx.ui_listener_bridge.register_all()
+
+        ctx.session.add_run_state_listener(self._on_run_state)
+
+        # Slow idle refresh (1Hz) for display elements that may change without motion
+        # (e.g., labware selection, stage offset changes)
+        Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
+        Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
+
+        # Publish the shown channel to scope_display_thread at 30Hz, in
+        # engineering mode, for the image stats. The Session's shown channel
+        # follows a run's steps as they light, so the stats follow the firing
+        # LED. The thread reads it under _config_lock at each frame start;
+        # staleness is bounded by 33ms (one tick).
+        def _publish_layer_config(dt):
+            if ctx is None or ctx.scope_display_thread is None:
+                return
+            ctx.scope_display_thread.update_layer_config(
+                ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
+            )
+
+        Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
+
+        # Clear app initialization flag and apply settings for the default opened layer
+        def complete_initialization(dt):
+            if ctx is not None:
+                ctx.ready = True
+
+                # Sync Z slider to actual motor position. Without this the
+                # .kv hardcodes obj_position.value=0 and the first user
+                # click snaps Z to 0 regardless of where the motor is.
+                try:
+                    _handle_ui_update_for_axis('Z')
+                except Exception as e:  # grain: ignore NAKED_EXCEPT
+                    logger.warning(f'[INIT      ] Z slider sync failed: {e}')
+
+                settings = ctx.settings
+                for layer in common_utils.get_layers():
+                    ls = settings[layer]
+                    logger.info(
+                        f'[INIT      ] {layer:6s}: gain={ls["gain_db"]:>6}, '
+                        f'exp={ls["exposure_ms"]:>8}ms, ill={ls["illumination_ma"]:>6}mA, '
+                        f'af={ls["autofocus"]}, acquire={ls["acquire"]}'
+                    )
+
+            # Hide the composite-threshold and false-colour controls on the
+            # transmitted channels, which have no colour to composite.
+            #
+            # This does NOT bound illumination, whatever its name suggests:
+            # the transmitted slider cap is applied by the capability sync,
+            # which the settings panel already runs at startup.
+            try:
+                ctx.image_settings.update_transmitted()
+            except Exception as e:  # grain: ignore NAKED_EXCEPT
+                logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
+
+            # On startup stay where homing left the stage -- do NOT drive to
+            # protocol step 1. A loaded protocol's steps stay available (the
+            # steps table is rendered by load_protocol) and the user navigates
+            # to them explicitly. Nothing is shown here either: bring-up has
+            # already shown BF and put its settings on the camera, skipping a
+            # missing camera it has already reported, so showing it again here
+            # writes nothing and repeats that report.
+
+        if sim_walk is not None:
+            from ui.sim_walk import SimWalk
+
+            _walk_path, _walk_steps = sim_walk
+            # Held on the app: the Clock keeps only weak references to the
+            # walk's bound methods. A shot lands where it names, under the walk file's
+            # folder; the picture of a stop goes beside the log.
+            self._sim_walk = SimWalk(
+                _walk_steps,
+                source=str(_walk_path),
+                bring_up_owes=self._bring_up_owes,
+                in_flight=ctx.session.in_flight_named,
+                simulation=ctx.scope.simulation,
+                shot_dir=_walk_path.parent,
+                stop_dir=pathlib.Path(log_dir),
+            )
+            self._sim_walk.start()
+
+        # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
+        # logging so adding a new periodic metric only requires editing one module.
+
+        def after_the_startup_motion() -> None:
+            # Everything here followed the startup motion when it blocked
+            # this thread, and still does, in the same order, with the scope
+            # free: several of these do nothing while the scope is held.
+            move_home_cb('ALL')
+            ctx.image_settings.draw_shown_channel()
+            complete_initialization(None)
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+
+            # Both startup questions may only fire once the session is up and
+            # the frame has rendered; each helper owns its own deferral. The
+            # settings question comes first -- while it is unresolved, every
+            # save is refused and the objective prompt suppresses itself.
+            self._ask_about_rejected_settings()
+            self._prompt_objective_if_needed()
+
+            # Objective and LEDs are set by scope.initialize() during load_settings();
+            # the shown channel's settings are applied by the Session's bring-up.
+
+            # The session owns the metrics lifecycle (it owns the session
+            # scheduler, and logs the environment fingerprint ahead of the
+            # first tick). Cadence is hourly in production and 60 s in
+            # engineering mode; settings.profiling.metrics_interval_s
+            # overrides both (gen2_depth + handle/thread counts are the
+            # signals worth sub-minute granularity on a short leak hunt).
+            ctx.session.enable_metrics(display=ctx.scope_display)
+
+            # Served after the metrics, as the headless launcher serves after
+            # its own. A port already taken is reported, and the window runs
+            # on without a server.
+            run_unasked(self._start_the_rest_server, 'START_REST_SERVER')
+
+            # The atexit emergency-shutdown hook is registered in Lumascope.__init__
+            # so every Lumascope user gets the same safety net automatically.
+
+        def startup_motion_settled(done: concurrent.futures.Future) -> None:
+            from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
+
+            # The window's close began, in this tick or an earlier one.
+            if self._closing_begun:
+                return
+            # The app is closing: the close found the motion unstarted, began
+            # before it took the scope, or closed its lane while it ran.
+            exception = done.exception()
+            if isinstance(exception, SessionClosingError) or (
+                isinstance(exception, LaneCallStillRunningError)
+                and exception.reason == 'lane_closed'
+            ):
+                return
+            live = ctx.session.live_work
+            if live.closing or live.closed:
+                return
+            # Raised here, on this thread, where the app's one exception
+            # handler takes it, as it took it from on_start when the motion
+            # blocked; a reported failed home settles with None.
+            done.result()
+            after_the_startup_motion()
+
+        # ScopeSession owns startup orchestration so REST API, headless tools and
+        # the GUI all hit the same path. The window draws and stays live while
+        # the startup motion runs; the scope is the motion's until it ends.
+        from ui.ui_helpers import move_home_cb, set_title_event_text
+
+        started = ctx.session.start_application_session(disable_homing=disable_homing)
+        if not started.done():
+            set_title_event_text('Homing, please wait...')
+        started.add_done_callback(lambda done: schedule_ui(lambda dt: startup_motion_settled(done)))
 
     def _on_resize(self, window, w: int, h: int) -> None:
         """Kivy on_resize hook: re-evaluate motion / image settings layout."""
@@ -1310,8 +1449,18 @@ class LumaViewProApp(TooltipMixin, App):
         its own thread (``_close_the_session``) and the app stops when it
         returns.
         """
-        work = ctx.session.live_work.work
-        locked_by = ctx.session.controls_lock.named
+        if self._phase is not _Phase.FITTED:
+            logger.info(
+                f'[LVP Main  ] on_request_close fired during bring-up; '
+                f'step={self._bring_up_view.step!r}'
+            )
+            gui_logger.window_event('close-requested', 'bringing up')
+            self._close_during_bring_up()
+            return True
+
+        session = ctx.session
+        work = session.live_work.work
+        locked_by = session.controls_lock.named
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
@@ -1333,7 +1482,7 @@ class LumaViewProApp(TooltipMixin, App):
             return True
 
         if not work:
-            Clock.schedule_once(lambda dt: self._close_the_session())
+            Clock.schedule_once(lambda dt: self._close_the_session(session))
             return True
 
         Clock.schedule_once(
@@ -1348,13 +1497,34 @@ class LumaViewProApp(TooltipMixin, App):
                 ),
                 confirm_text='Confirm Exit',
                 cancel_text='Cancel',
-                on_confirm=self._close_the_session,
+                on_confirm=lambda: self._close_the_session(session),
             )
         )
         return True
 
-    def _close_the_session(self) -> None:
-        """Close the session on a thread of its own, showing what it waits for; then stop.
+    def _close_during_bring_up(self) -> None:
+        """Begin a close while the scope comes up: the window's part now, the session's once bring-up hands it over.
+
+        The popup says what bring-up is doing; the hand-over runs the
+        session's close on it (``_hand_over``). Its Discard is shown only by
+        the close's watch, once the session exists.
+        """
+        if self._closing_begun:
+            logger.info('[LVP Main  ] close already in progress; ignoring the request')
+            return
+        from ui.notification_popup import show_blocking_progress_popup
+
+        self._prepare_the_close()
+        self._bring_up_close = show_blocking_progress_popup(
+            title='Closing',
+            message=self._closing_once_up(),
+            action_text='Discard Remaining Video Frames',
+            on_action=lambda: self._bring_up.result().discard_close_drain(),
+            action_shown=False,
+        )
+
+    def _close_the_session(self, session: 'ScopeSession') -> None:
+        """Close ``session`` on a thread of its own, showing what it waits for; then stop.
 
         The host's part runs first, here on the Kivy thread
         (``_prepare_the_close``). The session's close then runs on its own
@@ -1371,17 +1541,23 @@ class LumaViewProApp(TooltipMixin, App):
             title='Closing',
             message='Closing LumaViewPro...',
             action_text='Discard Remaining Video Frames',
-            on_action=ctx.session.discard_close_drain,
-            action_shown=any(item.discardable for item in ctx.session.live_work.work),
+            on_action=session.discard_close_drain,
+            action_shown=any(item.discardable for item in session.live_work.work),
         )
+        self._run_the_close(session, popup, set_message, set_discard_shown)
+
+    def _run_the_close(
+        self, session: 'ScopeSession', popup, set_message, set_discard_shown
+    ) -> None:
+        """Run ``session``'s close on its own thread, keeping the close's popup current; stop the app when it returns."""
         self._close_thread = threading.Thread(
-            target=self._end_the_session, name='session-close', daemon=True
+            target=self._end_the_session, args=(session,), name='session-close', daemon=True
         )
         self._close_thread.start()
 
         def _watch(dt):
             if self._close_thread.is_alive():
-                work = ctx.session.live_work.work
+                work = session.live_work.work
                 message = (
                     'Finishing before LumaViewPro closes:\n'
                     + '\n'.join(work_item_text(item) for item in work)
@@ -1417,8 +1593,16 @@ class LumaViewProApp(TooltipMixin, App):
         stopTouchApp()
 
     def _prepare_the_close(self) -> None:
-        """The host's part of a close, on the Kivy thread, before the session's own."""
+        """The host's part of a close, on the Kivy thread, before the session's own.
+
+        Before the fit there is no window surface, server or plugin to
+        release: a close during bring-up mutes the notifications, as every
+        close does, and nothing more.
+        """
         self._closing_begun = True
+        if self._phase is not _Phase.FITTED:
+            self._mute_notifications()
+            return
 
         # A client's take_control landing after the take-back below would
         # hold the scope again and refuse the popup's Discard, so the server
@@ -1431,15 +1615,7 @@ class LumaViewProApp(TooltipMixin, App):
         # the session would refuse a Discard that is not its holder's.
         run_unasked(ctx.session.take_back_control, 'CLOSE_TAKE_BACK_CONTROL')
 
-        # Suppress notification-listener dispatch during shutdown so the user
-        # doesn't see 30+ error toasts as queued IO tasks fail against
-        # disconnecting hardware. Log lines still fire for post-mortem.
-        try:
-            from _lumascope.modules.notification_center import notifications
-
-            notifications.set_shutting_down(True)
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
+        self._mute_notifications()
 
         # The window stops listening to the scope and redrawing its position
         # before the scope is torn down: the teardown's own events would
@@ -1457,6 +1633,18 @@ class LumaViewProApp(TooltipMixin, App):
         # still unload. The session's close finds them unloaded.
         ctx.session.unload_plugins()
 
+    def _mute_notifications(self) -> None:
+        """Stop the notification popups for the rest of the process; the log still has every outcome."""
+        # Suppress notification-listener dispatch during shutdown so the user
+        # doesn't see 30+ error toasts as queued IO tasks fail against
+        # disconnecting hardware. Log lines still fire for post-mortem.
+        try:
+            from _lumascope.modules.notification_center import notifications
+
+            notifications.set_shutting_down(True)
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
+
     def _start_the_rest_server(self) -> None:
         """Serve the API beside the window, on its own session, unless ``rest_api.enabled`` is false.
 
@@ -1471,7 +1659,10 @@ class LumaViewProApp(TooltipMixin, App):
             return
         from _lumascope.rest.server import serve_beside
 
-        self._rest_server = serve_beside(ctx.session, shut_down=self._shut_the_session_down)
+        session = ctx.session
+        self._rest_server = serve_beside(
+            session, shut_down=lambda: self._shut_the_session_down(session)
+        )
         logger.info(f'[LVP Main  ] REST server serving {self._rest_server.reach}')
 
     def rest_reach(self) -> str:
@@ -1483,7 +1674,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Its start was refused, and reported then.
         return 'Not started: see the log'
 
-    def _end_the_session(self) -> None:
+    def _end_the_session(self, session: 'ScopeSession') -> None:
         """The session's close: inside the REST server's close while one serves, else directly.
 
         Inside the server's, its clients are answered and its stream carries
@@ -1491,11 +1682,11 @@ class LumaViewProApp(TooltipMixin, App):
         """
         server = self._rest_server
         if server is None or not server.close():
-            self._shut_the_session_down()
+            self._shut_the_session_down(session)
 
-    def _shut_the_session_down(self) -> None:
+    def _shut_the_session_down(self, session: 'ScopeSession') -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
-        logger.info('[LVP Main  ] ctx.session.shutdown()')
+        logger.info('[LVP Main  ] session.shutdown()')
         from _lumascope.modules.caller import Caller, calling
         from _lumascope.modules.exceptions import ScopeDisconnectError
         from _lumascope.modules.notification_center import notifications
@@ -1503,7 +1694,7 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             # On the close's own thread, or the Kivy thread from on_stop: the GUI's close.
             with calling(Caller.GUI):
-                ctx.session.shutdown()
+                session.shutdown()
         except ScopeDisconnectError as e:
             # Every teardown step has run; the window is closing, so the
             # record is the log (notifications are muted).
@@ -1516,13 +1707,16 @@ class LumaViewProApp(TooltipMixin, App):
         if profiling_helper is not None:
             profiling_helper.stop()
 
-        if not ctx.session.live_work.closed:
+        # A bring-up still running is waited for: a platform quit during
+        # bring-up closes the session it brings up, once it exists.
+        session = self._bring_up.result()
+        if not session.live_work.closed:
             # Reached without the window's close -- a platform quit -- or
             # after a close that raised part-way: the close runs here, on
             # this thread, and nothing draws while it waits. A close still
             # running on its own thread is waited for by this call.
             self._prepare_the_close()
-            self._end_the_session()
+            self._end_the_session(session)
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

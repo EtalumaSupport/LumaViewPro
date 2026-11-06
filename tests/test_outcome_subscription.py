@@ -270,11 +270,11 @@ class TestTheGuiIsOneSubscriber:
 
         from tests.ast_seams import find_def, parse_module
 
-        build = find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-        assert build is not None, 'LumaViewProApp.build is gone'
+        bring_up = find_def('lumaviewpro.py', '_bring_up_the_session', class_name='LumaViewProApp')
+        assert bring_up is not None, 'LumaViewProApp._bring_up_the_session is gone'
         creates = [
             node
-            for node in ast.walk(build)
+            for node in ast.walk(bring_up)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == 'create'

@@ -33,11 +33,11 @@ _DEBOUNCE = 'a trigger or interval a widget creates on the UI thread'
 _UI_THREAD = {
     ('lumaviewpro.py', 'LumaViewProApp._ask_about_rejected_settings'): (
         1,
-        'called from after_the_startup_motion and on_start, both on the Clock',
+        'called from after_the_startup_motion and the fit step, both on the Clock',
     ),
-    ('lumaviewpro.py', 'LumaViewProApp._close_the_session'): (
-        1,
-        "the window's close, on the UI thread",
+    ('lumaviewpro.py', 'LumaViewProApp._fit'): (
+        3,
+        'the fit step, run from the hand-over on the UI thread',
     ),
     ('lumaviewpro.py', 'LumaViewProApp._on_resize'): (2, "the window's resize event"),
     ('lumaviewpro.py', 'LumaViewProApp.build'): (
@@ -46,10 +46,14 @@ _UI_THREAD = {
     ),
     ('lumaviewpro.py', 'LumaViewProApp._prompt_objective_if_needed'): (
         1,
-        'called from after_the_startup_motion and on_start, both on the Clock',
+        'called from after_the_startup_motion and the fit step, both on the Clock',
     ),
     ('lumaviewpro.py', 'LumaViewProApp.on_request_close'): (2, "Kivy's close request"),
-    ('lumaviewpro.py', 'LumaViewProApp.on_start'): (4, "Kivy's start, on the UI thread"),
+    ('lumaviewpro.py', 'LumaViewProApp.on_start'): (1, "Kivy's start, on the UI thread"),
+    ('lumaviewpro.py', 'LumaViewProApp._run_the_close'): (
+        1,
+        "every close's watch, started on the UI thread",
+    ),
     ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit'): (1, _DEBOUNCE),
     ('ui/image_settings.py', 'ImageSettings.__init__'): (1, _CONSTRUCTION),
     ('ui/image_settings.py', 'ImageSettings._init_ui'): (1, _CONSTRUCTION),

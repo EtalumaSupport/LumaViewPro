@@ -329,24 +329,28 @@ class TestTheGuiTakesTheFactory:
     def test_lumaviewpro_constructs_no_session_directly(self):
         # The ratchet cannot see this: a call through the factory is an
         # attribute call, so the scanner's constructor count reads zero
-        # either way. This is the exit criterion for the direct call.
-        build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-        assert build is not None
+        # either way. This is the exit criterion for the direct call. The
+        # GUI's session is composed on its bring-up thread, in
+        # _bring_up_the_session; no part of the app constructs one itself.
         direct = [
             c.lineno
-            for c in _calls(build)
+            for c in _calls(ast_seams.parse_module('lumaviewpro.py'))
             if isinstance(c.func, ast.Name) and c.func.id == 'ScopeSession'
         ]
-        assert direct == [], f'build() still constructs ScopeSession( directly at {direct}'
+        assert direct == [], f'lumaviewpro.py constructs ScopeSession( directly at {direct}'
+        bring_up = ast_seams.find_def(
+            'lumaviewpro.py', '_bring_up_the_session', class_name='LumaViewProApp'
+        )
+        assert bring_up is not None
         factory = [
             c
-            for c in _calls(build)
+            for c in _calls(bring_up)
             if isinstance(c.func, ast.Attribute)
             and c.func.attr == 'create'
             and isinstance(c.func.value, ast.Name)
             and c.func.value.id == 'ScopeSession'
         ]
-        assert len(factory) == 1, 'build() composes the session through the one factory'
+        assert len(factory) == 1, 'the bring-up composes the session through the one factory'
         passed = {kw.arg for kw in factory[0].keywords}
         assert set(HOST_INJECTIONS) <= passed, (
             f'the host passes every injection by name; missing {set(HOST_INJECTIONS) - passed}'
@@ -404,17 +408,17 @@ class TestTheGuiTakesTheFactory:
         )
 
     def test_the_gui_builds_its_context_over_its_session(self):
-        """build() takes its context from ``AppContext.over_session`` and hands
-        in none of the session's handles itself: the builder reads them off the
-        session (tests/test_the_app_context_is_the_sessions.py), and a handle
-        handed in beside it would be a second construction."""
-        build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+        """The fit step takes its context from ``AppContext.over_session`` and
+        hands in none of the session's handles itself: the builder reads them
+        off the session (tests/test_the_app_context_is_the_sessions.py), and a
+        handle handed in beside it would be a second construction."""
+        build = ast_seams.find_def('lumaviewpro.py', '_fit', class_name='LumaViewProApp')
         direct = [
             c.lineno
             for c in _calls(build)
             if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
         ]
-        assert direct == [], f'build() constructs AppContext( directly at {direct}'
+        assert direct == [], f'the fit step constructs AppContext( directly at {direct}'
         built = [
             c
             for c in _calls(build)
@@ -423,15 +427,15 @@ class TestTheGuiTakesTheFactory:
             and isinstance(c.func.value, ast.Name)
             and c.func.value.id == 'AppContext'
         ]
-        assert len(built) == 1, 'build() builds its context through the one builder'
-        assert [ast.unparse(a) for a in built[0].args] == ['scope_session']
+        assert len(built) == 1, 'the fit step builds its context through the one builder'
+        assert [ast.unparse(a) for a in built[0].args] == ['session']
         builder = ast_seams.find_def(
             'src/_lumascope/modules/app_context.py', 'over_session', class_name='AppContext'
         )
         (returned,) = [n for n in ast.walk(builder) if isinstance(n, ast.Return)]
         from_the_session = {kw.arg for kw in returned.value.keywords if kw.arg}
         handed_in = sorted({kw.arg for kw in built[0].keywords} & from_the_session)
-        assert handed_in == [], f'build() hands in handles the session owns: {handed_in}'
+        assert handed_in == [], f'the fit step hands in handles the session owns: {handed_in}'
 
     def test_the_context_has_no_field_only_the_dead_handler_read(self):
         from _lumascope.modules.app_context import AppContext

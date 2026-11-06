@@ -245,6 +245,7 @@ def _install_kivy_uix_stubs():
         'label': ('Label',),
         'modalview': ('ModalView',),
         'popup': ('Popup',),
+        'progressbar': ('ProgressBar',),
         'scatter': ('Scatter',),
         'scrollview': ('ScrollView',),
         'slider': ('Slider',),
