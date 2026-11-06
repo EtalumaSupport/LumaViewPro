@@ -20,25 +20,27 @@ from tests.settings_fixtures import complete_settings
 def test_a_frames_arrival_lies_between_two_reads_of_the_sessions_clock():
     session = ScopeSession.create(complete_settings(), simulate=True, warn_pre_release=False)
     seen = []
-    second = threading.Event()
+    arrived = threading.Event()
 
     def on_frame(frame):
         # Read on delivery: the frame's own stamp was taken before this call.
         seen.append((frame.arrived_ns, session.host_steady_ns()))
-        if len(seen) == 2:
-            second.set()
+        arrived.set()
 
     try:
+        # Read before the stream starts, so it precedes every frame's
+        # arrival; a read in an earlier frame's listener would not, since the
+        # camera stamps a frame before it is queued for delivery and the next
+        # can be stamped while that one is still on its way.
+        read_before = session.host_steady_ns()
         session.scope.imaging.enable_streaming()
         session.scope.imaging.add_frame_listener(on_frame, name='arrivals')
         try:
-            assert second.wait(5.0), 'no second frame arrived'
+            assert arrived.wait(5.0), 'no frame arrived'
         finally:
             session.scope.imaging.remove_frame_listener(on_frame)
     finally:
         session.shutdown()
 
-    # The first delivery's read precedes the second frame's arrival, which a
-    # listener registered mid-stream cannot say of the first frame.
-    (_, read_before), (arrived_ns, read_after) = seen[:2]
+    arrived_ns, read_after = seen[0]
     assert read_before <= arrived_ns <= read_after
