@@ -126,12 +126,10 @@ def runtime_missing(dialect: str) -> str | None:
 
 def _module_path(timing: str) -> tuple[str, ...]:
     """Where a board's firmware finds the simulated hardware modules, which
-    shadow the runtime's own; in instant timing, a clock that never waits
-    shadows `time` ahead of them."""
-    module_path = (str(_PACKAGE / 'mp'),)
-    if timing == 'instant':
-        module_path = (str(_PACKAGE / 'mp' / 'instant'), *module_path)
-    return module_path
+    shadow the runtime's own, with the timing's clock shadowing `time` ahead
+    of them: in instant timing a clock that never waits, in realistic timing
+    the runtime's clock once the power-on boot is over."""
+    return (str(_PACKAGE / 'mp' / timing), str(_PACKAGE / 'mp'))
 
 
 @dataclass(frozen=True)
@@ -267,8 +265,8 @@ class SimWireBackend:
     def __init__(self, motor: MotorBoardSpec | None, led: LedBoardSpec | None = None):
         # The simulated boards, which a test reaches for faults, the oracle
         # and the USB link. Each is its own firmware process behind its own
-        # port, as each is its own USB device on the scope; its firmware
-        # starts with the first port opened to it.
+        # port, as each is its own USB device on the scope; each is powered
+        # here, with the scope, and has booted before a port is opened to it.
         self.motor_board = None if motor is None else EmulatedBoard(motor.image())
         self.led_board = None if led is None else EmulatedBoard(led.image())
 

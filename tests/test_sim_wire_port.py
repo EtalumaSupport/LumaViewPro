@@ -4,7 +4,8 @@
 What is pinned here is what makes the port a serial link to a board rather
 than a pipe to a process: the production driver connects through it with no
 change, Ctrl-C and Ctrl-D do what they do on the board, and the process can
-neither outlive its port nor fail quietly.
+neither outlive its port nor fail quietly; and a board is powered with its
+scope, booted before a host opens it, as a bench scope switched on earlier is.
 """
 
 import gc
@@ -13,6 +14,7 @@ import signal
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -22,7 +24,7 @@ from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.motorboard import MotorBoard
 from _lumascope.drivers.sim_wire import backend as sim_backend
 from _lumascope.drivers.sim_wire import port as sim_port
-from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
 from _lumascope.drivers.sim_wire.mp import tmc5072
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
@@ -44,7 +46,7 @@ def _open(dialect='3.0', timeout=0.5):
 
 
 def _drain(port):
-    # Boot output can trail the first reply; a test starts on a quiet line.
+    # A reply's later lines can trail its first; a test starts on a quiet line.
     saved, port.timeout = port.timeout, 0.1
     while port.read(4096):
         pass
@@ -367,6 +369,118 @@ def test_a_rebooting_board_is_found_again_only_when_its_boot_is_over():
         with pytest.raises(serial.SerialException, match='unplugged'):
             backend.open(port=device, baudrate=115200, timeout=0.5, write_timeout=1)
         _wait_for(lambda: backend.comports(), what='the board to be found after its boot')
+    finally:
+        port.close()
+
+
+def _first_port(backend, timeout=0.5):
+    return backend.open(
+        port=backend.comports()[0].device, baudrate=115200, timeout=timeout, write_timeout=1
+    )
+
+
+# parametrize-justified: each board's firmware prints its own boot output
+@pytest.mark.parametrize(
+    ('backend', 'command', 'reply'),
+    [
+        (lambda: SimWireBackend(None, LedBoardSpec('LS850')), b'INFO', b'RE: INFO'),
+        (
+            lambda: SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES, dialect='3.0')),
+            b'ZHOME',
+            b'Z home successful',
+        ),
+    ],
+    ids=['led', 'motor-3.0'],
+)
+def test_a_boards_power_on_output_never_reaches_the_first_port(backend, command, reply):
+    # The board booted when the scope was switched on, with no host to hear
+    # it, so the first line after the first open answers the first command.
+    port = _first_port(backend())
+    try:
+        port.write(command + b'\n')
+        assert port.readline().strip() == reply
+    finally:
+        port.close()
+
+
+# parametrize-justified: each board's firmware sleeps through its own boot
+@pytest.mark.parametrize(
+    ('backend', 'answer'),
+    [
+        (
+            lambda: SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES, timing='realistic')),
+            b'Mainboard Firmware:',
+        ),
+        (lambda: SimWireBackend(None, LedBoardSpec('LS850', timing='realistic')), b'RE: INFO'),
+    ],
+    ids=['motor', 'led'],
+)
+def test_a_realistic_board_has_booted_before_its_first_open(backend, answer):
+    # The firmware sleeps 3 s (motor) and 2 s (LED) at power-on, on the
+    # bench before LumaViewPro starts; the first command is answered at once.
+    backend = backend()
+    started = time.monotonic()
+    port = _first_port(backend, timeout=5)
+    try:
+        port.write(b'INFO\n')
+        assert answer in port.read_until(answer)
+        assert time.monotonic() - started < 1.0
+    finally:
+        port.close()
+
+
+def test_two_opens_during_the_power_on_boot_connect_one_port():
+    # An open waits out the boot with the board's lock let go; the second
+    # open is still refused, as on a port already open elsewhere.
+    backend = SimWireBackend(None, LedBoardSpec('LS850', timing='realistic'))
+    outcomes = []
+
+    def _open_one():
+        try:
+            outcomes.append(_first_port(backend))
+        except serial.SerialException as refused:
+            outcomes.append(refused)
+
+    openers = [threading.Thread(target=_open_one) for _ in range(2)]
+    for opener in openers:
+        opener.start()
+    for opener in openers:
+        opener.join()
+    ports = [o for o in outcomes if isinstance(o, sim_port.EmulatedPort)]
+    refusals = [str(o) for o in outcomes if isinstance(o, serial.SerialException)]
+    try:
+        assert len(ports) == 1
+        assert refusals == [f'{backend.led_board.label}: the port is already open elsewhere']
+    finally:
+        for port in ports:
+            port.close()
+
+
+def test_a_realistic_reboot_boots_on_the_real_clock():
+    # Only the power-on is in the past; a reboot happens while the host waits.
+    backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES, timing='realistic'))
+    backend.motor_board.reboot()
+    started = time.monotonic()
+    port = _first_port(backend, timeout=8)
+    try:
+        port.write(b'INFO\n')
+        assert b'Firmware:' in port.readline()
+        assert time.monotonic() - started > 1.0
+    finally:
+        port.close()
+
+
+# One realistic 3.0 home, about 5 s. The field firmware's realistic home is
+# pinned through the API (tests/test_simulator_tier.py).
+@pytest.mark.slow
+def test_a_realistic_3_0_board_homes_on_the_real_clock_after_its_power_on():
+    backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES, dialect='3.0', timing='realistic'))
+    port = _first_port(backend, timeout=30)
+    try:
+        started = time.monotonic()
+        port.write(b'HOME\n')
+        assert b'complete' in port.read_until(b'complete')
+        assert time.monotonic() - started > 2.0
     finally:
         port.close()
 

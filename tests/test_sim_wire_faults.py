@@ -19,9 +19,14 @@ from serial.serialutil import SerialException
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.motorboard import MotorBoard
 from _lumascope.drivers.sim_wire import port as sim_port
-from _lumascope.drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
+from _lumascope.drivers.sim_wire.backend import (
+    DIALECTS,
+    MOTOR_DEVICE,
+    MotorBoardSpec,
+    SimWireBackend,
+)
 from _lumascope.drivers.sim_wire.mp import channel, tmc5072
-from _lumascope.drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
+from _lumascope.drivers.sim_wire.port import EmulatedBoard, RegisterWrite
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.case_walk import failing_cases
 
@@ -131,43 +136,46 @@ class TestTheChannel:
         assert channel.parse_write(frame[1:-1]) == ('XY', None, 0x00, 1)
 
 
-def _unpowered_board(oracle: bool) -> EmulatedBoard:
-    image = BoardImage(
-        runtime='-',
-        firmware_mpy='-',
-        files={},
-        module_path=(),
-        fault_targets=tmc5072.AXES,
-        fault_names=tmc5072.FAULTS,
-        label='[test]',
-        oracle=oracle,
-    )
-    return EmulatedBoard(image)
+def _quiet_board(oracle: bool) -> EmulatedBoard:
+    """A booted motor board with nothing in flight: its firmware waits for a
+    command, so only what a test hands its demux reaches the board's state."""
+    backend = SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), oracle=oracle))
+    board = backend.motor_board
+    # The open returns once the power-on boot is over.
+    backend.open(port=MOTOR_DEVICE, baudrate=115200, timeout=0.5).close()
+    if oracle:
+        board.take_writes()
+    return board
 
 
+@pytest.mark.firmware_tier
 class TestTheDemux:
     def test_a_frame_split_across_reads_is_taken_out_whole(self):
-        board = _unpowered_board(oracle=True)
+        board = _quiet_board(oracle=True)
         frame = channel.write_frame('XY', 'X', 0x0D, 1234).encode('latin-1')
         stream = b'Z home ' + frame + b'successful\r\n'
-        to_driver = b''.join(board._demux(stream[i : i + 5]) for i in range(0, len(stream), 5))
+        with board._cond:
+            to_driver = b''.join(board._demux(stream[i : i + 5]) for i in range(0, len(stream), 5))
         assert to_driver == b'Z home successful\r\n'
-        assert board._writes == [RegisterWrite('XY', 'X', 0x0D, 1234)]
+        assert board.take_writes() == [RegisterWrite('XY', 'X', 0x0D, 1234)]
 
     def test_a_frame_with_the_oracle_off_fails_the_board(self):
-        board = _unpowered_board(oracle=False)
-        board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1'))
-        assert 'oracle off' in board._failure
+        board = _quiet_board(oracle=False)
+        with board._cond:
+            board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1'))
+            assert 'oracle off' in board._failure
 
     def test_untaken_writes_past_the_limit_fail_the_board(self, monkeypatch):
+        board = _quiet_board(oracle=True)
+        # Lowered after the boot, whose own writes the board took and dropped.
         monkeypatch.setattr(sim_port, 'WRITES_LIMIT', 3)
-        board = _unpowered_board(oracle=True)
-        board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1') * 4)
-        assert 'nothing is taking them' in board._failure
-        assert len(board._writes) == 3
+        with board._cond:
+            board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1') * 4)
+            assert 'nothing is taking them' in board._failure
+            assert len(board._writes) == 3
 
     def test_a_fault_needs_a_known_axis_and_name(self):
-        board = _unpowered_board(oracle=False)
+        board = _quiet_board(oracle=False)
         with pytest.raises(ValueError, match='unknown fault target'):
             board.inject('Q', tmc5072.STALL)
         with pytest.raises(ValueError, match='unknown fault'):

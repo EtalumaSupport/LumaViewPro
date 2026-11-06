@@ -8,7 +8,10 @@ simulated hardware behind it, and the USB link in front of it. It outlives
 any one connection, as the EL-0940's motor controller does: it is an
 internal USB device behind the mainboard's own hub and powered by the
 board, so closing the port or pulling the host cable leaves its firmware
-running with everything it knows, homing included.
+running with everything it knows, homing included. It is powered when it is
+built, as a board is with its scope: its power-on boot is over, and its boot
+output gone unheard, before a host opens the port, which waits for the boot
+to end (`mp/power_on.py`).
 
 `EmulatedPort` is one connection to a board. It is a pyserial `SerialBase`,
 so the drivers read and write it exactly as they do a USB serial port:
@@ -85,6 +88,12 @@ RX_LIMIT_BYTES = 1 << 20
 # homing is a few dozen; this many unread means nothing is taking them.
 WRITES_LIMIT = 100_000
 
+# How long a board's power-on boot may take before an open refuses it. The
+# boot runs on a virtual clock and is over in about 100 ms; the bound only
+# stops a firmware that never reaches its first command read from hanging the
+# open.
+POWER_ON_BOOT_S = 10.0
+
 # How long a Ctrl-C may take to reach the REPL before the rest of a write goes
 # on anyway. The traceback and prompt arrive within milliseconds; the bound
 # only stops a firmware that swallows the interrupt from hanging the write.
@@ -93,11 +102,12 @@ INTERRUPT_SETTLE_S = 1.0
 # Runs the firmware with a watcher beside it. The watcher polls this
 # interpreter's pid and kills the firmware (whose pid is the shell's, via
 # exec) when this interpreter is gone, or exits when the firmware is. The
-# board's console (`mp/console.py`) is in place before the firmware starts.
+# board's console (`mp/console.py`) and its power-on (`mp/power_on.py`) are in
+# place before the firmware starts.
 _LAUNCH = (
     '(while kill -0 "$1" 2>/dev/null && kill -0 $$ 2>/dev/null; do sleep 1; done; '
     'kill -9 $$ 2>/dev/null) </dev/null >/dev/null 2>&1 & '
-    'exec "$2" -i -c "import console; import main"'
+    'exec "$2" -i -c "import console; import power_on; import main"'
 )
 
 
@@ -141,7 +151,9 @@ class _Process:
     """The firmware process and its pipes, with no reference back to the
     board, so a board nobody holds can be collected and its process ended."""
 
-    def __init__(self, image: BoardImage, workdir: str, faults: set[tuple[str, str]]):
+    def __init__(
+        self, image: BoardImage, workdir: str, faults: set[tuple[str, str]], power_on: bool
+    ):
         for name, data in image.files.items():
             with open(os.path.join(workdir, name), 'wb') as f:
                 f.write(data)
@@ -152,6 +164,8 @@ class _Process:
             MICROPYPATH=':'.join((*image.module_path, '.frozen')),
             **{channel.FAULTS_FD_ENV: str(faults_r)},
         )
+        if power_on:
+            env[channel.POWER_ON_ENV] = '1'
         try:
             # Written before the process starts, so the firmware's first
             # transfer at boot already sees them.
@@ -220,7 +234,7 @@ def _read_loop(board_ref: 'weakref.ref[EmulatedBoard]', process: _Process) -> No
 
 class EmulatedBoard:
     """One simulated board: its firmware process, the simulated hardware
-    behind it, and its USB link. Powered on by the first connection."""
+    behind it, and its USB link. Powered on when it is built."""
 
     def __init__(self, image: BoardImage):
         self._image = image
@@ -251,6 +265,10 @@ class EmulatedBoard:
         # Output held back by a late reply until the delay has passed.
         self._held = bytearray()
         self._holding = False
+        # Whether the power-on boot is still running: an open waits it out.
+        self._booting = False
+        with self._cond:
+            self._start(power_on=True)
 
     @property
     def label(self) -> str:
@@ -269,11 +287,14 @@ class EmulatedBoard:
 
     # -- process lifetime (every caller holds the board's lock) -------------
 
-    def _start(self) -> None:
+    def _start(self, power_on: bool = False) -> None:
+        """Start the firmware: as the board's power-on, whose boot is over
+        before an open returns, or as a restart, booting on the real clock."""
         if self._life.workdir is None:
             self._life.workdir = tempfile.mkdtemp(prefix='lvp_simwire_')
-        process = _Process(self._image, self._life.workdir, self._faults)
+        process = _Process(self._image, self._life.workdir, self._faults, power_on)
         self._life.process = process
+        self._booting = power_on
         self._tail = b''
         self._frame = None
         self._failure = None
@@ -292,6 +313,10 @@ class EmulatedBoard:
         process, self._life.process = self._life.process, None
         if process is not None:
             process.end()
+        # Nothing is booting with no process; an open waiting on the boot
+        # wakes to find what replaced it.
+        self._booting = False
+        self._cond.notify_all()
 
     def _running(self) -> bool:
         process = self._life.process
@@ -305,14 +330,35 @@ class EmulatedBoard:
     # -- the connection ----------------------------------------------------
 
     def _attach(self, port: 'EmulatedPort') -> None:
+        """Connect a port, once the board's power-on boot is over: at the
+        firmware's first command read, or at the REPL a firmware that failed
+        at boot leaves. The wait lets go of the board's lock, so what an open
+        needs is checked again each time it wakes: a reboot or another open
+        may have come in meanwhile.
+
+        Raises:
+            SerialException: the cable is unplugged, the port is open
+                elsewhere, or the boot was not over within ``POWER_ON_BOOT_S``.
+        """
+        deadline = time.monotonic() + POWER_ON_BOOT_S
         with self._cond:
-            if not self._plugged:
-                raise SerialException(f'{self.label}: no board: the cable is unplugged')
-            if self._port is not None:
-                raise SerialException(f'{self.label}: the port is already open elsewhere')
-            if not self._running():
-                self._stop()
-                self._start()
+            while True:
+                if not self._plugged:
+                    raise SerialException(f'{self.label}: no board: the cable is unplugged')
+                if self._port is not None:
+                    raise SerialException(f'{self.label}: the port is already open elsewhere')
+                if not self._running():
+                    self._stop()
+                    self._start()
+                if not self._booting or self._tail == REPL_PROMPT:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SerialException(
+                        f"{self.label}: the board's power-on boot was not over in "
+                        f'{POWER_ON_BOOT_S} s'
+                    )
+                self._cond.wait(remaining)
             self._port = port
 
     def _detach(self, port: 'EmulatedPort') -> None:
@@ -424,6 +470,9 @@ class EmulatedBoard:
         return bytes(to_driver)
 
     def _keep_frame(self, frame: bytes) -> None:
+        if channel.frame_kind(frame) == channel.BOOTED:
+            self._booting = False
+            return
         if not self._image.oracle:
             self._failure = f'{self.label}: the board sent an oracle frame with the oracle off'
             return

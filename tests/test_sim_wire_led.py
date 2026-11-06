@@ -408,12 +408,10 @@ def _read_for(port, seconds):
 
 
 def _booted_led_port():
+    # The open returns once the board's power-on boot is over, so the
+    # firmware is at its command loop.
     backend = SimWireBackend(None, led=LED)
     port = backend.open(port=LED_DEVICE, baudrate=115200, timeout=0.1, write_timeout=1)
-    deadline = time.monotonic() + 5
-    while b'Calibration' not in _read_for(port, 0.2):
-        if time.monotonic() > deadline:
-            raise AssertionError('the LED board never printed its INFO banner at boot')
     return backend, port
 
 

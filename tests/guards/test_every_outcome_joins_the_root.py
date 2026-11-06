@@ -14,7 +14,9 @@ The umbrellas (each class that names ``_Umbrella`` among its bases, such as
 
 Discovered, not listed: every class in ``src/_lumascope/modules/``, ``src/_lumascope/drivers/`` and
 ``src/_lumascope/rest/`` whose bases reach a built-in exception. The simulator walker's two
-(``ui/``) never reach an API caller and are not read.
+(``ui/``) never reach an API caller and are not read, and neither does the
+simulated boards' MicroPython side (``src/_lumascope/drivers/sim_wire/mp/``), which runs
+in the board's own process and imports what only MicroPython has.
 """
 
 from __future__ import annotations
@@ -46,12 +48,16 @@ _BUILTIN_EXCEPTIONS = {
     if isinstance(value, type) and issubclass(value, BaseException)
 }
 
+_MICROPYTHON_SIDE = REPO_ROOT / 'src/_lumascope/drivers/sim_wire/mp'
+
 
 def _exception_classes():
     """(module name, class name) for every exception class the API's layers define."""
     found = []
     for layer in ('src/_lumascope/modules', 'src/_lumascope/drivers', 'src/_lumascope/rest'):
         for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
+            if path.is_relative_to(_MICROPYTHON_SIDE):
+                continue
             tree = ast.parse(path.read_text(encoding='utf-8'))
             classes = {
                 node.name: [ast.unparse(base).split('.')[-1] for base in node.bases]

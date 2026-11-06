@@ -10,6 +10,8 @@
 #   ORACLE_START and ORACLE_END, bytes the firmware never prints, so a frame
 #   is found anywhere in the stream, not only at a line start. A frame's
 #   first word is its kind: W a write, S a state.
+# - The end of the board's power-on boot comes back as a B frame, with or
+#   without the oracle: the port holds a host's open until it has come.
 
 import json
 
@@ -18,12 +20,17 @@ ORACLE_END = 0x1F
 
 WRITE = 'W'
 STATE = 'S'
+BOOTED = 'B'
 
 # The environment variable naming the fault pipe's fd in the child. The fd
 # keeps its number across the launch, so no shell redirection moves it: dash,
 # Linux's sh, refuses one naming an fd above 9. A handle between the two
 # processes, like MICROPYPATH, not a setting.
 FAULTS_FD_ENV = 'SIM_WIRE_FAULTS_FD'
+
+# The environment variable set to '1' in a process the port starts as the
+# board's power-on, and absent in one it starts as a soft reset or a reboot.
+POWER_ON_ENV = 'SIM_WIRE_POWER_ON'
 
 
 def fault_line(on: bool, axis: str, name: str) -> bytes:
@@ -46,8 +53,12 @@ def state_frame(chip: str, state: list) -> str:
     return f'{chr(ORACLE_START)}{STATE} {chip} {json.dumps(state)}{chr(ORACLE_END)}'
 
 
+def booted_frame() -> str:
+    return f'{chr(ORACLE_START)}{BOOTED}{chr(ORACLE_END)}'
+
+
 def frame_kind(body: bytes) -> str:
-    """WRITE or STATE, from a frame's body without its start and end bytes."""
+    """WRITE, STATE or BOOTED, from a frame's body without its start and end bytes."""
     return body[:1].decode()
 
 
