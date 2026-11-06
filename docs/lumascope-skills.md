@@ -22,7 +22,9 @@ it rather than repeating it. The guide is this page and the files under
 > members are not in the reference and are outside the freeze.
 
 **Contents.** [What LumaViewPro is](#what-lumaviewpro-is) ·
-[Supported Lumascopes](#supported-lumascopes) · [Examples](#examples) ·
+[Supported Lumascopes](#supported-lumascopes) ·
+[The architecture at a glance](#the-architecture-at-a-glance) ·
+[The API at a glance](#the-api-at-a-glance) · [Examples](#examples) ·
 [The map](#the-map) · [Plugins](#plugins) · [Changelog](#changelog)
 
 ## What LumaViewPro is
@@ -41,6 +43,12 @@ This guide is for researchers who script an experiment and for developers who
 integrate a Lumascope into a larger system. LumaViewPro runs on Python 3.12 and
 3.13, on Windows, macOS and Linux.
 
+A Python program needs LumaViewPro's source: the installed app keeps the API
+inside its program file. LumaViewPro's install scripts make `lumascope`
+importable by the Python they install into
+([README](https://github.com/EtalumaSupport/LumaViewPro#getting-started)), and
+that Python runs your program. A REST client needs only a running server.
+
 ## Supported Lumascopes
 
 Every shipped Lumascope is supported. The models differ in what they have, and
@@ -52,6 +60,9 @@ caps = scope.capabilities                   # read once, when the scope came up
 print(caps.axes, caps.has_xy_stage, caps.has_turret)
 print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 ```
+
+Over REST it is `GET /api/v1/scope/capabilities`. `camera_model` names the
+sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
 
 | Model | Focus (Z) | XY stage | Turret | Channels | Controller |
 |---|---|---|---|---|---|
@@ -73,10 +84,58 @@ print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
   attached scope has, and which LEDs each drives, is `scope.channel_identity`
   ([Illumination](guide/light-and-camera.md#illumination)).
 - **EL-0940 models** have one mainboard carrying the LED controller and the
-  motor controller, and a Basler or IDS camera.
+  motor controller, and a Basler or IDS camera, either on any model
+  (`scope.capabilities.camera_model` says which).
 - **FX2 models** have one USB device that serves both the camera and the LEDs.
   The LS720 adds a TMCM-6110 motor board for X, Y and focus; the LS460, LS560
   and LS620 have no motion, and present identically, so the user selects which.
+
+## The architecture at a glance
+
+```text
+ Your program                       LumaViewPro's window
+ (Python script, REST client)       (one client of the same API)
+        |                                      |
+        v                                      |
+   REST server  --- one route per member ---   |
+        |                                      |
+        v                                      v
+ ScopeSession -- settings, protocols, runs, the control session, outcomes
+   v
+ Lumascope (session.scope) -- the instrument, one area per part
+   v
+ Drivers -- the motor board, the LED board, the camera
+   v
+ Hardware (or the simulator, which stands in for every board)
+```
+
+- **The session**, `ScopeSession`, one per microscope, is brought up by
+  `ScopeSession.create` the same way in every host, and owns the settings, runs,
+  captures, who may write, and outcomes. **The scope**, `session.scope`, is the
+  instrument, in the areas below.
+- **Python and REST are one API**: `scope.motion.move_z` is
+  `POST /api/v1/scope/motion/move_z`, with the same refusals, faults and
+  events. Commands from every caller run one at a time, in order.
+- **Every outcome is an exception** with a `reason`: a refusal (nothing was
+  done), a fault (something broke) or a notice.
+- **One client at a time may hold the scope** in a control session; a run, a
+  home or a recording holds it for its length.
+
+The detail is [concepts.md](guide/concepts.md).
+
+## The API at a glance
+
+| Area | What it does, and the members that matter | File |
+|---|---|---|
+| Bring-up and settings | `ScopeSession.create`, then `run_application_session()` to home; `update_settings` writes a setting by path. | [concepts](guide/concepts.md) |
+| `scope.motion` | Homes and moves the stage, focus and turret: `home`, `move_z`, `move_xy`, `move_to_well`, `move_turret`, `start_move_z`; `get_axis_limits` bounds every move. | [motion](guide/motion.md) |
+| `scope.illumination`, `scope.camera` | The LEDs (`led_on`, `leds_off`), the camera's settings (`set_exposure_ms`, `set_gain_db`), and `session.show_channel`, the channel a capture is named for. | [light-and-camera](guide/light-and-camera.md) |
+| Captures and files | A saved still (`session.manual_capture.capture`), a recording (`session.manual_recording.start`), and the record a saved file carries. | [captures-and-files](guide/captures-and-files.md) |
+| Protocols and runs | A protocol of steps (`create_empty_protocol`, `add_step`), run by `protocol_runner()` (`start_single_scan`, `start_protocol`), then post-processed (`post_processing.build`). | [runs](guide/runs.md) |
+| `scope.simulation` | Faults injected into a simulated scope. | [simulator](guide/simulator.md) |
+| The control session | `take_control`, `acting_in_control`, `end_control`. | [concepts](guide/concepts.md) |
+| REST's own routes | Jobs, handles, problems, events, the live view and files. | [rest](guide/rest.md) |
+| In-process Python | Operations, outcome listeners, a still as an image, live frames. | [python](guide/python.md) |
 
 ## Examples
 
@@ -96,8 +155,9 @@ LumaViewPro's source, a twin against the installed app or
 | `refusals_and_faults` | refusals and an injected fault |
 | `control_session` | the control session |
 
-Every example, script and twin, and every Python block and the REST
-walkthrough in this guide, runs on the simulator in LumaViewPro's test suite.
+Every example, script and twin, and every Python block of this guide but the
+one that serves until it is stopped, and the REST walkthrough, runs on the
+simulator in LumaViewPro's test suite.
 
 ## The map
 
@@ -117,6 +177,7 @@ it needs them. Every member, field and outcome is in the
 | Light a channel or set the camera, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [rest.md](guide/rest.md) |
 | Learn the REST API from a worked session with `curl` | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-walkthrough.md](guide/rest-walkthrough.md) |
 | Start a REST server, on this computer or for a client on another | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-serving.md](guide/rest-serving.md) |
+| Hear live frames or events, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md), [python-events.md](guide/python-events.md) |
 | Test against the simulator or inject a fault, in Python | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [python.md](guide/python.md) |
 | Test against the simulator or inject a fault, over REST | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [rest.md](guide/rest.md) |
 | Drive the scope from another acquisition engine, in Python | [concepts.md](guide/concepts.md), [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
@@ -130,7 +191,9 @@ session, and it uses the API this guide describes. How to write one, its
 lifecycle, and which plugin API level a host offers are in
 [`plugin-tutorial.md`](plugin-tutorial.md). The plugin contract -- the session's
 `plugins` and the namespaces' members the tutorial teaches -- freezes with the
-API at `4.0.0`; registering REST routes (`plugins.rest.register`) is outside it.
+API at `4.0.0`. A plugin cannot add REST routes in this release
+(`plugins.rest.register` is refused `'rest_namespace_reserved'`), and that
+namespace is outside the freeze.
 
 ## Changelog
 
@@ -140,8 +203,8 @@ change. Before `4.0.0` the API is fluid by design, and nothing is recorded here.
 | Version | Date | Type | Member | Change |
 |---|---|---|---|---|
 
-- **Type** `additive` (a new optional argument, field or member): no version
-  bump beyond the patch.
+- **Type** `additive` (a new optional argument, field or member): a minor
+  version bump (4.x.0); a patch bump is fixes only.
 - **Type** `behavior-change`: a minor version bump.
 - **Type** `rename` / `removal`: a deprecation cycle (the old name kept with a
   `FutureWarning`, removed in the next major version), or a major version bump.

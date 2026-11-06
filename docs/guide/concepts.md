@@ -1,52 +1,12 @@
 # Concepts
 
-How the API fits together, and what every task uses: the architecture, bringing a session up, outcomes, who may act, state and settings, and units.
+What every task uses: the architecture's detail, outcomes, bringing a session up, who may act, state and settings, and units.
 
 ## Architecture
 
-```text
- Your program                       LumaViewPro's window
- (Python script, REST client)       (one client of the same API)
-        |                                      |
-        v                                      |
-   REST server  --- one route per member ---   |
-        |                                      |
-        v                                      v
- ScopeSession -- settings, protocols, runs (protocol_runner), the control session, outcomes
-   |  manual_capture   manual_recording   post_processing
-   v
- Lumascope (session.scope) -- the instrument
-   |  motion   illumination   camera   imaging   capabilities
-   |  channel_identity   runtime_state   diagnostics   simulation
-   v
- Drivers -- the motor board, the LED board, the camera
-   v
- Hardware (or the simulator, which stands in for every board)
-```
-
-**The session.** `ScopeSession` is the entry point: one session per
-microscope. It owns the user's settings, builds and runs protocols, takes stills
-and recordings, post-processes what was saved, decides who may write to the
-scope, and reports outcomes. `ScopeSession.create` builds the scope beneath it,
-so every host -- the GUI, the REST server, your script -- brings a scope up the
-same way.
-
-**The scope.** `session.scope` is the `Lumascope`: the instrument, split into
-sub-APIs, one per part.
-
-| Sub-API | What it does |
-|---|---|
-| `scope.motion` | moves the stage, the focus and the turret |
-| `scope.illumination` | lights the LEDs |
-| `scope.camera` | holds the camera's settings |
-| `scope.imaging` | takes frames |
-| `scope.capabilities` | says what this scope has |
-| `scope.channel_identity` | names its channels |
-| `scope.runtime_state` | answers derived state: the objective, the pixel size, plate coordinates |
-| `scope.diagnostics` | reads the boards for support |
-| `scope.simulation` | injects faults into a simulated scope |
-| `scope.labware`, `scope.objectives`, `scope.scope_models`, `scope.settings_template` | the installation's catalogues: plates, objectives, models, and the settings template |
-| `scope.unconnected_parts()`, `scope.no_hardware`, `scope.motion_expected` | what came up: the parts not connected, whether none did, whether this model has motion |
+The layers, the session and the scope's areas are the hub's
+[architecture at a glance](../lumascope-skills.md#the-architecture-at-a-glance);
+this is their detail.
 
 **The lanes.** Each lane is one thread: the IO lane runs every LED and motion
 command, the CAMERA lane every camera command, each one at a time in the order

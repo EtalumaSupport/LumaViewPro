@@ -54,7 +54,7 @@ settings reach the camera; a run and a go-to-step move it too. Its `lit` is
 what the LEDs read, whoever lit or darkened them: after a raw
 `illumination.leds_off()` it is dark, and the next channel shown is dark too.
 Each move of the shown channel and each LED change is an event
-([Events and listeners](python.md#events-and-listeners);
+([Events and listeners](python-events.md#events-and-listeners);
 [The event stream](rest.md#the-event-stream)).
 
 ```python
