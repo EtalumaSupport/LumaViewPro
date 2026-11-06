@@ -74,3 +74,16 @@ def test_a_body_refused_by_its_route_is_logged_too(client, caplog):
     assert answer.status_code == 415
     (record,) = _logged(caplog, answer.headers['X-Request-ID'])
     assert '-> 415' in record.getMessage()
+
+
+def test_the_rest_log_keeps_a_request_and_no_other_line(client, caplog):
+    from _lumascope.lvp_logger import RestAPIFilter
+
+    caplog.set_level(logging.INFO, logger='lvp_logger.rest')
+    answer = client.get('/api/v1/no_such_member')
+    (request,) = _logged(caplog, answer.headers['X-Request-ID'])
+    other = logging.LogRecord('lvp_logger', logging.INFO, '', 0, 'a main-log line', (), None)
+
+    keeps = RestAPIFilter()
+    assert keeps.filter(request)
+    assert not keeps.filter(other)

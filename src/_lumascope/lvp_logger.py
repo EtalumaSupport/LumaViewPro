@@ -262,9 +262,7 @@ kivy_logger = logging.getLogger('kivy')
 
 # Re-exported from _lumascope.lib.log_helpers so callers can `from
 # _lumascope.lvp_logger import log_to` next to `logger` without learning a separate import
-# path. The pure implementation lives in src/_lumascope/lib/ because conftest mocks
-# lvp_logger wholesale during pytest, and tests need to exercise the
-# real log_to.
+# path.
 from _lumascope.lib.log_helpers import log_to  # noqa: F401  intentional re-export so callers can import log_to from lvp_logger
 
 

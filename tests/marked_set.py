@@ -64,8 +64,7 @@ def project_modules() -> tuple[types.ModuleType, ...]:
     """Every module of every ``wire_encoding.PROJECT_PACKAGES`` package, imported.
 
     A package's modules are what ``pkgutil`` lists, as the wire's own walk
-    of ``src/_lumascope/modules/`` lists them. A stand-in the conftest installs for a whole
-    package (``lvp_logger``) is no module and holds no mark.
+    of ``src/_lumascope/modules/`` lists them.
 
     Raises:
         ImportError: A module does not import; the error names it.
@@ -79,11 +78,9 @@ def project_modules() -> tuple[types.ModuleType, ...]:
     found = []
     for name in names:
         try:
-            module = importlib.import_module(name)
+            found.append(importlib.import_module(name))
         except Exception as error:
             raise ImportError(f'{name} does not import, so its marks cannot be read') from error
-        if isinstance(module, types.ModuleType):
-            found.append(module)
     return tuple(found)
 
 

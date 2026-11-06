@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 from tests.protocol_fixtures import protocol_of
 
 
-# Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
+# Heavy non-GUI deps (pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. The kivy mock from conftest
 # gets purged below -- this test deliberately verifies the protocol chain
 # loads without any kivy module present.

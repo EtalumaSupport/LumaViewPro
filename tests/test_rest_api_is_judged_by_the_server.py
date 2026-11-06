@@ -119,7 +119,7 @@ def _installation_with(rest_api: dict):
     return root
 
 
-def test_the_headless_server_prints_it_and_exits_1(monkeypatch, capsys):
+def test_the_headless_server_prints_it_and_exits_1(monkeypatch, capsys, a_host_in_this_process):
     import _lumascope.modules.path_utils
     from _lumascope.rest.headless import main
 

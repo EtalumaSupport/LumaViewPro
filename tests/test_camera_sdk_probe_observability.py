@@ -72,8 +72,8 @@ def test_probe_names_the_import_failure_reason(monkeypatch):
 
 
 def test_environment_banner_consumes_the_import_probe():
-    """Source-text pin (lvp_logger is conftest-mocked, so its code cannot be
-    driven in tests): the banner takes the probe's lines from its caller --
+    """Source-text pin (the banner is written once per process, and a test
+    process's first session has written it): the banner takes the probe's lines from its caller --
     it must not carry its own metadata-based camera-SDK lines. That the
     session's bring-up hands it the probe's output, and every probe line
     reaches the log, is driven in a real process by

@@ -3,8 +3,8 @@
 
 The suite's ``lvp_logger`` stand-in once handed production a MagicMock for
 its loggers, so a test that went red said nothing of why: a capture's
-give-up line and a run's strike line were dropped. The stand-in now hands
-out the real loggers under their production names, and the session's
+give-up line and a run's strike line were dropped. The suite now runs the
+real module, its log files declined, and the session's
 process-wide log settings are put back after each test, so what a red's
 captured log holds does not depend on what ran before it on the worker.
 """

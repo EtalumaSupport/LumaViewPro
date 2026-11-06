@@ -20,7 +20,6 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 import faulthandler
 import functools
 import gc
-import importlib
 import json
 import logging
 import os
@@ -127,8 +126,8 @@ if BENCH_RUN:
 
 def install_mock_deps():
     """Install MagicMock stand-ins for the layers a test never has: the GUI
-    (kivy), the camera SDKs, the USB bus, the network client (requests), the
-    user directories (platformdirs) and the logger.
+    (kivy), the camera SDKs, the USB bus, the network client (requests) and
+    the user directories (platformdirs).
 
     Never a library the test runner itself reads: pytest-xdist takes its
     auto worker count from psutil.cpu_count(), and a mock there builds zero
@@ -137,38 +136,9 @@ def install_mock_deps():
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
     """
-    mock_lvp_logger = MagicMock()
-    # The module stays a stand-in, since importing it opens a rotating file
-    # in the source tree's log folder; its loggers are the real ones under
-    # their production names, so what production writes reaches the test's
-    # captured log and a red says why. Unlike production, the camera,
-    # protocol and metrics loggers propagate, or the run's strike line
-    # would not reach caplog; a line production writes to both the main
-    # and the camera log is therefore captured twice, and a test counting
-    # lines filters by record.name.
-    mock_lvp_logger.logger = logging.getLogger('lvp_logger')
-    mock_lvp_logger.camera_logger = logging.getLogger('LVP.camera')
-    mock_lvp_logger.protocol_logger = logging.getLogger('LVP.protocol')
-    mock_lvp_logger.metrics_logger = logging.getLogger('LVP.metrics')
-    mock_lvp_logger.version = 'test'
-    # The build identity as the real module answers it for a source tree with
-    # no commit to name: a record that writes it into JSON gets a string or
-    # None, never a MagicMock that cannot be serialized.
-    mock_lvp_logger.build_timestamp = ''
-    mock_lvp_logger.git_revision = MagicMock(return_value=None)
-    # Real writable path: production code (e.g. diagnostics probes) now reads
-    # log_dir to place output under the log folder. Without this it would be an
-    # auto-MagicMock, and Path(mock) -> Path('MagicMock/mock.log_dir/<id>'),
-    # which mkdir() leaks into the repo root.
-    mock_lvp_logger.log_dir = tempfile.gettempdir()
-    mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-    mock_lvp_logger.unpause_thread = MagicMock()
-    mock_lvp_logger.pause_thread = MagicMock()
-
     deps = {
         # General heavy deps
         'platformdirs': MagicMock(),
-        '_lumascope.lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
         'kivy': MagicMock(),
@@ -203,14 +173,19 @@ def install_mock_deps():
         if name in _skip_mocks:
             continue
         sys.modules.setdefault(name, mock_mod)
-        # A stand-in inside the API's package is bound on the package too, as
-        # the import system binds a module it loads, so `_lumascope.lvp_logger.x`
-        # reads the stand-in.
-        package, _, child = name.rpartition('.')
-        if package == '_lumascope':
-            setattr(importlib.import_module(package), child, sys.modules[name])
 
     _install_kivy_uix_stubs()
+
+    # The simulator suite runs the real logger with its files declined, so no
+    # session opens the log folder, and what production saves beside the logs
+    # (a diagnostics run's results) goes to the temporary folder: a simulated
+    # result is never the instrument's. A bench run keeps its files and its
+    # folder.
+    if not BENCH_RUN:
+        import _lumascope.lvp_logger
+
+        _lumascope.lvp_logger.log_dir = tempfile.gettempdir()
+        _lumascope.lvp_logger.start_logging(log_files=False)
 
 
 class StubWidget:
@@ -684,6 +659,21 @@ def post_processing():
 
     with a_post_processing_api() as api:
         yield api
+
+
+@pytest.fixture
+def a_host_in_this_process(monkeypatch):
+    """A host's ``main()`` run inside the test process takes none of the process's logging or crash hooks.
+
+    A stand-in by design: a host owns its process, so its ``main()`` starts
+    the program's logging and installs the crash hooks; the test process is
+    the suite's, whose logging is declined once at its start, so the real
+    start is refused there and the real hooks would outlive the test.
+    """
+    import _lumascope.lvp_logger
+
+    monkeypatch.setattr(_lumascope.lvp_logger, 'start_program_logging', lambda: None)
+    monkeypatch.setattr(_lumascope.lvp_logger, 'install_crash_hooks', lambda: None)
 
 
 @pytest.fixture

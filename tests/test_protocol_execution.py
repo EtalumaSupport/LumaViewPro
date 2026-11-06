@@ -23,7 +23,7 @@ import pytest
 
 from _lumascope.modules.lumascope_api.illumination import LedState
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# Heavy deps (kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
 

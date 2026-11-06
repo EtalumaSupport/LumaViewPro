@@ -6,8 +6,8 @@ A backup is named from the file name alone: ``lumaviewpro.log.1`` becomes
 that does not exist whenever a folder above the log had ``.log`` in its name
 (a Windows user ``j.logan``), and from that rollover on every record was lost.
 
-The suite's conftest stands a MagicMock in for ``lvp_logger``, so each test
-runs the real module in a child process.
+Logging starts once per process, and the suite's has declined its files
+(``tests/conftest.py``), so each test starts it in a child process.
 """
 
 import json

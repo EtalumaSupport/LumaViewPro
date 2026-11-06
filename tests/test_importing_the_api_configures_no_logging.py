@@ -13,7 +13,7 @@ starts its logging on root itself. A start asking for anything other than
 what the process has is refused, and changes nothing.
 
 Each case is a fresh interpreter: logging is process-wide, and the suite's
-conftest stands a MagicMock in for ``lvp_logger``.
+process has started its own, with no files (``tests/conftest.py``).
 """
 
 from __future__ import annotations

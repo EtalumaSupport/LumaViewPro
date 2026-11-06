@@ -6,9 +6,9 @@ there was logged at every launch and reached the error log, reporting the
 expected state as a fault. A run from ``python.exe`` has one, and lvp_logger
 minimizes it.
 
-Each runs in a child Python: the suite replaces ``lvp_logger`` with a stand-in
-(``tests/conftest.py``), so only a fresh interpreter imports the real one. The
-child swaps the logger's file handlers for a list, so nothing reaches this
+Each runs in a child Python: logging starts once per process, and the
+suite's has declined its files (``tests/conftest.py``), so only a fresh
+interpreter starts it. The child swaps the logger's file handlers for a list, so nothing reaches this
 checkout's logs.
 """
 

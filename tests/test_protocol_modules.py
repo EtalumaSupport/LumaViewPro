@@ -13,7 +13,7 @@ import datetime
 import threading
 from unittest.mock import MagicMock
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# Heavy deps (kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
 import pytest

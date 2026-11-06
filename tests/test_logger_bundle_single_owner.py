@@ -15,8 +15,8 @@ logger roots, which still propagate to the integrator's root. In both, a
 warning from each of `LVP.*`, `lvp_logger` and (for a program) `kivy` lands
 once in the main log and once in the errors log.
 
-Run in a child per shape: logging is process-wide, and the suite's conftest
-stands a MagicMock in for ``lvp_logger``.
+Run in a child per shape: logging is process-wide, and the suite's process
+has started its own, with no files (``tests/conftest.py``).
 """
 
 from __future__ import annotations

@@ -10,8 +10,9 @@ The trace logs also name the thread that wrote each line: the instrument's
 commands are serialized onto lane workers, and which thread sent a command is
 what separates a lane's own write from one made beside it.
 
-The suite's conftest stands a MagicMock in for ``lvp_logger``, so the real
-module runs in a child process with its logs under a temporary data root.
+Logging starts once per process, and the suite's has declined its files
+(``tests/conftest.py``), so the start runs in a child process with its logs
+under a temporary data root.
 """
 
 from __future__ import annotations

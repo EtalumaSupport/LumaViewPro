@@ -8,35 +8,36 @@ swamping it. protocol_image_writer now logs through a dedicated
 serial / camera / metrics split, so the main log stays readable while the
 full run history is preserved.
 
-The suite's conftest mocks lvp_logger wholesale, so the lane is checked in
-a child that starts the real one; the bindings are source scans.
+The suite's process declines the log files once, at its start, so the lane's
+files are checked in a child that starts a LumaViewPro program's logging.
 """
 
 import json
+import logging
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _src(rel):
-    return (REPO_ROOT / rel).read_text()
-
-
-# A LumaViewPro program's start, in a child: the suite's conftest stands a
-# MagicMock in for lvp_logger, so only a fresh interpreter starts the real one.
+# A LumaViewPro program's start, in a child: logging starts once per process,
+# and the suite's has declined its files.
 _STARTED = """
-import json, logging, sys
+import json, logging, os, sys
 sys.path.insert(0, 'src')
 from _lumascope import lvp_logger
 lvp_logger.start_program_logging()
+before_a_line = os.path.exists(lvp_logger.PROTOCOL_LOG_FILE)
 lane = logging.getLogger('LVP.protocol')
 lane.info('a protocol step line')
 for handler in (*lane.handlers, lvp_logger.file_handler):
     handler.flush()
 print(json.dumps({
+    'protocol_log_before_a_line': before_a_line,
     'propagate': lane.propagate,
     'protocol_log': open(lvp_logger.PROTOCOL_LOG_FILE, encoding='utf-8').read(),
     'main_log': open(lvp_logger.LOG_FILE, encoding='utf-8').read(),
@@ -44,11 +45,10 @@ print(json.dumps({
 """
 
 
-def test_a_protocol_line_goes_to_protocol_log_and_not_the_main_log(tmp_path):
-    """Once logging starts, the LVP.protocol lane writes protocol.log and does
-    not propagate into the main log."""
-    folder = tmp_path / 'launch'
-    folder.mkdir()
+@pytest.fixture(scope='module')
+def started(tmp_path_factory):
+    """What a started program's protocol lane did, read once for the module's tests."""
+    folder = tmp_path_factory.mktemp('launch')
     for item in ('src', 'version.txt'):
         (folder / item).symlink_to(REPO_ROOT / item)
     shutil.copytree(REPO_ROOT / 'data', folder / 'data')
@@ -60,28 +60,19 @@ def test_a_protocol_line_goes_to_protocol_log_and_not_the_main_log(tmp_path):
         timeout=120,
     )
     assert done.returncode == 0, done.stderr[-3000:]
-    state = json.loads(done.stdout.strip().splitlines()[-1])
-
-    assert state['propagate'] is False
-    assert 'a protocol step line' in state['protocol_log']
-    assert 'a protocol step line' not in state['main_log']
+    return json.loads(done.stdout.strip().splitlines()[-1])
 
 
-def test_protocol_image_writer_uses_protocol_logger():
-    """protocol_image_writer -- the per-step narrative bulk -- must log
-    through the dedicated protocol logger, not the root logger."""
-    # pin-justified: import-binding contract; conftest mocks lvp_logger
-    # wholesale, so the binding cannot be observed at runtime in pytest.
-    src = _src('src/_lumascope/modules/protocol_image_writer.py')
-    assert 'from _lumascope.lvp_logger import protocol_logger as logger' in src, (
-        'protocol_image_writer must bind its module logger to '
-        'protocol_logger so its per-step detail lands in protocol.log'
-    )
+def test_a_protocol_line_goes_to_protocol_log_and_not_the_main_log(started):
+    """Once logging starts, the LVP.protocol lane writes protocol.log and does
+    not propagate into the main log."""
+    assert started['propagate'] is False
+    assert 'a protocol step line' in started['protocol_log']
+    assert 'a protocol step line' not in started['main_log']
 
 
-def test_protocol_log_file_created_lazily():
-    """The protocol.log handler must use delay=True so the file appears
-    only when a stills protocol actually logs through the lane.
+def test_protocol_log_file_created_lazily(started):
+    """protocol.log appears only when a line goes through the lane.
 
     An eagerly-created handler left a 0-byte protocol.log on every
     launch, making 'no stills protocol ran this session' (including
@@ -89,14 +80,12 @@ def test_protocol_log_file_created_lazily():
     With lazy creation, absence is data -- the same contract autofocus.log
     and serial.log already carry.
     """
-    # pin-justified: handler construction; conftest mocks lvp_logger
-    # wholesale, so the real handler never instantiates in pytest.
-    src = _src('src/_lumascope/lvp_logger.py')
-    idx = src.find('protocol_file_handler = _rotating_handler')
-    assert idx != -1, 'lvp_logger must construct protocol_file_handler'
-    window = src[idx : idx + 300]
-    assert 'delay=True' in window, (
-        'protocol_file_handler must set delay=True: a 0-byte protocol.log '
-        'created at import makes a session with no stills protocol '
-        'indistinguishable from a broken lane; absence is the signal'
-    )
+    assert started['protocol_log_before_a_line'] is False
+
+
+def test_protocol_image_writer_uses_protocol_logger():
+    """protocol_image_writer -- the per-step narrative bulk -- logs through
+    the dedicated protocol lane, so its per-step detail lands in protocol.log."""
+    from _lumascope.modules import protocol_image_writer
+
+    assert protocol_image_writer.logger is logging.getLogger('LVP.protocol')

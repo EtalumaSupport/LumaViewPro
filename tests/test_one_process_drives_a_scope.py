@@ -292,7 +292,7 @@ def test_a_simulated_scope_takes_no_lock(no_hardware):
         scope.disconnect()
 
 
-def test_the_server_does_not_start_beside_a_holder(capsys):
+def test_the_server_does_not_start_beside_a_holder(capsys, a_host_in_this_process):
     from _lumascope.modules.app_config import get_lvp_lock_port
     from _lumascope.rest.headless import main
 

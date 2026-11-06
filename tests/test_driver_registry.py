@@ -15,8 +15,6 @@ import logging
 import sys
 import threading
 
-# Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
-# module-import time.
 
 import pytest
 

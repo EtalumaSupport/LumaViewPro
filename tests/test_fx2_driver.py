@@ -32,7 +32,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-# Heavy deps (lvp_logger, kivy, usb, usb1, ...) are mocked by
+# Heavy deps (kivy, usb, usb1, ...) are mocked by
 # tests/conftest.py at module-import time. The _FX2Connection.get()
 # monkeypatch in fixtures below ensures tests never touch real USB.
 

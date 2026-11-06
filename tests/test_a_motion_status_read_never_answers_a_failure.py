@@ -29,6 +29,7 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
 )
 from _lumascope.modules.lumascope_api._constants import AxisState
+from tests.log_capture import messages, records_of
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
@@ -175,20 +176,18 @@ def test_a_home_whose_switch_read_fails_still_homes(make_session):
     assert all(axis not in scope.motion.axes_without_position() for axis in scope.capabilities.axes)
 
 
-def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, monkeypatch):
+def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, caplog):
     import _lumascope.modules.lumascope_api.motion as motion_module
 
     session = make_session('LS850', homed=False)
     scope = session.scope
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
-    # The line is the product; the module's logger is a stand-in in the test process.
-    lines = []
-    monkeypatch.setattr(
-        motion_module.logger, 'info', lambda message, *a, **kw: lines.append(str(message))
-    )
 
-    scope.motion.home()
+    # The line is the product.
+    with caplog.at_level(logging.INFO, logger='lvp_logger'):
+        scope.motion.home()
 
+    lines = messages(records_of(caplog, motion_module))
     before = [line for line in lines if 'before homing' in line]
     assert len(before) == 1, before
     assert "'Z': 'unread (" in before[0]

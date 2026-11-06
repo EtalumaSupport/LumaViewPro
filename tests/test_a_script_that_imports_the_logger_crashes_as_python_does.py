@@ -7,8 +7,8 @@ prints Python's own traceback on stderr. ``install_crash_hooks()`` is how an
 application (LumaViewPro, the REST server) takes LumaViewPro's crash policy:
 the crash recorded in its log.
 
-Each runs in a child Python: the suite replaces ``lvp_logger`` with a stand-in
-(``tests/conftest.py``), so only a fresh interpreter imports the real one.
+Each runs in a child Python: what a script's process does at a crash is the
+process's own, and the suite's process is the suite's (``tests/conftest.py``).
 """
 
 from __future__ import annotations

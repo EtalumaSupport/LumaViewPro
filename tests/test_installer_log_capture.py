@@ -347,7 +347,9 @@ def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
     assert target.read_bytes() == corrupt, 'an undecodable log must survive intact'
 
 
-def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkeypatch):
+def test_an_installed_rest_server_captures_them_as_the_gui_does(
+    tmp_path, monkeypatch, a_host_in_this_process
+):
     # Every installed host captures. The server is stopped right after, at
     # its instance lock, held here on a port this test's settings name.
     from _lumascope.modules import path_utils
@@ -355,7 +357,7 @@ def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkey
     from _lumascope.rest.headless import main
 
     documents = tmp_path / 'Documents'
-    # platformdirs and lvp_logger are conftest stand-ins.
+    # platformdirs is a conftest stand-in.
     monkeypatch.setattr(sys.modules['platformdirs'], 'user_documents_dir', lambda: str(documents))
     log_dir = tmp_path / 'logs'
     monkeypatch.setattr(sys.modules['_lumascope.lvp_logger'], 'log_dir', str(log_dir))

@@ -16,7 +16,6 @@ from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
-import logging
 import os
 import threading
 from unittest.mock import MagicMock
@@ -26,7 +25,7 @@ import pytest
 from tests.protocol_drives import run_identity
 from tests.stock_channels import LED0, LED1, LED2
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# Heavy deps (kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
 
@@ -870,24 +869,6 @@ class TestRestAPIPrep:
         img = np.zeros((100, 100), dtype=np.uint8)
         with pytest.raises(ValueError, match='Unsupported'):
             encode_image(img, 'bmp')
-
-    def test_rest_api_log_filter_logic(self):
-        """RestAPIFilter logic: only pass records with api_request=True."""
-
-        # Replicate the filter logic here since lvp_logger is mocked in this test file
-        class RestAPIFilter(logging.Filter):
-            def filter(self, record):
-                return bool(getattr(record, 'api_request', False))
-
-        filt = RestAPIFilter()
-
-        # Normal records should be filtered out
-        record = logging.LogRecord('test', logging.INFO, '', 0, 'test', (), None)
-        assert filt.filter(record) is False
-
-        # Records with api_request=True should pass
-        record.api_request = True
-        assert filt.filter(record) is True
 
     def test_get_current_objective_none_by_default(self):
         """get_current_objective() should return None before setting one.

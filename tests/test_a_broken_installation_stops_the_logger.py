@@ -7,8 +7,8 @@ the installation's own ``settings.json`` cannot answer, the start raises
 bootloader shows, and the main log records it once as a crash; reading the
 flag as off would hide the broken installation behind a quieter log.
 
-The suite's conftest stands a MagicMock in for ``lvp_logger``, so the real
-module is imported in a child process, frozen with its executable in a
+Logging starts once per process, and the suite's has declined its files
+(``tests/conftest.py``), so the start runs in a child process, frozen with its executable in a
 scratch folder so its data root is that folder.
 """
 
