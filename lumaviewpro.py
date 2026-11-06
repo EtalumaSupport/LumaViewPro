@@ -1220,16 +1220,16 @@ class LumaViewProApp(TooltipMixin, App):
         # follows a run's steps as they light, so the stats follow the firing
         # LED. The thread reads it under _config_lock at each frame start;
         # staleness is bounded by 33ms (one tick).
-        def _publish_layer_config(dt):
+        def _publish_channel_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
             ctx.scope_display_thread.update_channel_config(
                 ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
             )
 
-        Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
+        Clock.schedule_interval(_publish_channel_config, 1.0 / 30)
 
-        # Clear app initialization flag and apply settings for the default opened layer
+        # Clear app initialization flag and apply settings for the default opened channel
         def complete_initialization(dt):
             if ctx is not None:
                 ctx.ready = True
@@ -1243,10 +1243,10 @@ class LumaViewProApp(TooltipMixin, App):
                     logger.warning(f'[INIT      ] Z slider sync failed: {e}')
 
                 settings = ctx.settings
-                for layer in common_utils.get_channels():
-                    ls = settings[layer]
+                for channel in common_utils.get_channels():
+                    ls = settings[channel]
                     logger.info(
-                        f'[INIT      ] {layer:6s}: gain={ls["gain_db"]:>6}, '
+                        f'[INIT      ] {channel:6s}: gain={ls["gain_db"]:>6}, '
                         f'exp={ls["exposure_ms"]:>8}ms, ill={ls["illumination_ma"]:>6}mA, '
                         f'af={ls["autofocus"]}, acquire={ls["acquire"]}'
                     )

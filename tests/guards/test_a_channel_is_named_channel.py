@@ -1,26 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A channel is called a channel: no new identifier says ``layer``.
+"""A channel is called a channel: no identifier says ``layer``.
 
 A channel (``BF``, ``PC``, ``Ex405``, ..., ``Composite``) is named
 ``channel`` wherever code names it; ``layer`` is the old word for the same
-fact, and every member written since the word was ruled chose its own.
-The sweep renames the old sites a commit at a time, so this is a
-ratchet first: each guarded file holds at most the ``layer`` identifiers
-its pin states, and a commit that renames some lowers its file's pin to
-what it leaves. When every pin is zero the table goes and this is a ban.
+fact, and every member written before the word was enforced chose its own.
 
-Counted, in the guarded folders (``drivers/`` keeps its own vocabulary):
+Refused, in the guarded folders (``drivers/`` keeps its own vocabulary):
 every def, class, parameter, name, attribute, keyword argument and
 imported name or module whose words include ``layer`` or ``layers``,
 split on underscores and on case (``LayerControl``, ``_shown_layer``,
-``_LAYER_DISPLAY_ORDER``, ``ui.layer_control``). Not counted: string
+``_LAYER_DISPLAY_ORDER``, ``ui.layer_control``). Not read: string
 contents, which no walk can judge (the protocol file's ``Layer`` column
 stays as saved), and ``color``, whose channel sites are per-site
 judgment, read at each commit's review.
 
-A file over its pin fails with its sites named: rename the new one to
-``channel``. A file under its pin fails too, so the pin falls in the
-commit that renamed the sites.
+A site fails with its file and line named: rename it to ``channel``.
 """
 
 from __future__ import annotations
@@ -29,18 +23,12 @@ import ast
 import re
 from collections import Counter
 
-from tests import ratchets as _ratchets
 from tests.ast_seams import Packages, Words, iter_package_modules, parse_module
 
 GUARDED = Packages({'src/_lumascope/modules', 'src/_lumascope/rest', 'src/_lumascope/lib', 'ui'})
 GUARDED_MODULES = ('lumaviewpro.py',)
 
 THE_OLD_WORD = Words({'layer', 'layers'})
-
-# Each guarded file holding a `layer` identifier, and how many it holds.
-_PIN: dict[str, int] = {
-    'lumaviewpro.py': 5,
-}
 
 _WORD = re.compile(r'[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+')
 
@@ -81,29 +69,12 @@ def _guarded_modules():
         yield path, parse_module(path)
 
 
-def test_no_new_identifier_says_layer():
-    sites = {path: _sites(tree) for path, tree in _guarded_modules()}
-    counts = Counter({path: len(found) for path, found in sites.items() if found})
-    _ratchets.observe(
-        'Names: identifiers saying `layer` for a channel',
-        sum(counts.values()),
-        sum(_PIN.values()),
-        'equal',
+def test_no_identifier_says_layer():
+    sites = {path: found for path, tree in _guarded_modules() if (found := _sites(tree))}
+    assert not sites, 'a channel is called `channel`; rename these `layer` sites: ' + '; '.join(
+        f'{path}: ' + ', '.join(f'{line} {name}' for line, name in found)
+        for path, found in sites.items()
     )
-    over = {path: sites[path] for path in counts if counts[path] > _PIN.get(path, 0)}
-    assert not over, (
-        'a channel is called `channel`; these files name more `layer` sites '
-        'than their pins: '
-        + '; '.join(
-            f'{path} ({counts[path]} > pin {_PIN.get(path, 0)}): '
-            + ', '.join(f'{line} {name}' for line, name in found)
-            for path, found in over.items()
-        )
-    )
-    under = {
-        path: (counts.get(path, 0), pin) for path, pin in _PIN.items() if counts.get(path, 0) < pin
-    }
-    assert not under, 'lower these pins to what the rename left (count, pin): ' + repr(under)
 
 
 def test_the_census_sees_each_shape_of_name():
