@@ -8,13 +8,17 @@ Frame validity, which channel a still is, saved stills, and what a saved file ho
 moved -- the camera keeps delivering frames that were exposed before the change
 took effect. A capture waits until a frame counts for every recorded change,
 by counting frames: a frame counts once the change's source's count of frames
-has arrived since the change (a move's since its stop), the count the camera's
-timing record measured, else the shipped one. `scope.capabilities.frame_rules`
-answers each source's count, and `scope.imaging.changes_in_force()` whether a
-frame arriving now would count
-(`GET /api/v1/scope/imaging/changes_in_force`). A capture never infers validity from pixel content; when the scope keeps
-changing longer than its budget, it raises `CaptureFailedError`
-(`'deadline_expired'`). A recording, manual or a run's video step, waits the
+has arrived since the change (a move's since its stop): the count the camera's
+timing record measured -- for a Z or turret move the largest it holds over the
+models the camera ships in, while an XY move keeps its shipped count -- else the
+shipped one. `scope.capabilities.frame_rules` answers each source's count, and
+`scope.imaging.changes_in_force()` whether a frame arriving now would count. A
+capture never infers validity from pixel content, though a gain or exposure
+frame whose own chunk data disagrees with the change is not counted. When the
+scope keeps changing past the capture's deadline it raises
+`CaptureFailedError` (`'deadline_expired'`); its other reasons -- no frame, no
+fresh frame, a rejected chunk, a record it could not read -- are
+[its reference's](../api-reference.md#CaptureFailedError). A recording, manual or a run's video step, waits the
 same before its first frame, so it keeps no frame made before a change was in
 force; a manual start whose change does not come into force within a capture's
 limit is refused, `RecordingRefusedError` (`'changes_not_in_force'`).
@@ -52,6 +56,22 @@ assert saved[0].well_label == 'B2' and saved[0].statistics.maximum > 0   # at B2
 scope.illumination.leds_off()
 ```
 
+**A recording.** `session.manual_recording.start()` starts the recording
+LumaViewPro's Record button starts and returns its `Operation`: `stop()` ends
+it, and `result()` answers a `RecordingFinished`, its `end_reason` and
+`save_wait_s`. It keeps at most `video.max_fps` frames a second (0, shipped, is
+every frame) for at most `video.max_duration_s`, as numbered TIFFs when
+`video_as_frames` is set and as an MP4 otherwise ([Saved files](#saved-files));
+`is_recording` and `elapsed_s` answer where it stands. A start that cannot
+record is refused `RecordingRefusedError`.
+
+```python
+recording = session.manual_recording.start()
+recording.stop()
+finished = recording.result(timeout=60)
+print(finished.end_reason, finished.save_wait_s)   # why it ended, and how long saving ran on
+```
+
 A bare image carries no record. A file with the instrument's record in it is
 saved by the API that took the frame -- a still, a run, a recording -- and
 never by your program from the array ([Saved files](#saved-files)).
@@ -60,32 +80,38 @@ never by your program from the array ([Saved files](#saved-files)).
 
 **What a still holds.** A still is saved under the live folder in the format
 the settings name (`OutputFormat`: TIFF, OME-TIFF or JPG; a run may instead
-build an OME-TIFF hyperstack per well). A fluorescence
-still is mono: its false colour is a choice made when it is shown, never in its
-pixels. A frame deeper than 8 bits keeps the sensor's values right-aligned (a
-12-bit frame is 0 to 4095 in a 16-bit container), and the file states the true
-depth as `SignificantBits`: divide by `(1 << SignificantBits) - 1` to scale it,
-never by 65535. A sum of frames states the bits it can reach -- 14 for four
-12-bit frames -- and `FramesSummed` how many it holds.
+build an OME-TIFF hyperstack per well). A TIFF or OME-TIFF keeps mono pixels,
+the channel's colour carried beside them for display (a palette, a lookup
+table, OME `Channel.Color`), in every mode but `FALSE_COLOR_RGB` with false
+colour on. A JPG is the image as it is shown: 8-bit, its channel's colour baked
+into its pixels, and no record in the file; a manual still's record is the
+`SavedStill` its capture answered.
 
 **The image mode decides the depth and the encoding.** `ImageMode.EIGHT_BIT`
-captures and saves 8-bit mono. The full-depth modes capture what the camera
-has -- 12 bits where it delivers 12 -- and save it right-aligned
-(`SCIENTIFIC`), shifted to fill the 16-bit container (`SCALED`), or as
-three-channel RGB in the channel's colour (`FALSE_COLOR_RGB`); each states its
-`SignificantBits`.
+captures and saves 8-bit mono, and saves a sum of frames as it is shown,
+saturating at one frame's white. The full-depth modes capture what the camera
+has -- 12 bits where it delivers 12 -- and save it right-aligned (`SCIENTIFIC`:
+a 12-bit frame is 0 to 4095 in a 16-bit container), shifted to fill the
+container (`SCALED`), or, with false colour on, as three-channel RGB in the
+channel's colour (`FALSE_COLOR_RGB`). The file states the depth its values
+reach as `SignificantBits` -- 12 for a 12-bit `SCIENTIFIC` frame, 16 for a
+`SCALED` one -- so divide by `(1 << SignificantBits) - 1` to scale it. A
+full-depth sum states the bits it can reach -- 14 for four 12-bit frames -- and
+every sum states `FramesSummed`, how many it holds.
 
-**The record in the file.** Each file carries what the instrument was when the
-frame was taken: the objective, the position, each lit channel's current and
-when it was read, the exposure, gain, black level and binning, the timestamps
-and where they came from, whether the camera held the channel's settings, and
-the frame-validity judgments. An OME-TIFF keeps the exposure and position in
+**The record in the file.** Each TIFF and OME-TIFF carries what the instrument
+was when the frame was taken: the instrument (model, serial, camera), the
+objective and pixel size, the plate and well, the position and whether the
+stage was moving, each lit channel's current and when it was read, the
+excitation, the exposure, gain, black level and binning, whether the frame was
+dark or saturated, the timestamps and where they came from, whether the camera
+held the channel's settings, and the frame-validity judgments. An OME-TIFF keeps the exposure and position in
 its OME `Plane` and the rest in a `MapAnnotation` (namespace `etaluma.com/lvp`);
 a plain TIFF carries the same keys in its `Plane` block. Those are the typed
 record LVP reads back. Every file also carries the record as a person reads it,
 plain `key = value` pairs under the record's own names (`plate.well_label = D6`,
-`exposure_time_ms = 50.0`): Fiji lists them in the Bio-Formats importer's
-*Display metadata* for every file, and in *Image > Show Info* for a plain TIFF.
+`exposure_time_ms = 50.0`), which an image viewer lists with the file's
+metadata (in Fiji, the Bio-Formats importer's *Display metadata*).
 Every key, its unit and what a sum does to it is the reference's [saved-file
 facts](../api-reference.md#saved-file-facts). A fact the frame did not know is
 absent, never a stand-in.
@@ -103,8 +129,10 @@ current), or as an MP4 played at the frames' own times; either way a
 timestamps and the rate. A rate is a limit: with one set, the manifest's
 `frame_budget` is the frames the limit and the duration allow, and a camera
 slower than the limit ends at the duration with fewer (`frames_selected`).
-Every frame is kept however slowly the disk saves them, so saving can run on
-after the recording ends: the manifest's `save_wait_s`, a manual recording's
-answer (`RecordingFinished.save_wait_s`) and a run's
-(`RunOutcome.video_save_wait_s`) say how long, and a wait over 10 s is told
-once saving finishes. Frames of one channel are also built into a hyperstack.
+No frame is dropped for a slow disk, so saving can run on after the recording
+ends; a frame lost to a write error, or one that arrived without the camera's
+timestamp, is counted and told. How long saving ran on is the manifest's
+`save_wait_s`, a manual recording's answer (`RecordingFinished.save_wait_s`) and a run's (`RunOutcome.video_save_wait_s`),
+and a wait over 10 s is told once saving finishes. Frames saved as files are
+also built into a hyperstack of their channel when the run format is the
+hyperstack.
