@@ -394,7 +394,7 @@ class FrameValidity:
     # on multiple Basler USB3 cameras (a2A3536-31umBAS ace 2; daA3840-45um
     # dart with firmware 1.1.0 and 2.6.0): observed deltas were bit-
     # identical across hardware and firmware -- quantization happens at
-    # the Pylon SDK / genicam nodemap layer, not in camera firmware.
+    # the Pylon SDK / genicam nodemap channel, not in camera firmware.
     # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.

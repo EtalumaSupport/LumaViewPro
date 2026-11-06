@@ -61,7 +61,7 @@ def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
 
 
 # ---------------------------------------------------------------------------
-# Layer / channel configuration
+# Channel configuration
 # ---------------------------------------------------------------------------
 
 
@@ -81,11 +81,11 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     channel_configs = {}
-    for layer in common_utils.get_channels():
-        if (specific_channels is not None) and (layer not in specific_channels):
+    for channel in common_utils.get_channels():
+        if (specific_channels is not None) and (channel not in specific_channels):
             continue
 
-        channel_config = settings[layer]
+        channel_config = settings[channel]
 
         acquire = channel_config['acquire']
         video_config = channel_config['video_config']
@@ -109,7 +109,7 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         )
         focus = channel_config['focus']
 
-        channel_configs[layer] = {
+        channel_configs[channel] = {
             'acquire': acquire,
             'video_config': video_config,
             'stim_config': stim_config,
@@ -127,12 +127,12 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
 
 
 def get_stim_configs(settings: dict) -> dict:
-    """Build per-layer stim configs from settings."""
+    """Build per-channel stim configs from settings."""
     stim_configs = {}
     channel_configs = get_channel_configs(settings)
-    for layer in channel_configs:
-        if channel_configs[layer]['stim_config'] is not None:
-            stim_configs[layer] = channel_configs[layer]['stim_config']
+    for channel in channel_configs:
+        if channel_configs[channel]['stim_config'] is not None:
+            stim_configs[channel] = channel_configs[channel]['stim_config']
     return stim_configs
 
 
@@ -200,23 +200,23 @@ def get_manual_video_max_duration(settings: dict) -> float:
     return settings['video']['max_duration_s']
 
 
-def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
-    """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
+def get_ag_ae_max_exposure_ms(channel: str, ceilings: dict) -> float:
+    """Return the AG/AE exposure upper bound (ms) for a channel's class.
 
     AG/AE is capped per channel class so auto-exposure cannot drive the
     sensor toward its native max on dim scenes (especially with the
     MinimizeGain profile), washing out brightfield and making the live-view
     auto loop hunt. Distinct from the manual exposure-slider limits.
     Transmitted light is bright (short exposures); fluorescence needs more;
-    luminescence integrates long. Resolves the layer to its class and
-    returns that class's ceiling. Unknown layers take the fluorescence cap.
+    luminescence integrates long. Resolves the channel to its class and
+    returns that class's ceiling. Unknown channels take the fluorescence cap.
 
     ``ceilings`` is the per-class map the settings hold under
     ``ag_ae_max_exposure_ms`` (``{'fluorescence': 200.0, ...}``), handed in
     by the caller that owns the settings -- a run reads it at its prepare,
     the live view off the session. It is NOT the whole settings dict.
     """
-    return float(ceilings[_ag_ae_channel_class(layer)])
+    return float(ceilings[_ag_ae_channel_class(channel)])
 
 
 def log_resolved_optics(
@@ -281,8 +281,8 @@ def log_resolved_optics(
     )
 
 
-def get_ag_ae_min_exposure_ms(layer: str) -> float:
-    """Return the usable exposure floor (ms) for a layer's channel class.
+def get_ag_ae_min_exposure_ms(channel: str) -> float:
+    """Return the usable exposure floor (ms) for a channel's class.
 
     Auto-exposure may drive the sensor below this on a bright scene (Pylon
     bottoms out near 0.03 ms); the floor is the lowest exposure the class
@@ -291,16 +291,16 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
     sliders cannot show sub-millisecond values at all. An auto-gain lock
     at or below this floor reports AT_MINIMUM, and the exposure a caller
     leaving auto-gain stores is floored to it (``stored_exposure_ms``).
-    Unknown layers fall back to the
+    Unknown channels fall back to the
     fluorescence floor, as the ceiling sibling does.
     """
-    return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]
+    return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(channel)]
 
 
-def _ag_ae_channel_class(layer: str) -> Modality:
-    if layer in common_utils.get_transmitted_channels():
+def _ag_ae_channel_class(channel: str) -> Modality:
+    if channel in common_utils.get_transmitted_channels():
         return Modality.TRANSMITTED
-    if layer in common_utils.get_luminescence_channels():
+    if channel in common_utils.get_luminescence_channels():
         return Modality.LUMINESCENCE
     return Modality.FLUORESCENCE
 
@@ -873,7 +873,7 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     the node declares no fixed increment, deliberately, because inventing a
     step would narrow a range the camera did not narrow. Raw, it becomes the
     slider maximum, the ceiling a typed entry is clamped to, and the value
-    written into the store when a layer is reconciled down to the cap, so the
+    written into the store when a channel is reconciled down to the cap, so the
     tail reaches current.json and the gain box. This resolver is the one point
     the whole chain passes through, so it is the one place to normalise it.
 
@@ -892,7 +892,7 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 
-# The manual ceilings are each layer's catalogue record's
+# The manual ceilings are each channel's catalogue record's
 # (`manual_max_exposure_ms`, `manual_max_illumination_ma` in scopes.json).
 #
 # Illumination: the transmitted LEDs (BF / PC / DF) are far brighter per mA
@@ -916,25 +916,25 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
 
 
 def _narrowed(cap: float | None, ceiling: float | None) -> float | None:
-    """A connected part's cap narrowed to a layer's manual ceiling: None with
-    no part to cap it, the cap where the layer has no ceiling."""
+    """A connected part's cap narrowed to a channel's manual ceiling: None with
+    no part to cap it, the cap where the channel has no ceiling."""
     if cap is None or ceiling is None:
         return cap
     return min(ceiling, cap)
 
 
 def channel_slider_maxima(
-    layer: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
+    channel: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
 ) -> ChannelSliderMaxima:
-    """One layer's manual slider maxima: the connected camera's exposure cap
-    and the current cap of the layer's LED, each narrowed to the layer's
+    """One channel's manual slider maxima: the connected camera's exposure cap
+    and the current cap of the channel's LED, each narrowed to the channel's
     manual ceiling where it has one; None where there is no cap (no camera;
-    no LED board, or no LED for the layer).
+    no LED board, or no LED for the channel).
 
     Raises:
-        ArgumentRefusedError: ``layer`` is not a layer of this release.
+        ArgumentRefusedError: ``channel`` is not a channel of this release.
     """
-    catalogue = release_channel(layer)
+    catalogue = release_channel(channel)
     return ChannelSliderMaxima(
         slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalogue.manual_max_exposure_ms),
         slider_max_illumination_ma=_narrowed(
@@ -1091,14 +1091,14 @@ COMPOSITE_MIN_CHANNELS = 2
 def get_composite_channels(settings: dict) -> list:
     """The channels a composite run captures, in capture order.
 
-    Every layer set to acquire an image contributes one step, except that
+    Every channel set to acquire an image contributes one step, except that
     at most ONE transmitted channel is carried: brightfield, phase and
     darkfield all occupy the same slot in the merged image, so a second
-    one has nowhere to go. The first acquiring transmitted layer wins,
-    matching the order the layer catalogue presents them in.
+    one has nowhere to go. The first acquiring transmitted channel wins,
+    matching the order the channel catalogue presents them in.
 
     Read from the settings snapshot rather than the open accordion: a
-    composite must assemble with every layer collapsed, and a headless
+    composite must assemble with every channel collapsed, and a headless
     caller has no accordion at all.
 
     Fewer than COMPOSITE_MIN_CHANNELS is returned as it is: the run engine
@@ -1106,23 +1106,23 @@ def get_composite_channels(settings: dict) -> list:
     is raised.
     """
     transmitted = [
-        layer
-        for layer in common_utils.get_transmitted_channels()
-        if settings[layer]['acquire'] == AcquireMode.IMAGE
+        channel
+        for channel in common_utils.get_transmitted_channels()
+        if settings[channel]['acquire'] == AcquireMode.IMAGE
     ]
     others = [
-        layer
-        for layer in (
+        channel
+        for channel in (
             *common_utils.get_fluorescence_channels(),
             *common_utils.get_luminescence_channels(),
         )
-        if settings[layer]['acquire'] == AcquireMode.IMAGE
+        if settings[channel]['acquire'] == AcquireMode.IMAGE
     ]
     return transmitted[:1] + others
 
 
 def get_composite_blend_thresholds(settings: dict) -> dict:
-    """Per-layer blend thresholds the post-run merge needs, as percentages.
+    """Per-channel blend thresholds the post-run merge needs, as percentages.
 
     Snapshotted from settings by the caller that has them, because the
     merge runs on a worker thread after the run: reading settings there is
@@ -1130,9 +1130,9 @@ def get_composite_blend_thresholds(settings: dict) -> dict:
     run was configured with.
     """
     return {
-        layer: settings[layer]['composite_brightness_threshold']
-        for layer in common_utils.get_channels()
-        if 'composite_brightness_threshold' in settings[layer]
+        channel: settings[channel]['composite_brightness_threshold']
+        for channel in common_utils.get_channels()
+        if 'composite_brightness_threshold' in settings[channel]
     }
 
 
@@ -1183,7 +1183,7 @@ def get_composite_capture_config_from_settings(
     steps and leave the merge several frames per channel to choose between.
 
     The position's z is deliberately None. Protocol.from_config falls
-    through a missing z to each layer's own stored focus, which is what puts
+    through a missing z to each channel's own stored focus, which is what puts
     every channel in ITS focal plane; a numeric z would pin all of them to
     whatever plane the stage happened to be at and silently discard the
     per-channel focus the user set. The stage's z rides along as the
@@ -1234,24 +1234,24 @@ def get_standalone_capture_config_from_settings(
     objective_helper: ObjectiveLoader,
     wellplate_loader: WellPlateLoader,
     *,
-    layer: str,
+    channel: str,
     position: PlateLocation,
     position_name: str,
     autofocus: bool,
     use_zstacking: bool,
     stim_config: dict,
 ) -> dict:
-    """Build the input_config for a one-position, one-layer run at *position*.
+    """Build the input_config for a one-position, one-channel run at *position*.
 
     The third settings lane into the canonical builder, beside the
     plate-wide and composite ones. It serves the degenerate case both
-    standalone buttons drive -- a single field, a single layer, with
+    standalone buttons drive -- a single field, a single channel, with
     autofocus or z-stacking turned on -- which until now had no named
     selector, so each starter chose the same thirteen values inline.
 
     Not expressed as the plate-wide selector plus arguments on purpose:
     this case does not subset that one. It forces tiling off, period and
-    duration to nothing, names its position, and overrides the layer's
+    duration to nothing, names its position, and overrides the channel's
     stored autofocus flag -- arguments the plate-wide callers could not
     use, in combinations that would mean nothing to them.
 
@@ -1261,25 +1261,25 @@ def get_standalone_capture_config_from_settings(
     around.
 
     Args:
-        layer: Which layer to capture. Named by the caller because a GUI
+        channel: Which channel to capture. Named by the caller because a GUI
             reads it from the open drawer and a script has none.
         position: Plate coordinates for the single step, from
             get_current_plate_position.
         position_name: What the step is called in the saved data.
-        autofocus: Whether the step runs autofocus. Overrides the layer's
+        autofocus: Whether the step runs autofocus. Overrides the channel's
             stored flag either way, so a caller gets what it asked for
             rather than what the user last left switched on.
         use_zstacking: Whether the step expands into a z-stack. The
             z-stack parameters are read from settings only when this is
             set; a caller that is not stacking gets none rather than
             stale ones.
-        stim_config: Per-layer stimulation to stamp onto the step. An
+        stim_config: Per-channel stimulation to stamp onto the step. An
             empty dict keeps the run stim-free.
 
-    *layer* is a layer of this release: the members that build this
+    *channel* is a channel of this release: the members that build this
     (``ProtocolRunner.start_autofocus``, ``start_zstack``) judge it at their
     door, before they read the scope. Unjudged, an unknown name would not
-    fail here -- the layer selector below skips what the catalogue lacks
+    fail here -- the channel selector below skips what the catalogue lacks
     -- and the run would be refused several steps later as "Protocol has
     no steps", naming a cause that has nothing to do with the mistake.
     """
@@ -1287,10 +1287,10 @@ def get_standalone_capture_config_from_settings(
     objective_helper.get_objective_info(objective_id=objective_id)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 
-    channel_configs = get_channel_configs(settings, specific_channels=[layer])
-    channel_config = channel_configs[layer]
+    channel_configs = get_channel_configs(settings, specific_channels=[channel])
+    channel_config = channel_configs[channel]
     # Both starters do exactly this: the step captures an image, and the
-    # caller's intent decides autofocus rather than the layer's stored
+    # caller's intent decides autofocus rather than the channel's stored
     # flag. Assembling a config is not the place to honour a leftover
     # switch the caller said nothing about.
     channel_config['acquire'] = AcquireMode.IMAGE
@@ -1311,7 +1311,7 @@ def get_standalone_capture_config_from_settings(
             'use_zstacking': use_zstacking,
             'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
-            'channel_configs': {layer: channel_config},
+            'channel_configs': {channel: channel_config},
             'period': None,
             'duration': None,
             'frame_dimensions': get_frame_dimensions_from_settings(settings),

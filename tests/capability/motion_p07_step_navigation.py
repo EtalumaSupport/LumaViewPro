@@ -33,7 +33,7 @@ def body(s):
         s.settings,
         s.scope.objective_helper,
         s.scope.wellplate_loader,
-        layer='BF',
+        channel='BF',
         position=PlateLocation(x_mm=30.0, y_mm=20.0, z_um=2000.0),
         position_name='A',
         autofocus=False,

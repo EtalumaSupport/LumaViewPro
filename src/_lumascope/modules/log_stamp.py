@@ -9,7 +9,7 @@ This module
 imports only the standard library and does nothing at import, so the FX2
 driver step (LocalSystem, at uninstall), the profiler (under sudo) and the
 engineering plugin's tests can share the stamp without importing
-``lvp_logger``, which loads the settings layer and whose start opens the
+``lvp_logger``, which loads the settings channel and whose start opens the
 log files.
 """
 

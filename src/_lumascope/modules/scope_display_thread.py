@@ -164,9 +164,9 @@ class ScopeDisplayThread:
             self._fps = fps
             self._min_frame_interval = 0.0 if fps == 0 else 1.0 / max(1, fps)
 
-    def update_channel_config(self, open_layer: str | None) -> None:
+    def update_channel_config(self, open_channel: str | None) -> None:
         with self._config_lock:
-            self._open_channel = open_layer
+            self._open_channel = open_channel
 
     def bump_protocol_hold(self, hold_seconds: float) -> None:
         """Set the protocol-hold deadline to monotonic() + hold_seconds.
@@ -234,7 +234,7 @@ class ScopeDisplayThread:
 
             # Snapshot config under lock; release before doing work.
             with self._config_lock:
-                open_layer = self._open_channel
+                open_channel = self._open_channel
                 min_frame_interval = self._min_frame_interval
                 hold_until = self._protocol_hold_until
 
@@ -259,7 +259,7 @@ class ScopeDisplayThread:
             # we just call its body.
             try:
                 status = widget._render_one_frame(
-                    open_layer=open_layer,
+                    open_layer=open_channel,
                     dispatch_time=cycle_start,
                     generation=self._generation,
                     intentional_wait_ms=intentional_wait_ms,

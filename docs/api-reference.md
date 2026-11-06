@@ -330,7 +330,7 @@ LED write, a run's light, its end policy -- is an `led` event
 
 **Args**
 
-- `listener`: Called as `listener(channel, lit)`, the layer now shown and whether its LED is lit, on the thread that changed it, so a GUI listener schedules its drawing.
+- `listener`: Called as `listener(channel, lit)`, the channel now shown and whether its LED is lit, on the thread that changed it, so a GUI listener schedules its drawing.
 
 **Raises**
 
@@ -358,7 +358,7 @@ Route: `POST /api/v1/add_step`.
 Add a step to `protocol` from this session's settings and live position.
 
 The entry point a caller with no GUI uses to do what Add Step
-does: one step per layer whose `acquire` is set, at the live
+does: one step per channel whose `acquire` is set, at the live
 stage position on the protocol's plate, with the current objective,
 in the settings' channel order. The protocols API performs the add
 and refuses when nothing would be added; this composes its inputs
@@ -370,7 +370,7 @@ slices when stacked.
 **Args**
 
 - `protocol`: The protocol the steps are added to.
-- `channels`: The channels to add a step for, in that order, instead of the acquiring layers: each takes its stored settings, and one whose `acquire` is None is added as an image step, so a caller adds without changing the settings. None (the default) adds one step per acquiring layer.
+- `channels`: The channels to add a step for, in that order, instead of the acquiring channels: each takes its stored settings, and one whose `acquire` is None is added as an image step, so a caller adds without changing the settings. None (the default) adds one step per acquiring channel.
 - `at`: Where on the protocol's plate the steps are, instead of the live position: X and Y in mm, Z in um. None (the default) takes the live position.
 - `before_step_index`: The step the new steps are placed before.
 - `after_step_index`: The step the new steps are placed after. With neither given, they follow the last step; both given is refused.
@@ -383,7 +383,7 @@ slices when stacked.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, as `runtime_state.resolve_current_objective` says why (`'slot_unassigned'`, the turret's current slot has no objective). Nothing is added.
 - `ConfigurationDefectError`: `'channels_unresolved'`, `channels` is given and this scope's channels could not be resolved. Nothing is added.
 - `ArgumentRefusedError`: `'channel_unknown'`, a name in `channels` is not a channel.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no layer named in `channels`; `'not_connected'`, with no `at`, the model's motor controller is not connected, so there is no live position. Nothing is added.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel named in `channels`; `'not_connected'`, with no `at`, the model's motor controller is not connected, so there is no live position. Nothing is added.
 - `StepNotFoundError`: `'no_such_step'`, an impossible `before_step_index` / `after_step_index`.
 - `StepEditRefusedError`: `'step_value_refused'`, both given.
 
@@ -443,13 +443,13 @@ def apply_channel_settings(self, protocol: Protocol) -> None
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/apply_channel_settings`.
 
-Put a protocol's Layer Settings into this session's layer controls.
+Put a protocol's Layer Settings into this session's channel controls.
 
 The other half of `save_protocol`, and what the GUI's Load does
-once `load_protocol` has accepted the plate. Every layer stops
-acquiring and stimulating; each layer the protocol names then takes
+once `load_protocol` has accepted the plate. Every channel stops
+acquiring and stimulating; each channel the protocol names then takes
 its acquire mode and every value its row holds. A blank value leaves
-that layer's control as it was. A layer this release does not know
+that channel's control as it was. A channel this release does not know
 (not in `common_utils.get_channels()`), or this scope does not have,
 is logged and dropped.
 
@@ -459,7 +459,7 @@ is logged and dropped.
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its layer setting's range, each named by layer, column and bound; no layer is changed. A loaded protocol was refused at load.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, each named by channel, column and bound; no channel is changed. A loaded protocol was refused at load.
 
 **Refusals by REST status**
 
@@ -485,7 +485,7 @@ Z and keeps its spacing. Returns how many steps took it.
 **Args**
 
 - `protocol`: The protocol whose steps of `channel` take the Z.
-- `channel`: The layer whose focus is saved and whose steps take it.
+- `channel`: The channel whose focus is saved and whose steps take it.
 
 **Raises**
 
@@ -516,7 +516,7 @@ Take the action a refusal named as its remedy, and return its answer.
 
 The one place a remedy's name becomes an action, and the one door to
 each remedy: the GUI's offer and a REST caller answer a refusal
-through this. A name arrives as data -- from a refusal another layer
+through this. A name arrives as data -- from a refusal another channel
 built, or from a caller sending it back -- and a `Remedy` holds
 only a `RemedyName`, so only the remedies listed here are reachable
 through it. The remedy still decides whether it applies now, and
@@ -738,7 +738,7 @@ the array.
 
 **Args**
 
-- `channel`: The shown layer, whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task; no other layer is taken, so the camera holds the shown layer after it. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no layer's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
+- `channel`: The shown channel, whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task; no other channel is taken, so the camera holds the shown channel after it. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no channel's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
 - `force_to_8bit`: Convert the image to 8 bits; False keeps the camera's depth (`CapturedStill.significant_bits`).
 - `accept_dark`: Skip the dark-frame judgment: a frame with essentially no lit pixel while a channel is lit is kept at once, its record's `dark` None. False (the default) retries such a frame until `timeout_s` and then keeps it, its record's `dark` True.
 - `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
@@ -755,8 +755,8 @@ CapturedStill: The image and the instrument's record of its frame.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a layer; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown layer, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown channel, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is captured.
 - `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept.
 - `CameraSettingRejected`: given `channel`, the camera refused one of its settings; nothing was captured.
@@ -783,7 +783,7 @@ What `channel` captures: an `AcquireMode`, or None (nothing).
 
 **Args**
 
-- `channel`: The layer read.
+- `channel`: The channel read.
 
 **Raises**
 
@@ -807,7 +807,7 @@ Whether `channel`'s auto-gain is on, as `set_channel_auto_gain` set it.
 
 **Args**
 
-- `channel`: The layer read.
+- `channel`: The channel read.
 
 **Raises**
 
@@ -833,14 +833,14 @@ The lock `set_channel_auto_gain(channel, False)` returned, the last
 time it was called: its `state` says whether the camera converged,
 hit the exposure ceiling or floor, or reported nothing usable, and is
 None when no auto-gain was running or the camera did not hold the
-layer. It describes that turning off, not the layer now: a later
+channel. It describes that turning off, not the channel now: a later
 turning on, a step's values or a stored gain leave it as it was.
-None when the layer's auto-gain has not been turned off since the
+None when the channel's auto-gain has not been turned off since the
 session started.
 
 **Args**
 
-- `channel`: The layer read.
+- `channel`: The channel read.
 
 **Raises**
 
@@ -860,15 +860,15 @@ def channel_colors(self) -> dict[str, tuple[float, float, float]]
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/channel_colors`.
 
-Every layer of the release and the colour it is shown and written
+Every channel of the release and the colour it is shown and written
 in, as red, green and blue weights, each 0 to 1.
 
 The one read of a channel's colour: every capture, recording, build
 and view takes it from here, the run and each build as it starts.
-A layer's `display_color` setting, a `'#rrggbb'` colour at full
+A channel's `display_color` setting, a `'#rrggbb'` colour at full
 brightness, overrides its colour; null is no override. Without one,
-a layer this unit carries takes the unit's colour (its record's,
-which a board's Channels block may give), and any other layer the
+a channel this unit carries takes the unit's colour (its record's,
+which a board's Channels block may give), and any other channel the
 release's, so a folder captured on another unit still has one.
 
 **Raises**
@@ -898,7 +898,7 @@ a channel with no LED on this scope.
 
 **Args**
 
-- `channel`: The layer read.
+- `channel`: The channel read.
 
 **Raises**
 
@@ -1503,10 +1503,10 @@ def go_to_step(self, protocol: Protocol, step_index: int) -> None
 Marks: enters: `lane_call`, `guarded_write`.  
 Route: `POST /api/v1/go_to_step`.
 
-Go to step `step_index` of `protocol`; return once the camera holds the step's layer and the stage has arrived.
+Go to step `step_index` of `protocol`; return once the camera holds the step's channel and the stage has arrived.
 
 What `start_go_to_step` does, then the started operation's
-`result()`: the step's layer goes on the camera while the stage
+`result()`: the step's channel goes on the camera while the stage
 travels; see `start_go_to_step` for what going to a step does and
 refuses.
 Both waits run in this caller's thread, so the IO lane takes other
@@ -1522,8 +1522,8 @@ It raises what `start_go_to_step` raises, and the following.
 **Raises**
 
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The layer and the preview are the step's.
-- `CameraSettingRejected`: the camera refused a setting of the step's layer, raised once the stage has arrived; see `apply_channel_camera`.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
+- `CameraSettingRejected`: the camera refused a setting of the step's channel, raised once the stage has arrived; see `apply_channel_camera`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
 **Refusals by REST status**
@@ -1632,9 +1632,9 @@ Route: `POST /api/v1/light_shown_channel`.
 Light the shown channel's LED at its stored current, or darken it,
 then put its stored camera settings on the camera.
 
-Every other LED is dark either way. A layer this unit gives no LED
+Every other LED is dark either way. A channel this unit gives no LED
 has nothing to light, and stays dark. The camera is left on the
-layer's stored settings (`apply_channel_camera`; nothing is written
+channel's stored settings (`apply_channel_camera`; nothing is written
 when it holds them already), unless no camera is connected.
 
 **Args**
@@ -1647,10 +1647,10 @@ The shown channel now.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'illumination_out_of_range'`, the layer's stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown layer; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs (a recording keeps the light it started under; nothing is changed).
+- `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is outside the attached board's range.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs (a recording keeps the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `CameraSettingRejected`: the camera refused a setting of the layer; its LED is already lit or dark.
+- `CameraSettingRejected`: the camera refused a setting of the channel; its LED is already lit or dark.
 
 **Refusals by REST status**
 
@@ -1795,7 +1795,7 @@ the load. On a scope with no XY stage there is no plate to be on; the
 protocol and the scope both take "Center Plate".
 
 Its contract is the plate. The protocol's period, duration and
-per-layer settings are the protocol's own and are not applied to
+per-channel settings are the protocol's own and are not applied to
 anything else.
 
 **Args**
@@ -1845,7 +1845,7 @@ called first opens no file.
 
 - `ArgumentRefusedError`: `'not_an_installation'`, `source_path` holds neither settings file.
 - `SettingsFileError`: the user's `current.json` is unusable.
-- `InstallationFileError`: the installation's own `scopes.json`, whose layer vocabulary the settings are checked against, or its `settings.json` template, is missing or unusable.
+- `InstallationFileError`: the installation's own `scopes.json`, whose channel vocabulary the settings are checked against, or its `settings.json` template, is missing or unusable.
 
 **Refusals**
 
@@ -1989,7 +1989,7 @@ Route: `POST /api/v1/new_protocol`.
 
 Build a protocol from this session's settings, as the GUI's New does.
 
-One step per acquiring layer at every well of the session's labware,
+One step per acquiring channel at every well of the session's labware,
 at the current objective, tiled and z-stacked as asked. The
 protocols API refuses the build when no channel acquires, where an
 empty protocol would otherwise come back for a click that meant
@@ -2008,7 +2008,7 @@ steps; a labware with no wells still gives an empty protocol, which
 - `ProtocolRunRefusedError`: `'no_acquiring_channel'`, no channel acquires; `'tiling_unknown'`, a grid this installation does not offer; `'overlap_out_of_range'`, the stored tile overlap outside 0 to 50; `'tiles_outside_travel'`, a tile past the X or Y travel; `'zstack_not_configured'`, a z-stack with no extent; `'positions_unreachable'`, a grid on a scope with no X/Y motor or a z-stack on one with no Z motor; `'zslices_outside_travel'`, a slice past the Z travel.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, so the config cannot be assembled: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret.
 - `ProtocolScheduleRefusedError`: `period_s` or `duration_s` is one no protocol can run.
-- `AxisStateUnknownError`: an acquiring layer has no saved focus, so its steps would save the current Z, and Z does not know its position. Reported once.
+- `AxisStateUnknownError`: an acquiring channel has no saved focus, so its steps would save the current Z, and Z does not know its position. Reported once.
 - `AxisMovingError`: `'axis_moving'`, Z is moving, so the current Z is a place it is passing through. Nothing is built.
 
 **Refusals by REST status**
@@ -2513,7 +2513,7 @@ def save_all_bookmarks(self) -> PlateLocation
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/save_all_bookmarks`.
 
-Save the live Z as the Z bookmark and as the focus of every layer this scope has.
+Save the live Z as the Z bookmark and as the focus of every channel this scope has.
 
 What Set All Bookmarks does. Returns the Z bookmark stored, as
 `bookmark` reads it; X and Y, which it does not save, are None.
@@ -2577,7 +2577,7 @@ def save_channel_focus(self, channel: str, z_um: float) -> None
 Marks: sets [`saved_focus_z_um`](#ScopeSession.saved_focus_z_um); enters: `guarded_write`.  
 Route: `PUT /api/v1/saved_focus_z_um`.
 
-Store `z_um` as `channel`'s focus, the Z every new step of the layer is born at.
+Store `z_um` as `channel`'s focus, the Z every new step of the channel is born at.
 
 The door for a caller that holds a number rather than a stage: the
 Autofocus button saving the Z its run chose, a script saving one it
@@ -2587,7 +2587,7 @@ reach; it guarantees nothing about where the number came from.
 
 **Args**
 
-- `channel`: The layer whose focus is stored.
+- `channel`: The channel whose focus is stored.
 - `z_um`: The focus, in micrometres; it must lie within Z's travel.
 
 **Raises**
@@ -2622,17 +2622,17 @@ Route: `POST /api/v1/save_focus`.
 
 Save the live Z as `channel`'s focus, and as step `step_index`'s Z.
 
-The layer's focus is what every new step of the layer is born at.
+The channel's focus is what every new step of the channel is born at.
 The step takes the Z only when it is a step of `channel`; a step of
 another channel is left alone. No other step is written: every step
-of a layer is born at the same focus, so a step matching the old
+of a channel is born at the same focus, so a step matching the old
 focus says nothing about whether its user wants the new one.
 `apply_focus_to_channel_steps` writes them all.
 
 **Args**
 
 - `protocol`: The protocol whose step may take the Z.
-- `channel`: The layer whose focus is saved.
+- `channel`: The channel whose focus is saved.
 - `step_index`: The step, counted from 0, that takes the Z when it is a step of `channel`; None (the default) writes no step.
 
 **Raises**
@@ -2663,7 +2663,7 @@ Route: `POST /api/v1/save_protocol`.
 
 Write a protocol to a file, with this session's Layer Settings.
 
-The block holds each layer set to acquire an image or a video, with
+The block holds each channel set to acquire an image or a video, with
 the values its controls hold now; `apply_channel_settings` puts them
 back. What the GUI opens at its next start-up is not changed: a
 script's scratch save is not the person's protocol.
@@ -2702,7 +2702,7 @@ The Z saved as `channel`'s focus, in micrometres.
 
 **Args**
 
-- `channel`: The channel (layer) whose saved focus is read.
+- `channel`: The channel whose saved focus is read.
 
 **Raises**
 
@@ -2781,8 +2781,8 @@ Route: `PUT /api/v1/model`.
 Save the operator's scope model for the next start.
 
 The running scope is not changed: its capabilities are fixed at
-construction, so re-resolving its layers for the new model would
-leave one scope carrying two models -- the new one in its layers,
+construction, so re-resolving its channels for the new model would
+leave one scope carrying two models -- the new one in its channels,
 the old one in its capabilities and its saved files. The selection
 takes effect when the scope is next brought up, and on a scope whose
 motor board reports its own model the board's report still wins
@@ -2889,19 +2889,19 @@ def set_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None
 Marks: sets [`channel_acquire`](#ScopeSession.channel_acquire); enters: `guarded_write`.  
 Route: `PUT /api/v1/channel_acquire`.
 
-Set what a layer captures: an `AcquireMode`, or None (nothing).
+Set what a channel captures: an `AcquireMode`, or None (nothing).
 
-The layers set to acquire are the ones `new_protocol` and
-`add_step` build steps for and a composite merges. A layer set to
-acquire stops stimulating: one layer does not capture and
+The channels set to acquire are the ones `new_protocol` and
+`add_step` build steps for and a composite merges. A channel set to
+acquire stops stimulating: one channel does not capture and
 stimulate at once.
 
-Nothing is changed on any refusal. Setting a layer to acquire
+Nothing is changed on any refusal. Setting a channel to acquire
 nothing is always admitted.
 
 **Args**
 
-- `channel`: The layer set.
+- `channel`: The channel set.
 - `mode`: What it captures, an `AcquireMode`; None sets it to capture nothing.
 
 **Raises**
@@ -2926,31 +2926,31 @@ def set_channel_auto_gain(self, channel: str, enabled: bool) -> AutoGainLock | N
 Marks: sets [`channel_auto_gain`](#ScopeSession.channel_auto_gain); enters: `lane_call`, `guarded_write`.  
 Route: `PUT /api/v1/channel_auto_gain`.
 
-Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
+Turn a channel's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
-This is the layer's stored setting, which a capture of that layer
+This is the channel's stored setting, which a capture of that channel
 uses; `scope.camera.set_auto_gain` is a raw camera write, which the
-next layer the camera holds replaces.
+next channel the camera holds replaces.
 
-For the shown layer the camera follows when this returns: turning it
+For the shown channel the camera follows when this returns: turning it
 on arms the camera's auto loop (`apply_channel_camera`); turning it
 off locks the standing arm (`scope.camera.lock_auto_gain`) and
-stores what the camera reached as the layer's manual setting: the
+stores what the camera reached as the channel's manual setting: the
 lock's `gain_db` and its `stored_exposure_ms`, rounded to 0.1 dB
 and 0.01 ms, the resolution the stored settings carry, both when the
 lock reached them; with no arm standing, or a lock that found
 nothing usable, they are left as they were. Either waits on the
-camera lane. For a layer the camera does not hold, only the
-preference is stored: the camera's arm is another layer's, and its
-values are not this layer's to take. While a run, a diagnostic or a
+camera lane. For a channel the camera does not hold, only the
+preference is stored: the camera's arm is another channel's, and its
+values are not this channel's to take. While a run, a diagnostic or a
 home holds the scope, turning auto-gain on is stored only, and
-turning the shown layer's off is refused.
+turning the shown channel's off is refused.
 
 Nothing is changed on any refusal.
 
 **Args**
 
-- `channel`: The layer whose auto-gain is set.
+- `channel`: The channel whose auto-gain is set.
 - `enabled`: True turns it on, False off.
 
 **Returns**
@@ -3268,11 +3268,11 @@ current if the shown channel was lit, then its camera settings.
 The one way the shown channel changes outside a run; a run's steps
 and `go_to_step` move it too. Each refusal is decided before any
 LED is turned off, so a refused call leaves the LEDs as they were.
-A layer this unit gives no LED is shown with every LED dark.
+A channel this unit gives no LED is shown with every LED dark.
 
 **Args**
 
-- `channel`: The layer shown.
+- `channel`: The channel shown.
 
 **Returns**
 
@@ -3281,9 +3281,9 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs or the camera; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one layer and the light it started under; nothing is changed).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs or the camera; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `CameraSettingRejected`: the camera refused a setting of the layer; its LEDs are already shown.
+- `CameraSettingRejected`: the camera refused a setting of the channel; its LEDs are already shown.
 
 **Refusals by REST status**
 
@@ -3302,7 +3302,7 @@ shown_channel: ShownChannel  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/shown_channel`.
 
-The channel the scope shows: its layer, and whether its LED is lit.
+The channel the scope shows: its channel, and whether its LED is lit.
 
 Whether it is lit is the LED store's answer at this read, whoever lit
 or darkened it.
@@ -3516,9 +3516,9 @@ One task on the scope's IO lane: the axes are asked once whether
 they know their position; the turret turns to the step's objective
 and X, Y and Z are started towards the step together, on the
 protocol's own plate (`ProtocolsAPI.step_targets`, the targets a
-run computes); the step's values go into its layer's live settings,
-the layer acquiring as the step does and its focus at the step's Z,
-so the layer and the step agree; and the step's LED preview is
+run computes); the step's values go into its channel's live settings,
+the channel acquiring as the step does and its focus at the step's Z,
+so the channel and the step agree; and the step's LED preview is
 applied -- its channel at its current when `protocol_led_on` is
 set, every channel dark when not. It returns once that task has run,
 before the stage arrives, with one `Operation` for the moves it
@@ -3535,10 +3535,10 @@ an operation already done.
 A repeat of the step this session last went to (a re-click, a
 re-typed number) does everything but the preview: a channel the
 person lit or put out in between stays as they left it, and when
-another layer was shown meanwhile the step's layer is shown again,
+another channel was shown meanwhile the step's channel is shown again,
 lit or dark as the shown channel was.
 
-Once that task has run, the step's layer goes on the camera
+Once that task has run, the step's channel goes on the camera
 (`apply_channel_camera`) before this returns, so a still asked after
 it is taken at the step's settings. It waits on the camera lane, so
 it is refused on the UI thread; a click calls it from a worker.
@@ -3551,15 +3551,15 @@ it is refused on the UI thread; a click calls it from a worker.
 **Raises**
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its layers is outside its layer setting's range, each named by column and bound. Nothing changes.
-- `ArgumentRefusedError`: `'channel_unknown'`, the step's stimulation names a layer this release has not. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's layer is not the shown one or its preview would light. Nothing changes.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
+- `ArgumentRefusedError`: `'channel_unknown'`, the step's stimulation names a channel this release has not. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.
-- `CameraSettingRejected`: the camera refused a setting of the step's layer; the moves are under way, and the layer and the preview are the step's.
+- `CameraSettingRejected`: the camera refused a setting of the step's channel; the moves are under way, and the channel and the preview are the step's.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
 
 **Refusals by REST status**
@@ -3783,7 +3783,7 @@ tear a snapshot being taken concurrently, and takes none of the
 checks below.
 
 A setting that has its own member -- the objective, the plate, the
-image mode, a layer's acquire mode or focus, the live folder, ... --
+image mode, a channel's acquire mode or focus, the live folder, ... --
 is changed only through that member, which checks it against the
 scope or changes another setting with it; the refusal names the
 member. A setting that decides how the next start reaches the scope
@@ -3800,26 +3800,26 @@ settings has a path.
 
 **Raises**
 
-- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'derived'`, it is derived from the release (`step_channel_order`); `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a layer's illumination above the attached LED board's maximum, among them). Nothing is written.
+- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'derived'`, it is derived from the release (`step_channel_order`); `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
 - `ConfigurationDefectError`: `'channels_unresolved'`, the write is to the shown channel's camera settings and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
 
 A numpy scalar in `value`, at any depth, is stored as the Python
 value it holds.
 
-A layer's gain or exposure is stored as written, the person's
+A channel's gain or exposure is stored as written, the person's
 intent; a camera that cannot reach it is driven at its own limit
-when the layer is applied (`CameraAPI.applied_gain_db_for`).
-A write to the shown layer's gain or exposure (or, while it is on
+when the channel is applied (`CameraAPI.applied_gain_db_for`).
+A write to the shown channel's gain or exposure (or, while it is on
 auto-gain, to the auto-gain bounds) is on the camera, and to its
 illumination on its lit LED, when this returns; a write to a hidden
-layer, or one made while a run, a diagnostic or a home holds the
+channel, or one made while a run, a diagnostic or a home holds the
 scope, is stored only, and so is an illumination written while a
 manual recording runs. Such a write waits on the camera or LED lane,
 so a caller on the UI thread hands it to a worker. Each auto-gain
 bound is stored alone; a minimum left above the maximum is refused
 when auto-gain is armed with them (`ArgumentRefusedError`,
 `'gain_range_inverted'`), so this write raises it after the store
-while the shown layer is on auto-gain, and the camera keeps its arm.
+while the shown channel is on auto-gain, and the camera keeps its arm.
 The log level and the autofocus score log (`'logging.*'`) take
 effect as they are written.
 
@@ -3862,7 +3862,7 @@ Returns the step's name after the update.
 
 - `protocol`: The protocol whose step is rewritten.
 - `step_index`: The step rewritten, counted from 0.
-- `channel`: The layer whose settings the step takes. When that layer's stimulation is enabled the edit is a stimulation edit, and the step keeps the channel it already acquires.
+- `channel`: The channel whose settings the step takes. When that channel's stimulation is enabled the edit is a stimulation edit, and the step keeps the channel it already acquires.
 - `label`: The step's new label; None (the default) keeps its label.
 
 **Raises**
@@ -12378,7 +12378,7 @@ What `ScopeSession.save_focus` wrote.
 **Fields**
 
 - <a id="SavedFocus.step_index"></a>`step_index`: `int | None` -- The step that took it as its Z, or None when no step did.
-- <a id="SavedFocus.z_um"></a>`z_um`: `float` -- The Z saved as the layer's focus.
+- <a id="SavedFocus.z_um"></a>`z_um`: `float` -- The Z saved as the channel's focus.
 
 <a id="SavedStill"></a>
 ## `lumascope.SavedStill`
@@ -13325,9 +13325,9 @@ Returned by: [`ScopeSession.channel_acquire`](#ScopeSession.channel_acquire).
 Held in: [`ChannelSettings.acquire`](#ChannelSettings.acquire), [`StepRecord.acquire`](#StepRecord.acquire).  
 Taken by: [`ScopeSession.set_channel_acquire`](#ScopeSession.set_channel_acquire).
 
-What a layer captures: an image or a video.
+What a channel captures: an image or a video.
 
-A layer that captures nothing holds None, not a member. The values are
+A channel that captures nothing holds None, not a member. The values are
 the ones the settings and a protocol file store, so neither changes.
 
 - `image`

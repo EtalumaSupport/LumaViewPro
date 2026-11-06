@@ -45,7 +45,7 @@ def test_regenerated_name_replaces_channel_not_appends():
     # replaces, carrying ONLY the new channel. (The parse leg lives at the
     # legacy load boundary now; the runtime pipeline carries columns.)
     new = build_step_name(
-        dataclasses.replace(parse_legacy_step_name(old, known_layers=['BF', LED0]), channel=LED0)
+        dataclasses.replace(parse_legacy_step_name(old, known_channels=['BF', LED0]), channel=LED0)
     )
     assert new == f'A2_{LED0}_2xOly'
     assert 'BF' not in new

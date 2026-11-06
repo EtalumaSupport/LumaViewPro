@@ -241,7 +241,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
         import _lumascope.modules.config_helpers as config_helpers
 
         kwargs = {
-            'layer': 'BF',
+            'channel': 'BF',
             'position': PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             'position_name': 'Autofocus',
             'autofocus': True,
@@ -326,7 +326,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         from _lumascope.modules.protocol import Protocol
 
         kwargs = {
-            'layer': 'BF',
+            'channel': 'BF',
             'position': PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             'position_name': 'Autofocus',
             'autofocus': True,
@@ -361,7 +361,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         assert self._protocol_from().num_steps() == 1
 
     def test_the_step_is_the_named_layer_with_autofocus_on(self):
-        steps = self._protocol_from(layer=LED1).steps()
+        steps = self._protocol_from(channel=LED1).steps()
         assert steps['channel'].tolist() == [LED1]
         assert bool(steps['Auto_Focus'].iloc[0]) is True
 

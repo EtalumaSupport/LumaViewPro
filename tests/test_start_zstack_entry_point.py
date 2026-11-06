@@ -214,7 +214,7 @@ class TestTheConfigActuallyBuildsASliceEach:
             settings,
             objective_helper,
             wellplate_loader,
-            layer='BF',
+            channel='BF',
             position=_POSITION,
             position_name='ZStack',
             autofocus=False,

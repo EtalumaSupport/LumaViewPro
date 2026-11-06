@@ -104,7 +104,7 @@ def _shown_frames(gui_ctx, display, count):
         if len(rendered) >= count:
             enough.set()
 
-    thread.update_channel_config(open_layer='BF')
+    thread.update_channel_config(open_channel='BF')
     thread.add_frame_listener(on_frame)
     thread.start(display, fps=0)
     try:

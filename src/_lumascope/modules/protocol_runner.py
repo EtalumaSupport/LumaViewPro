@@ -307,7 +307,7 @@ class ProtocolRunner:
             settings,
             self.session.scope.objective_helper,
             self.session.scope.wellplate_loader,
-            layer=channel,
+            channel=channel,
             position=self.session.plate_position_on(settings['protocol']['labware']),
             position_name='Autofocus',
             autofocus=True,
@@ -480,7 +480,7 @@ class ProtocolRunner:
             settings,
             self.session.scope.objective_helper,
             self.session.scope.wellplate_loader,
-            layer=channel,
+            channel=channel,
             position=position,
             position_name='ZStack',
             # Off, and not a caller's choice: an autofocus at every slice

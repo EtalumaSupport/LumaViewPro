@@ -89,7 +89,7 @@ def _camera(name: str) -> SettingMember:
 # A setting changed by its own member, because the member does more than
 # store it: it checks the setting against the scope, applies it, or changes
 # another setting with it. A path at or under a key here is refused, naming
-# the member. ``*`` stands for any layer.
+# the member. ``*`` stands for any channel.
 SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'microscope': _session('select_model'),
     'live_folder': _session('set_live_folder'),
@@ -161,7 +161,7 @@ PREFERENCES: typing.Final[frozenset[str]] = frozenset(
 DERIVED: typing.Final[frozenset[str]] = frozenset({'step_channel_order'})
 
 # A switch: its kind, true or false, is its whole range. ``*`` stands for
-# any layer.
+# any channel.
 KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
     {
         'separate_folder_per_channel',
@@ -189,7 +189,7 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
 BOUND_AT_USE: typing.Final[frozenset[str]] = frozenset({'stage_offset.x', 'stage_offset.y'})
 
 # The kinds a setting shipped as null holds when it is not null. ``*`` stands
-# for any layer as a first segment, and for any key as a last one.
+# for any channel as a first segment, and for any key as a last one.
 _NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
     '*.acquire': ('string',),
     '*.focus': ('number',),
@@ -220,7 +220,7 @@ VIDEO_STEP_DURATION_S_MAX: typing.Final = 3600
 STIM_FREQUENCY_HZ_RANGE: typing.Final = (0.5, 6.0)
 STIM_PULSE_WIDTH_MS_RANGE: typing.Final = (5, 25)
 STIM_PULSE_COUNT_RANGE: typing.Final = (1, 300)
-"""The stimulation ranges, as the layer panel's sliders have always held them."""
+"""The stimulation ranges, as the channel panel's sliders have always held them."""
 
 
 def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
@@ -324,7 +324,7 @@ def _image_mode(path: str, value: str) -> None:
 
 
 def _acquire(path: str, value: str | None) -> None:
-    # None is a layer that acquires nothing.
+    # None is a channel that acquires nothing.
     if value is not None:
         _refuse_unless_member(path, value, AcquireMode)
 
@@ -443,7 +443,7 @@ def _display_color(path: str, value: str | None) -> None:
 # its limit with the intent kept (``CameraAPI.applied_gain_db_for`` and kin).
 # A member's setting is here too: its range is held at load as well, though a
 # write to it is refused for its member before the range is read. ``*`` stands
-# for any layer, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
+# for any channel, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
 # concrete path and the value.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'binning.size': _binning_label,
@@ -488,12 +488,12 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
 
 
 def _pattern_for(patterns: typing.Collection[str], path: str) -> str | None:
-    """The one of ``patterns`` naming ``path``: itself, else its layer's ``*.``, else its block's ``.*``."""
-    layer, _, rest = path.partition('.')
+    """The one of ``patterns`` naming ``path``: itself, else its channel's ``*.``, else its block's ``.*``."""
+    channel, _, rest = path.partition('.')
     block, _, _key = path.rpartition('.')
     for pattern in (
         path,
-        f'*.{rest}' if rest and layer in common_utils.get_channels() else None,
+        f'*.{rest}' if rest and channel in common_utils.get_channels() else None,
         f'{block}.*' if block else None,
     ):
         if pattern in patterns:
@@ -529,16 +529,16 @@ def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
 
 
 def refused_channel_values(
-    layer: str, values: typing.Mapping[str, object]
+    channel: str, values: typing.Mapping[str, object]
 ) -> list[SettingRefusedError]:
-    """Every one of a layer's values the layer rules refuse, each as its refusal.
+    """Every one of a channel's values the channel rules refuse, each as its refusal.
 
-    The one table of layer ranges, read for values that are not yet in the
+    The one table of channel ranges, read for values that are not yet in the
     settings: a protocol step's, or its Layer Settings row's. ``values``
-    maps a ranged number under the layer (``'exposure_ms'``,
+    maps a ranged number under the channel (``'exposure_ms'``,
     ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
-    rule is the layer's whatever ``layer`` names, so a step whose colour is
-    no layer is still judged; ``layer`` names the refusal's path. A hardware
+    rule is the channel's whatever ``channel`` names, so a step whose colour is
+    no channel is still judged; ``channel`` names the refusal's path. A hardware
     ceiling (the LED board's maximum) is not judged here.
 
     Returns:
@@ -549,7 +549,7 @@ def refused_channel_values(
     """
     refused = []
     for key, value in values.items():
-        path = f'{layer}.{key}'
+        path = f'{channel}.{key}'
         # As the writer takes it: a protocol's cells may be numpy scalars.
         value = python_values(value)
         try:
@@ -598,13 +598,13 @@ def _kind(value: object) -> str:
 def member_for(path: str) -> SettingMember | None:
     """The member that owns the setting at ``path``, or None."""
     segments = path.split('.')
-    layers = common_utils.get_channels()
+    channels = common_utils.get_channels()
     for owned, member in SETTINGS_WITH_A_MEMBER.items():
         owned_segments = owned.split('.')
         if len(segments) < len(owned_segments):
             continue
         if all(
-            want == got or (want == '*' and got in layers)
+            want == got or (want == '*' and got in channels)
             for want, got in zip(owned_segments, segments, strict=False)
         ):
             return member
@@ -626,7 +626,7 @@ def check_write(
     shipped value; it takes null or the kinds declared for it
     (``_NULLABLE_KINDS``). ``led_max_ma`` is the current the
     attached LED board declares it can drive, or None with no board: a
-    layer's illumination above it is refused, since the board refuses to
+    channel's illumination above it is refused, since the board refuses to
     drive it and over-driving an LED is a damage mode; a camera's limits
     are not checked here, since the apply drives the camera at its limit
     with the stored intent kept.
@@ -670,9 +670,9 @@ def check_write(
 
 
 def is_led_current(path: str) -> bool:
-    """Whether ``path`` is a layer's illumination or stimulation current."""
-    layer, _, rest = path.partition('.')
-    return layer in common_utils.get_channels() and rest in (
+    """Whether ``path`` is a channel's illumination or stimulation current."""
+    channel, _, rest = path.partition('.')
+    return channel in common_utils.get_channels() and rest in (
         'illumination_ma',
         'stim_config.illumination_ma',
     )

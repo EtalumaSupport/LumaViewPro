@@ -65,7 +65,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
         settings,
         objective_helper,
         wellplate_loader,
-        layer='BF',
+        channel='BF',
         position=_POSITION,
         position_name='ZStack',
         autofocus=False,

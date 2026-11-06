@@ -123,7 +123,7 @@ def build_step_name(c: StepNameComponents) -> str:
     return '_'.join(p for p in parts if p != '')
 
 
-def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
+def _token_kind(seg: str, channels: set, objectives: set) -> str | None:
     """Classify one step-name segment into the component it fills, or None.
 
     The single definition of "what is a step-name token", shared by
@@ -142,7 +142,7 @@ def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
     which would otherwise surface as a bogus tile that broke callers
     parsing the tile's trailing number.
     """
-    if seg in layers or seg == 'Composite':
+    if seg in channels or seg == 'Composite':
         return 'channel'
     if re.fullmatch(r'Turret\d+', seg):
         return 'turret_position'
@@ -161,7 +161,7 @@ def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
     return None
 
 
-def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
+def _machine_tokens_only(segs: list[str], channels: set, objectives: set) -> bool:
     """True when every segment classifies as a known step-name token.
 
     A machine-generated name -- even one carrying stale tokens from old
@@ -172,7 +172,7 @@ def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
     """
     i = 0
     while i < len(segs):
-        kind = _token_kind(segs[i], layers, objectives)
+        kind = _token_kind(segs[i], channels, objectives)
         if kind is None:
             return False
         if kind == 'zproj':
@@ -183,7 +183,7 @@ def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
 
 def parse_legacy_step_name(
     name: str,
-    known_layers: 'Iterable[str] | None' = None,
+    known_channels: 'Iterable[str] | None' = None,
     known_objectives: 'Iterable[str]' = (),
 ) -> StepNameComponents:
     """Recover the components from a rendered step name, by SHAPE not position.
@@ -192,7 +192,7 @@ def parse_legacy_step_name(
     fields travel as columns (Label et al.) -- so the only remaining caller
     is the one-shot migration of files that predate the Label column
     (recover_step_label). Each '_'-separated segment is classified by its
-    shape (plus the known-layer / known-objective vocabularies), so a token
+    shape (plus the known-channel / known-objective vocabularies), so a token
     never depends on a hard-coded segment index that silently breaks when
     the token set shifts. Round-trips every name build_step_name produces:
     build_step_name(parse_legacy_step_name(s)) == s.
@@ -204,9 +204,9 @@ def parse_legacy_step_name(
     That ambiguity is exactly why the parse is quarantined to the legacy
     boundary and never trusted with user-typed text.
     """
-    if known_layers is None:
-        known_layers = get_stored_channel_names()
-    layers = set(known_layers)
+    if known_channels is None:
+        known_channels = get_stored_channel_names()
+    channels = set(known_channels)
     objectives = set(known_objectives)
 
     stem = pathlib.Path(name).name
@@ -215,7 +215,7 @@ def parse_legacy_step_name(
         return StepNameComponents()
 
     def token_kind(seg):
-        return _token_kind(seg, layers, objectives)
+        return _token_kind(seg, channels, objectives)
 
     def classifies(seg):
         return token_kind(seg) is not None
@@ -460,7 +460,7 @@ def is_valid_binning_size(value) -> bool:
 
 
 def get_channels() -> list[str]:
-    """The release's layer key names, in display order.
+    """The release's channel key names, in display order.
 
     Derived from the release catalogue rather than authored here, so the
     vocabulary has exactly one source and a catalogue change cannot leave
@@ -482,7 +482,7 @@ def get_stored_channel_names() -> list[str]:
 def _channels_of_modality(modality: 'Modality') -> list[str]:
     from _lumascope.modules.channel_record import release_channels
 
-    return [layer.key for layer in release_channels() if layer.modality == modality]
+    return [record.key for record in release_channels() if record.modality == modality]
 
 
 def get_transmitted_channels() -> list[str]:
@@ -504,7 +504,7 @@ def get_luminescence_channels() -> list[str]:
 
 
 def get_image_channels() -> list[str]:
-    """Fluorescence + luminescence layers (false-color, displayed as colored images)."""
+    """Fluorescence + luminescence channels (false-color, displayed as colored images)."""
     return get_fluorescence_channels() + get_luminescence_channels()
 
 
@@ -520,8 +520,8 @@ class Light(NamedTuple):
 
     Attributes:
         channel: The channel the frame is named for (``light_of``).
-        illumination_by_channel_ma: The current of every lit LED a layer
-            names, by that layer's key, in address order; empty when none
+        illumination_by_channel_ma: The current of every lit LED a channel
+            names, by that channel's key, in address order; empty when none
             was lit.
     """
 
@@ -529,30 +529,30 @@ class Light(NamedTuple):
     illumination_by_channel_ma: 'Mapping[str, float]'
 
 
-def light_of(readings: 'tuple[LedReading, ...] | None', shown_layer: str) -> Light:
-    """The channel a recorded frame was imaged in, and every lit layer's current, from one read.
+def light_of(readings: 'tuple[LedReading, ...] | None', shown_channel: str) -> Light:
+    """The channel a recorded frame was imaged in, and every lit channel's current, from one read.
 
-    The channel is the lit LED, else ``shown_layer``, the layer the recording
+    The channel is the lit LED, else ``shown_layer``, the channel the recording
     is named for. A recording refuses to start with another LED lit and
     refuses every light while it runs (``ManualRecordingController.start``),
-    and a protocol's video step lights its own layer alone, so a frame's
-    lit LED is its layer's; the shown layer names a frame with no LED lit,
+    and a protocol's video step lights its own channel alone, so a frame's
+    lit LED is its channel's; the shown channel names a frame with no LED lit,
     as luminescence images. With more than one LED lit, the first in
-    address order wins; a lit address the identity names no layer for
+    address order wins; a lit address the identity names no channel for
     names no channel and has no current here.
 
     Lit is the frame record's meaning: commanded on at a current above 0 mA,
     since the board takes 0 mA as off (``snapshot_lit_pairs``). An LED left
     on at 0 mA names nothing. ``readings`` is None when no LED board is
     installed: nothing is lit, so a board-less scope falls through to the
-    layer.
+    channel.
     """
     from _lumascope.modules.lumascope_api.illumination import snapshot_lit_pairs
 
     lit = {address for address, _ma in snapshot_lit_pairs(readings)}
     named = [r for r in readings or () if r.address in lit and r.name is not None]
     return Light(
-        channel=named[0].name if named else shown_layer,
+        channel=named[0].name if named else shown_channel,
         illumination_by_channel_ma={r.name: r.illumination_ma for r in named},
     )
 

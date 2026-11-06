@@ -11,7 +11,7 @@ class ScopeInitConfig:
     """Configuration bundle for Lumascope.initialize().
 
     Captures all scope-level hardware settings needed to go from
-    "connected" to "ready-to-use".  Does NOT include per-layer camera
+    "connected" to "ready-to-use".  Does NOT include per-channel camera
     settings (gain, exposure, auto-gain).
 
     `expects_motion` / `expects_led` reflect what the selected scope's
@@ -51,12 +51,12 @@ class ScopeInitConfig:
         None for a model the catalogue does not list. Drives
         expects_motion, which says whether a missing motor board is reported.
 
-        channel_identity: the scope's resolved layer identity snapshot.
+        channel_identity: the scope's resolved channel identity snapshot.
         When resolved, drives expects_led: identity carrying at least one
-        LED-driving layer means an LED board is expected, so its absence
+        LED-driving channel means an LED board is expected, so its absence
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
-        An unresolved identity has no layers to read, and only a resolved
+        An unresolved identity has no channels to read, and only a resolved
         one can say a scope has no LED board, as only the catalogue can
         say it has no motor board: it expects one.
 
@@ -74,7 +74,7 @@ class ScopeInitConfig:
         ):
             expects_led = True
         else:
-            expects_led = any(layer.led_addresses for layer in channel_identity.channels)
+            expects_led = any(record.led_addresses for record in channel_identity.channels)
         return cls(
             binning_size=binning_size,
             frame_width=settings['frame']['width'],

@@ -61,7 +61,7 @@ class SettingsFileError(Fault, ValueError):
     title = 'Settings File Unreadable'
 
 
-# Layer sub-keys whose names changed when the storage dict became the L2 API
+# Channel sub-keys whose names changed when the storage dict became the L2 API
 # surface. Old name -> new name. `stim_config.illumination` lives one level
 # down and is handled alongside; only the fluorescence channels carry a stim_config.
 _RENAMED_CHANNEL_KEYS = {
@@ -97,9 +97,9 @@ def _migrate_renamed_keys(container: dict, mapping: dict) -> bool:
 
 
 def migrate_channel_key_names_dict(settings_dict: dict) -> bool:
-    """Carry per-layer illumination and exposure keys to their unit-suffixed names.
+    """Carry per-channel illumination and exposure keys to their unit-suffixed names.
 
-    `settings[layer]['ill_ma'/'exp_ms']` -> `illumination_ma`/`exposure_ms`,
+    `settings[channel]['ill_ma'/'exp_ms']` -> `illumination_ma`/`exposure_ms`,
     and `stim_config['illumination']` -> `illumination_ma`. The storage dict
     is the L2 API surface, so its keys are the names callers write; these
     spellings had to match what `get_channel_configs` already emitted.
@@ -109,7 +109,7 @@ def migrate_channel_key_names_dict(settings_dict: dict) -> bool:
     would get the shipped illumination_ma = 5.0 merged in beside it and
     come up on the default while the real value sat unread.
 
-    Layers are found by SHAPE, not by importing get_channels: this runs during
+    Channels are found by SHAPE, not by importing get_channels: this runs during
     logger bootstrap, where importing _lumascope.modules.common_utils raises
     `cannot import name 'get_channels' from partially initialized module`.
 
@@ -176,7 +176,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     # Running before the caller's validation also means validation never
     # sees, or warns about, the old spellings.
     if migrate_channel_key_names_dict(parsed) and logger is not None:
-        logger.info(f'[Settings ] {path}: carried layer keys to their unit-suffixed names')
+        logger.info(f'[Settings ] {path}: carried channel keys to their unit-suffixed names')
     if logger is not None:
         logger.debug(f'[Settings ] read {path}')
     return parsed
@@ -216,10 +216,10 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
                         f'[Settings ] {filepath}: "frame.{field}" should be int, got {type(frame[field]).__name__}'
                     )
 
-    # Validate layer settings have expected structure
+    # Validate channel settings have expected structure
     from _lumascope.modules.common_utils import get_channels
 
-    _REQUIRED_LAYER_FIELDS = {
+    _REQUIRED_CHANNEL_FIELDS = {
         'illumination_ma': (int, float),
         'gain_db': (int, float),
         'exposure_ms': (int, float),
@@ -228,17 +228,17 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         'false_color': (bool, list),
         'focus': (int, float, type(None)),
     }
-    for layer in get_channels():
-        if layer not in settings:
-            logger.warning(f'[Settings ] {filepath}: missing layer "{layer}"')
+    for channel in get_channels():
+        if channel not in settings:
+            logger.warning(f'[Settings ] {filepath}: missing channel "{channel}"')
             continue
-        channel_config = settings[layer]
+        channel_config = settings[channel]
         if not isinstance(channel_config, dict):
-            logger.warning(f'[Settings ] {filepath}: "{layer}" should be dict')
+            logger.warning(f'[Settings ] {filepath}: "{channel}" should be dict')
             continue
-        for field, _expected_type in _REQUIRED_LAYER_FIELDS.items():
+        for field, _expected_type in _REQUIRED_CHANNEL_FIELDS.items():
             if field not in channel_config:
-                logger.warning(f'[Settings ] {filepath}: "{layer}" missing "{field}"')
+                logger.warning(f'[Settings ] {filepath}: "{channel}" missing "{field}"')
 
     # Validate motion settings
     if 'motion' in settings:
@@ -258,7 +258,7 @@ def _check_container_shape(current, template, path=''):
 
     Only container KIND is compared: a dict where the template has a dict,
     a list where it has a list. Scalars are never inspected, because int
-    and float are interchangeable across this file (four per-layer fields
+    and float are interchangeable across this file (four per-channel fields
     are declared as either) and null is a legitimate "unset". Rejecting on
     scalar type would throw away configurations that work today, and the
     cost of a false rejection is a user being offered a reset.
@@ -353,7 +353,7 @@ def migrate_video_key_names_dict(settings_dict: dict) -> bool:
 rejected_current_json = None
 
 
-# Written into a layer whose video_config arrived absent or null. The shipped
+# Written into a channel whose video_config arrived absent or null. The shipped
 # template carries the same value, so an untouched install never reaches
 # it; a duration the recorder cannot use is the writer's range
 # (``settings_paths._RANGES``), replaced at load and told once.
@@ -497,12 +497,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
             protocol_settings['labware'] = folded_plate
             changed = True
 
-    for layer in get_channels():
-        channel_config = settings_dict.get(layer)
+    for channel in get_channels():
+        channel_config = settings_dict.get(channel)
         if not isinstance(channel_config, dict):
             continue
 
-        # A filename prefix every layer once shipped, which nothing reads:
+        # A filename prefix every channel once shipped, which nothing reads:
         # a capture's name is built by the writer that saves it.
         if 'file_root' in channel_config:
             del channel_config['file_root']
@@ -516,7 +516,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
             changed = True
-        # A layer's own recording rate, which every protocol video step it
+        # A channel's own recording rate, which every protocol video step it
         # made copied and recorded at below the one global limit: a
         # recording's only limit is ``video.max_fps``.
         if 'fps' in video_config:
@@ -526,34 +526,34 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     return changed
 
 
-# The focus every layer shipped with before the template stopped carrying
-# one. It was merged into each current.json for every layer nobody saved, so
+# The focus every channel shipped with before the template stopped carrying
+# one. It was merged into each current.json for every channel nobody saved, so
 # a stored focus of exactly this value is a channel whose focus was never set.
 # Every writer stores a measured stage Z, which does not land on it.
 _RETIRED_SHIPPED_FOCUS_UM = 4950.0
 
 
 def forget_shipped_focus(settings_dict: dict) -> list[str]:
-    """Read a layer focus still holding the old shipped value as never saved.
+    """Read a channel focus still holding the old shipped value as never saved.
 
-    A layer with no saved focus takes the stage's current Z wherever a step
-    is built for it; the shipped number made every unsaved layer look saved,
+    A channel with no saved focus takes the stage's current Z wherever a step
+    is built for it; the shipped number made every unsaved channel look saved,
     so its steps went to that height instead.
 
     Returns:
-        The layers whose focus was set to None, in layer order.
+        The channels whose focus was set to None, in channel order.
     """
     from _lumascope.modules.common_utils import get_channels
 
     forgotten = []
-    for layer in get_channels():
-        channel_config = settings_dict.get(layer)
+    for channel in get_channels():
+        channel_config = settings_dict.get(channel)
         if (
             isinstance(channel_config, dict)
             and channel_config.get('focus') == _RETIRED_SHIPPED_FOCUS_UM
         ):
             channel_config['focus'] = None
-            forgotten.append(layer)
+            forgotten.append(channel)
     return forgotten
 
 
@@ -688,7 +688,7 @@ def load_template(logger: logging.Logger, template_path: str) -> dict:
 def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
     """The order a new protocol's steps take, from the catalogue's ``step_order``.
 
-    The catalogue's record is the one place a layer's step order is said, so
+    The catalogue's record is the one place a channel's step order is said, so
     a key added there takes its place without an edit here. A template that
     states its own order would be a second, unread source of it, and is
     refused. A stored order is not a person's either: no write reaches it
@@ -708,7 +708,7 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
             "states step_channel_order, which is each scopes.json LayerOrder record's step_order",
         )
     template['step_channel_order'] = [
-        layer.key for layer in sorted(release_channels(), key=lambda layer: layer.step_order)
+        record.key for record in sorted(release_channels(), key=lambda record: record.step_order)
     ]
 
 
@@ -719,7 +719,7 @@ def _give_every_channel_a_block(template: dict, template_path: str) -> None:
     other key takes ``channel_defaults``' block for its modality, so a key
     added to the catalogue has settings without an edit here. The defaults
     are consumed: no prepared dict, published template or saved file holds
-    them, so the only blocks a caller sees are layers.
+    them, so the only blocks a caller sees are channels.
 
     Raises:
         InstallationFileError: ``channel_defaults`` is missing or is not a
@@ -735,14 +735,14 @@ def _give_every_channel_a_block(template: dict, template_path: str) -> None:
             template_path, f'has no usable channel_defaults (found {defaults!r})'
         )
     unfilled = []
-    for layer in release_channels():
-        if layer.key in template:
+    for record in release_channels():
+        if record.key in template:
             continue
-        default = defaults.get(layer.modality)
+        default = defaults.get(record.modality)
         if default is None:
-            unfilled.append(f'{layer.key} ({layer.modality})')
+            unfilled.append(f'{record.key} ({record.modality})')
             continue
-        template[layer.key] = copy.deepcopy(default)
+        template[record.key] = copy.deepcopy(default)
     if unfilled:
         raise InstallationFileError(
             template_path, f'has no block and no channel_defaults block for {unfilled}'

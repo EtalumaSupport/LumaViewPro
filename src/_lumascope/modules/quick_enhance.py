@@ -126,7 +126,7 @@ class QuickEnhancer:
 
     @staticmethod
     def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
-        """The colour a derived image of ``channel`` is shown in: a layer's
+        """The colour a derived image of ``channel`` is shown in: a channel's
         colour in ``channel_colors`` (a stored old name's is its stock key's),
         and grey for a source that names none (a foreign file, a composite,
         an unrecognised token)."""

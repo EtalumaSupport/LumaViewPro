@@ -520,9 +520,9 @@ class ScopeCapabilities:
             if led_present
             else None
         )
-        # Colour NAMES come from the unit's resolved layer identity, not
+        # Colour NAMES come from the unit's resolved channel identity, not
         # the driver: the driver knows which board channels it can drive,
-        # while which layer names exist (and what they drive) is unit
+        # while which channel names exist (and what they drive) is unit
         # data. A scope with no resolved identity honestly reports no
         # colour names -- the addresses stay visible via led_addresses.
         led_channels = tuple(r.key_name for r in channel_identity.channels if r.led_addresses)

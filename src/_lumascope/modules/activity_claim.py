@@ -441,7 +441,7 @@ def command_refused(
 
     The one place a claim's answer becomes the command's refusal, at every
     door that asks: a lane, a write that would falsify a recording, a change
-    of the shown layer. A control session is refused as a guarded write is
+    of the shown channel. A control session is refused as a guarded write is
     (``control_refused``).
 
     Args:

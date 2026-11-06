@@ -94,7 +94,7 @@ class TestBringUp:
         caplog.set_level(logging.INFO)
         ScopeSession._apply_bring_up_channel(stand_in)
         applied.assert_not_called()
-        assert any('no BF layer' in line for line in _said(caplog))
+        assert any('no BF channel' in line for line in _said(caplog))
 
 
 class TestGoingToAStep:
