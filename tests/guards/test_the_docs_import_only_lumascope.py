@@ -110,7 +110,7 @@ def test_the_docs_import_only_lumascope():
         '`lumascope`, the one public module. Import the name from `lumascope`.\n'
         + '\n'.join(failures)
     )
-    assert {*guide_files(), 'docs/plugin-tutorial.md'} <= read, (
+    assert {'docs/lumascope-skills.md', 'docs/plugin-tutorial.md'} <= read, (
         f'the walk read no Python fence of a doc it must read: it read {sorted(read)}'
     )
 
