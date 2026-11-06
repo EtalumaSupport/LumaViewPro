@@ -941,6 +941,15 @@ class ScopeSession:
         or file being written, and no run or recording that has ended still
         finishing its files.
 
+        A session ends when its holder goes silent. Once 180 s
+        (``activity_claim.CONTROL_SILENCE_S``) pass with no call in it, no
+        request naming it (``renew_control``) and nothing it started -- a
+        move, a run, a recording, any operation -- still running, the next
+        caller it would refuse, or the next take, ends it instead, and its
+        holder's next call is refused ``'control_session_ended'``. Nothing
+        ends it while no one else asks. A holder that waits longer between
+        calls renews it.
+
         Args:
             name: What the person at the scope is told holds it.
 
@@ -996,6 +1005,22 @@ class ScopeSession:
         self._stop_the_work_taken_for(ended)
         return ended
 
+    @api
+    def renew_control(self, session_id: str) -> None:
+        """Renew the control session named by its id, so it does not go silent (``take_control``).
+
+        Every call in the session renews it; this renews it without one. The
+        REST server renews it for every request that names it, a job poll
+        included. An id that names no live session renews nothing.
+
+        Args:
+            session_id: The ``id`` the session was taken with.
+
+        Raises:
+            Nothing.
+        """
+        self.activity_claim.renew_control(session_id)
+
     @api(in_process=True)
     def take_back_control(self) -> ControlSession | None:
         """End whatever control session is held, and stop the run or recording taken in it, as ``end_control``.
@@ -1031,6 +1056,8 @@ class ScopeSession:
         is the lane work it hands on. A callback the API runs on a thread of
         its own -- an operation's done-callback -- runs outside the block,
         and is refused as any non-holder's call while the session is held.
+        The block renews the session as it enters and as it leaves, and the
+        session cannot go silent while it runs (``take_control``).
 
         Args:
             session_id: The ``id`` the session was taken with.
@@ -1043,8 +1070,7 @@ class ScopeSession:
                 session is held, or the live one has another id. The block
                 did not run.
         """
-        controller = self.activity_claim.controller(session_id)
-        with acting(controller):
+        with self.activity_claim.calling_in(session_id) as controller, acting(controller):
             yield controller.session
 
     @_guarded_write

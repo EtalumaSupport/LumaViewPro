@@ -11,15 +11,25 @@ A take never lands over the operator's work: not over an activity, not over
 a guarded write still in flight.
 """
 
+import concurrent.futures
+import functools
 import threading
 
 import pytest
 
+from _lumascope.drivers import host_clock
+from _lumascope.modules import activity_claim
 from _lumascope.modules.activity_claim import (
+    CONTROL_SILENCE_S,
     ActivityClaim,
+    a_guarded_write,
     acting,
+    command_refused,
+    control_refused,
     guarded_write,
 )
+from _lumascope.modules.operation import Operation
+from tests.scope_fakes import home_sim_scope
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.exceptions import (
@@ -60,10 +70,9 @@ def _take(claim, name='plate reader', caller=Caller.REST):
 
 
 def _take_on(session, name='plate reader', caller=Caller.REST):
-    """Take ``session``'s control session as ``caller``; the taking its holder acts under."""
+    """Take ``session``'s control session as ``caller``; the id its holder acts in it by."""
     with calling(caller):
-        session_id = session.take_control(name)
-    return session.activity_claim.controller(session_id)
+        return session.take_control(name)
 
 
 def _run_on_lane(lane, taking):
@@ -262,9 +271,9 @@ class TestEveryDoorRefusesAsOneClass:
 
     @pytest.fixture
     def held(self, sim_session):
-        controller = _take_on(sim_session)
-        yield controller
-        sim_session.activity_claim.end_control(controller.id)
+        session_id = _take_on(sim_session)
+        yield session_id
+        sim_session.end_control(session_id)
 
     def test_a_diagnostic(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError) as refused, sim_session.diagnostic_claim():
@@ -304,7 +313,7 @@ class TestEveryDoorRefusesAsOneClass:
         assert sim_session.scope.imaging.is_streaming()
 
     def test_the_holders_home_takes_the_scope(self, sim_session, held):
-        with acting(held):
+        with sim_session.acting_in_control(held):
             sim_session.scope.motion.start_home('Z').result(timeout=10)
 
     def test_a_recording(self, sim_session, held):
@@ -366,10 +375,11 @@ class TestGuardedWrites:
 class TestTheSessionsWrites:
     @pytest.fixture
     def held(self, sim_session):
-        controller = _take_on(sim_session)
-        yield controller
-        if sim_session.activity_claim.control is controller.session:
-            sim_session.activity_claim.end_control(controller.id)
+        session_id = _take_on(sim_session)
+        taken = sim_session.control
+        yield session_id
+        if sim_session.control is taken:
+            sim_session.end_control(session_id)
 
     def test_a_non_holders_setting_is_refused_and_nothing_is_stored(self, sim_session, held):
         before = sim_session.settings['jpg_quality']
@@ -381,7 +391,7 @@ class TestTheSessionsWrites:
 
     def test_the_holders_setting_is_stored(self, sim_session, held):
         wanted = 50 if sim_session.settings['jpg_quality'] != 50 else 60
-        with acting(held):
+        with sim_session.acting_in_control(held):
             sim_session.update_settings('jpg_quality', wanted)
         assert sim_session.settings['jpg_quality'] == wanted
 
@@ -861,3 +871,209 @@ class TestTheRestDoor:
             written = client.post(path, json=body)
             assert written.status_code == 200, (path, written.text)
         assert client.delete(f'/api/v1/handles/Protocol/{protocol}').status_code == 204
+
+
+class _ClaimClock:
+    """The steady clock the claim reads, moved on by the test alone.
+
+    A stand-in by design: the silence is the claim's own reading of time, and
+    the simulated motion and frame clocks it watches must not jump with it
+    (a moved host clock would let the monitor give up a held move).
+    """
+
+    def __init__(self) -> None:
+        self._ahead_ns = 0
+
+    def steady_ns(self) -> int:
+        return host_clock.steady_ns() + self._ahead_ns
+
+    def passes(self, seconds: float) -> None:
+        self._ahead_ns += int(seconds * 1e9)
+
+
+@pytest.fixture
+def silence(monkeypatch):
+    """Time as the claim reads it, moved on with ``passes``."""
+    clock = _ClaimClock()
+    monkeypatch.setattr(activity_claim, 'host_clock', clock)
+    return clock
+
+
+def _refused_reason(write) -> str | None:
+    """The reason ``write`` is refused with, or None when it is admitted."""
+    try:
+        write()
+    except ControlSessionRefusedError as refused:
+        return refused.reason
+    return None
+
+
+def _a_guarded_write(claim) -> None:
+    with a_guarded_write(claim):
+        pass
+
+
+class TestASessionWhoseHolderGoesSilent:
+    """A control session nothing has renewed, called in or started work in for
+    ``CONTROL_SILENCE_S`` is ended by the next caller it would refuse, so a
+    client that died holding control does not leave the scope held."""
+
+    def test_the_next_write_it_would_refuse_ends_it_and_its_holder_is_told_it_ended(
+        self, claim, silence
+    ):
+        controller = _take(claim)
+        silence.passes(CONTROL_SILENCE_S)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) is None
+        assert claim.control is None
+        with pytest.raises(ControlSessionRefusedError) as refused, claim.calling_in(controller.id):
+            pass
+        assert refused.value.reason == 'control_session_ended'
+
+    def test_short_of_the_interval_it_still_refuses(self, claim, silence):
+        controller = _take(claim)
+        silence.passes(CONTROL_SILENCE_S - 1)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+        assert claim.control is controller.session
+
+    def test_nothing_ends_it_while_no_one_else_asks(self, claim, silence):
+        controller = _take(claim)
+        silence.passes(10 * CONTROL_SILENCE_S)
+        with claim.calling_in(controller.id), acting(controller):
+            _a_guarded_write(claim)
+        assert claim.control is controller.session
+
+    def test_a_renewal_or_a_call_restarts_the_interval(self, claim, silence):
+        controller = _take(claim)
+        silence.passes(CONTROL_SILENCE_S - 1)
+        claim.renew_control(controller.id)
+        silence.passes(CONTROL_SILENCE_S - 1)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+        with claim.calling_in(controller.id):
+            pass
+        silence.passes(CONTROL_SILENCE_S - 1)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+
+    def test_a_renewal_naming_another_id_renews_nothing(self, claim, silence):
+        _take(claim)
+        silence.passes(CONTROL_SILENCE_S - 1)
+        claim.renew_control('never-issued')
+        silence.passes(1)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) is None
+
+    def test_a_call_in_flight_keeps_it_however_long(self, claim, silence):
+        controller = _take(claim)
+        with claim.calling_in(controller.id):
+            silence.passes(10 * CONTROL_SILENCE_S)
+            assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+        # The call's end renews it: the interval runs from there.
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+
+    def test_an_operation_started_in_it_keeps_it_until_it_is_done(self, claim, silence):
+        controller = _take(claim)
+        with acting(controller):
+            started = Operation()
+        silence.passes(10 * CONTROL_SILENCE_S)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+        concurrent.futures.Future.set_result(started, None)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) is None
+        assert claim.control is None
+
+    def test_an_operation_started_outside_it_is_not_its_own(self, claim, silence):
+        _take(claim)
+        Operation()
+        silence.passes(CONTROL_SILENCE_S)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) is None
+
+    def test_an_activity_taken_for_it_keeps_it_until_released(self, claim, silence):
+        controller = _take(claim)
+        with acting(controller):
+            held = claim.try_claim('diagnostic')
+        silence.passes(10 * CONTROL_SILENCE_S)
+        assert _refused_reason(lambda: _a_guarded_write(claim)) == 'control_session_held'
+        held.release()
+        assert _refused_reason(lambda: _a_guarded_write(claim)) is None
+
+    def test_every_door_that_refuses_for_it_ends_it(self, silence):
+        def lane_task(claim):
+            refusing = claim.refusing_holder(None)
+            if refusing is not None:
+                raise command_refused(refusing, 'task')
+
+        def falsifying_write(claim):
+            refusing = claim.enter_falsifying_change(None)
+            if refusing is not None:
+                raise command_refused(refusing, 'write')
+            claim.leave_falsifying_change()
+
+        def asked(claim):
+            refusing = claim.refusing_control(None)
+            if refusing is not None:
+                raise control_refused(refusing)
+
+        def slot(claim):
+            claim.try_claim('diagnostic').release()
+
+        doors = {
+            'a guarded write': _a_guarded_write,
+            'a lane task': lane_task,
+            'a write that would falsify a recording': falsifying_write,
+            "a run's prepare asking": asked,
+            'a take of the slot': slot,
+            'a take of control': lambda claim: _take(claim, 'the next client'),
+        }
+        kept = []
+        for named, door in doors.items():
+            claim = ActivityClaim()
+            _take(claim)
+            silence.passes(CONTROL_SILENCE_S)
+            if _refused_reason(functools.partial(door, claim)) is not None:
+                kept.append(named)
+        assert kept == [], f'a silent session refused, where it should have ended: {kept}'
+
+    def test_its_end_is_announced(self, silence):
+        heard = []
+        claim = ActivityClaim(on_transition=lambda: heard.append(claim.control))
+        controller = _take(claim)
+        silence.passes(CONTROL_SILENCE_S)
+        _a_guarded_write(claim)
+        assert heard == [controller.session, None]
+
+    def test_a_held_move_started_in_it_keeps_it_until_the_move_ends(self, sim_session, silence):
+        # The move's operation is made on the motion lane, under the taking
+        # the holder's call stamped on its task.
+        home_sim_scope(sim_session.scope)
+        sim_session.scope.simulation.hold_axis('Z')
+        session_id = sim_session.take_control('plate reader')
+        with sim_session.acting_in_control(session_id):
+            move = sim_session.scope.motion.start_move_z(3000.0, overshoot_enabled=False)
+        silence.passes(10 * CONTROL_SILENCE_S)
+        wanted = 50 if sim_session.settings['jpg_quality'] != 50 else 60
+        write = functools.partial(sim_session.update_settings, 'jpg_quality', wanted)
+        assert _refused_reason(write) == 'control_session_held'
+        move.stop()
+        move.exception(timeout=_WAIT_S)
+        assert _refused_reason(write) is None
+        assert sim_session.control is None
+        assert sim_session.settings['jpg_quality'] == wanted
+
+    def test_a_job_poll_naming_it_renews_it_over_rest(self, sim_session, silence):
+        from fastapi.testclient import TestClient
+
+        from _lumascope.rest.app import build_app
+
+        with TestClient(build_app(sim_session)) as client:
+            session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+            silence.passes(CONTROL_SILENCE_S - 1)
+            polled = client.get('/api/v1/jobs', headers={'Control-Session': session_id})
+            assert polled.status_code == 200, polled.text
+            silence.passes(CONTROL_SILENCE_S - 1)
+            refused = client.put('/api/v1/acceleration_limit_pct', json={'limit_pct': 40})
+            assert refused.status_code == 409
+            assert refused.json()['reason'] == 'control_session_held'
+
+
+def test_the_silence_outlasts_three_of_the_longest_job_polls():
+    # A client polling its job back to back is never silent on the boundary.
+    from _lumascope.rest.jobs import WAIT_CAP_S
+
+    assert CONTROL_SILENCE_S >= 3 * WAIT_CAP_S

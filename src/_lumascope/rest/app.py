@@ -223,8 +223,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         responses={200: {'model': Versions, 'description': 'The versions.'}},
     )
     app.state.served = rest_api
-    # Registered first, so it runs inside the request's id and log line: a
-    # refused client's answer carries its id and is logged once.
+    # Innermost, so only an admitted client's request renews a session.
+    app.middleware('http')(_renewing(session))
+    # Registered before the log, so it runs inside the request's id and log
+    # line: a refused client's answer carries its id and is logged once.
     app.middleware('http')(_admitted_by(rest_api))
     app.middleware('http')(_identify_and_log)
     app.add_exception_handler(ServerRefusedError, _refused)
@@ -771,6 +773,31 @@ def _admitted_by(
         return await call_next(request)
 
     return admitted
+
+
+def _renewing(
+    session: ScopeSession,
+) -> Callable[
+    [fastapi.Request, Callable[[fastapi.Request], Awaitable[fastapi.Response]]],
+    Awaitable[fastapi.Response],
+]:
+    """Renew the control session a request's ``Control-Session`` header names, as it arrives.
+
+    Every request naming it, whatever its route -- a read, a job poll, a
+    write -- so a client that only polls its job is not silent
+    (``ScopeSession.take_control``).
+    """
+
+    async def renewed(
+        request: fastapi.Request,
+        call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]],
+    ) -> fastapi.Response:
+        control_id = request.headers.get(CONTROL_SESSION_HEADER)
+        if control_id is not None:
+            session.renew_control(control_id)
+        return await call_next(request)
+
+    return renewed
 
 
 async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:

@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import ui_queue
+from _lumascope.modules.activity_claim import started_in_control
 from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedError
 from _lumascope.modules.finite_number import refuse_unless_wait_s
@@ -167,6 +168,10 @@ class Operation[T](concurrent.futures.Future[T]):
         # Set only while a producer delivers this operation's end on one
         # thread: that thread and the outcome it is delivering.
         self._own: tuple[threading.Thread, object, BaseException | None] | None = None
+        # Made in a control session -- on its holder's call, or on a lane
+        # running the holder's work -- it keeps that session from going
+        # silent until it is done.
+        started_in_control(self)
 
     @api
     def stop(self) -> None:

@@ -8,7 +8,9 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+from _lumascope.drivers import host_clock
+from _lumascope.lvp_logger import logger
 from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.caller import Caller, current_caller
 from _lumascope.modules.live_work import SCOPE_HOLDERS, WorkKind
@@ -21,6 +23,18 @@ from _lumascope.modules.exceptions import (
     SessionClosingError,
     the_activity_named,
 )
+
+if TYPE_CHECKING:
+    from _lumascope.modules.operation import Operation
+
+# How long a control session may go with nothing of its own -- no request
+# naming it, no call in it, nothing it started still running -- before the
+# next caller it would refuse ends it instead. Three times the longest job
+# poll a client can make (the REST server's ``WAIT_CAP_S``), so a client
+# polling back to back is never silent on the boundary; short enough that a
+# client which died holding control leaves the scope held for minutes, not
+# until someone at the scope takes it back.
+CONTROL_SILENCE_S = 180.0
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
 # drive every axis, the LEDs and the camera, and a home leaves every axis
@@ -370,14 +384,22 @@ class ControllerTaking:
     once the session is ended it is no one's in particular, and is admitted
     or refused as any caller's is. The lanes carry it as they carry every
     taking, so the controller's lane work is known for its own.
+
+    It also carries what says whether the session has gone silent
+    (``CONTROL_SILENCE_S``): when it was last renewed, the calls in it now,
+    and the operations started under it. They are the claim's to read and
+    write, under its lock, and they end with the session they belong to.
     """
 
-    __slots__ = ('_claim', '_id', '_session')
+    __slots__ = ('_calls', '_claim', '_id', '_renewed_ns', '_session', '_started')
 
     def __init__(self, claim: 'ActivityClaim', session: ControlSession, session_id: str) -> None:
         self._claim = claim
         self._session = session
         self._id = session_id
+        self._renewed_ns = host_clock.steady_ns()
+        self._calls = 0
+        self._started: list[Operation] = []
 
     @property
     def claim(self) -> 'ActivityClaim':
@@ -397,6 +419,19 @@ class ControllerTaking:
         one. Held here alone: the taker is told it, and no record publishes it.
         """
         return self._id
+
+
+def started_in_control(operation: 'Operation') -> None:
+    """Count ``operation`` as its control session's until it is done, when this thread acts in one.
+
+    Called by every operation as it is made. One made under the
+    controller's taking -- on the holder's own call, or on a lane running
+    the holder's work -- keeps the session from going silent while it runs;
+    one made under anything else is no session's.
+    """
+    taking = current_taking()
+    if isinstance(taking, ControllerTaking):
+        taking.claim._started_in(taking, operation)
 
 
 def command_refused(
@@ -619,7 +654,8 @@ class ActivityClaim:
         diagnostic, the operator's or a session's still unwinding -- no
         guarded write still running, and no work finishing after it let the
         slot go, so nothing is ever put under a client's control half done.
-        Announced.
+        A session held but gone silent (``CONTROL_SILENCE_S``) is ended
+        first, and the take goes on. Announced.
 
         Args:
             name: What the person at the scope is told holds it.
@@ -642,6 +678,7 @@ class ActivityClaim:
                 ``'work_finishing'``. Nothing was taken.
         """
         caller = current_caller()
+        self._end_if_silent(current_taking())
         with self._lock:
             if self._closing or self._closed:
                 raise SessionClosingError('control')
@@ -663,18 +700,48 @@ class ActivityClaim:
         self.announce()
         return controller
 
-    def controller(self, session_id: str) -> ControllerTaking:
-        """The taking that acts in the live control session, named by its id.
+    @contextlib.contextmanager
+    def calling_in(self, session_id: str) -> Iterator[ControllerTaking]:
+        """A call in the live control session, named by its id, for the length of a ``with`` block.
+
+        Yields the taking the call acts under. The session is renewed as the
+        call enters and as it leaves, and cannot go silent while it runs.
 
         Raises:
             ControlSessionRefusedError: ``'control_session_ended'`` -- no
-                session is held, or the live one has another id.
+                session is held, or the live one has another id. The block
+                did not run.
         """
         with self._lock:
             control = self._control
-        if control is None or control[1].id != session_id:
-            raise ControlSessionRefusedError('control_session_ended')
-        return control[1]
+            if control is None or control[1].id != session_id:
+                raise ControlSessionRefusedError('control_session_ended')
+            controller = control[1]
+            controller._calls += 1
+            controller._renewed_ns = host_clock.steady_ns()
+        try:
+            yield controller
+        finally:
+            with self._lock:
+                controller._calls -= 1
+                controller._renewed_ns = host_clock.steady_ns()
+
+    def renew_control(self, session_id: str) -> None:
+        """Renew the live control session when ``session_id`` names it: a request in it was made.
+
+        A request that acts in the session renews it through ``calling_in``;
+        this is for one that only names it -- a job poll. An id that names no
+        live session renews nothing and is not refused here: a request that
+        acts is refused where it enters the session, and one that only reads
+        is anyone's.
+
+        Raises:
+            Nothing.
+        """
+        with self._lock:
+            control = self._control
+            if control is not None and control[1].id == session_id:
+                control[1]._renewed_ns = host_clock.steady_ns()
 
     def end_control(self, session_id: str) -> ControlSession:
         """End the live control session, named by its id: its taker, or the GUI. Announced.
@@ -725,6 +792,7 @@ class ActivityClaim:
             ControlSessionRefusedError: ``'control_session_held'``. Nothing
                 was counted.
         """
+        self._end_if_silent(taking)
         with self._lock:
             session = self._control_refusing(taking)
             if session is not None:
@@ -738,6 +806,7 @@ class ActivityClaim:
         that only asks -- a run's ``prepare`` -- reads what a take of the
         slot or a lane would answer.
         """
+        self._end_if_silent(taking)
         with self._lock:
             return self._control_refusing(taking)
 
@@ -779,6 +848,7 @@ class ActivityClaim:
         """
         holder = ActivityHolder(kind=owner, run=run)
         taking = current_taking()
+        self._end_if_silent(taking)
         with self._lock:
             if self._closing or self._closed:
                 raise SessionClosingError(owner)
@@ -815,6 +885,7 @@ class ActivityClaim:
         format, the turret, a light), whoever makes it -- the recording
         itself never does. Everything else stays open to anyone during one.
         """
+        self._end_if_silent(taking)
         return self._refusing(self._holder, taking, falsifies_recording)
 
     def enter_falsifying_change(
@@ -832,6 +903,7 @@ class ActivityClaim:
             What refuses the write -- the control session, or the activity
             holding the scope -- or None when it is admitted and counted.
         """
+        self._end_if_silent(taking)
         with self._lock:
             holder = self._refusing(self._holder, taking, True)
             if holder is None:
@@ -881,6 +953,55 @@ class ActivityClaim:
         if isinstance(root, HeldClaim) and root.control is session and root.holds:
             return None
         return session
+
+    def _end_if_silent(self, taking: 'Taking | ControllerTaking | None') -> None:
+        """End the control session when it would refuse ``taking`` and has gone silent. Announced.
+
+        Asked at every door that refuses for the session, before it decides,
+        so a session whose holder went away is ended by the next caller it
+        would have refused, and by nothing else: no timer, and never on its
+        holder's own call. A session that goes silent between this and the
+        door's decision refuses that one caller, and the next ends it.
+        """
+        control = self._control
+        if control is None or self._control_refusing(taking) is None:
+            return
+        with self._lock:
+            if self._control is not control or not self._silent(control):
+                return
+            self._control = None
+        session = control[0]
+        logger.info(
+            f'[Session  ] Control session {session.name!r} ({session.taken_by}) ended: '
+            f'nothing in it for {CONTROL_SILENCE_S:.0f} s'
+        )
+        self.announce()
+
+    def _silent(self, control: tuple[ControlSession, ControllerTaking]) -> bool:
+        """Whether ``control`` has gone silent; asked under this claim's lock.
+
+        Silent: nothing renewed it for ``CONTROL_SILENCE_S``, no call is in
+        it, no operation started under it is still running, and no activity
+        taken for it holds the slot -- so ending it stops nothing of its own.
+        """
+        session, controller = control
+        if host_clock.steady_ns() - controller._renewed_ns < CONTROL_SILENCE_S * 1e9:
+            return False
+        if controller._calls:
+            return False
+        if self._held is not None and self._held.control is session:
+            return False
+        controller._started = [op for op in controller._started if not op.done()]
+        return not controller._started
+
+    def _started_in(self, controller: ControllerTaking, operation: 'Operation') -> None:
+        """Count ``operation`` as ``controller``'s session's while it runs (``started_in_control``)."""
+        with self._lock:
+            control = self._control
+            if control is None or control[1] is not controller:
+                return
+            controller._started = [op for op in controller._started if not op.done()]
+            controller._started.append(operation)
 
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held

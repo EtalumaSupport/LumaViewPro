@@ -399,7 +399,11 @@ every other caller's command, setting, file, run, recording, home or diagnostic
 is refused `ControlSessionRefusedError` (`'control_session_held'`), naming the
 session. A stop is never refused, and the display preferences stay open to
 everyone. The session is taken only while nothing of anyone else's is under
-way.
+way. It ends when its holder goes silent: once 180 s pass with no call in it,
+no request naming it and nothing it started -- a move, a run, a recording --
+still running, the next caller it would refuse ends it instead, and the
+holder's next call is refused `'control_session_ended'`. A holder that waits
+longer between calls renews it (`session.renew_control(session_id)`).
 
 ```python
 session_id = session.take_control('plate reader')     # the id goes to the taker alone
@@ -1298,6 +1302,8 @@ While a control session is held, every write carries its id in the
 (`'control_session_held'`), and a request naming an ended session `422`
 (`'control_session_ended'`). `POST /api/v1/take_control` with `{"name": ...}`
 answers the id; `POST /api/v1/end_control` with `{"session_id": ...}` ends it.
+Every request carrying the header renews the session, a read or a job poll
+included; one silent for 180 s is ended by the next client it would refuse.
 
 ### Problems
 

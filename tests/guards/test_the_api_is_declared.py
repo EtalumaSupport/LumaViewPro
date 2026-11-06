@@ -985,6 +985,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.remove_shown_channel_listener parameter listener': _CHANNEL,
     'ScopeSession.rename_step return': _STEP,
     'ScopeSession.rename_step parameter name': _STEP,
+    'ScopeSession.renew_control parameter session_id': _CONTROL,
     'ScopeSession.save_channel_focus parameter channel': _CHANNEL,
     'ScopeSession.save_focus parameter channel': _CHANNEL,
     'ScopeSession.saved_focus_z_um parameter channel': _CHANNEL,

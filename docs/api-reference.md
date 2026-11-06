@@ -213,6 +213,8 @@ Every call the block makes on this thread is the session's, and so
 is the lane work it hands on. A callback the API runs on a thread of
 its own -- an operation's done-callback -- runs outside the block,
 and is refused as any non-holder's call while the session is held.
+The block renews the session as it enters and as it leaves, and the
+session cannot go silent while it runs (`take_control`).
 
 **Args**
 
@@ -2414,6 +2416,29 @@ Give step `step_index` of `protocol` the label `name`; returns its new name.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
 
+<a id="ScopeSession.renew_control"></a>
+### `ScopeSession.renew_control`
+
+```python
+def renew_control(self, session_id: str) -> None
+```
+
+Route: `POST /api/v1/renew_control`.
+
+Renew the control session named by its id, so it does not go silent (`take_control`).
+
+Every call in the session renews it; this renews it without one. The
+REST server renews it for every request that names it, a job poll
+included. An id that names no live session renews nothing.
+
+**Args**
+
+- `session_id`: The `id` the session was taken with.
+
+**Raises**
+
+Nothing.
+
 <a id="ScopeSession.retire_rejected_settings"></a>
 ### `ScopeSession.retire_rejected_settings`
 
@@ -3610,6 +3635,15 @@ is under way, so no one's work is ever put under a client's control:
 no other session, no run, recording, home or diagnostic, no setting
 or file being written, and no run or recording that has ended still
 finishing its files.
+
+A session ends when its holder goes silent. Once 180 s
+(`activity_claim.CONTROL_SILENCE_S`) pass with no call in it, no
+request naming it (`renew_control`) and nothing it started -- a
+move, a run, a recording, any operation -- still running, the next
+caller it would refuse, or the next take, ends it instead, and its
+holder's next call is refused `'control_session_ended'`. Nothing
+ends it while no one else asks. A holder that waits longer between
+calls renews it.
 
 **Args**
 
@@ -17773,6 +17807,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/protocol_runner` | [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner) |
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |
+| `POST` | `/api/v1/renew_control` | [`ScopeSession.renew_control`](#ScopeSession.renew_control) |
 | `POST` | `/api/v1/retire_rejected_settings` | [`ScopeSession.retire_rejected_settings`](#ScopeSession.retire_rejected_settings) |
 | `POST` | `/api/v1/save_all_bookmarks` | [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks) |
 | `POST` | `/api/v1/save_bookmark` | [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark) |
