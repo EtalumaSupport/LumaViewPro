@@ -4,6 +4,7 @@
 import copy
 import dataclasses
 import functools
+import logging
 import pathlib
 import sys
 import threading
@@ -24,12 +25,18 @@ import _lumascope.modules.image_mode as image_mode
 # instantiates FX2Camera + FX2LEDController via 'auto' fallthrough when
 # Pylon/IDS aren't found. Wrapped in try/except so dev machines without
 # pyusb / libusb1 don't crash LVP at startup (matches the IDS pattern below).
+# What the import found is a (level, line) list for the environment banner
+# (driver_availability_lines): decided here, where nothing has started logging.
 try:
-    import _lumascope.drivers.fx2driver  # noqa: F401
+    import _lumascope.drivers.fx2driver as _fx2driver
 except ImportError as _fx2_exc:
     # Same silent-degradation shape as the IDS guard below: without this
     # line a Classic scope's missing camera has no named cause anywhere.
-    logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
+    _FX2_IMPORT_LINES = [
+        (logging.WARNING, f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
+    ]
+else:
+    _FX2_IMPORT_LINES = _fx2driver.fx2_gate_lines()
 from _lumascope.drivers import camera_profiles, host_clock
 from _lumascope.drivers.camera import Camera
 from _lumascope.drivers.exceptions import (
@@ -120,12 +127,10 @@ if TYPE_CHECKING:
     from _lumascope.modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
-import logging as _logging
-
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.api_surface import api, api_fields
 
-_api_log = _logging.getLogger('LVP.api')
+_api_log = logging.getLogger('LVP.api')
 
 
 def scope_lane_closed(member: str) -> HardwareCommandRefusedError:
@@ -137,30 +142,57 @@ def scope_lane_closed(member: str) -> HardwareCommandRefusedError:
     return HardwareCommandRefusedError('scope_disconnected', member)
 
 
-def _register_ids_camera(platform: str):
+def _register_ids_camera(platform: str, lines: list[tuple[int, str]]):
     """Import the IDS driver, which registers it; None when it cannot load.
 
     IDS peak ships Windows and Linux builds only, so on macOS no IDS camera
     can ever run and the driver is not attempted: its absence there is a
-    fact of the host, logged once at INFO. Elsewhere a failed import is a
+    fact of the host, stated once at INFO. Elsewhere a failed import is a
     WARNING with its reason, because the driver then silently never
     registers and an IDS scope just "has no camera" -- a bundling gap in a
     frozen build cost a full client misdiagnosis.
+
+    Args:
+        platform: The host, as ``sys.platform`` names it.
+        lines: Where the outcome's ``(level, line)`` goes, for the
+            environment banner: this runs at import, where nothing has
+            started logging.
     """
     if platform == 'darwin':
-        logger.info(
-            '[SCOPE API ] IDS cameras are not supported on macOS (IDS peak has no macOS build)'
+        lines.append(
+            (
+                logging.INFO,
+                '[SCOPE API ] IDS cameras are not supported on macOS (IDS peak has no macOS build)',
+            )
         )
         return None
     try:
         from _lumascope.drivers.idscamera import IDSCamera
     except ImportError as exc:
-        logger.warning(f'[SCOPE API ] IDS camera driver unavailable: {exc}')
+        lines.append((logging.WARNING, f'[SCOPE API ] IDS camera driver unavailable: {exc}'))
         return None
     return IDSCamera
 
 
-IDSCamera = _register_ids_camera(sys.platform)
+_IDS_IMPORT_LINES: list[tuple[int, str]] = []
+IDSCamera = _register_ids_camera(sys.platform, _IDS_IMPORT_LINES)
+
+
+def driver_availability_lines() -> list[tuple[int, str]]:
+    """What the driver imports found, as ``(level, line)`` pairs for the environment banner.
+
+    The FX2 gate (or the FX2 import's failure), the IDS registration's
+    outcome, and each registry's registered and declined drivers (at DEBUG).
+    A failure is a WARNING.
+    """
+    return [
+        *_FX2_IMPORT_LINES,
+        *_IDS_IMPORT_LINES,
+        *(
+            (logging.DEBUG, registry.availability_line())
+            for registry in (motor_registry, led_registry, camera_registry)
+        ),
+    ]
 
 
 def _camera_timing(sim_tier: str) -> str:

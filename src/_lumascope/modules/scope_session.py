@@ -1663,17 +1663,22 @@ class ScopeSession:
         """
         from _lumascope.lvp_logger import log_environment_banner, version
         from _lumascope.modules.app_environment import camera_sdk_probe
-        from _lumascope.modules.lumascope_api._lumascope import _fire_pre_release_warning
+        from _lumascope.modules.lumascope_api._lumascope import (
+            _fire_pre_release_warning,
+            driver_availability_lines,
+        )
         from _lumascope.lib.build_files import build_root
         from _lumascope.modules.path_utils import get_source_root
 
         # Every host builds its session here, so the process's environment
         # is logged here, once, before anything below can refuse: a log from
-        # the REST server, a script or a probe names its host, build and
-        # camera SDKs as the GUI's does, a bring-up that fails included. The
-        # build's own files (version.txt, build_id.txt) ship in the build
+        # the REST server, a script or a probe names its host, build, camera
+        # SDKs and drivers as the GUI's does, a bring-up that fails included.
+        # The build's own files (version.txt, build_id.txt) ship in the build
         # root, never in the data folder ``source_path`` names.
-        log_environment_banner(str(build_root()), version, camera_sdk_probe())
+        log_environment_banner(
+            str(build_root()), version, camera_sdk_probe(), driver_availability_lines()
+        )
 
         if simulated is not None and not simulate:
             raise ArgumentRefusedError(

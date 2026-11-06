@@ -4,7 +4,8 @@
 IDS peak ships Windows and Linux builds only. Every launch on a Mac, the
 simulator included, logged `IDS camera driver unavailable: No module named
 'ids_peak_ipl'` at WARNING, a line that can never be otherwise there and
-that buried the warnings that matter. On Windows and Linux the WARNING
+that buried the warnings that matter; the environment banner now states
+the line the registration hands it. On Windows and Linux the WARNING
 stays: a frozen build missing the IDS library once made an IDS scope look
 like it had no camera.
 """
@@ -13,30 +14,28 @@ import logging
 import sys
 
 from _lumascope.modules.lumascope_api import _lumascope
-from tests.log_capture import records_of
 
 
-def _attempt(monkeypatch, caplog, platform):
-    """The registration's answer and (level, message) for each line the scope module logged."""
+def _attempt(monkeypatch, platform):
+    """The registration's answer and the (level, message) lines it hands the banner."""
     # The import fails the way it does on a host without the IDS SDK.
     monkeypatch.setitem(sys.modules, '_lumascope.drivers.idscamera', None)
-    caplog.clear()
-    with caplog.at_level(logging.INFO):
-        camera = _lumascope._register_ids_camera(platform)
-    return camera, [(r.levelno, r.getMessage()) for r in records_of(caplog, _lumascope)]
+    lines = []
+    camera = _lumascope._register_ids_camera(platform, lines)
+    return camera, lines
 
 
-def test_on_macos_the_absence_is_info_and_the_driver_is_not_attempted(monkeypatch, caplog):
-    camera, lines = _attempt(monkeypatch, caplog, 'darwin')
+def test_on_macos_the_absence_is_info_and_the_driver_is_not_attempted(monkeypatch):
+    camera, lines = _attempt(monkeypatch, 'darwin')
     assert camera is None
     assert [m for level, m in lines if level == logging.WARNING] == [], lines
     message = [m for level, m in lines if level == logging.INFO][-1]
     assert 'not supported on macOS' in message
 
 
-def test_on_windows_and_linux_a_missing_driver_is_still_a_warning(monkeypatch, caplog):
+def test_on_windows_and_linux_a_missing_driver_is_still_a_warning(monkeypatch):
     for platform in ('win32', 'linux'):
-        camera, lines = _attempt(monkeypatch, caplog, platform)
+        camera, lines = _attempt(monkeypatch, platform)
         assert camera is None
         message = [m for level, m in lines if level == logging.WARNING][-1]
         assert 'IDS camera driver unavailable' in message

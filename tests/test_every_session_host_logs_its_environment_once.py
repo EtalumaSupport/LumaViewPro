@@ -68,3 +68,75 @@ def test_two_sessions_in_one_process_log_one_banner_from_the_script_root(tmp_pat
     # load the UI for it.
     assert not heard['kivy'], 'writing the banner imported Kivy into a headless process'
     assert '[LVP Main  ] Kivy: not loaded by this process' in lines
+
+
+# Every level is open before the drivers import: a record a level check drops
+# is invisible to a handler, and that is how the registry's import-time lines
+# went uncounted.
+_DRIVERS = """
+import json, logging, sys
+import _lumascope.lvp_logger
+for name in ('', 'LVP', 'lvp_logger'):
+    logging.getLogger(name).setLevel(logging.DEBUG)
+heard = []
+handler = logging.Handler()
+handler.emit = lambda record: heard.append((record.levelno, record.getMessage()))
+logging.getLogger().addHandler(handler)
+import _lumascope.modules.lumascope_api._lumascope
+from _lumascope.drivers import registry
+from _lumascope.modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+at_import = list(heard)
+ScopeSession.create(complete_settings(), source_path=sys.argv[1], simulate=True).shutdown()
+fx2 = sys.modules.get('_lumascope.drivers.fx2driver')
+print(json.dumps({
+    'at_import': at_import,
+    'banner': heard[len(at_import):],
+    'registered': {
+        'motor': registry.motor_registry.registered_names(),
+        'led': registry.led_registry.registered_names(),
+        'camera': registry.camera_registry.registered_names(),
+    },
+    'fx2_gate_open': None if fx2 is None else fx2._FX2_GATE.available,
+}))
+"""
+
+
+def _is_driver_line(message):
+    return message.startswith(('[registry]', '[FX2 Driver]')) or message.startswith(
+        ('[SCOPE API ] FX2', '[SCOPE API ] IDS')
+    )
+
+
+def test_the_banner_states_what_the_driver_imports_found_and_the_import_writes_none(tmp_path):
+    # The drivers decide their availability as they import, where nothing has
+    # started logging; the banner is where a support bundle gets it.
+    shutil.copytree(REPO / 'data', tmp_path / 'data')
+    done = subprocess.run(
+        [sys.executable, '-c', _DRIVERS, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(REPO),
+    )
+    assert done.returncode == 0, done.stderr
+    heard = json.loads(done.stdout.strip().splitlines()[-1])
+
+    written_at_import = [m for _level, m in heard['at_import'] if _is_driver_line(m)]
+    assert not written_at_import, f'the driver imports wrote: {written_at_import}'
+
+    banner = [(level, m) for level, m in heard['banner'] if _is_driver_line(m)]
+    for kind, names in heard['registered'].items():
+        line = [m for level, m in banner if m.startswith(f'[registry] {kind}: registered ')]
+        assert len(line) == 1, f'the banner states the {kind} registry {len(line)} times'
+        missing = [name for name in names if f'{name!r} -> ' not in line[0]]
+        assert not missing, f'the {kind} line leaves out {missing}: {line[0]}'
+    if heard['fx2_gate_open'] is False:
+        declined = [m for _level, m in banner if "declined 'fx2' (" in m]
+        assert len(declined) == 2, f'the camera and LED registries each decline the FX2: {banner}'
+    fx2_lines = [m for _level, m in banner if m.startswith(('[FX2 Driver]', '[SCOPE API ] FX2'))]
+    assert fx2_lines, 'the banner does not state the FX2 gate'
+    if 'ids' not in heard['registered']['camera']:
+        assert [m for _level, m in banner if m.startswith('[SCOPE API ] IDS')], (
+            'the IDS driver did not register and the banner does not say why'
+        )

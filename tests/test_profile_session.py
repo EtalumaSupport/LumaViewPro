@@ -68,7 +68,7 @@ sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 import _lumascope.lvp_logger
 mode = sys.argv[2]
 if mode in ('banner', 'rotated'):
-    _lumascope.lvp_logger.log_environment_banner(sys.argv[1], _lumascope.lvp_logger.version, [])
+    _lumascope.lvp_logger.log_environment_banner(sys.argv[1], _lumascope.lvp_logger.version, [], [])
 if mode == 'rotated':
     _lumascope.lvp_logger.file_handler.doRollover()
 print('ready', flush=True)

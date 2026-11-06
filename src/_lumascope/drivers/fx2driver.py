@@ -350,39 +350,51 @@ def _fx2_gate(has_usb: bool, usb1_module, platform: str) -> _Fx2Gate:
     )
 
 
-def _log_fx2_gate(gate: _Fx2Gate) -> None:
-    """Say at INFO which prerequisite kept the FX2 drivers out, and which libusb is loaded."""
+def _gate_lines(gate: _Fx2Gate) -> list[tuple[int, str]]:
+    """Which prerequisite kept the FX2 drivers out, and which libusb is loaded.
+
+    Returns:
+        ``(level, line)`` pairs, each at INFO, for the environment banner:
+        the gate is decided at import, where nothing has started logging, so
+        the banner states it.
+    """
+    lines = []
     if not gate.available:
         if not gate.has_usb:
-            logger.info(
+            lines.append(
                 '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
                 'drivers will not be registered. Install pyusb to enable '
                 'LVC hardware support: pip install pyusb'
             )
         elif gate.library_path is None:
-            logger.info(
+            lines.append(
                 f'[FX2 Driver] bundled libusb not in use: {gate.library_refusal} -- '
                 'FX2 (LumaviewClassic) drivers will not be registered.'
             )
         elif not gate.has_usb1:
-            logger.info(
+            lines.append(
                 '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
                 'drivers will not be registered on macOS/Linux. Install '
                 'libusb1 (pip install -r requirements.txt) to enable LVC '
                 'hardware support.'
             )
     if gate.library_path is not None:
-        logger.info(
+        lines.append(
             f'[FX2 Driver] libusb {gate.library_version or "(version unread)"} '
             f'loaded from {gate.library_path}'
         )
+    return [(logging.INFO, line) for line in lines]
 
 
 # Resolved at import so a host without a usable libusb is classified as
 # "FX2 not applicable to this install" here, instead of the first
 # usb.core.find() raising NoBackendError mid-connect on every startup.
 _FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None, sys.platform)
-_log_fx2_gate(_FX2_GATE)
+
+
+def fx2_gate_lines() -> list[tuple[int, str]]:
+    """This process's FX2 gate, as ``(level, line)`` pairs for the environment banner."""
+    return _gate_lines(_FX2_GATE)
 
 
 def fx2_readiness() -> dict[str, bool | None]:

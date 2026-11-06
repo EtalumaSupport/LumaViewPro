@@ -208,10 +208,6 @@ class DriverRegistry:
                 priority=priority,
                 is_simulator=is_simulator,
             )
-            logger.debug(
-                f'[registry] {self._kind}: registered {name!r} -> '
-                f'{cls.__name__} (priority={priority}, sim={is_simulator})'
-            )
             return cls
 
         return decorator
@@ -224,7 +220,6 @@ class DriverRegistry:
         that driver is not read as an unplugged cable alone.
         """
         self._declined[name] = reason
-        logger.debug(f'[registry] {self._kind}: declined {name!r} ({reason})')
         return lambda cls: cls
 
     @staticmethod
@@ -507,6 +502,25 @@ class DriverRegistry:
     def registered_names(self) -> list[str]:
         """For tests and diagnostics."""
         return sorted(self._entries.keys())
+
+    def availability_line(self) -> str:
+        """One line for the environment banner: every driver registered, and every one declined with why.
+
+        Registration runs as each driver module is imported, where nothing
+        has started logging, so the banner states what it left.
+        """
+        registered = ', '.join(
+            f'{name!r} -> {entry.cls.__name__} (priority={entry.priority}, '
+            f'sim={entry.is_simulator})'
+            for name, entry in sorted(self._entries.items())
+        )
+        declined = ', '.join(
+            f'{name!r} ({reason})' for name, reason in sorted(self._declined.items())
+        )
+        return (
+            f'[registry] {self._kind}: registered {registered or "nothing"}; '
+            f'declined {declined or "nothing"}'
+        )
 
 
 # Three global registries -- one per driver kind.

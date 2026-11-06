@@ -564,7 +564,10 @@ _banner_lock = threading.Lock()
 
 
 def log_environment_banner(
-    install_path: str, version_str: str, camera_sdk_lines: list[str]
+    install_path: str,
+    version_str: str,
+    camera_sdk_lines: list[str],
+    driver_lines: list[tuple[int, str]],
 ) -> None:
     """Emit the standard launch-time environment fingerprint.
 
@@ -579,8 +582,16 @@ def log_environment_banner(
     camera-SDK fingerprint, while importing this module never imports the
     camera bindings the probe imports.
 
+    ``driver_lines`` is the output of
+    ``_lumascope.modules.lumascope_api._lumascope.driver_availability_lines()``:
+    ``(level, line)`` pairs for what the driver imports found (the FX2 gate,
+    the IDS registration, each registry's drivers), each written at its
+    level. Required for the same reason as the camera-SDK lines: the imports
+    decide them where nothing has started logging, so the banner is the one
+    place a support bundle gets them.
+
     Logs git hash, the process ID, run time, host/OS, Python interpreter +
-    version, Kivy, and the camera-SDK lines, so a support bundle identifies
+    version, Kivy, the camera-SDK lines and the driver lines, so a support bundle identifies
     the exact environment that produced the log. The PID ties the banner to
     its process: every process that imports this module writes to the same
     log, and the CPU profiler finds the build it profiles by it.
@@ -718,6 +729,11 @@ def log_environment_banner(
     # this module never imports the camera bindings.
     for _sdk_line in camera_sdk_lines:
         logger.info(f'[LVP Main  ] {_sdk_line}')
+
+    # Each line keeps its own tag ([FX2 Driver], [SCOPE API ], [registry]),
+    # the words a support search has always found it by.
+    for _level, _driver_line in driver_lines:
+        logger.log(_level, _driver_line)
 
     # Full installed-package inventory. install.bat / pip upgrades change
     # behavior -- e.g. the ffmpeg + libx264 build bundled inside `av` -- WITHOUT

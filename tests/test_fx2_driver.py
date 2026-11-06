@@ -1089,12 +1089,9 @@ class TestFx2DriverLibusbBackendProbe:
         return gate, found, handed_to_usb1
 
     @staticmethod
-    def _logged(caplog, gate):
-        """(level, message) for each line the driver module logs saying the gate."""
-        caplog.clear()
-        with caplog.at_level(logging.DEBUG):
-            fx2driver._log_fx2_gate(gate)
-        return [(r.levelname, r.getMessage()) for r in records_of(caplog, fx2driver)]
+    def _stated(gate):
+        """(level, message) for each line the banner states for the gate."""
+        return [(logging.getLevelName(level), line) for level, line in fx2driver._gate_lines(gate)]
 
     @staticmethod
     def _registered(monkeypatch, gate):
@@ -1128,7 +1125,7 @@ class TestFx2DriverLibusbBackendProbe:
         ],
     )
     def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
-        self, monkeypatch, caplog, case, kwargs, reason
+        self, monkeypatch, case, kwargs, reason
     ):
         backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
         if backend == 'OTHER':
@@ -1138,11 +1135,11 @@ class TestFx2DriverLibusbBackendProbe:
         assert gate.available is False, case
         assert reason in gate.library_refusal, (case, gate.library_refusal)
         assert gate.unavailable_reason == f'bundled libusb not in use: {gate.library_refusal}'
-        records = self._logged(caplog, gate)
+        records = self._stated(gate)
         assert any(
             lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
             for lvl, msg in records
-        ), f'{case}: the refusal must be logged with its reason; got {records}'
+        ), f'{case}: the refusal must be stated with its reason; got {records}'
         assert self._registered(monkeypatch, gate) == [], f'{case}: no driver may register'
 
     @pytest.mark.parametrize(
@@ -1159,9 +1156,9 @@ class TestFx2DriverLibusbBackendProbe:
         )
         assert (gate.available, gate.unavailable_reason) == (available, reason), case
 
-    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch, caplog):
+    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the
-        gate opens, the drivers register, and the log names the file."""
+        gate opens, the drivers register, and the banner's line names the file."""
         backend = self._backend_on(self._BUNDLED)
         gate, found, handed = self._gate(monkeypatch, backend=backend)
         assert handed == [('CDLL', self._BUNDLED)] and handed[0] is not backend.lib, (
@@ -1172,8 +1169,8 @@ class TestFx2DriverLibusbBackendProbe:
         )
         assert gate.library_path == self._BUNDLED
         assert gate.available is True
-        assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._logged(
-            caplog, gate
+        assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._stated(
+            gate
         )
         assert self._registered(monkeypatch, gate) == ['fx2'], (
             'FX2 drivers must register when prerequisites are met'
