@@ -126,8 +126,10 @@ _SIM_ONLY_NAME_BUDGET = {
     'MotorBoard': 18,
     # set_stage_xy and set_illumination, which tell a camera built with no
     # scope around it its stage and light; withhold_chunk and the CHUNKS it
-    # takes, the fault of a frame that arrives without one chunk.
-    'Camera': 35,
+    # takes, the fault of a frame that arrives without one chunk;
+    # set_outside_light, the light from outside the scope behind the door
+    # light_outside, which no real camera has a node for.
+    'Camera': 36,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -175,6 +177,7 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'FAILED_READ_ANSWERS'),
     (_SIMULATION, 'withhold_chunk'),
     (_SIMULATION, 'CHUNKS'),
+    (_SIMULATION, 'set_outside_light'),
 }
 
 

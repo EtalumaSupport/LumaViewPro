@@ -104,6 +104,7 @@ api_fields(
     'black_level',
     'illumination_ma',
     'light',
+    'outside_light_ma',
     'x_um',
     'y_um',
     'z_um',
@@ -879,6 +880,39 @@ class SimulationAPI:
             raise self._not_injectable('delay_delivery', target)
         target.delay_delivery(int(frames))
         self._record('delay_delivery', lambda: target.delay_delivery(0), frames=frames)
+
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
+    def light_outside(self, illumination_ma: float) -> None:
+        """The sample is lit from outside the scope from now on, and the
+        scope records no change.
+
+        As an illuminator LVP does not drive, such as another program's
+        shutter: exposures starting from now are lit by it as well as by
+        the LEDs, as the simulated camera's reference LED lit at
+        ``illumination_ma`` would light them, while the LED state and frame
+        validity record nothing. ``exposed_under`` names it in each frame's
+        ``outside_light_ma``. ``clear`` puts it out.
+
+        Args:
+            illumination_ma: The light, as the reference LED's current that
+                makes it, more than 0 mA.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` on a scope whose camera did not come up;
+                ``'not_a_number'`` or ``'fault_bound'`` for 0 mA or less;
+                ``'not_injectable_on_board'`` on the FX2, whose sample is
+                lit by its own LED board alone.
+        """
+        target = self._camera_board('light_outside')
+        self._bound('illumination_ma', illumination_ma, 'more than 0 mA', illumination_ma > 0)
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('light_outside', target)
+        target.set_outside_light(float(illumination_ma))
+        self._record(
+            'light_outside', lambda: target.set_outside_light(0.0), illumination_ma=illumination_ma
+        )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write

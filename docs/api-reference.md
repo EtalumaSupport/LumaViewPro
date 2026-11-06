@@ -8830,6 +8830,39 @@ The stage's interlock inputs read as given, until `clear`.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`
 
+<a id="SimulationAPI.light_outside"></a>
+### `SimulationAPI.light_outside`
+
+```python
+def light_outside(self, illumination_ma: float) -> None
+```
+
+Marks: enters: `guarded_write`.  
+Route: `POST /api/v1/scope/simulation/light_outside`.
+
+The sample is lit from outside the scope from now on, and the
+scope records no change.
+
+As an illuminator LVP does not drive, such as another program's
+shutter: exposures starting from now are lit by it as well as by
+the LEDs, as the simulated camera's reference LED lit at
+`illumination_ma` would light them, while the LED state and frame
+validity record nothing. `exposed_under` names it in each frame's
+`outside_light_ma`. `clear` puts it out.
+
+**Args**
+
+- `illumination_ma`: The light, as the reference LED's current that makes it, more than 0 mA.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'fault_unknown'` on a scope whose camera did not come up; `'not_a_number'` or `'fault_bound'` for 0 mA or less; `'not_injectable_on_board'` on the FX2, whose sample is lit by its own LED board alone.
+
+**Refusals by REST status**
+
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+
 <a id="SimulationAPI.reboot"></a>
 ### `SimulationAPI.reboot`
 
@@ -12468,7 +12501,8 @@ gain its pixels were made at.
 - <a id="SensorExposure.frame_id"></a>`frame_id`: `int` -- The camera's frame counter, as the frame's `FrameID` chunk carries it.
 - <a id="SensorExposure.gain_db"></a>`gain_db`: `float` -- The gain applied.
 - <a id="SensorExposure.illumination_ma"></a>`illumination_ma`: `float` -- The LED current lighting the sample, summed over the lit addresses; 0 for an unlit field.
-- <a id="SensorExposure.light"></a>`light`: `float` -- The light on the sample per second of exposure at unity gain: each lit address's current times its layer's light per mA-second, summed; 0 for an unlit field.
+- <a id="SensorExposure.light"></a>`light`: `float` -- The light on the sample per second of exposure at unity gain: each lit address's current times its layer's light per mA-second, summed, and the light from outside the scope; 0 for an unlit field.
+- <a id="SensorExposure.outside_light_ma"></a>`outside_light_ma`: `float` -- The light from outside the scope on the sample, as the camera's reference LED lit at this current would make it; 0 when there is none (`set_outside_light`).
 - <a id="SensorExposure.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The objective's image scale the frame was drawn at, micrometres of stage per sensor pixel at binning 1; None when no objective or no optics are known, and the frame is drawn at the scene's nominal scale.
 - <a id="SensorExposure.started_ticks"></a>`started_ticks`: `int` -- The camera's clock when the exposure started, as the frame's `Timestamp` chunk carries it.
 - <a id="SensorExposure.x_um"></a>`x_um`: `float | None` -- The stage's X when the exposure started; None on a scope with no X axis.
@@ -17850,6 +17884,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/simulation/fail_home` | [`SimulationAPI.fail_home`](#SimulationAPI.fail_home) |
 | `GET` | `/api/v1/scope/simulation/injected` | [`SimulationAPI.injected`](#SimulationAPI.injected) |
 | `POST` | `/api/v1/scope/simulation/interlock` | [`SimulationAPI.interlock`](#SimulationAPI.interlock) |
+| `POST` | `/api/v1/scope/simulation/light_outside` | [`SimulationAPI.light_outside`](#SimulationAPI.light_outside) |
 | `POST` | `/api/v1/scope/simulation/reboot` | [`SimulationAPI.reboot`](#SimulationAPI.reboot) |
 | `POST` | `/api/v1/scope/simulation/refuse_camera_read` | [`SimulationAPI.refuse_camera_read`](#SimulationAPI.refuse_camera_read) |
 | `POST` | `/api/v1/scope/simulation/refuse_camera_write` | [`SimulationAPI.refuse_camera_write`](#SimulationAPI.refuse_camera_write) |

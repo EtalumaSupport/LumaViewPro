@@ -97,7 +97,11 @@ class SensorExposure:
             the lit addresses; 0 for an unlit field.
         light: The light on the sample per second of exposure at unity
             gain: each lit address's current times its layer's light per
-            mA-second, summed; 0 for an unlit field.
+            mA-second, summed, and the light from outside the scope; 0 for
+            an unlit field.
+        outside_light_ma: The light from outside the scope on the sample,
+            as the camera's reference LED lit at this current would make
+            it; 0 when there is none (``set_outside_light``).
         x_um: The stage's X when the exposure started; None on a scope
             with no X axis.
         y_um: The stage's Y, likewise.
@@ -119,6 +123,7 @@ class SensorExposure:
     black_level: float
     illumination_ma: float
     light: float
+    outside_light_ma: float
     x_um: float | None
     y_um: float | None
     z_um: float | None
@@ -336,14 +341,16 @@ class SimulatedCamera(Camera):
     CHUNKS: ClassVar[tuple[str, ...]] = ('FrameID', 'Timestamp', 'ExposureTime', 'Gain')
 
     # The sensor's inputs, each recorded in its history when it changes:
-    # the registers, Z, the stage's (X, Y), and the light as (the lit
-    # current summed over the lit addresses, the light it makes).
+    # the registers, Z, the stage's (X, Y), the light as (the lit
+    # current summed over the lit addresses, the light it makes), and a
+    # light from outside the scope, which no scope input tells.
     _exposure_us = _SensorInput('exposure_us')
     _gain = _SensorInput('gain_db')
     _black_level = _SensorInput('black_level')
     _z_position = _SensorInput('z_um')
     _stage_xy = _SensorInput('stage_xy')
     _illumination = _SensorInput('illumination')
+    _outside_light = _SensorInput('outside_light_ma')
     _SCOPE_INPUTS: ClassVar[dict[str, str]] = {
         'z_um': '_z_position',
         'stage_xy': '_stage_xy',
@@ -560,6 +567,8 @@ class SimulatedCamera(Camera):
             self.REFERENCE_ILLUMINATION_MA,
             self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S,
         )
+        # The light from outside the scope, told by set_outside_light: none.
+        self._outside_light = 0.0
         # Optional: the scope's Z, stage and light, each with when its owner
         # recorded it changing (None when it cannot say), read as each
         # exposure starts; on a scope they replace what the setters told.
@@ -1395,6 +1404,17 @@ class SimulatedCamera(Camera):
         with self._lock:
             self._illumination = (float(lit_ma), float(light))
 
+    def set_outside_light(self, illumination_ma: float) -> None:
+        """Light the sample from outside the scope, from now on.
+
+        As an illuminator LVP does not drive: exposures starting from now
+        are lit by it as well as by the LEDs, as the camera's reference LED
+        lit at ``illumination_ma`` would light them, and no scope input
+        tells it. 0 puts it out.
+        """
+        with self._lock:
+            self._outside_light = float(illumination_ma)
+
     def _input_changed(self, name: str, value: object, changed_ns: int | None) -> None:
         """Record that input ``name`` holds ``value``, changed at ``changed_ns``.
 
@@ -1566,6 +1586,7 @@ class SimulatedCamera(Camera):
         self._read_scope_inputs()
         x_um, y_um = self._input_at('stage_xy', started_ns)
         illumination_ma, light = self._input_at('illumination', started_ns)
+        outside_light_ma = self._input_at('outside_light_ma', started_ns)
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
         else:
@@ -1579,7 +1600,8 @@ class SimulatedCamera(Camera):
             gain_db=self._input_at('gain_db', started_ns),
             black_level=self._input_at('black_level', started_ns),
             illumination_ma=illumination_ma,
-            light=light,
+            light=light + outside_light_ma * self._UNWIRED_LIGHT_PER_MA_S,
+            outside_light_ma=outside_light_ma,
             x_um=x_um,
             y_um=y_um,
             z_um=self._input_at('z_um', started_ns),

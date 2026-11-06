@@ -1452,7 +1452,7 @@ member's own fault, and its arguments, are in the
 | `interlock` | refused | refused | TMCM-6110 |
 | `answer_model` | motor | refused | refused |
 | `remove_camera` | camera | camera | FX2 |
-| `refuse_camera_write`, `refuse_camera_read`, `stall_stream`, `delay_delivery` | camera | camera | refused |
+| `refuse_camera_write`, `refuse_camera_read`, `stall_stream`, `delay_delivery`, `light_outside` | camera | camera | refused |
 | `refuse_stream_start`, `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
 
 A fault is armed for the next command, not the one in flight. A removed camera,
