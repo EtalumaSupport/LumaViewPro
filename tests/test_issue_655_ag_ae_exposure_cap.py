@@ -340,3 +340,64 @@ def test_video_capture_rearm_tolerates_missing_cap(sim_scope, tmp_path, monkeypa
     assert kwargs.get('ae_max_exposure_ms') is None, (
         'an install without a per-class cap must re-arm uncapped, not raise'
     )
+
+
+# --------------------------------------------------------------------------
+# The ceiling the camera runs under is resolved against its range at the API
+# --------------------------------------------------------------------------
+
+_AG_UNDER_A_CEILING = {
+    'target_brightness': 0.5,
+    'min_gain_db': 0.0,
+    'max_gain_db': 24.0,
+    'max_exposure_ms': 800.0,
+}
+
+
+def _recording(monkeypatch, cam, member):
+    # a stand-in by design: the simulated camera takes the AE ceiling for
+    # interface parity and keeps nothing of it (a Goal 5 gap), so the bound
+    # is recorded at the driver's door and passed through.
+    recorded = {}
+    original = getattr(cam, member)
+
+    def record(*args, **kwargs):
+        recorded.update(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cam, member, record)
+    return recorded
+
+
+def test_a_stored_ceiling_above_the_camera_runs_at_its_maximum(sim_scope, monkeypatch):
+    """A stored ceiling the camera cannot reach is kept, and the arm, the
+    frame-time bound, the lock and the one-shot all run at the camera's
+    maximum: one resolved ceiling, never the raw store."""
+    from tests.camera_fakes import grab_a_frame_made_after_now
+    from tests.scope_fakes import set_camera_limits
+
+    set_camera_limits(monkeypatch, sim_scope, exposure_max_ms=300.0)
+    camera, cam = sim_scope.camera, sim_scope._camera_driver
+    armed = _recording(monkeypatch, cam, 'auto_gain')
+    once = _recording(monkeypatch, cam, 'auto_gain_once')
+
+    camera.set_auto_gain(True, dict(_AG_UNDER_A_CEILING))
+    assert armed.get('ae_max_exposure_ms') == 300.0, armed
+    assert camera.longest_exposure_ms == 300.0
+    grab_a_frame_made_after_now(cam)
+    assert camera.lock_auto_gain().ceiling_ms == 300.0
+
+    camera.auto_gain_once(True, 0.5, 0.0, 24.0, ae_max_exposure_ms=800.0)
+    assert once.get('ae_max_exposure_ms') == 300.0, once
+
+
+def test_a_stored_ceiling_below_the_camera_floor_arms_at_the_floor(sim_scope):
+    """The exposure brought inside the loop's range before an arm is the
+    camera's floor when the stored ceiling sits under it, never a value
+    the camera cannot take."""
+    camera = sim_scope.camera
+    floor_ms = sim_scope.capabilities.camera_limits.exposure_min_ms
+    assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
+    camera.set_exposure_ms(10.0)
+    camera.set_auto_gain(True, {**_AG_UNDER_A_CEILING, 'max_exposure_ms': 0.005})
+    assert camera.exposure_ms == floor_ms

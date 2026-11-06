@@ -15120,7 +15120,7 @@ one notice.
 
 A notice; bases `Notice`, `Exception`.
 
-Saved channel gains or exposures above this camera's range; each runs at the camera's limit.
+Saved channel gains or exposures outside this camera's range; each runs at the camera's limit.
 
 The saved value is the person's intent and is kept: a camera that can
 reach it applies it again. One notice names every capped channel value

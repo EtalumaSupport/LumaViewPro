@@ -680,7 +680,7 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
 
 
 class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """Saved channel gains or exposures above this camera's range; each runs at the camera's limit.
+    """Saved channel gains or exposures outside this camera's range; each runs at the camera's limit.
 
     The saved value is the person's intent and is kept: a camera that can
     reach it applies it again. One notice names every capped channel value
@@ -694,7 +694,7 @@ class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
             and the camera's limit it runs at.
     """
 
-    title = "Saved channel settings above the camera's range"
+    title = "Saved channel settings outside the camera's range"
     causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_setting_capped': None}
 
     def __init__(self, capped: list[tuple[str, str, float, float]]):

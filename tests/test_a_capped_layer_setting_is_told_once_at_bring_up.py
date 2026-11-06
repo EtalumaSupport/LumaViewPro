@@ -58,6 +58,34 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
         session.shutdown()
 
 
+def test_a_saved_exposure_under_the_floor_runs_at_the_floor_and_is_told(tmp_path):
+    heard = []
+    session = _session(tmp_path, heard, BF={'gain_db': 2.0, 'exposure_ms': 0.005})
+    try:
+        floor_ms = session.scope.capabilities.camera_limits.exposure_min_ms
+        assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
+        (notice,) = _notices(heard)
+        assert notice.message == str(
+            ChannelSettingCappedNotice([('BF', 'exposure_ms', 0.005, floor_ms)])
+        )
+        assert session.settings['BF']['exposure_ms'] == 0.005, 'the saved value is the intent'
+        assert session.scope.camera.read_exposure_ms() == floor_ms
+    finally:
+        session.shutdown()
+
+
+def test_a_still_under_a_floored_exposure_states_the_floor_in_its_file(tmp_path):
+    from _lumascope.modules.image_utils import read_file_record
+    from tests.test_manual_capture_member import _files, _open_session, _settings
+
+    settings = _settings(tmp_path)
+    settings['BF']['exposure_ms'] = 0.005
+    with _open_session(settings) as session:
+        floor_ms = session.scope.capabilities.camera_limits.exposure_min_ms
+        (path,) = _files(session)
+    assert read_file_record(path)['exposure_time_ms'] == floor_ms
+
+
 def test_a_camera_that_reaches_every_saved_value_is_told_nothing(tmp_path):
     heard = []
     session = _session(tmp_path, heard, BF={'gain_db': 2.0, 'exposure_ms': 20.0})

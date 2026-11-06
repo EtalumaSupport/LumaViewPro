@@ -26,13 +26,13 @@ _CAP_DB = 24.0
 
 def _applied_gain(stored):
     # The API's own cap rule over a camera whose gain ceiling is _CAP_DB.
-    stored_db, applied_db = cap_stored_value(stored, _CAP_DB)
+    stored_db, applied_db = cap_stored_value(stored, None, _CAP_DB)
     return AppliedGain(stored_db=stored_db, applied_db=applied_db, capped=applied_db != stored_db)
 
 
 def _applied_exposure(stored):
-    # No exposure ceiling: nothing is capped.
-    stored_ms, applied_ms = cap_stored_value(stored, None)
+    # No exposure limits: nothing is capped.
+    stored_ms, applied_ms = cap_stored_value(stored, None, None)
     return AppliedExposure(stored_ms=stored_ms, applied_ms=applied_ms, capped=False)
 
 

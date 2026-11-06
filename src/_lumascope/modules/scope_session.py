@@ -5122,7 +5122,7 @@ class ScopeSession:
     def _tell_capped_channels(self) -> None:
         """Tell, as one notice, every saved channel gain or exposure the attached camera cannot reach.
 
-        A saved channel value above the camera's range is kept as saved and
+        A saved channel value outside the camera's range is kept as saved and
         applied at the camera's limit (``CameraAPI.applied_gain_db_for``
         and kin); each apply logs it, and this is where the person is told,
         once per bring-up for every capped channel at once. With no camera

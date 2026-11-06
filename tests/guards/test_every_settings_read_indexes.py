@@ -40,7 +40,7 @@ _NOT_THE_STORE = {
     # application is not running; there is no prepared store to ask.
     ('src/_lumascope/modules/tech_support_report.py', '_get_capture_dir'): 1,
     # The auto-gain arm's own settings dict, whose bounds are optional.
-    ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI._lock_auto_gain_impl'): 2,
+    ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI._lock_auto_gain_impl'): 1,
 }
 
 

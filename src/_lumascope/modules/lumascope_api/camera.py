@@ -146,10 +146,16 @@ class _AutoGainArm:
     resume_after_capture: a live-view arm is re-armed after the capture
     so the view keeps adjusting; a protocol step's arm stays locked Off
     until the next step arms again.
+
+    ceiling_ms: the exposure ceiling the camera was armed with -- the
+    stored ``max_exposure_ms`` resolved against the camera's range
+    (``CameraAPI._applied_ae_ceiling_ms``), None when the arm had none. Every
+    reader of the arm's ceiling reads this, never the stored value.
     """
 
     settings: dict
     resume_after_capture: bool
+    ceiling_ms: float | None
 
 
 @api_fields('auto_gain', 'auto_gain_settings', 'exposure_ms', 'gain_db')
@@ -196,7 +202,7 @@ class _HeldChannel:
     decides whether a channel must be put on the camera again. It is None
     when the camera refused part of it, so the next ask writes again.
     ``taken`` is what the camera took, which differs from the request when
-    a value above the camera's range was capped.
+    a value outside the camera's range was capped.
     """
 
     channel: str
@@ -328,19 +334,23 @@ class AppliedAutoGain:
         _refuse_a_contradicted_cap(self, self.stored, self.applied, self.capped)
 
 
-def cap_stored_value(stored: float, cap: float | None) -> tuple[float, float]:
-    """Resolve a stored setting against a published maximum: (stored, applied).
+def cap_stored_value(stored: float, floor: float | None, cap: float | None) -> tuple[float, float]:
+    """Resolve a stored setting against a published range: (stored, applied).
 
-    An unknown cap (no camera, or a driver that publishes none) narrows
-    nothing: a missing bound is not a bound of zero, and inventing one here
-    would apply a limit no hardware asked for. ``stored`` is a finite
-    number: its callers refuse any other, since ``nan <= cap`` is False and
-    NaN would be applied as the camera's maximum.
+    A value below ``floor`` applies as the floor and one above ``cap`` as
+    the cap; the stored value is returned unchanged beside it. An unknown
+    bound (no camera, or a driver that publishes none) narrows nothing: a
+    missing bound is not a bound of zero, and inventing one here would
+    apply a limit no hardware asked for. ``stored`` is a finite number: its
+    callers refuse any other, since every comparison with NaN is False and
+    NaN would be applied as itself.
     """
     value = float(stored)
-    if cap is None or value <= cap:
-        return value, value
-    return value, float(cap)
+    if floor is not None and value < floor:
+        return value, float(floor)
+    if cap is not None and value > cap:
+        return value, float(cap)
+    return value, value
 
 
 def _rejected_gain_words(gain_db: float) -> str:
@@ -1614,6 +1624,7 @@ class CameraAPI:
                 )
             self._commit_camera_writes({'auto_gain': CameraAutoMode.OFF})
             return True
+        ceiling_ms = self._applied_ae_ceiling_ms(settings.get('max_exposure_ms')) if state else None
 
         def _write_auto_gain():
             if not state:
@@ -1623,7 +1634,7 @@ class CameraAPI:
                 target_brightness=settings['target_brightness'],
                 min_gain_db=settings['min_gain_db'],
                 max_gain_db=settings['max_gain_db'],
-                ae_max_exposure_ms=settings.get('max_exposure_ms'),
+                ae_max_exposure_ms=ceiling_ms,
             )
 
         # Auto-gain dynamically adjusts the value, so clear the manual gain
@@ -1634,7 +1645,7 @@ class CameraAPI:
         # unchanged, so these are forced, not gated on a value delta.
         arm_settle = state
         if arm_settle:
-            self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
+            self._clamp_exposure_to_ceiling_before_arm(ceiling_ms)
         result = self._camera_write(
             _write_auto_gain,
             member='set_auto_gain',
@@ -1648,7 +1659,9 @@ class CameraAPI:
         )
         with self._state_lock:
             self._auto_gain_arm = (
-                _AutoGainArm(dict(settings), resume_after_capture) if arm_settle else None
+                _AutoGainArm(dict(settings), resume_after_capture, ceiling_ms)
+                if arm_settle
+                else None
             )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -1704,7 +1717,7 @@ class CameraAPI:
             return AutoGainLock(state=None)
         settings = arm.settings
         floor = settings.get('min_exposure_ms') or None
-        ceiling = settings.get('max_exposure_ms') or None
+        ceiling = arm.ceiling_ms
         # Read under the arm, before the disarm: a frame from before the arm
         # carries the values the loop started from.
         frame = self._frame_under_the_arm()
@@ -1814,7 +1827,7 @@ class CameraAPI:
             return
         notifications.report_outcome(outcome, solicited=False, category='Auto-gain')
 
-    def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: object) -> None:
+    def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: float | None) -> None:
         """Bring the exposure inside the auto loop's range before enabling it.
 
         The loop's upper bound is the class ceiling, but writing the bound
@@ -1828,7 +1841,7 @@ class CameraAPI:
         before; every disarm resyncs), so an unknown exposure is the only
         skip.
         """
-        if not isinstance(ceiling_ms, (int, float)) or ceiling_ms <= 0:
+        if ceiling_ms is None:
             return
         current_ms = self.exposure_ms
         if current_ms is None or current_ms <= ceiling_ms:
@@ -3343,9 +3356,7 @@ class CameraAPI:
         if arm is None:
             bound = self.exposure_ms
         else:
-            ceiling = arm.settings.get('max_exposure_ms')
-            if ceiling:
-                bound = float(ceiling)
+            bound = arm.ceiling_ms
         if bound is None:
             limits = self._scope.capabilities.camera_limits
             bound = limits.exposure_max_ms if limits else None
@@ -3371,7 +3382,11 @@ class CameraAPI:
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         limits = self._scope.capabilities.camera_limits
-        stored, applied = cap_stored_value(stored_gain_db, limits.gain_max_db if limits else None)
+        stored, applied = cap_stored_value(
+            stored_gain_db,
+            limits.gain_min_db if limits else None,
+            limits.gain_max_db if limits else None,
+        )
         return AppliedGain(stored_db=stored, applied_db=applied, capped=applied != stored)
 
     @api(reads=True)
@@ -3391,9 +3406,32 @@ class CameraAPI:
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         limits = self._scope.capabilities.camera_limits
         stored, applied = cap_stored_value(
-            stored_exposure_ms, limits.exposure_max_ms if limits else None
+            stored_exposure_ms,
+            limits.exposure_min_ms if limits else None,
+            limits.exposure_max_ms if limits else None,
         )
         return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
+
+    def _applied_ae_ceiling_ms(self, stored_ceiling_ms: float | None) -> float | None:
+        """The exposure ceiling an auto loop runs under on the attached camera.
+
+        The one resolution of a stored ``max_exposure_ms`` for every reader:
+        the arm's bound write, the exposure brought under it before the arm,
+        the lock's MAXED test, the frame-time bound and the one-shot. A
+        ceiling outside the camera's range applies at the camera's limit and
+        the stored one is kept, the rule a stored channel value follows
+        (``applied_exposure_ms_for``), logged where it is resolved. None,
+        no ceiling, stays None: the loop runs to the camera's own maximum.
+        """
+        if stored_ceiling_ms is None:
+            return None
+        applied = self.applied_exposure_ms_for(stored_ceiling_ms)
+        if applied.capped:
+            logger.info(
+                f'[AG ARM] exposure ceiling {applied.stored_ms:g} ms is outside the '
+                f"camera's range; the loop runs under {applied.applied_ms:g} ms"
+            )
+        return applied.applied_ms
 
     @api(reads=True)
     def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedAutoGain:
@@ -4207,13 +4245,14 @@ class CameraAPI:
         # target and fall back to skip-frames settling. Both invalidations and
         # target-clears are forced -- one call, two sources, no value write the
         # authority could observe.
+        ceiling_ms = self._applied_ae_ceiling_ms(ae_max_exposure_ms)
         self._camera_write(
             lambda: self._driver.auto_gain_once(
                 state=state,
                 target_brightness=target_brightness,
                 min_gain_db=min_gain_db,
                 max_gain_db=max_gain_db,
-                ae_max_exposure_ms=ae_max_exposure_ms,
+                ae_max_exposure_ms=ceiling_ms,
             ),
             member='auto_gain_once',
             refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),

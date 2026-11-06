@@ -60,11 +60,25 @@ class TestTheApiDecidesWhatAStoredValueApplies:
         exposure = camera.applied_exposure_ms_for(500.0)
         assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (500.0, 200.0, True)
 
-    def test_an_unknown_cap_narrows_nothing(self):
-        # No camera, or a driver that publishes no maximum: a missing bound is
+    def test_a_value_under_the_floor_applies_as_the_floor_and_keeps_the_intent(
+        self, sim_scope, monkeypatch
+    ):
+        # The simulated camera declares the dart's 14 us floor; a gain floor
+        # above 0 dB is stated, as a body with one would report it.
+        set_camera_limits(monkeypatch, sim_scope, gain_min_db=2.0)
+        camera = sim_scope.camera
+        floor_ms = sim_scope.capabilities.camera_limits.exposure_min_ms
+        assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
+        exposure = camera.applied_exposure_ms_for(0.005)
+        assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (0.005, floor_ms, True)
+        gain = camera.applied_gain_db_for(0.5)
+        assert (gain.stored_db, gain.applied_db, gain.capped) == (0.5, 2.0, True)
+
+    def test_an_unknown_bound_narrows_nothing(self):
+        # No camera, or a driver that publishes no limit: a missing bound is
         # not a bound of zero, and inventing one would apply a limit no
         # hardware asked for.
-        assert cap_stored_value(5.0, None) == (5.0, 5.0)
+        assert cap_stored_value(5.0, None, None) == (5.0, 5.0)
 
     def test_a_triple_that_contradicts_itself_cannot_be_built(self):
         # capped is whether the write differs from the intent, not a caller's
