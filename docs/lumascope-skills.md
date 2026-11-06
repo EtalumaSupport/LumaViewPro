@@ -352,11 +352,11 @@ door, so no member lists them:
 - A number that is not a number (NaN) is refused (`'not_a_number'`; a setting
   written by path, `'wrong_kind'`).
 
-```python raises=ArgumentTypeRefusedError
+```python raises=ArgumentTypeRefusedError:wrong_argument_type
 scope.motion.move_z('5000')                 # a str where a float is declared
 ```
 
-```python raises=ArgumentRefusedError
+```python raises=ArgumentRefusedError:not_offered
 scope.motion.get_axis_limits('W')           # no axis W: offered X, Y, Z
 ```
 
@@ -414,7 +414,7 @@ with session.acting_in_control(session_id):
 print(session.control)                                # who holds it, and since when
 ```
 
-```python raises=ControlSessionRefusedError
+```python raises=ControlSessionRefusedError:control_session_held
 scope.motion.move_z(200)                    # outside the session: refused while it is held
 ```
 
@@ -448,7 +448,7 @@ refused before anything moves, lights or is written, and its `missing`
 | `'not_on_this_scope'` | The scope has no such part: an LED, a channel, fan control. |
 | `'not_connected'` | The part exists but is not connected: never came up, or its cable was pulled. |
 
-```python raises=HardwareCommandRefusedError
+```python raises=HardwareCommandRefusedError:axis_absent
 scope.motion.move_turret(2)                 # this scope has no turret: axis_absent
 ```
 
@@ -475,7 +475,7 @@ assert session.get_setting('BF.illumination_ma') == 5
 print(session.get_setting('BF'))            # a whole block, as a dict
 ```
 
-```python raises=SettingRefusedError
+```python raises=SettingRefusedError:out_of_range
 session.update_settings('video.max_fps', 300)    # out_of_range: at most 200
 ```
 
@@ -487,7 +487,7 @@ member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
 `'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
 [`SettingRefusedError`'s](api-reference.md#SettingRefusedError).
 
-```python raises=SettingRefusedError
+```python raises=SettingRefusedError:has_member
 session.update_settings('binning', 2)       # has_member: scope.camera.set_binning
 ```
 
@@ -729,7 +729,7 @@ print(gain, exposure)
 print(scope.capabilities.camera_limits)     # the declared ranges, read once at connect
 ```
 
-```python raises=CameraSettingOutOfRangeError
+```python raises=CameraSettingOutOfRangeError:gain_db_out_of_range
 scope.camera.set_gain_db(999.0)             # gain_db_out_of_range
 ```
 
@@ -1179,7 +1179,7 @@ assert held.wait(timeout=10)
 moving.stop()                                      # as the person at the window can
 ```
 
-```python raises=MoveStoppedError
+```python raises=MoveStoppedError:stopped
 moving.result(timeout=30)                          # stopped: Z is not at 5000 um
 ```
 
@@ -1584,7 +1584,7 @@ scope.simulation.drop_replies('motor', 1)   # the motor board misses its next re
 print(scope.simulation.injected())
 ```
 
-```python raises=HardwareCommandRefusedError
+```python raises=HardwareCommandRefusedError:position_unread
 scope.motion.move_z(4000.0)                 # position_unread: the move was not sent
 ```
 
@@ -1594,7 +1594,7 @@ scope.simulation.remove_camera()            # as if its cable were pulled
 assert 'camera' in scope.unconnected_parts()
 ```
 
-```python raises=HardwareCommandRefusedError
+```python raises=HardwareCommandRefusedError:not_connected
 scope.camera.set_gain_db(2.0)               # not_connected, until a restart
 ```
 
@@ -1603,7 +1603,7 @@ scope.simulation.interlock(lid_open=True)
 print(scope.motion.interlocks())
 ```
 
-```python raises=HardwareCommandRefusedError
+```python raises=HardwareCommandRefusedError:lid_open_before_motion
 scope.motion.move_xy(x_um=1000.0)           # lid_open_before_motion
 ```
 

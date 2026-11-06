@@ -26,9 +26,10 @@ Each ``## `` chapter's ``python`` fences run in order in one namespace, on a
 simulated session brought up and homed as a host leaves it, bound as
 ``session`` and ``scope`` (``_ChapterSessions``). The info string says what
 a fence needs beyond that: ``tier=`` and ``model=`` name the board it runs
-on, ``raises=<Class>`` the refusal it teaches, raised by its last statement,
-and ``norun`` a fence no simulator can run (serving forever, say), which is
-still resolved and bound.
+on, ``raises=<Class>:<reason>`` the refusal it teaches and the reason it
+carries, raised by its last statement (``raises=<Class>`` alone for an error
+that carries no reason), and ``norun`` a fence no simulator can run (serving
+forever, say), which is still resolved and bound.
 
 The ``bash`` fences are the REST walkthrough (polarity 4): each ``curl`` line
 is sent, in order, to ``TestClient(build_app(session))`` on such a session,
@@ -107,8 +108,8 @@ def fence_info(line):
 
     The info string is the language, then words the runner reads from a
     ``python`` fence: ``key=value`` (``tier=firmware``, ``model=LS850T``,
-    ``raises=AxisStateUnknownError``) or a bare flag (``norun``), whose
-    value is True.
+    ``raises=AxisStateUnknownError:position_unknown``) or a bare flag
+    (``norun``), whose value is True.
     """
     words = line[3:].split()
     options = {}
@@ -775,7 +776,8 @@ def _raised_at(exc, filename):
 def _run_fence(label, start, options, source, namespace):
     """A failure line for a fence that does not do what its info string says, or None."""
     filename = f'{label}:{start}'
-    expected = options.get('raises')
+    expected, _, stated_reason = (options.get('raises') or '').partition(':')
+    expected, stated_reason = expected or None, stated_reason or None
     code = compile('\n' * (start - 1) + source, filename, 'exec')
     try:
         exec(code, namespace)
@@ -785,6 +787,14 @@ def _run_fence(label, start, options, source, namespace):
             return f'  {label}:{start}  raised {raised}: {exc}'
         if raised != expected:
             return f'  {label}:{start}  raised {raised}, not the {expected} it states: {exc}'
+        reason = getattr(exc, 'reason', None)
+        if reason != stated_reason:
+            states = (
+                f'not the {stated_reason!r} it states' if stated_reason else 'and states no reason'
+            )
+            return (
+                f'  {label}:{start}  raised {expected} carrying reason {reason!r}, {states}: {exc}'
+            )
         first, last = _last_statement_lines(source)
         at = _raised_at(exc, filename)
         if at is None or not start + first - 1 <= at <= start + last - 1:
@@ -846,7 +856,7 @@ class TestLumascopeSkillsFencesRun:
         assert not failures, (
             'lumascope-skills.md has python fences that do not run on the simulator as '
             'written. A fence that teaches a refusal states it (```python '
-            'raises=<Class>) and ends in it; one that needs a board says tier= or '
+            'raises=<Class>:<reason>) and ends in it; one that needs a board says tier= or '
             'model=; one no simulator can run is ```python norun.\n' + '\n'.join(failures)
         )
 
@@ -858,9 +868,17 @@ class TestLumascopeSkillsFencesRun:
             'assert still.record.dark is False\n'
             '```\n'
             '## Refused\n'
-            '```python raises=PositionOutOfRangeError\n'
+            '```python raises=PositionOutOfRangeError:position_out_of_range\n'
             'scope.motion.move_z(1e9)\n'
             'x = 1\n'
+            '```\n'
+            '## Wrong reason\n'
+            '```python raises=PositionOutOfRangeError:not_a_number\n'
+            'scope.motion.move_z(1e9)\n'
+            '```\n'
+            '## Reason unstated\n'
+            '```python raises=PositionOutOfRangeError\n'
+            'scope.motion.move_z(1e9)\n'
             '```\n'
             '## Wrong class\n'
             '```python raises=ValueError\n'
@@ -886,12 +904,16 @@ class TestLumascopeSkillsFencesRun:
         for expected in (
             'planted:3  raised AssertionError',
             'planted:8  raised PositionOutOfRangeError at line 8, before its last statement',
-            'planted:13  raised ArgumentRefusedError, not the ValueError it states',
-            'planted:17  states raises=ValueError and raised nothing',
+            "planted:13  raised PositionOutOfRangeError carrying reason 'position_out_of_range', "
+            "not the 'not_a_number' it states",
+            "planted:17  raised PositionOutOfRangeError carrying reason 'position_out_of_range', "
+            'and states no reason',
+            'planted:21  raised ArgumentRefusedError, not the ValueError it states',
+            'planted:25  states raises=ValueError and raised nothing',
         ):
             assert expected in reported, reported
-        assert 'planted:24' not in reported, reported
-        assert 'planted:28' not in reported, reported
+        assert 'planted:32' not in reported, reported
+        assert 'planted:36' not in reported, reported
 
 
 # A walkthrough line's trailing comment: the status it answers, then for a
