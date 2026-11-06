@@ -1,8 +1,42 @@
 # Python
 
-What a Python caller in the same process uses and a REST client does not: logging, hearing bring-up and outcomes, a still as an image, live frames, operations, and listeners.
+What a Python caller in the same process uses and a REST client does not: bringing a session up, logging, hearing bring-up and outcomes, a still as an image, live frames, operations, and listeners.
 
-## Logging and hearing bring-up
+## Bringing a session up in Python
+
+**Settings.** A LumaViewPro installation keeps the user's configuration in
+`data/current.json`, the live file, and ships `data/settings.json`, the template
+a new key's value comes from. `ScopeSession.load_user_settings` reads the user's
+configuration as LumaViewPro does: the live file, checked against the template,
+repaired, and completed with keys newer releases added. Settings are an argument
+of `create`, never read behind your back.
+
+```python
+from lumascope import ScopeSession
+
+root = '.'                                   # the LumaViewPro source folder, which holds data/
+settings = ScopeSession.load_user_settings(root)
+session = ScopeSession.create(
+    settings,
+    simulate=True,                           # False (the default) opens the real hardware
+    settings_file=ScopeSession.user_settings_file(root),   # where accepted writes are saved
+)
+session.run_application_session()           # the startup motion: home, then the turret
+scope = session.scope
+```
+
+**What `create` reads from the settings.** A dict you build yourself is
+completed from the template, and each of its values is judged as a write of it
+would be: a value outside its range is refused (`SettingRefusedError`, naming
+the path), never clamped. When the motor board reports a model the catalogue
+knows and it differs from `settings['microscope']`, bring-up writes the board's
+model into the dict you passed: the hardware outranks the stored selection.
+`settings['simulator_tier']` picks the simulator's fidelity
+([The simulator](simulator.md#the-simulator)).
+
+**Saving.** Given `settings_file`, the session saves every accepted write
+itself, within a second and at shutdown. Without it nothing is saved, which is
+what a test or a one-off script usually wants.
 
 **Logging.** Importing the API configures no logging: your `basicConfig()`,
 the root logger and your own records stay yours. The session's first call
@@ -39,6 +73,17 @@ steps already done and the step's words (`Connecting the Motor Controller`,
 `Connecting the LED Board`, `Connecting the Camera`, `Configuring the scope`).
 LumaViewPro calls `create` on a thread of its own and shows these steps while
 its window stays live.
+
+**Shutting down.** `session.shutdown()` finishes what the session is doing --
+it stops a live run and recording, then waits for their files and any
+post-processing to be written -- and then turns the LEDs off, stops motion and
+disconnects the scope. From its first step, new work is refused
+(`'session_closing'`). A second call does nothing.
+
+```python
+session.shutdown()
+assert session.live_work.closed
+```
 
 ## Hearing outcomes
 

@@ -12,7 +12,7 @@ How the API fits together, and what every task uses: the architecture, bringing 
    REST server  --- one route per member ---   |
         |                                      |
         v                                      v
- ScopeSession -- settings, protocols, runs, the control session, outcomes
+ ScopeSession -- settings, protocols, runs (protocol_runner), the control session, outcomes
    |  manual_capture   manual_recording   post_processing
    v
  Lumascope (session.scope) -- the instrument
@@ -45,115 +45,34 @@ sub-APIs, one per part.
 | `scope.runtime_state` | answers derived state: the objective, the pixel size, plate coordinates |
 | `scope.diagnostics` | reads the boards for support |
 | `scope.simulation` | injects faults into a simulated scope |
+| `scope.labware`, `scope.objectives`, `scope.scope_models`, `scope.settings_template` | the installation's catalogues: plates, objectives, models, and the settings template |
+| `scope.unconnected_parts()`, `scope.no_hardware`, `scope.motion_expected` | what came up: the parts not connected, whether none did, whether this model has motion |
 
-**The lanes.** Each bus is driven by one thread, its lane: the IO lane carries
-every LED and motion command, the CAMERA lane every camera command. Commands from
-every caller -- your script, the window, a REST client -- run one at a time per
-bus, in the order they arrived. A command waits until the hardware has it, so
-calling the API from several threads is safe. The session adds a FILE lane for
+**The lanes.** Each lane is one thread: the IO lane runs every LED and motion
+command, the CAMERA lane every camera command, each one at a time in the order
+it arrived from every caller -- your script, the window, a REST client. A
+command waits until the hardware has it, so calling the API from several
+threads is safe. The session adds a FILE lane for
 saving images, a worker pool, and the thread that runs protocols.
 
-**The holders.** Some work takes the whole scope for its length: a protocol run,
-an autofocus, a manual recording, a diagnostic, a home. While one holds the
-scope, a command from anyone else that would change what it is doing is
-refused, naming the holder (see [Who may act](#who-may-act)).
+**The holders.** Some work holds the scope for its length -- a run, an
+autofocus, a recording, a diagnostic, a home -- and a command that would change
+what it is doing is refused, naming the holder ([Who may act](#who-may-act)).
 
-**What is API.** A member is API when it carries the `@api` mark, and a field
-when its class names it in `@api_fields`; the
-[reference](../api-reference.md) lists exactly those. A member marked *in-process*
-is for a Python caller only -- it takes a callback, returns a live object, or
-blocks -- and has no route. Anything unmarked is not API, whatever its name: it
-may change in any release.
+**What is API.** Everything published is imported from one module,
+`lumascope` (`from lumascope import ScopeSession`), and the
+[reference](../api-reference.md) lists every member and field of it; anything
+under `_lumascope` is internal and may change in any release. A member marked
+*in-process* is for a Python caller only -- it takes a callback, returns a live
+object, or blocks -- and has no route. In the source, a published member
+carries the `@api` mark and a published field is named in its class's
+`@api_fields`.
 
-**REST is the same API.** Each route is one `@api` member, at a path that
-follows how you reach it from the session: `session.take_control` is
-`POST /api/v1/take_control`, `scope.motion.move_z` is
-`POST /api/v1/scope/motion/move_z`. A read is a `GET`, a setting is a `PUT` on
-its read's URL (`session.select_labware` writes `PUT /api/v1/labware_id`), and
-every other call is a `POST`. The same refusals, faults and
-events reach a REST client as reach a Python caller ([REST](rest.md)).
-
-## Bringing a session up
-
-**Settings.** A LumaViewPro installation keeps the user's configuration in
-`data/current.json`, the live file, and ships `data/settings.json`, the template
-a new key's value comes from. `ScopeSession.load_user_settings` reads the user's
-configuration as LumaViewPro does: the live file, checked against the template,
-repaired, and completed with keys newer releases added. Settings are an argument
-of `create`, never read behind your back.
-
-```python
-from lumascope import ScopeSession
-
-root = '.'                                   # the LumaViewPro source folder, which holds data/
-settings = ScopeSession.load_user_settings(root)
-session = ScopeSession.create(
-    settings,
-    simulate=True,                           # False (the default) opens the real hardware
-    settings_file=ScopeSession.user_settings_file(root),   # where accepted writes are saved
-)
-session.run_application_session()           # the startup motion: home, then the turret
-scope = session.scope
-```
-
-`create` returns a session whose scope is connected and configured -- the
-stored objective, plate, frame, binning and image mode applied -- and whose
-camera is streaming, so a capture works at once. It does **not** move anything.
-The scope's position is unknown until it is homed, and a move or a run before
-that is refused (`'position_unknown'`). `run_application_session()` is the
-startup motion LumaViewPro itself runs at launch: every axis homed, then the
-turret moved to slot 1. `start_application_session()` starts the same motion
-and returns its [`Operation`](python.md#operations) without waiting. While the
-home runs, it holds the scope like a run: other requests are refused naming the
-home (`'home_in_flight'`).
-
-**What `create` reads from the settings.** A dict you build yourself is
-completed from the template, and each of its values is judged as a write of it
-would be: a value outside its range is refused (`SettingRefusedError`, naming
-the path), never clamped. When the motor board reports a model the catalogue
-knows and it differs from `settings['microscope']`, bring-up writes the board's
-model into the dict you passed: the hardware outranks the stored selection.
-`settings['simulator_tier']` picks the simulator's fidelity
-([The simulator](simulator.md#the-simulator)).
-
-**Saving.** Given `settings_file`, the session saves every accepted write
-itself, within a second and at shutdown. Without it nothing is saved, which is
-what a test or a one-off script usually wants.
-
-**The plate, the objective and the model.** The plate is chosen by
-`select_labware`, which answers whether it changed. The objective is
-`select_objective` on a scope without a turret; on one with a turret it is the
-slot's assignment (`assign_turret_objective`), and `session.objective_id` is
-None while the slot in the light path holds none. Where nobody has said which
-objective is in the light path, the session asks rather than guesses:
-`objective_question()` answers the question owed, or None, and
-`confirm_objective` answers it. The pixel size and field of view follow from
-the objective, and are None while it is unknown. `select_model` stores the
-model the scope is brought up as next time; the running model never changes.
-
-```python model=LS850T
-print(session.select_labware('384 well microplate'))    # True: the plate changed
-question = session.objective_question()
-if question is not None:                                # which objective is in slot 1?
-    session.confirm_objective(question.proposed, slot=question.turret_slot)
-print(session.objective_id, scope.runtime_state.get_pixel_size_um())
-```
-
-**One session per scope.** A real scope is opened by one process at a time:
-while LumaViewPro, a REST server or another script drives the microscope,
-`create(..., simulate=False)` is refused `ScopeInUseError` (`'scope_in_use'`)
-with nothing opened. A simulated scope takes no such lock.
-
-**Shutting down.** `session.shutdown()` finishes what the session is doing --
-it stops a live run and recording, then waits for their files and any
-post-processing to be written -- and then turns the LEDs off, stops motion and
-disconnects the scope. From its first step, new work is refused
-(`'session_closing'`). A second call does nothing.
-
-```python
-session.shutdown()
-assert session.live_work.closed
-```
+**REST is the same API.** Each member is a route at the path you reach it by
+from the session (`scope.motion.move_z` is `POST /api/v1/scope/motion/move_z`),
+and the same refusals, faults and events reach a REST client as reach a Python
+caller. The server adds routes of its own for jobs, handles, files, events and
+the live view. How a member becomes its route is [Routes](rest.md#routes).
 
 ## Outcomes
 
@@ -174,8 +93,8 @@ stalls, a run's file writer that stops -- reaches the outcome listeners
 | quiet | An expected answer that needs no report: a wait that ran out. | by its cause |
 
 **Reasons and causes.** Every outcome carries a `reason`, the code your
-program branches on, and every refusal a `cause`: whether the same request
-could succeed later.
+program branches on, and every refusal, notice and quiet outcome a `cause`:
+whether the same request could succeed later.
 
 ```python
 from lumascope import PositionOutOfRangeError, RefusalCause
@@ -199,16 +118,19 @@ shows each member's list, and for a route the REST status of each reason. Every
 outcome class, with each reason's cause and status, is under
 [Outcomes in the reference](../api-reference.md#outcomes).
 
-**Refusals every member shares.** Three refusals are made at every member's
-door, so no member lists them:
+**Refusals every member shares.** Two refusals are made where every member is
+entered, so no member lists them:
 
 - An argument of another type than the member declares is refused
   `ArgumentTypeRefusedError` (`'wrong_argument_type'`).
 - A value outside a closed set -- an axis name, an image mode, an output
   format -- is refused `ArgumentRefusedError` (`'not_offered'`), its `offered`
   listing what is.
-- A number that is not a number (NaN) is refused (`'not_a_number'`; a setting
-  written by path, `'wrong_kind'`).
+
+A number that is not finite -- NaN or an infinity -- is refused by the member
+that takes it, `ArgumentRefusedError` (`'not_a_number'`; a setting written by
+path, `'wrong_kind'`), and its `Raises:` lists it. Over REST it is refused
+before the member runs (`'invalid_request'`).
 
 ```python raises=ArgumentTypeRefusedError:wrong_argument_type
 scope.motion.move_z('5000')                 # a str where a float is declared
@@ -218,11 +140,70 @@ scope.motion.move_z('5000')                 # a str where a float is declared
 scope.motion.get_axis_limits('W')           # no axis W: offered X, Y, Z
 ```
 
+```python raises=ArgumentRefusedError:not_a_number
+scope.motion.move_z(float('nan'))           # refused by move_z itself
+```
+
 **Remedies.** A refusal that one action answers carries it as `remedy`: the
 remedy's name and the words of the offer. Take it through
 `session.apply_remedy(refusal.remedy)`, the one door to every remedy and the
 one place its name becomes an action; the remedy still decides whether it
 applies now.
+
+## Bringing a session up
+
+Every host brings a scope up the same way, through `ScopeSession.create`:
+LumaViewPro at launch, the REST server as it starts, and a script as
+[Bringing a session up in Python](python.md#bringing-a-session-up-in-python)
+shows. `create` returns a session whose scope is connected and configured -- the
+stored objective, plate, frame, binning and image mode applied -- and whose
+camera is streaming, so a capture works at once. It does **not** move anything.
+The scope's position is unknown until it is homed, and a move or a run before
+that is refused (`'position_unknown'`). `run_application_session()` is the
+startup motion LumaViewPro itself runs at launch: every axis homed, then the
+turret moved to slot 1. `start_application_session()` starts the same motion
+and returns its [`Operation`](python.md#operations) without waiting. While the
+home runs it holds the scope like a run: other requests are refused
+`'exclusive_activity_running'`, their `holder` `home`, and a second home
+`'home_in_flight'`. A home that fails is not raised: it is reported as an
+outcome ([Hearing outcomes](python.md#hearing-outcomes); over REST an `outcome`
+event), and the motion ends there, without the turret move, so a program
+reads `scope.motion.axes_without_position()` before it trusts a position.
+LumaViewPro and the REST server (`python -m lumascope.rest`) run the startup
+motion before a client's first call, and still serve after a failed home, so a
+client can home again.
+
+**The plate, the objective and the model.** The plate is chosen by
+`select_labware`, which answers whether it changed. The objective is chosen by
+`select_objective`; on a scope with a turret that turns the turret to the slot
+holding it, since there the objective is the assignment of the slot in the
+light path. Which objective is in which slot is `assign_turret_objective`, and
+`session.objective_id` is None while the slot in the light path holds none.
+Where nobody has said which objective is in the light path, the session asks rather than guesses:
+`objective_question()` answers the question owed, or None, and
+`confirm_objective` answers it. The pixel size and field of view follow from
+the objective, and are None while it is unknown. `select_model` stores the
+model the scope is brought up as next time, and posts a notice saying it waits
+for the next start (`'scope_model_deferred'`); the running model never
+changes. `session.model` is the stored model, `scope.channel_identity.model`
+the running one, and `session.model_at_next_start` the stored one while the
+two differ, else None.
+
+```python model=LS850T
+print(session.select_labware('384 well microplate'))    # True: the plate changed
+question = session.objective_question()
+if question is not None:                                # which objective is in slot 1?
+    session.confirm_objective(question.proposed, slot=question.turret_slot)
+print(session.objective_id, scope.runtime_state.get_pixel_size_um())
+```
+
+**One session per scope.** A real scope is opened by one session at a time:
+while LumaViewPro, a REST server or another script drives the microscope, or
+another real scope is open in the same process, `create(..., simulate=False)`
+is refused `ScopeInUseError` (`'scope_in_use'`) with nothing opened. A
+simulated scope takes no such lock. LumaViewPro and the REST server also run
+one at a time per installation, simulated or not: a second one says another is
+already running and does not start.
 
 ## Who may act
 
@@ -255,20 +236,41 @@ ended = session.end_control(session_id)     # ends it, and stops a run or record
 assert session.control is None
 ```
 
-Over REST, work in the session is a request carrying the `Control-Session`
-header with the id. A request naming a session that has ended, or was never
-issued, is refused `'control_session_ended'`. The person at the scope can take it
-back without the id (`take_back_control`, in-process only).
+Work naming a session that has ended, or was never issued, is refused
+`'control_session_ended'`: in Python `acting_in_control` and `end_control` with
+its id, over REST a request carrying it in its `Control-Session` header
+([The control session](rest.md#the-control-session)). The person at the scope
+can take it back without the id (`take_back_control`, in-process only).
+
+`take_control` itself is refused while anything of anyone else's is under way:
+another session (`'control_session_held'`), work holding the scope
+(`'exclusive_activity_running'`), a setting or file being written
+(`'write_in_flight'`), or work that has ended still finishing its files
+(`'work_finishing'`). Turning the LEDs off is a write, not a stop: while a
+session is held, `leds_off()` from outside it is refused.
 
 **The holders.** A run, an autofocus, a recording, a diagnostic and a home each
 hold the scope for their length. A command that would change what one is doing
 is refused `HardwareCommandRefusedError` (`'exclusive_activity_running'`), its
-`holder` naming the work and `holder_trigger` the host that started it (`gui`,
-`rest` or `api`). A recording refuses only what would falsify its frames -- a
-change of frame size, binning or image mode -- and leaves gain and exposure
-open. What holds the scope now is `session.controls_lock` and, with a finished
-run's files still being written, `session.live_work`; over REST both are in
-`GET /api/v1/status`.
+`holder` naming the work and, for a run, `holder_trigger` the host that started
+it (`gui`, `rest` or `api`; None for any other holder). A recording refuses only
+what would falsify its frames -- the frame size, the binning, the image mode,
+the turret, a light, or the shown channel -- and leaves gain, exposure and focus
+open. What holds the scope now is `session.live_work` and
+`session.held_by_other()`, and `session.status` answers it with the rest of the
+scope's state (`GET /api/v1/status`, the read a client makes first).
+
+```python tier=realistic
+homing = scope.motion.start_home()          # a home, which takes seconds on this tier
+```
+
+```python raises=HardwareCommandRefusedError:exclusive_activity_running
+scope.motion.move_z(100.0)                  # refused while the home holds the scope: holder home
+```
+
+```python
+homing.result(timeout=120)
+```
 
 **Parts a scope does not have.** A command for hardware the scope lacks is
 refused before anything moves, lights or is written, and its `missing`
@@ -300,6 +302,10 @@ copy to fall out of step.
 -- `BF.exposure_ms`, `video.max_fps`, `zstack.range` -- and read and written
 through the session. A write is judged before it is stored: a value outside its
 range is refused, never clamped, and the refusal names the path and the range.
+A write to the shown channel's gain, exposure or current is on the camera and
+its LED when it returns; a write to a channel not shown, or one made while a
+run, a diagnostic or a home holds the scope, is stored only, and is used the
+next time that channel is shown or captured.
 
 ```python
 session.update_settings('BF.illumination_ma', 5)
@@ -313,8 +319,8 @@ session.update_settings('video.max_fps', 300)    # out_of_range: at most 200
 
 A setting that a member owns is written only through that member, since the
 member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
-`microscope` the session's `select_model`. Writing it by path is refused
-`'has_member'`, its `member` naming the door. The reasons a path write is refused
+`microscope` the session's `select_model`. Writing or reading it by path is
+refused `'has_member'`, its `member` naming the member to call. The reasons a path write is refused
 -- `'has_member'`, `'host_only'`, `'installation_only'`, `'derived'`, `'not_a_setting'`,
 `'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
 [`SettingRefusedError`'s](../api-reference.md#SettingRefusedError).
@@ -336,11 +342,14 @@ session.remove_settings_listener(changed.append)
 **Intent and what was delivered.** A setting keeps the value asked for, even
 when the hardware delivers less; the member that drives the hardware answers
 what it delivered. An LED board drives in steps -- whole milliamps on the
-EL-0940, about 3.29 mA on the Classic's FX2 -- so `led_on` answers the current
-it commanded, the nearest step. A camera snaps or quantizes a gain or an
-exposure, so `set_gain_db` and `set_exposure_ms` answer the value now in
-effect. A stored gain above the camera's ceiling stays stored; what the camera
-would be given for it is `scope.camera.applied_gain_db_for(gain)`, and a gain
+EL-0940, about 3.29 mA on the FX2 models -- so `led_on` answers the current it
+commanded, the nearest step. A current above the LED board's maximum is refused
+when it is written. A camera snaps or quantizes a gain or an exposure, so
+`set_gain_db` and `set_exposure_ms` answer the value now in effect. A stored
+gain or exposure outside the camera's range stays stored: what the camera would
+be given for it is `scope.camera.applied_gain_db_for(gain)`,
+`applied_exposure_ms_for(exposure)` and `applied_auto_gain_for(...)`, and
+bring-up reports a stored value it capped (`'channel_setting_capped'`). A gain
 asked of the camera directly outside its range is refused
 (`'gain_db_out_of_range'`).
 
@@ -353,7 +362,7 @@ assert applied.capped and applied.applied_db == scope.capabilities.camera_limits
 
 **What the settings hold, and what they do not.** `get_settings_snapshot()`
 answers a copy of every setting, for work that must not see a write made while
-it runs. Positions, the lit LED and the camera's live values are not settings:
+it runs (in-process; a REST client reads a setting by its path). Positions, the lit LED and the camera's live values are not settings:
 each is read from its owner.
 
 ## Units and coordinate frames
@@ -364,10 +373,11 @@ seconds; the protocol file and the settings keep a run's period in minutes and
 its duration in hours, as LumaViewPro's window shows them.
 
 **Two frames.** The stage moves in **stage micrometres**, each axis measured
-from where it homes. A plate is addressed
-in **plate millimetres**, X and Y from the plate's top-left corner. The two are
-related by the plate's geometry and the **stage offset**, where the plate sits
-on the stage.
+from where it homes; X and Y count from the stage's bottom-right, so a larger
+stage X is further left on the plate. A plate is addressed in **plate
+millimetres**, X and Y from the plate's top-left corner. The two are related by
+the plate's geometry and the **stage offset**, where the plate sits on the
+stage.
 
 ```python
 print(session.labware_id)                                   # the plate selected
@@ -378,7 +388,8 @@ assert round(stage.x_um) == 60000 and round(stage.y_um) == 40000
 ```
 
 Both conversions use the selected plate and the live offset unless you name
-another (`labware_id=`, `stage_offset=`). A protocol carries its own plate, and
+another (`labware_id=`, `stage_offset=`). A conversion is not a range check: a
+position off the stage's travel converts, and the move to it is refused. A protocol carries its own plate, and
 its steps' X and Y are in plate millimetres on that plate; a run keeps the
 offset it started with.
 
