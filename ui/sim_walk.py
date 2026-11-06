@@ -58,6 +58,7 @@ from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
 from kivy.core.window import Window
 from kivy.graphics.texture import Texture
+from kivy.metrics import dp
 from kivy.graphics.opengl import (
     GL_PACK_ALIGNMENT,
     GL_RGB,
@@ -90,6 +91,8 @@ _OPTIONAL_ANSWER_TIMEOUT_S = 3.0
 _WAIT_TIMEOUT_S = 30.0
 _BRING_UP_TIMEOUT_S = 30.0
 _POLL_S = 0.05
+# The background a widget's picture keeps below the last row it draws.
+_TRAILING_MARGIN_DP = 20
 # What an action's generator gives when it has run out: the step is done.
 _STEP_DONE = object()
 
@@ -348,7 +351,11 @@ class SimWalk:
         Replaces a file already there; whether it was written. The whole
         window is drawn and read, so the picture is the screen, not the
         widget redrawn alone: a parent's background, a popup over the widget
-        and what a scroll view clips are all as shown.
+        and what a scroll view clips are all as shown. A widget's picture ends
+        a margin below the last row it draws: rows of its bottom background
+        below that come off, so a drawer taller than its controls is pictured
+        to its controls, whatever the window's height. Its width is never cut,
+        so drawers of one width print at one scale.
         """
         width, height = Window.size
         # Between frames the back buffer holds whatever the last swap left,
@@ -362,7 +369,7 @@ class SimWalk:
         ).reshape(height, width, 3)
         if widget is not None:
             left, bottom, right, top = _window_bounds(widget)
-            pixels = pixels[bottom:top, left:right]
+            pixels = _without_trailing_background(pixels[bottom:top, left:right])
         rows, columns = pixels.shape[:2]
         texture = Texture.create(size=(columns, rows), colorfmt='rgb')
         texture.blit_buffer(pixels.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
@@ -602,6 +609,18 @@ def _until_drawers_settle(target, path: str):
         yield _POLL_S
     # The accordion lays out on the frame after its last animation tick.
     yield _POLL_S
+
+
+def _without_trailing_background(pixels: numpy.ndarray) -> numpy.ndarray:
+    """``pixels`` (rows from the bottom up) less its bottom rows of one colour, all but a margin.
+
+    The colour is the bottom-left pixel's; a bottom row with anything else in
+    it trims nothing.
+    """
+    blank = (pixels == pixels[0, 0]).all(axis=(1, 2))
+    # The first row with something drawn in it; 0 when the bottom row has, or every row is blank.
+    drawn_from = int(numpy.argmin(blank))
+    return pixels[max(0, drawn_from - round(dp(_TRAILING_MARGIN_DP))) :]
 
 
 def _window_bounds(widget) -> tuple[int, int, int, int]:

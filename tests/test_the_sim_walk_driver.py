@@ -239,6 +239,23 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 20, 200
+    # A drawer's shape: what it draws at the top, its own background below.
+    Widget:
+        id: sheet
+        size_hint: None, None
+        size: 100, 160
+        pos: 140, 20
+        canvas:
+            Color:
+                rgb: 0.1, 0.1, 0.1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+            Color:
+                rgb: 0.8, 0.4, 0.1
+            Rectangle:
+                pos: self.x, self.top - 40
+                size: self.width, 40
 ''')
 
 root = FloatLayout()
@@ -979,6 +996,38 @@ def test_a_shot_of_a_control_is_the_screen_inside_its_bounds(tmp_path):
     crop = cv2.imread(str(tmp_path / 'btn.png'))
     assert crop.shape == (top - bottom, right - left, 3)
     assert (crop == window[height - top : height - bottom, left:right]).all()
+
+
+def test_a_shot_of_a_control_ends_a_margin_below_its_last_drawn_row(tmp_path):
+    """A drawer taller than what it draws is pictured to a margin below it, not to its bottom.
+
+    Only rows come off the bottom; the width stays the control's, so drawers
+    of one width print at one scale.
+    """
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'read', 'path': 'Panel/sheet', 'props': ['x', 'y', 'width', 'height']},
+            {'do': 'shot', 'name': 'window'},
+            {'do': 'shot', 'name': 'sheet', 'path': 'Panel/sheet'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    bounds = result['reads'][0]
+    left, bottom = round(bounds['x']), round(bounds['y'])
+    right, top = left + round(bounds['width']), bottom + round(bounds['height'])
+    height = result['window_size'][1]
+    window = cv2.imread(str(tmp_path / 'window.png'))
+    crop = cv2.imread(str(tmp_path / 'sheet.png'))
+    on_screen = window[height - top : height - bottom, left:right]
+    rows = crop.shape[0]
+    assert crop.shape[1] == right - left
+    assert (crop == on_screen[:rows]).all()
+    background = on_screen[-1, 0]
+    drawn = [(row == background).all() for row in on_screen].index(True)
+    # Some background stays under what is drawn, and less than the sheet has.
+    assert drawn < rows < len(on_screen), (drawn, rows, len(on_screen))
 
 
 @pytest.mark.parametrize(
