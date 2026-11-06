@@ -1695,7 +1695,7 @@ class TestRule1_UiNoDriverReachThrough:
         'ui/image_settings.py',
         'ui/microscope_settings.py',
         'ui/protocol_settings.py',
-        'ui/layer_control.py',
+        'ui/channel_control.py',
         'ui/vertical_control.py',
         'ui/zstack.py',
         'ui/motion_settings.py',
@@ -2227,7 +2227,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
     run-end restore.
 
     Bug shape (sim repro 2026-05-23): protocol step on the LED 2 layer calls
-    its LayerControl.apply_settings() which calls
+    its ChannelControl.apply_settings() which calls
     ShaderViewer.update_shader(LED2), writing
     `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
     Subsequent rendered frames are red-tinted via this multiplier.
@@ -2247,22 +2247,24 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
 
         return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
-    def _restore_with(self, monkeypatch, shown_layer):
+    def _restore_with(self, monkeypatch, shown_channel):
         import ui.ui_helpers as ui_helpers
         from _lumascope.modules.scope_session import ShownChannel
 
         ctx = MagicMock()
-        ctx.session.shown_channel = ShownChannel(shown_layer, lit=False)
+        ctx.session.shown_channel = ShownChannel(shown_channel, lit=False)
         monkeypatch.setattr(ui_helpers._app_ctx, 'ctx', ctx)
         synced = MagicMock()
-        monkeypatch.setattr(ui_helpers, 'sync_layer_widgets_from_settings', synced)
+        monkeypatch.setattr(ui_helpers, 'sync_channel_widgets_from_settings', synced)
         ui_helpers.restore_display_after_run(MagicMock(), None, MagicMock())
         return ctx, synced
 
     def test_the_shown_channels_shader_is_reapplied(self, monkeypatch):
         ctx, synced = self._restore_with(monkeypatch, LED1)
-        ctx.image_settings.layer_lookup.assert_called_once_with(layer=LED1)
-        ctx.image_settings.layer_lookup.return_value.update_shader.assert_called_once_with(dt=0)
+        ctx.image_settings.channel_control_lookup.assert_called_once_with(channel=LED1)
+        ctx.image_settings.channel_control_lookup.return_value.update_shader.assert_called_once_with(
+            dt=0
+        )
         ctx.viewer.update_shader.assert_not_called()
         synced.assert_called_once_with()
 
@@ -6417,7 +6419,7 @@ class TestBfIlluminationCapAtStartup:
         idx = src.find('def sync_camera_capability_ranges')
         assert idx >= 0
         body = src[idx : src.find('\n    def ', idx + 1)]
-        assert 'self.set_layer_illumination_ranges()' in body
+        assert 'self.set_channel_illumination_ranges()' in body
 
     def test_init_ui_runs_the_grouping(self):
         src = self._src()
@@ -8668,7 +8670,7 @@ class TestFx2DebugWireGateIsNotEnvVar:
 
     _SITES = (
         ('src/_lumascope/drivers', 'fx2driver.py'),
-        ('ui', 'layer_control.py'),
+        ('ui', 'channel_control.py'),
         ('src/_lumascope/modules', 'lumascope_api', 'illumination.py'),
     )
 

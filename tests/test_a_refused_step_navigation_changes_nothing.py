@@ -121,13 +121,13 @@ def nav_env(gui_ctx, monkeypatch):
     monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     protocol_settings = MagicMock()
     protocol_settings.curr_step = 3
-    layer_obj = MagicMock()
+    channel_control = MagicMock()
     gui_ctx.motion_settings = SimpleNamespace(
         ids={'protocol_settings_id': protocol_settings, 'verticalcontrol_id': MagicMock()},
         update_xy_stage_control_gui=MagicMock(),
     )
     gui_ctx.image_settings = SimpleNamespace(
-        layer_lookup=MagicMock(return_value=layer_obj),
+        channel_control_lookup=MagicMock(return_value=channel_control),
         ids={'toggle_imagesettings': SimpleNamespace(state='down')},
         place_settings=MagicMock(),
     )
@@ -152,7 +152,7 @@ def nav_env(gui_ctx, monkeypatch):
         session=session,
         protocol_settings=protocol_settings,
         went=went,
-        layer_obj=layer_obj,
+        channel_control=channel_control,
     )
 
 
@@ -187,7 +187,7 @@ class TestARefusedNavigationIsANoOp:
 
         _navigate(nav_env, NOT_ON_TURRET)
 
-        assert nav_env.layer_obj.set_step_state.call_count == 0
+        assert nav_env.channel_control.set_step_state.call_count == 0
         assert _targets(nav_env) == before
 
     def test_a_refused_navigation_does_not_propagate_to_its_caller(self, nav_env):
@@ -223,7 +223,7 @@ class TestAnAdmissibleNavigationStillWorks:
         """The Session's go-to puts the step's layer on the camera itself."""
         _navigate(nav_env, ON_TURRET)
 
-        nav_env.layer_obj.apply_settings.assert_not_called()
+        nav_env.channel_control.apply_settings.assert_not_called()
 
 
 class TestARunNavigationOnlyDisplays:

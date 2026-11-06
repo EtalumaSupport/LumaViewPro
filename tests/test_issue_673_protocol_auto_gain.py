@@ -8,7 +8,7 @@ Before the fix at LVP `<commit>` (commit message references #673), the
     else:
         logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings -- Auto_Gain is truthy: {_ag!r}")
 
-Combined with the gate at `ui/layer_control.py::apply_settings`
+Combined with the gate at `ui/channel_control.py::apply_settings`
 (`if not protocol_running_global.is_set():`) which short-circuits the
 only other call site for `camera.apply`, no code path
 ever fired `set_auto_gain(state=True, ...)` during a protocol scan.

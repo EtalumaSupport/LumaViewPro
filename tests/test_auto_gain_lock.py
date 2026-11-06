@@ -338,7 +338,7 @@ def test_class_floor_lives_in_config_helpers():
     assert config_helpers.get_ag_ae_min_exposure_ms('PC') == 0.1
     assert config_helpers.get_ag_ae_min_exposure_ms(LED0) == 1.0
     assert config_helpers.get_ag_ae_min_exposure_ms('Lumi') == 1.0
-    tree = ast_seams.parse_module('ui/layer_control.py')
+    tree = ast_seams.parse_module('ui/channel_control.py')
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in names
     assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names

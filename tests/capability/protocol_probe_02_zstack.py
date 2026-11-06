@@ -60,10 +60,10 @@ try:
     zstack_positions_valid = zc.number_of_steps() > 0
     print('zstack positions valid:', zstack_positions_valid, 'slices:', zc.number_of_steps())
 
-    active_layer = 'BF'
+    active_channel = 'BF'
     active_layer_config = config_helpers.get_channel_configs(
-        settings, specific_channels=[active_layer]
-    )[active_layer]
+        settings, specific_channels=[active_channel]
+    )[active_channel]
     active_layer_config['acquire'] = 'image'
     active_layer_config['autofocus'] = False
 
@@ -84,7 +84,7 @@ try:
             'use_zstacking': True,
             'tiling': tiling_config.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
-            'channel_configs': {active_layer: active_layer_config},
+            'channel_configs': {active_channel: active_layer_config},
             'period': None,
             'duration': None,
             'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),

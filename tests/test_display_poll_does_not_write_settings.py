@@ -5,7 +5,7 @@ Bug
 ---
 While a layer's auto-gain was armed, every tenth display frame queued a read of
 the API's gain/exposure CACHE and pushed the result into that layer's sliders.
-A slider write fires LayerControl.gain_slider() / exp_slider(), which commit the
+A slider write fires ChannelControl.gain_slider() / exp_slider(), which commit the
 slider's value into settings[layer][...] -- so a display refresh silently
 overwrote the user's saved gain and exposure with whatever the camera happened
 to be doing, and kept doing it ten times a second while the arm was up.

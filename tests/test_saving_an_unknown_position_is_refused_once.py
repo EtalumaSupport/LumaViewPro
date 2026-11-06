@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 
-import ui.layer_control as layer_control
+import ui.channel_control as channel_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
 from _lumascope.modules.notification_center import Severity
@@ -51,19 +51,19 @@ GESTURES = {
     ),
     'save focus': (
         lambda: _stand(
-            layer_control.LayerControl,
+            channel_control.ChannelControl,
             'save_focus',
             '_refresh_step_views',
-            layer='BF',
+            channel='BF',
         ),
         'save_focus',
     ),
     'apply focus': (
         lambda: _stand(
-            layer_control.LayerControl,
+            channel_control.ChannelControl,
             'apply_focus_to_channel_steps',
             '_refresh_step_views',
-            layer='BF',
+            channel='BF',
         ),
         'apply_focus_to_channel_steps',
     ),
@@ -80,7 +80,7 @@ def unknown(gui_ctx, monkeypatch, centre_posts):
     )
     gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': panel})
     gui_ctx.stage = MagicMock()
-    for module in (motion_settings, vertical_control, layer_control):
+    for module in (motion_settings, vertical_control, channel_control):
         monkeypatch.setattr(module.gui_logger, 'button', lambda *a, **kw: None)
     return SimpleNamespace(session=gui_ctx.session, posts=centre_posts)
 

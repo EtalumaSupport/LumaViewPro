@@ -52,7 +52,7 @@ def stepnav_env(gui_ctx, monkeypatch):
 
     pool.put.side_effect = _put
     monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
-    layer_obj = SimpleNamespace(
+    channel_control = SimpleNamespace(
         ids={'enable_led_btn': SimpleNamespace(state='normal')},
         set_step_state=MagicMock(),
         apply_settings=MagicMock(),
@@ -62,7 +62,7 @@ def stepnav_env(gui_ctx, monkeypatch):
         update_xy_stage_control_gui=MagicMock(),
     )
     gui_ctx.image_settings = SimpleNamespace(
-        layer_lookup=MagicMock(return_value=layer_obj),
+        channel_control_lookup=MagicMock(return_value=channel_control),
         ids={'toggle_imagesettings': SimpleNamespace(state='down')},
         place_settings=MagicMock(),
     )
@@ -70,7 +70,7 @@ def stepnav_env(gui_ctx, monkeypatch):
     monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(step_navigation, '_schedule_ui', lambda fn: fn(0))
-    return SimpleNamespace(session=session, ctx=gui_ctx, layer_obj=layer_obj)
+    return SimpleNamespace(session=session, ctx=gui_ctx, channel_control=channel_control)
 
 
 def _run_manual_nav(env):
@@ -94,7 +94,7 @@ def _shown(env) -> str:
     One layer widget stands for every layer, so the step's stimulation
     settings for the other layers land on it too.
     """
-    return env.layer_obj.set_step_state.call_args_list[0].args[0]['channel']
+    return env.channel_control.set_step_state.call_args_list[0].args[0]['channel']
 
 
 def _lit(env) -> list:
@@ -109,7 +109,7 @@ class TestStepNavPreviewRespectsLedEnable:
         _run_manual_nav(stepnav_env)
 
         assert _shown(stepnav_env) == 'BF'
-        assert stepnav_env.layer_obj.ids['enable_led_btn'].state == 'normal'
+        assert stepnav_env.channel_control.ids['enable_led_btn'].state == 'normal'
 
     def test_with_led_on_when_stepping_off_the_gui_lights_nothing(self, stepnav_env):
         """The preview is the Session's one LED command, inside its go-to:

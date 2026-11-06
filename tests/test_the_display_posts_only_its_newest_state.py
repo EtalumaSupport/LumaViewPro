@@ -60,7 +60,7 @@ def display(gui_ctx):
     gui_ctx.session.set_engineering_mode(True)
     # a stand-in by design: the layer panel is a Kivy widget tree, which
     # never runs here; with no layer open the stats have nowhere to show.
-    gui_ctx.image_settings = SimpleNamespace(layer_lookup=lambda layer: None)
+    gui_ctx.image_settings = SimpleNamespace(channel_control_lookup=lambda channel: None)
     # The stub base has no canvas, bindings or layout; the instance gets
     # them first, a 100 px box for the overlays to place themselves in.
     widget = ScopeDisplay.__new__(ScopeDisplay)
@@ -125,7 +125,7 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
 
     gui_ctx.scope.simulation.remove_camera()
     for _ in range(100):
-        display._render_one_frame(open_layer='BF')
+        display._render_one_frame(open_channel='BF')
     assert (ui_backlog(), len(held.queue)) == (4, 1), 'after the camera left'
 
     held.run()
@@ -137,7 +137,7 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
 
 def test_a_display_started_with_no_camera_shows_the_indicator(gui_ctx, display, held):
     gui_ctx.scope.simulation.remove_camera()
-    display._render_one_frame(open_layer=None)
+    display._render_one_frame(open_channel=None)
     held.run()
     assert display.source == build_file('data/icons/camera_to_USB.png')
 
@@ -151,17 +151,17 @@ def test_a_camera_that_returns_restores_the_live_view_once(
     present = [True]
     monkeypatch.setattr(Lumascope, 'camera_connected', property(lambda self: present[0]))
 
-    display._render_one_frame(open_layer=None)
+    display._render_one_frame(open_channel=None)
     held.run()
     assert display.source == ''
     assert not [line for line in display_log if 'restored' in line], display_log
 
     present[0] = False
-    display._render_one_frame(open_layer=None)
+    display._render_one_frame(open_channel=None)
     held.run()
     present[0] = True
     for _ in range(20):
-        display._render_one_frame(open_layer=None)
+        display._render_one_frame(open_channel=None)
     held.run()
     assert display.source == ''
     restored = [line for line in display_log if 'live view restored' in line]

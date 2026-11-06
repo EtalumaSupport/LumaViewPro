@@ -19,7 +19,7 @@ Contract under test:
   (``include_move=True``); the run's display of its step
   (``include_move=False``) moves the step pointer and leaves the settings
   alone.
-- ``LayerControl.set_step_state`` is a pure widget setter: it touches no
+- ``ChannelControl.set_step_state`` is a pure widget setter: it touches no
   settings.
 - At run end the GUI's ``run_ended`` handler re-syncs every layer's widgets
   from its stored settings, once, through the one settings-to-widgets
@@ -130,7 +130,7 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         _go_to_step(_make_step(), include_move=False)
 
         assert env.ctx.settings[LED1] == before
-        assert env.layer_obj.set_step_state.call_count == 0
+        assert env.channel_control.set_step_state.call_count == 0
 
 
 class TestManualNavigationWritesNothingInTheGui:
@@ -152,7 +152,7 @@ class TestManualNavigationWritesNothingInTheGui:
             return op
 
         monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
-        env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
+        env.channel_control.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
         _run_manual_nav(env)
 
@@ -237,21 +237,21 @@ class _NoSettingsCtx:
 
 
 class _LayerStand:
-    """A LayerControl stand-in: the widgets, the layer name, and no-op
+    """A ChannelControl stand-in: the widgets, the layer name, and no-op
     visibility; the methods under test are called unbound."""
 
     def __init__(self, layer, widget_ids):
-        from ui.layer_control import LayerControl
+        from ui.channel_control import ChannelControl
 
         self.ids = {name: _Widget() for name in widget_ids}
-        self.layer = layer
+        self.channel = layer
         self.show_stim_controls = None
         self._initializing = False
         self.visibility_calls = 0
-        self.effective_auto_gain = LayerControl.effective_auto_gain.__get__(self)
-        self._show_value_on_widgets = LayerControl._show_value_on_widgets.__get__(self)
-        self.render_layer_values_from_settings = (
-            LayerControl.render_layer_values_from_settings.__get__(self)
+        self.effective_auto_gain = ChannelControl.effective_auto_gain.__get__(self)
+        self._show_value_on_widgets = ChannelControl._show_value_on_widgets.__get__(self)
+        self.render_channel_values_from_settings = (
+            ChannelControl.render_channel_values_from_settings.__get__(self)
         )
 
     def update_stim_controls_visibility(self):
@@ -260,13 +260,13 @@ class _LayerStand:
 
 class TestSetStepStateIsAPureWidgetSetter:
     def test_set_step_state_is_a_pure_widget_setter(self, monkeypatch):
-        from ui.layer_control import LayerControl
+        from ui.channel_control import ChannelControl
 
         monkeypatch.setattr('_lumascope.modules.app_context.ctx', _NoSettingsCtx())
         stand = _LayerStand(LED1, _STEP_WIDGETS)
         step = _make_step()
 
-        LayerControl.set_step_state(stand, step)
+        ChannelControl.set_step_state(stand, step)
 
         ids = stand.ids
         stim = step['Stim_Config'][LED1]
@@ -307,14 +307,14 @@ class TestSetStepStateIsAPureWidgetSetter:
         """A camera whose Auto Gain control is hidden never shows the box
         ticked: the kv greys the gain/exposure widgets off that box, and
         with the control hidden there would be no way to un-grey them."""
-        from ui.layer_control import LayerControl
+        from ui.channel_control import ChannelControl
 
         monkeypatch.setattr(
             '_lumascope.modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False)
         )
         stand = _LayerStand(LED1, _STEP_WIDGETS)
 
-        LayerControl.set_step_state(stand, {'Auto_Gain': True})
+        ChannelControl.set_step_state(stand, {'Auto_Gain': True})
 
         assert stand.ids['auto_gain'].active is False
 
@@ -351,22 +351,22 @@ def _layer_settings(**overrides):
 class TestRunEndResyncsEveryLayerOnceFromSettings:
     def test_run_end_callback_syncs_every_layer_once(self, monkeypatch):
         import _lumascope.modules.common_utils as common_utils
-        import ui.layer_control as layer_control
-        from ui.ui_helpers import sync_layer_widgets_from_settings
+        import ui.channel_control as channel_control
+        from ui.ui_helpers import sync_channel_widgets_from_settings
 
         layers = {layer: MagicMock() for layer in common_utils.get_channels()}
         ctx = SimpleNamespace(
-            image_settings=SimpleNamespace(layer_lookup=lambda layer: layers[layer]),
+            image_settings=SimpleNamespace(channel_control_lookup=lambda channel: layers[channel]),
         )
         monkeypatch.setattr('_lumascope.modules.app_context.ctx', ctx)
 
-        sync_layer_widgets_from_settings()
+        sync_channel_widgets_from_settings()
 
-        for layer, layer_obj in layers.items():
-            assert layer_obj.sync_widgets_from_settings.call_count == 1, layer
+        for layer, control in layers.items():
+            assert control.sync_widgets_from_settings.call_count == 1, layer
         # The per-widget re-sync helpers the one implementation replaced.
         for retired in ('init_autofocus', 'init_acquire', 'sync_camera_widgets_from_settings'):
-            assert not hasattr(layer_control.LayerControl, retired), retired
+            assert not hasattr(channel_control.ChannelControl, retired), retired
 
     @pytest.mark.parametrize('layer', ['BF', LED1, LUMI])
     def test_sync_widgets_from_settings_sets_every_widget(self, monkeypatch, layer):
@@ -377,7 +377,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         that stores one, so Lumi's drawer shows what its composite uses --
         the auto_gain box carries the effective auto-gain, and the settings
         were read once under the settings lock."""
-        from ui.layer_control import LayerControl
+        from ui.channel_control import ChannelControl
 
         stim = {
             'enabled': True,
@@ -408,7 +408,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         stand = _LayerStand(layer, _SETTINGS_WIDGETS)
         stand._initializing = True
 
-        LayerControl.sync_widgets_from_settings(stand)
+        ChannelControl.sync_widgets_from_settings(stand)
 
         channel_config = settings[layer]
         ids = stand.ids
@@ -465,7 +465,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
             for node in ast.walk(fn)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == 'sync_layer_widgets_from_settings'
+            and node.func.id == 'sync_channel_widgets_from_settings'
         ]
         assert len(sites) == 1, 'restore_display_after_run must sync the layer widgets once'
         node = sites[0]
@@ -503,7 +503,7 @@ class TestStimIlluminationTextWritesTheSliderKey:
         only the unit-suffixed key), so a typed stim illumination was lost
         to the run, the slider and the run-end sync alike; and the invalid-
         input reset walked the same dead path into a KeyError."""
-        text_fn = find_def('ui/layer_control.py', 'stim_ill_text', class_name='LayerControl')
+        text_fn = find_def('ui/channel_control.py', 'stim_ill_text', class_name='ChannelControl')
         assert text_fn is not None
         call = next(
             node
@@ -514,7 +514,9 @@ class TestStimIlluminationTextWritesTheSliderKey:
         )
         text_path = next(kw.value.value for kw in call.keywords if kw.arg == 'settings_path')
 
-        slider_fn = find_def('ui/layer_control.py', 'stim_ill_slider', class_name='LayerControl')
+        slider_fn = find_def(
+            'ui/channel_control.py', 'stim_ill_slider', class_name='ChannelControl'
+        )
         assert slider_fn is not None
         # The slider writes f'{self.layer}.<path>' through the settings writer.
         slider_paths = {

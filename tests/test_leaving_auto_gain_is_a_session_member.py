@@ -196,28 +196,28 @@ def test_turning_off_a_layer_this_scope_lacks_is_admitted(sim_session):
 def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(
     gui_ctx, monkeypatch, state, enabled
 ):
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
     submits = []
     monkeypatch.setattr(
-        layer_control,
+        channel_control,
         'submit_reported',
         lambda call, redraw, label, *, lane=None, stop=False: submits.append(
             SimpleNamespace(call=call, redraw=redraw, label=label, lane=lane)
         ),
     )
-    monkeypatch.setattr(layer_control.gui_logger, 'toggle', MagicMock())
+    monkeypatch.setattr(channel_control.gui_logger, 'toggle', MagicMock())
     session = gui_ctx.session
     session.show_channel('BF')
     session.set_channel_auto_gain('BF', not enabled)
     widget = SimpleNamespace(
-        layer='BF',
+        channel='BF',
         ids={'auto_gain': SimpleNamespace(state=state)},
-        render_layer_values_from_settings=MagicMock(),
+        render_channel_values_from_settings=MagicMock(),
         show_as_shown=MagicMock(),
     )
 
-    layer_control.LayerControl.update_auto_gain(widget)
+    channel_control.ChannelControl.update_auto_gain(widget)
 
     (submit,) = submits
     assert submit.lane is gui_ctx.camera_executor
@@ -226,9 +226,9 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(
     submit.call()
     assert session.channel_auto_gain('BF') is enabled
     submit.redraw()
-    widget.render_layer_values_from_settings.assert_called_once_with()
+    widget.render_channel_values_from_settings.assert_called_once_with()
     widget.show_as_shown.assert_called_once_with()
-    layer_control.gui_logger.toggle.assert_called_once_with('AUTO_GAIN_BF', enabled)
+    channel_control.gui_logger.toggle.assert_called_once_with('AUTO_GAIN_BF', enabled)
 
 
 @pytest.fixture

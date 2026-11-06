@@ -403,14 +403,16 @@ def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) 
 def restore_display_after_run(*_ended) -> None:
     """Put the display back on the user's settings once a run has ended.
 
-    A run shows each step in the layer panel and in the shader's false
-    colour without writing the user's settings; this puts every layer's
+    A run shows each step in the channel panel and in the shader's false
+    colour without writing the user's settings; this puts every channel's
     widgets back on the settings and the shader back on the shown channel's
-    layer. Takes and ignores ``run_ended``'s values.
+    channel. Takes and ignores ``run_ended``'s values.
     """
-    sync_layer_widgets_from_settings()
+    sync_channel_widgets_from_settings()
     ctx = _app_ctx.ctx
-    ctx.image_settings.layer_lookup(layer=ctx.session.shown_channel.channel).update_shader(dt=0)
+    ctx.image_settings.channel_control_lookup(
+        channel=ctx.session.shown_channel.channel
+    ).update_shader(dt=0)
 
 
 def set_last_save_folder(dir):
@@ -426,17 +428,17 @@ def set_last_save_folder(dir):
 # ============================================================================
 
 
-def sync_layer_widgets_from_settings():
-    """Every layer's panel shows its stored settings again.
+def sync_channel_widgets_from_settings():
+    """Every channel's panel shows its stored settings again.
 
     The run-end callback: a run moves only the step pointer and writes no
-    layer setting, and its end restores the camera from the settings; this
-    shows every layer's stored settings once the run has let go. One call
-    per run, every layer.
+    channel setting, and its end restores the camera from the settings; this
+    shows every channel's stored settings once the run has let go. One call
+    per run, every channel.
     """
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_channels():
-        ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
+    for channel in common_utils.get_channels():
+        ctx.image_settings.channel_control_lookup(channel=channel).sync_widgets_from_settings()
 
 
 def find_nearest_step(x, y, protocol):
@@ -850,40 +852,43 @@ def draw_shared_run_displays(lock, work) -> None:
 
 def reset_acquire_ui():
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_channels():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        layer_obj._initializing = True
+    for channel in common_utils.get_channels():
+        channel_control = ctx.image_settings.channel_control_lookup(channel=channel)
+        channel_control._initializing = True
         try:
-            if ctx.settings[layer]['acquire'] == AcquireMode.IMAGE:
-                layer_obj.ids['acquire_image'].active = True
-            elif ctx.settings[layer]['acquire'] == AcquireMode.VIDEO:
-                layer_obj.ids['acquire_video'].active = True
+            if ctx.settings[channel]['acquire'] == AcquireMode.IMAGE:
+                channel_control.ids['acquire_image'].active = True
+            elif ctx.settings[channel]['acquire'] == AcquireMode.VIDEO:
+                channel_control.ids['acquire_video'].active = True
             else:
-                layer_obj.ids['acquire_none'].active = True
+                channel_control.ids['acquire_none'].active = True
         finally:
-            layer_obj._initializing = False
+            channel_control._initializing = False
 
 
 def reset_stim_ui():
     # Display only: a loaded protocol's stimulation was turned off by the
     # Session (``ScopeSession.apply_channel_settings``), which writes it.
     ctx = _app_ctx.ctx
-    for layer in common_utils.get_channels():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if 'stim_config' in ctx.settings[layer] and ctx.settings[layer]['stim_config'] is not None:
-            layer_obj._initializing = True
+    for channel in common_utils.get_channels():
+        channel_control = ctx.image_settings.channel_control_lookup(channel=channel)
+        if (
+            'stim_config' in ctx.settings[channel]
+            and ctx.settings[channel]['stim_config'] is not None
+        ):
+            channel_control._initializing = True
             try:
-                layer_obj.ids['stim_disable_btn'].active = True
+                channel_control.ids['stim_disable_btn'].active = True
             finally:
-                layer_obj._initializing = False
-            layer_obj.update_stim_controls_visibility()
+                channel_control._initializing = False
+            channel_control.update_stim_controls_visibility()
 
 
 class LoggedAccordionItem(AccordionItem):
     """An accordion item that records a person opening it.
 
     Kivy expands a collapsed item in one place, its touch handler; the app's
-    own expands (start-up, a step's layer, a model swap, a resort) write
+    own expands (start-up, a step's channel, a model swap, a resort) write
     ``collapse`` directly and never pass through it. So the record is written
     here, before the expand and whatever it causes, and only for a person.
     ``on_collapse`` cannot carry it: it fires for both and does not say which.
@@ -892,8 +897,8 @@ class LoggedAccordionItem(AccordionItem):
     item that does not (tests/gui_logging_census.py).
 
     ``person_opened``, when the panel owning the item sets it, is called
-    after the record, for a person's open only: a layer drawer asks the
-    Session to show its layer there, and the app's own expands, which draw
+    after the record, for a person's open only: a channel drawer asks the
+    Session to show its channel there, and the app's own expands, which draw
     what the Session already shows, ask nothing.
     """
 

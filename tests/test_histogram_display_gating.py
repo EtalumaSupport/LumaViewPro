@@ -67,10 +67,10 @@ class _ImageSettings:
         self._item = _Item(collapse)
         self._layer_obj = _LayerObj(show)
 
-    def accordion_item_lookup(self, layer):
+    def accordion_item_lookup(self, channel):
         return self._item
 
-    def layer_lookup(self, layer):
+    def channel_control_lookup(self, channel):
         return self._layer_obj
 
 
@@ -80,12 +80,12 @@ class _Ctx:
 
 
 class _Self:
-    def __init__(self, layer=LED1):
-        self.layer = layer
+    def __init__(self, channel=LED1):
+        self.channel = channel
 
 
-def _displayed(layer=LED1, **kw):
-    return _is_displayed(_Self(layer), _Ctx(_ImageSettings(**kw)))
+def _displayed(channel=LED1, **kw):
+    return _is_displayed(_Self(channel), _Ctx(_ImageSettings(**kw)))
 
 
 def test_displayed_when_drawer_open_accordion_expanded_controls_shown():
@@ -108,7 +108,7 @@ def test_not_displayed_when_camera_controls_hidden():
 
 
 def test_not_displayed_when_layer_unset():
-    assert _is_displayed(_Self(layer=None), _Ctx(_ImageSettings())) is False
+    assert _is_displayed(_Self(channel=None), _Ctx(_ImageSettings())) is False
 
 
 def test_not_displayed_when_image_settings_missing():

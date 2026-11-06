@@ -36,8 +36,8 @@ def _keys_named_in_python(keys: set[str], tree: ast.AST) -> set[str]:
 
 
 def _keys_named_in_kv(keys: set[str], kv: str) -> set[str]:
-    """Keys a kv rule sets as a layer or builds an id from."""
-    named = set(re.findall(r"^\s*layer:\s*'(\w+)'", kv, flags=re.MULTILINE))
+    """Keys a kv rule sets as a channel or builds an id from."""
+    named = set(re.findall(r"^\s*channel:\s*'(\w+)'", kv, flags=re.MULTILINE))
     named |= set(re.findall(r'^\s*id:\s*(\w+?)_accordion\s*$', kv, flags=re.MULTILINE))
     return named & keys
 
@@ -60,5 +60,5 @@ def test_a_layer_named_in_drawer_code_is_found():
     # above is the code's, not the reader's.
     keys = {'BF', 'Lumi'}
     assert _keys_named_in_python(keys, ast.parse("x = {'Lumi': 1}")) == {'Lumi'}
-    kv = "<A>:\n\tLayerControl:\n\t\tlayer: 'BF'\n<B>:\n\tid: Lumi_accordion\n"
+    kv = "<A>:\n\tChannelControl:\n\t\tchannel: 'BF'\n<B>:\n\tid: Lumi_accordion\n"
     assert _keys_named_in_kv(keys, kv) == {'BF', 'Lumi'}

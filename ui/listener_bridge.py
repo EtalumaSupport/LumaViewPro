@@ -12,7 +12,7 @@ stage redraw on motion, the turret buttons on a turret change, LED
 button state on LED change, the open drawer on a change of the shown
 channel, and the redraw of every panel showing a setting that changed,
 whoever wrote it -- the window, or a REST client served beside it.
-Camera-setting changes have no GUI handler: a layer's gain and exposure
+Camera-setting changes have no GUI handler: a channel's gain and exposure
 boxes show the stored setting, and what the camera applied (a quantizing
 camera answers 1000 ms with 1000.0057) is the API's to answer and the
 saved frame's to record, never the box's to show.
@@ -56,8 +56,10 @@ def _microscope(ctx):
     return ctx.motion_settings.ids['microscope_settings_id']
 
 
-def _redraw_layer(ctx, path: str) -> None:
-    ctx.image_settings.layer_lookup(layer=path.split('.')[0]).sync_widgets_from_settings()
+def _redraw_channel(ctx, path: str) -> None:
+    ctx.image_settings.channel_control_lookup(
+        channel=path.split('.')[0]
+    ).sync_widgets_from_settings()
 
 
 def _redraw_image_mode(ctx, path: str) -> None:
@@ -111,12 +113,12 @@ def _redraw_advanced(ctx, path: str) -> None:
 
 
 # Every setting the window shows, by path prefix, and the redraw that shows
-# it; a prefix may be shown in two places. ``<layer>`` is any layer's own
+# it; a prefix may be shown in two places. ``<channel>`` is any channel's own
 # settings. A changed path runs every redraw a row routes it to, each once
 # per frame. tests/guards/test_every_setting_shown_is_redrawn_when_it_changes.py
 # fails the build on a template leaf neither here nor in NOT_SHOWN.
 SHOWN_SETTINGS: tuple[tuple[str, Callable[[object, str], None]], ...] = (
-    ('<layer>', _redraw_layer),
+    ('<channel>', _redraw_channel),
     ('image_mode', _redraw_image_mode),
     ('binning', _redraw_framing),
     ('frame', _redraw_framing),
@@ -182,11 +184,11 @@ NOT_SHOWN: frozenset[str] = frozenset(
 
 
 def _routed(path: str) -> list[tuple[Callable[[object, str], None], str | None]]:
-    """The redraws *path* routes to, each with the layer it names (None for a panel's own)."""
+    """The redraws *path* routes to, each with the channel it names (None for a panel's own)."""
     first = path.split('.')[0]
-    keyed = f'<layer>{path[len(first) :]}' if first in common_utils.get_channels() else path
+    keyed = f'<channel>{path[len(first) :]}' if first in common_utils.get_channels() else path
     return [
-        (redraw, first if prefix == '<layer>' else None)
+        (redraw, first if prefix == '<channel>' else None)
         for prefix, redraw in SHOWN_SETTINGS
         if keyed == prefix or keyed.startswith(f'{prefix}.')
     ]
@@ -282,7 +284,7 @@ class UIListenerBridge:
 
         schedule_ui_latest((self, 'led', address), _update_led_ui)
 
-    def _on_shown_channel_changed(self, layer, lit):
+    def _on_shown_channel_changed(self, channel, lit):
         """Shown-channel listener -- the drawers draw the Session's shown channel.
 
         In a run too: a run's steps move the shown channel, and the drawer
@@ -316,8 +318,8 @@ class UIListenerBridge:
                 return
             drawn = set()
             for path in changed:
-                for redraw, layer in _routed(path):
-                    key = (redraw, layer)
+                for redraw, channel in _routed(path):
+                    key = (redraw, channel)
                     if key not in drawn:
                         drawn.add(key)
                         redraw(self._ctx, path)
@@ -325,7 +327,7 @@ class UIListenerBridge:
         schedule_ui_latest((self, 'settings'), _draw)
 
     def _write_led_button(self, color: str, *, lit: bool) -> None:
-        """Write one layer's enable toggle as the API reads its LED.
+        """Write one channel's enable toggle as the API reads its LED.
 
         Writes 'down'/'normal'. A state write is not a press -- the button
         drives an LED only from on_release -- so reflecting the API's
@@ -334,11 +336,11 @@ class UIListenerBridge:
         ctx = self._ctx
         if not ctx.ready:
             return
-        layer_obj = ctx.image_settings.layer_lookup(layer=color)
+        channel_control = ctx.image_settings.channel_control_lookup(channel=color)
         target = 'down' if lit else 'normal'
         gui_logger.display(f'LED_BUTTON_{color}', 'lit' if target == 'down' else 'off')
-        if layer_obj.ids['enable_led_btn'].state != target:
-            layer_obj.ids['enable_led_btn'].state = target
+        if channel_control.ids['enable_led_btn'].state != target:
+            channel_control.ids['enable_led_btn'].state = target
 
     def reconcile_led_buttons(self) -> None:
         """Level-based reconcile of EVERY channel's enable toggle to driver truth.

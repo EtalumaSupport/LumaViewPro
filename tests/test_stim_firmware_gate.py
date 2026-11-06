@@ -57,7 +57,9 @@ def _drawers_after_apply(scope, monkeypatch):
         SimpleNamespace(
             scope=scope,
             settings={'stimulation_enabled': True},
-            image_settings=SimpleNamespace(layer_lookup=lambda layer: drawers.get(layer)),
+            image_settings=SimpleNamespace(
+                channel_control_lookup=lambda channel: drawers.get(channel)
+            ),
         ),
     )
     MicroscopeSettings.__new__(MicroscopeSettings).apply_stimulation_support()

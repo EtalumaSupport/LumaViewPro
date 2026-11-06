@@ -36,7 +36,7 @@ def kivy_expand(monkeypatch):
 
 def _item(*, collapse=True, disabled=False, inside=True):
     item = LoggedAccordionItem()
-    item.log_group = 'IMAGE_LAYER'
+    item.log_group = 'CHANNEL'
     item.log_item = 'PC'
     item.collapse = collapse
     item.disabled = disabled
@@ -54,7 +54,7 @@ def test_opening_a_collapsed_drawer_is_recorded_once_and_asks_once(kivy_expand):
     item.person_opened = lambda: asked.append('PC')
     with patch('ui.ui_helpers.gui_logger.select') as select:
         item.on_touch_down(_touch())
-    select.assert_called_once_with('IMAGE_LAYER', 'PC')
+    select.assert_called_once_with('CHANNEL', 'PC')
     assert asked == ['PC']
     assert len(kivy_expand) == 1
 
@@ -96,8 +96,10 @@ def test_the_apps_own_draw_is_not_recorded_as_a_pick_and_asks_nothing(monkeypatc
         drawers[layer].person_opened = lambda layer=layer: asked.append(layer)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     panel = SimpleNamespace(
-        accordion_item_lookup=lambda layer: drawers[layer],
-        layer_lookup=lambda layer: SimpleNamespace(walk=lambda: [], show_as_shown=lambda: None),
+        accordion_item_lookup=lambda channel: drawers[channel],
+        channel_control_lookup=lambda channel: SimpleNamespace(
+            walk=lambda: [], show_as_shown=lambda: None
+        ),
     )
     monkeypatch.setattr(
         _app_ctx,
@@ -112,7 +114,7 @@ def test_the_apps_own_draw_is_not_recorded_as_a_pick_and_asks_nothing(monkeypatc
         'the expand did not run, so it recorded nothing for the wrong reason'
     )
     recorded = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
-    picks = [message for message in recorded if 'OPEN_LAYER' not in message]
+    picks = [message for message in recorded if 'OPEN_CHANNEL' not in message]
     assert picks == [], f'the app drawing a drawer was recorded as a pick: {picks}'
     assert asked == []
 

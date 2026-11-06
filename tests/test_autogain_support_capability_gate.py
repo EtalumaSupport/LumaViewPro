@@ -6,13 +6,13 @@ refuses on a camera without it (IDS U3-34Lx, FX2 LS620); auto-gain and
 auto-exposure come together on every shipped camera. So the control is
 shown only where the scope answers ``capabilities.camera_supports_auto_gain``.
 
-  - ``ImageSettings.set_layer_autogain_support`` asks the scope and sets
-    ``LayerControl.camera_autogain_support`` on every layer, an orthogonal
+  - ``ImageSettings.set_channel_autogain_support`` asks the scope and sets
+    ``ChannelControl.camera_autogain_support`` on every layer, an orthogonal
     runtime gate AND-ed in the kv with the per-layer static
     ``autogain_support``, so Lumi stays hidden regardless. It runs in the
     capability-sync grouping ``ImageSettings._init_ui`` runs on connect.
   - The effective enable is the API's answer, read NON-DESTRUCTIVELY at the
-    consumption point (``LayerControl.effective_auto_gain`` reads
+    consumption point (``ChannelControl.effective_auto_gain`` reads
     ``imaging.applied_auto_gain_for``), used by ``apply_settings`` for the
     slider-disable / camera enable. The persisted ``auto_gain`` is never
     mutated, so a capable camera's saved preference survives a swap to an
@@ -33,7 +33,7 @@ from tests.scope_fakes import build_scope, capabilities_of
 from ui.image_settings import ImageSettings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
+LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'channel_control.py'
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'
 KV_PATH = REPO_ROOT / 'ui' / 'lumaviewpro.kv'
@@ -56,7 +56,7 @@ def _calls_named(method: ast.FunctionDef, attr: str) -> list[ast.Call]:
 
 
 class TestTheControlFollowsTheScopesAnswer:
-    """set_layer_autogain_support shows the control on every layer exactly where the scope's camera has auto-gain."""
+    """set_channel_autogain_support shows the control on every layer exactly where the scope's camera has auto-gain."""
 
     @pytest.mark.parametrize(('model', 'shown'), [('LS850T', True), ('LS620', False)])
     def test_each_layer_shows_the_control_where_the_camera_has_auto_gain(
@@ -75,7 +75,7 @@ class TestTheControlFollowsTheScopesAnswer:
             }
             monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope))
 
-            panel.set_layer_autogain_support()
+            panel.set_channel_autogain_support()
 
             assert {c.camera_autogain_support for c in controls.values()} == {shown}
         finally:
@@ -128,7 +128,7 @@ class TestUiWiring:
     def test_layer_control_defines_camera_autogain_property(self):
         body = LAYER_CONTROL_PATH.read_text(encoding='utf-8')
         assert 'camera_autogain_support = BooleanProperty' in body, (
-            'LayerControl must declare the camera_autogain_support gate property.'
+            'ChannelControl must declare the camera_autogain_support gate property.'
         )
 
     def test_kv_visibility_ands_in_camera_gate(self):
@@ -142,7 +142,7 @@ class TestUiWiring:
     def test_set_layer_autogain_support_does_not_mutate_persisted_setting(self):
         # Non-destructive: the gate must NOT write back settings[layer]['auto_gain']
         # (the writeback destroyed a capable camera's saved preference on swap-back).
-        method = _method_node(IMAGE_SETTINGS_PATH, 'set_layer_autogain_support')
+        method = _method_node(IMAGE_SETTINGS_PATH, 'set_channel_autogain_support')
         writebacks = [
             node
             for node in ast.walk(method)
@@ -155,7 +155,7 @@ class TestUiWiring:
             )
         ]
         assert not writebacks, (
-            "set_layer_autogain_support must NOT write back settings[layer]['auto_gain'] "
+            "set_channel_autogain_support must NOT write back settings[layer]['auto_gain'] "
             '-- the effective enable is derived non-destructively at apply_settings so '
             'a capable camera preference survives a swap to an AG-less body.'
         )
@@ -183,7 +183,7 @@ class TestUiWiring:
 
     def test_init_ui_applies_autogain_support_on_connect(self):
         # _init_ui applies the gate via the sync_camera_capability_ranges
-        # grouping (which calls set_layer_autogain_support -- see
+        # grouping (which calls set_channel_autogain_support -- see
         # test_reconnect_camera_resync).
         method = _method_node(IMAGE_SETTINGS_PATH, '_init_ui')
         assert _calls_named(method, 'sync_camera_capability_ranges'), (

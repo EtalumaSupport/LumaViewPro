@@ -49,7 +49,7 @@ def _read_channel_name(path) -> str:
         return description['Channel']['Name'][0]
 
 
-def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separate_folders):
+def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separate_folders):
     """Drive the one manual-capture path with the shown layer the Session hands it.
 
     The save underneath is real: the defect lived in what reached the disk,
@@ -71,7 +71,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
     capture = ManualCaptureController(
         scope=scope,
         settings_snapshot=lambda: settings,
-        shown_channel=lambda: shown_layer,
+        shown_channel=lambda: shown_channel,
         # No layer is put on this camera, so the still's hold writes nothing.
         channel_camera_request=lambda layer: None,
         engineering_mode=lambda: False,
@@ -94,7 +94,7 @@ def test_the_shown_lit_channel_names_and_colours_the_still(identity_scope, tmp_p
     identity_scope.illumination.led_on(channel=LED2, illumination_ma=100)
 
     written, _ = _run_manual_capture(
-        tmp_path, identity_scope, shown_layer=LED2, false_color_on=True, separate_folders=False
+        tmp_path, identity_scope, shown_channel=LED2, false_color_on=True, separate_folders=False
     )
 
     assert len(written) == 1

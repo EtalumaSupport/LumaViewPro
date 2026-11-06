@@ -220,9 +220,9 @@ def gui(gui_ctx, monkeypatch):
     focus any run chose, so a Z saved from the stage would show."""
     import ui.vertical_control as vc
 
-    layer_obj = MagicMock()
+    channel_control = MagicMock()
     gui_ctx.image_settings = MagicMock()
-    gui_ctx.image_settings.layer_lookup.return_value = layer_obj
+    gui_ctx.image_settings.channel_control_lookup.return_value = channel_control
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     button = SimpleNamespace(
         _autofocus_run=None,
@@ -230,7 +230,7 @@ def gui(gui_ctx, monkeypatch):
     button._autofocus_run_ended = lambda layer, outcome: vc.VerticalControl._autofocus_run_ended(
         button, layer, outcome
     )
-    return SimpleNamespace(vc=vc, ctx=gui_ctx, layer_obj=layer_obj, button=button)
+    return SimpleNamespace(vc=vc, ctx=gui_ctx, channel_control=channel_control, button=button)
 
 
 def _focus(gui, layer):
@@ -279,7 +279,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         no focus was found."""
         gui.vc.VerticalControl._autofocus_run_ended(gui.button, LED1, _outcome(None))
 
-        gui.layer_obj.sync_widgets_from_settings.assert_called_once()
+        gui.channel_control.sync_widgets_from_settings.assert_called_once()
 
     def test_a_refused_focus_is_reported_once_as_the_refusal(self, gui, monkeypatch):
         """The handler is a run_ended subscriber: a refusal of the Z is

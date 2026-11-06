@@ -30,7 +30,7 @@ from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+LAYER_CONTROL_SRC = REPO / 'ui' / 'channel_control.py'
 PROTOCOL_SRC = REPO / 'src/_lumascope/modules' / 'protocol.py'
 SESSION_SRC = REPO / 'src/_lumascope/modules' / 'scope_session.py'
 PROTOCOLS_API_SRC = REPO / 'src/_lumascope/modules' / 'lumascope_api' / 'protocols.py'

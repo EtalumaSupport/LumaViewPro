@@ -532,7 +532,7 @@ class Light(NamedTuple):
 def light_of(readings: 'tuple[LedReading, ...] | None', shown_channel: str) -> Light:
     """The channel a recorded frame was imaged in, and every lit channel's current, from one read.
 
-    The channel is the lit LED, else ``shown_layer``, the channel the recording
+    The channel is the lit LED, else ``shown_channel``, the channel the recording
     is named for. A recording refuses to start with another LED lit and
     refuses every light while it runs (``ManualRecordingController.start``),
     and a protocol's video step lights its own channel alone, so a frame's

@@ -79,13 +79,13 @@ def test_an_led_toggle_lights_the_shown_channel_through_the_session(
 ):
     """The button is the shown channel's: its press asks the Session, on the
     worker pool since the Session's member dispatches to the IO lane itself."""
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
-    monkeypatch.setattr(layer_control, 'submit_reported', boundary.submit_reported)
-    monkeypatch.setattr(layer_control.gui_logger, 'toggle', MagicMock())
-    widget = SimpleNamespace(layer=LED1, ids={'enable_led_btn': SimpleNamespace(state=state)})
+    monkeypatch.setattr(channel_control, 'submit_reported', boundary.submit_reported)
+    monkeypatch.setattr(channel_control.gui_logger, 'toggle', MagicMock())
+    widget = SimpleNamespace(channel=LED1, ids={'enable_led_btn': SimpleNamespace(state=state)})
 
-    layer_control.LayerControl.led_toggle(widget)
+    channel_control.ChannelControl.led_toggle(widget)
 
     (submit,) = boundary.submits
     assert submit.lane is None
@@ -104,14 +104,14 @@ def test_an_led_toggle_lights_the_shown_channel_through_the_session(
 def test_the_layer_apply_shows_the_layer_through_the_session(ctx, boundary, monkeypatch):
     """A settings change shows the layer: show_channel puts its LED and camera
     settings on the hardware, so the apply sends no device command itself."""
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
-    monkeypatch.setattr(layer_control, 'submit_reported', boundary.submit_reported)
+    monkeypatch.setattr(channel_control, 'submit_reported', boundary.submit_reported)
     widget = MagicMock()
-    widget.layer = LED1
+    widget.channel = LED1
     widget._initializing = False
 
-    layer_control.LayerControl.apply_settings(widget)
+    channel_control.ChannelControl.apply_settings(widget)
 
     (submit,) = boundary.submits
     assert submit.lane is None
@@ -183,24 +183,24 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
 
 
 def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
     import ui.ui_helpers as ui_helpers
 
     from _lumascope.modules.scope_session import ScopeSession
 
     moved = MagicMock()
     monkeypatch.setattr(ui_helpers, 'move_z', moved)
-    monkeypatch.setattr(layer_control.gui_logger, 'button', MagicMock())
+    monkeypatch.setattr(channel_control.gui_logger, 'button', MagicMock())
     # The saved focus is the Session's answer, read from the settings it holds.
     ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
 
-    layer_control.LayerControl.goto_focus(SimpleNamespace(layer=LED1))
+    channel_control.ChannelControl.goto_focus(SimpleNamespace(channel=LED1))
 
     moved.assert_called_once_with(4321.0)
 
 
 def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, monkeypatch):
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
     import ui.ui_helpers as ui_helpers
     from _lumascope.modules.notification_center import notifications
     from _lumascope.modules.scope_session import ScopeSession
@@ -208,7 +208,7 @@ def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, m
     moved = MagicMock()
     reported = []
     monkeypatch.setattr(ui_helpers, 'move_z', moved)
-    monkeypatch.setattr(layer_control.gui_logger, 'button', MagicMock())
+    monkeypatch.setattr(channel_control.gui_logger, 'button', MagicMock())
     monkeypatch.setattr(
         notifications,
         'report_outcome',
@@ -217,7 +217,7 @@ def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, m
     ctx.settings[LED1]['focus'] = None
     ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
 
-    layer_control.LayerControl.goto_focus(SimpleNamespace(layer=LED1))
+    channel_control.ChannelControl.goto_focus(SimpleNamespace(channel=LED1))
 
     moved.assert_not_called()
     assert reported == [('FocusNotSavedError', f'UI:GOTO_FOCUS_{LED1}')]

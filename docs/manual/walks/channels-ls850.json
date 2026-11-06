@@ -1,8 +1,8 @@
 [
   {"do":"answer","button":"OK","optional":true,"timeout_s":15},
   {"do":"wait","settle_s":3},
-  {"do":"press","path":"ChannelDrawer[layer=Ex488]","settle_s":2,"note":"a person opens the drawer, so the 488 nm channel is shown"},
-  {"do":"press","path":"ChannelDrawer[layer=Ex488]/control/enable_led_btn","settle_s":3,"note":"lit, so the histogram is drawn"},
-  {"do":"shot","name":"../images/channels-ex488-ls850","path":"ChannelDrawer[layer=Ex488]","note":"the drawer alone, from its top"},
+  {"do":"press","path":"ChannelDrawer[channel=Ex488]","settle_s":2,"note":"a person opens the drawer, so the 488 nm channel is shown"},
+  {"do":"press","path":"ChannelDrawer[channel=Ex488]/control/enable_led_btn","settle_s":3,"note":"lit, so the histogram is drawn"},
+  {"do":"shot","name":"../images/channels-ex488-ls850","path":"ChannelDrawer[channel=Ex488]","note":"the drawer alone, from its top"},
   {"do":"quit"}
 ]

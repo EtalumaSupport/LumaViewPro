@@ -17,9 +17,9 @@ The fix:
     (the camera limits are None by design then). The exposure slider's
     maximum is the session's answer (ScopeSession.channel_slider_maxima),
     which load_settings and the resync both read through
-    set_layer_exposure_ranges, so the two paths cannot size it two ways.
+    set_channel_exposure_ranges, so the two paths cannot size it two ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
-    (exposure + gain ranges + autogain gate) AND reconcile_layers_to_camera_caps,
+    (exposure + gain ranges + autogain gate) AND reconcile_channels_to_camera_caps,
     which re-renders and re-applies each layer the attached camera cannot
     fully reach. The blackout fix lives on the APPLY -- the API caps what it
     writes to hardware -- so the stored value is never narrowed; _init_ui
@@ -48,7 +48,7 @@ from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
-LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
+LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'channel_control.py'
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'
 
 
@@ -94,10 +94,10 @@ class TestSyncGrouping:
     def test_grouping_calls_all_setters_and_reconcile(self):
         method = _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
         for setter in (
-            'set_layer_exposure_ranges',
-            'set_layer_gain_ranges',
-            'set_layer_autogain_support',
-            'reconcile_layers_to_camera_caps',
+            'set_channel_exposure_ranges',
+            'set_channel_gain_ranges',
+            'set_channel_autogain_support',
+            'reconcile_channels_to_camera_caps',
         ):
             assert _attr_calls(method, setter), f'sync_camera_capability_ranges must call {setter}.'
 
@@ -108,7 +108,7 @@ class TestSyncGrouping:
         # capable camera back applies the intent again. Overwriting it here
         # destroyed the setting silently -- the periodic current.json flush
         # persisted the shrunken value with no record of the original.
-        method = _method_node(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        method = _method_node(IMAGE_SETTINGS_PATH, 'reconcile_channels_to_camera_caps')
         written = {
             t.slice.value
             for node in ast.walk(method)
@@ -119,7 +119,7 @@ class TestSyncGrouping:
             and t.slice.value in ('gain_db', 'exposure_ms')
         }
         assert written == set(), (
-            'reconcile_layers_to_camera_caps must not write gain_db or exposure_ms '
+            'reconcile_channels_to_camera_caps must not write gain_db or exposure_ms '
             f'into the store; found writes to {sorted(written)}. The cap belongs on '
             'the value sent to the camera, not on the value kept for the user.'
         )
@@ -138,8 +138,8 @@ class TestLoadSettingsResync:
         # The de-fragmentation: load_settings resolves caps through the same
         # helpers, not its own inline `or DEFAULT`.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'set_layer_exposure_ranges'), (
-            'load_settings must size the exposure sliders via set_layer_exposure_ranges.'
+        assert _attr_calls(method, 'set_channel_exposure_ranges'), (
+            'load_settings must size the exposure sliders via set_channel_exposure_ranges.'
         )
         assert _name_calls(method, 'camera_max_gain_for_ui'), (
             'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
@@ -147,10 +147,10 @@ class TestLoadSettingsResync:
 
     def test_load_settings_delegates_the_reconcile_not_inline(self):
         # De-dup: load_settings reconciles an unreachable stored value via the
-        # single reconcile_layers_to_camera_caps owner, never inline.
+        # single reconcile_channels_to_camera_caps owner, never inline.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
-            'load_settings must delegate to reconcile_layers_to_camera_caps.'
+        assert _attr_calls(method, 'reconcile_channels_to_camera_caps'), (
+            'load_settings must delegate to reconcile_channels_to_camera_caps.'
         )
         inline = [
             t
@@ -171,7 +171,7 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
     """The app's own bound-application must not read back as a user drag.
 
     Narrowing a slider's max makes Kivy clamp its value, which fires on_value
-    into LayerControl's handler. By the time sync_camera_capability_ranges
+    into ChannelControl's handler. By the time sync_camera_capability_ranges
     runs, load_settings has already cleared the per-layer _initializing flag
     (it clears it in sync_widgets_from_settings' finally), so the handler is
     live: it rewrote settings[layer][...] with the bound and emitted a SLIDER
@@ -179,7 +179,7 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
     the app -- a stored BF illumination of 500 became 50 in current.json, and
     a stored DF exposure of 500 became 200, each with a matching SLIDER line.
 
-    reconcile_layers_to_camera_caps must stay outside the flag: it delivers to
+    reconcile_channels_to_camera_caps must stay outside the flag: it delivers to
     the camera through each layer's apply_settings, and that apply returns
     early on exactly this flag -- inside, it would push nothing.
     """
@@ -200,13 +200,13 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
             for n in ast.walk(try_node)
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr.startswith('set_layer_')
+            and n.func.attr.startswith('set_channel_')
         }
         for setter in (
-            'set_layer_exposure_ranges',
-            'set_layer_gain_ranges',
-            'set_layer_illumination_ranges',
-            'set_layer_autogain_support',
+            'set_channel_exposure_ranges',
+            'set_channel_gain_ranges',
+            'set_channel_illumination_ranges',
+            'set_channel_autogain_support',
         ):
             assert setter in guarded, (
                 f'{setter} must run inside the _initializing guard -- outside it, '
@@ -243,15 +243,15 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
         in_try = any(
             isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'reconcile_layers_to_camera_caps'
+            and n.func.attr == 'reconcile_channels_to_camera_caps'
             for try_node in [x for x in ast.walk(method) if isinstance(x, ast.Try)]
             for n in ast.walk(try_node)
         )
         assert not in_try, (
-            'reconcile_layers_to_camera_caps must stay OUTSIDE the _initializing guard '
+            'reconcile_channels_to_camera_caps must stay OUTSIDE the _initializing guard '
             '-- apply_settings returns early on that flag, so inside it pushes nothing.'
         )
-        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
+        assert _attr_calls(method, 'reconcile_channels_to_camera_caps'), (
             'sync_camera_capability_ranges must still run the reconcile.'
         )
 
@@ -350,10 +350,10 @@ class TestTheTypedExposureHasNoWidgetCeiling:
 
         named = {
             getattr(n, 'id', None) or getattr(n, 'attr', None) or getattr(n, 'name', None)
-            for n in ast.walk(parse_module('ui/layer_control.py'))
+            for n in ast.walk(parse_module('ui/channel_control.py'))
         }
         assert 'get_exposure_text_max' not in named, (
-            'ui/layer_control.py: the typed-exposure ceiling resolver is retired; the apply caps.'
+            'ui/channel_control.py: the typed-exposure ceiling resolver is retired; the apply caps.'
         )
 
     def test_no_layer_is_special_cased(self):

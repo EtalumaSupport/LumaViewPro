@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every caller of the layer text helper names its box with a literal id ending in '_text'.
 
-``LayerControl._validate_and_apply_text_input`` derives the record name from
+``ChannelControl._validate_and_apply_text_input`` derives the record name from
 the box's id (``exp_text`` on a channel's panel records ``EXP_<channel>``) and raises
 ``ValueError`` on an id that does not end in ``_text``, before it writes
 anything. That raise is the runtime half of the contract, and it fires under

@@ -606,7 +606,10 @@ def test_the_step_editor_shows_the_focus_an_autofocus_scan_wrote(
     drawer = MagicMock(ids={'autofocus': SimpleNamespace(state='normal')})
     monkeypatch.setattr(app_ctx, 'stage', MagicMock(), raising=False)
     monkeypatch.setattr(
-        app_ctx, 'image_settings', SimpleNamespace(layer_lookup=lambda layer: drawer), raising=False
+        app_ctx,
+        'image_settings',
+        SimpleNamespace(channel_control_lookup=lambda channel: drawer),
+        raising=False,
     )
     for layer in common_utils.get_channels():
         app_ctx.settings[layer] = {'autofocus': False}

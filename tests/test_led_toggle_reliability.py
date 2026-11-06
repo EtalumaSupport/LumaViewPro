@@ -37,7 +37,7 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LAYER_CONTROL = REPO / 'ui' / 'layer_control.py'
+LAYER_CONTROL = REPO / 'ui' / 'channel_control.py'
 LUMAVIEWPRO = REPO / 'lumaviewpro.py'
 # The camera/LED/position listener closures moved out of
 # lumaviewpro.py:on_start and now live in ui/listener_bridge.py.
@@ -68,7 +68,7 @@ class TestFixB1_SliderHandlerEarlyReturn:
     @pytest.mark.parametrize('handler', ['ill_slider', 'gain_slider', 'exp_slider'])
     def test_handler_has_initializing_early_return(self, handler):
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, 'LayerControl', handler)
+        func = _find_method(tree, 'ChannelControl', handler)
         body = _source_of(func)
         # Must have an early return on self._initializing
         assert 'if self._initializing:' in body, (
@@ -97,7 +97,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         wrapping is asserted below -- an inline write here would be a slider
         write with no suppression, which the handler reads back as a drag."""
         tree = _parse(LAYER_CONTROL)
-        body = _source_of(_find_method(tree, 'LayerControl', '_validate_and_apply_text_input'))
+        body = _source_of(_find_method(tree, 'ChannelControl', '_validate_and_apply_text_input'))
         assert '_show_value_on_widgets' in body, (
             '_validate_and_apply_text_input must render through _show_value_on_widgets'
         )
@@ -105,7 +105,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
             '_validate_and_apply_text_input must not assign a slider value itself'
         )
         for method in ('ill_text', 'exp_text'):
-            body = _source_of(_find_method(tree, 'LayerControl', method))
+            body = _source_of(_find_method(tree, 'ChannelControl', method))
             assert '_validate_and_apply_text_input' in body, (
                 f'{method} must commit through the shared text handler'
             )
@@ -115,7 +115,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         """The wrapping the typed paths used to carry inline now lives in the
         one writer they share."""
         tree = _parse(LAYER_CONTROL)
-        body = _source_of(_find_method(tree, 'LayerControl', '_show_value_on_widgets'))
+        body = _source_of(_find_method(tree, 'ChannelControl', '_show_value_on_widgets'))
         assert 'self._initializing = True' in body, (
             '_show_value_on_widgets must wrap programmatic widget writes'
         )

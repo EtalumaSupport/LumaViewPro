@@ -34,7 +34,7 @@ from ui.ui_helpers import (
     show_captured_frame,
     show_video_progress,
     submit_reported,
-    sync_layer_widgets_from_settings,
+    sync_channel_widgets_from_settings,
     typed_number,
 )
 
@@ -686,7 +686,7 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         # The Session opens the file: the scope on its plate, its Layer
-        # Settings in the layer controls, its path remembered -- or a refusal,
+        # Settings in the channel controls, its path remembered -- or a refusal,
         # with none of them changed. The panel is drawn only from its answer.
         # The adoption is inside the reported call: a failure drawing the
         # panel (the spinners, the move to the first step) is reported here,
@@ -704,7 +704,7 @@ class ProtocolSettings(FloatLayout):
         """Make ``protocol``, loaded from ``filepath``, the panel's and draw it.
 
         Display only: the Session has already put the scope on the
-        protocol's plate, its Layer Settings in the layer controls and its
+        protocol's plate, its Layer Settings in the channel controls and its
         path in the settings, so a failure drawing the panel leaves nothing
         half-written.
         """
@@ -946,16 +946,16 @@ class ProtocolSettings(FloatLayout):
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         ctx = _app_ctx.ctx
-        shown_layer = ctx.session.shown_channel.channel
+        shown_channel = ctx.session.shown_channel.channel
         name_field = self.ids['step_name_input'].text
         run_reported(
-            lambda: self.modify_step_ex(shown_layer, name_field),
+            lambda: self.modify_step_ex(shown_channel, name_field),
             self._draw_protocol_steps,
             'MODIFY_STEP',
         )
 
-    def modify_step_ex(self, active_layer: str, name_field: str) -> None:
-        """Change the current step to the shown layer, renamed as the name field says."""
+    def modify_step_ex(self, active_channel: str, name_field: str) -> None:
+        """Change the current step to the shown channel, renamed as the name field says."""
         # A non-blank name field is a user rename; blank keeps the step's
         # existing label and auto/user flag. The rendered Name re-derives
         # from the updated columns inside modify_step, so an auto-named
@@ -963,7 +963,7 @@ class ProtocolSettings(FloatLayout):
         # rides along untouched -- no name branching needed here.
         label = common_utils.resolve_step_rename(name_field)
         name = _app_ctx.ctx.session.update_step(
-            self._protocol, self.curr_step, channel=active_layer, label=label
+            self._protocol, self.curr_step, channel=active_channel, label=label
         )
         logger.info(
             "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
@@ -1196,7 +1196,7 @@ class ProtocolSettings(FloatLayout):
 
         def _ended(*_ended):
             self.reset_autofocus_ui()
-            sync_layer_widgets_from_settings()
+            sync_channel_widgets_from_settings()
             # The scan wrote each step's Z into the panel's protocol before
             # run_ended, so the stage and the step editor show the new focus.
             self._draw_protocol_steps()
@@ -1266,15 +1266,15 @@ class ProtocolSettings(FloatLayout):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        for layer in common_utils.get_channels():
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            layer_obj._initializing = True
+        for channel in common_utils.get_channels():
+            channel_control = ctx.image_settings.channel_control_lookup(channel=channel)
+            channel_control._initializing = True
             try:
-                layer_obj.ids['autofocus'].state = (
-                    'down' if settings[layer]['autofocus'] else 'normal'
+                channel_control.ids['autofocus'].state = (
+                    'down' if settings[channel]['autofocus'] else 'normal'
                 )
             finally:
-                layer_obj._initializing = False
+                channel_control._initializing = False
 
     def _run_scan_pre_callback(self):
         Clock.schedule_once(lambda dt: self.update_step_ui(), 0)

@@ -98,7 +98,7 @@ def test_video_duration_text_allows_beyond_slider():
     from _lumascope.modules.exceptions import SettingRefusedError
     from _lumascope.modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_write
 
-    method = _method_node(REPO_ROOT / 'ui' / 'layer_control.py', 'video_duration_text')
+    method = _method_node(REPO_ROOT / 'ui' / 'channel_control.py', 'video_duration_text')
     assert 'value_max' not in ast.unparse(method), (
         "video_duration_text must hand the writer no ceiling; the range is the writer's"
     )

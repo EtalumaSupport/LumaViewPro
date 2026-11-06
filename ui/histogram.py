@@ -14,7 +14,7 @@ logger = logging.getLogger('LVP.ui.histogram')
 
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
-    layer = ObjectProperty(None)
+    channel = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -31,23 +31,23 @@ class Histogram(Widget):
     def _is_displayed(self, ctx) -> bool:
         """Whether this histogram is actually visible on screen.
 
-        True only when the settings drawer is open, this layer's
-        accordion is expanded, and the layer's camera controls (which
-        contain the histogram) are shown. Every layer has a drawer
+        True only when the settings drawer is open, this channel's
+        accordion is expanded, and the channel's camera controls (which
+        contain the histogram) are shown. Every channel has a drawer
         (tests/guards/test_every_layer_has_a_drawer.py), so both lookups
         answer.
         """
         image_settings = getattr(ctx, 'image_settings', None)
-        if image_settings is None or self.layer is None:
+        if image_settings is None or self.channel is None:
             return False
         # Settings drawer collapsed: the whole panel is off-screen.
         if image_settings.ids['toggle_imagesettings'].state == 'normal':
             return False
-        # This layer's accordion collapsed: another layer is showing.
-        if image_settings.accordion_item_lookup(layer=self.layer).collapse:
+        # This channel's accordion collapsed: another channel is showing.
+        if image_settings.accordion_item_lookup(channel=self.channel).collapse:
             return False
-        # Camera controls (which host the histogram) hidden for this layer.
-        return image_settings.layer_lookup(layer=self.layer).show_camera_controls
+        # Camera controls (which host the histogram) hidden for this channel.
+        return image_settings.channel_control_lookup(channel=self.channel).show_camera_controls
 
     def histogram(self, *args):
         ctx = _app_ctx.ctx
@@ -91,8 +91,8 @@ class Histogram(Widget):
             ctx.viewer.white = 1.0
 
             # Compute bar heights with vectorized numpy
-            layer_obj = ctx.image_settings.layer_lookup(layer=self.layer)
-            use_log = layer_obj.ids['logHistogram_id'].active
+            channel_control = ctx.image_settings.channel_control_lookup(channel=self.channel)
+            use_log = channel_control.ids['logHistogram_id'].active
 
             if use_log:
                 heights = np.log(counts.astype(np.float64) + 1)

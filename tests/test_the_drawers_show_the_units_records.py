@@ -33,7 +33,7 @@ class _Drawer:
     """A drawer's state show_drawers writes and resort_accordion reads."""
 
     def __init__(self, layer):
-        self.layer = layer
+        self.channel = layer
         self.uid = next(_uids)
         self.parent = None
         self.collapse = False
@@ -61,7 +61,7 @@ class _Accordion:
             widget.parent = None
 
     def top_to_bottom(self):
-        return [w.layer for w in reversed(self.children)]
+        return [w.channel for w in reversed(self.children)]
 
 
 def _identity(model, data_file=None):
@@ -115,7 +115,7 @@ def _panel(monkeypatch):
     panel = SimpleNamespace(
         ids={'accordion_id': _Accordion()},
         _drawers={layer: _Drawer(layer) for layer in channel_record.release_catalogue()},
-        _shown_layers=frozenset(),
+        _shown_channels=frozenset(),
         acquire=acquire,
     )
     panel._resort_accordion = lambda: ImageSettings._resort_accordion(panel)

@@ -202,7 +202,7 @@ class VerticalControl(BoxLayout):
         run_reported(self.ex_set_all_bookmarks, None, 'SET_ALL_BOOKMARKS')
 
     def ex_set_all_bookmarks(self):
-        # Also writes every layer's focus from the Z.
+        # Also writes every channel's focus from the Z.
         _app_ctx.ctx.session.save_all_bookmarks()
 
     def goto_bookmark(self):
@@ -265,7 +265,7 @@ class VerticalControl(BoxLayout):
             Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
 
     def run_autofocus_from_ui(self):
-        """Autofocus on the open layer, or stop the autofocus this button started.
+        """Autofocus on the open channel, or stop the autofocus this button started.
 
         The run is ProtocolRunner.start_autofocus, the one a script or REST
         calls: everything about it -- the objective, the capture, every
@@ -289,17 +289,17 @@ class VerticalControl(BoxLayout):
             return
 
         member = ctx.session.protocol_runner()
-        layer = ctx.session.shown_channel.channel
+        channel = ctx.session.shown_channel.channel
         engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,
-            run_ended=lambda outcome, *_ended: self._autofocus_run_ended(layer, outcome),
+            run_ended=lambda outcome, *_ended: self._autofocus_run_ended(channel, outcome),
             on_ui_thread=True,
         )
 
         def _start():
             self._autofocus_run = member.start_autofocus(
-                channel=layer,
+                channel=channel,
                 save_characterization_data=engineering_mode,
                 events=events,
             )
@@ -341,18 +341,18 @@ class VerticalControl(BoxLayout):
         button.text = 'Stopping...' if progress.is_stopping else 'Focusing...'
         gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
 
-    def _autofocus_run_ended(self, layer: str | None, outcome) -> None:
-        """Save the focus this button's autofocus chose, as the focus of the layer it focused.
+    def _autofocus_run_ended(self, channel: str | None, outcome) -> None:
+        """Save the focus this button's autofocus chose, as the focus of the channel it focused.
 
-        ``layer`` is the drawer open when the button was pressed, which is
-        the layer the run focused, whatever is open now; the Z is the one
+        ``channel`` is the drawer open when the button was pressed, which is
+        the channel the run focused, whatever is open now; the Z is the one
         the run chose, read from its outcome, never the stage, which may
-        have moved since. An autofocus that chose none leaves the layer's
+        have moved since. An autofocus that chose none leaves the channel's
         focus alone. A refusal of the Z is reported once by the run's
         delivery.
         """
         ctx = _app_ctx.ctx
-        if layer is None:
+        if channel is None:
             return
         # AF restored the camera from committed settings; an uncommitted
         # text edit (typed, no Enter) would keep showing a value the
@@ -360,9 +360,9 @@ class VerticalControl(BoxLayout):
         # conditional on a result, and ahead of the save, which can be
         # refused: the camera restore happens on every terminal path, and
         # these widgets show illumination, gain and exposure, not focus.
-        ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
+        ctx.image_settings.channel_control_lookup(channel=channel).sync_widgets_from_settings()
         if outcome.af_focus_z_um is not None:
-            ctx.session.save_channel_focus(layer, outcome.af_focus_z_um)
+            ctx.session.save_channel_focus(channel, outcome.af_focus_z_um)
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.

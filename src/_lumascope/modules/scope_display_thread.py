@@ -15,7 +15,7 @@ Public API:
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
   set_fps(fps)          -- runtime FPS-cap change
-  update_channel_config(open_layer)
+  update_channel_config(open_channel)
                         -- UI-thread publishes Kivy widget state for
                            the next frame
   bump_protocol_hold(hold_seconds)
@@ -259,7 +259,7 @@ class ScopeDisplayThread:
             # we just call its body.
             try:
                 status = widget._render_one_frame(
-                    open_layer=open_channel,
+                    open_channel=open_channel,
                     dispatch_time=cycle_start,
                     generation=self._generation,
                     intentional_wait_ms=intentional_wait_ms,

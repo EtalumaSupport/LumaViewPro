@@ -658,7 +658,7 @@ def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(gui_ctx, c
         gui_ctx.scope.simulation.remove_camera()
 
     ImageSettings.set_camera_controls_support(
-        SimpleNamespace(layer_lookup=lambda layer: layers[layer])
+        SimpleNamespace(channel_control_lookup=lambda channel: layers[channel])
     )
 
     assert {layer.camera_connected for layer in layers.values()} == {connected}

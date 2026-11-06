@@ -3172,7 +3172,7 @@ class FX2LEDController:
     #     saturated byte; _ma_to_brightness now stops at _BRIGHTNESS_MAX, so
     #     the flag firing means the ceiling has been bypassed)
     # Companion gates live in src/_lumascope/modules/lumascope_api/illumination.py
-    # (cache-equality check) and ui/layer_control.py (slider vs text entry
+    # (cache-equality check) and ui/channel_control.py (slider vs text entry
     # points). Toggle by either:
     #   * set fx2_debug_wire_enabled: true in the settings, which the
     #     session passes in as ``debug_wire``

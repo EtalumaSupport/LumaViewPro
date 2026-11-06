@@ -29,7 +29,7 @@ def button_ctx():
     ctx.scope_display.use_bullseye = True
     ctx.scope_display.use_crosshairs = False
     ctx.session.shown_channel = ShownChannel('BF', lit=False)
-    ctx.image_settings.layer_lookup.return_value.ids = {
+    ctx.image_settings.channel_control_lookup.return_value.ids = {
         'false_color': types.SimpleNamespace(active=False)
     }
     original = _app_ctx.ctx

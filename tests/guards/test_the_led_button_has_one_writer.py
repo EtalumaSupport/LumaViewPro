@@ -67,8 +67,8 @@ def test_only_the_listener_bridge_writes_the_led_button():
 def test_the_scan_sees_a_writer():
     """Guards the test above against passing because it matches nothing."""
     tree = ast.parse(
-        "layer_obj.ids['enable_led_btn'].state = 'down'\n"
-        "btn = layer_obj.ids['enable_led_btn']\n"
+        "channel_control.ids['enable_led_btn'].state = 'down'\n"
+        "btn = channel_control.ids['enable_led_btn']\n"
         "btn.state = 'normal'\n"
     )
     assert led_button_writers([('ui/elsewhere.py', tree)]) == [

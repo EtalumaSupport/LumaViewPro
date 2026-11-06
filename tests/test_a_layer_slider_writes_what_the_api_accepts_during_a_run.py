@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import _lumascope.modules.app_context as _app_ctx
 from tests.gesture_fakes import inline_submit_reported
-from ui.layer_control import LayerControl
+from ui.channel_control import ChannelControl
 from tests.stock_channels import LED0
 
 # Each handler, the widgets it reads, and the setting it writes.
@@ -41,12 +41,12 @@ def _panel(monkeypatch, *, initializing):
             io_executor=object(),
         ),
     )
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
-    monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
+    monkeypatch.setattr(channel_control, 'submit_reported', inline_submit_reported)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's decision
-    panel = LayerControl.__new__(LayerControl)
-    panel.layer = LED0
+    panel = ChannelControl.__new__(ChannelControl)
+    panel.channel = LED0
     panel._initializing = initializing
     panel.ids = {}
     for slider, text, _key, value in _HANDLERS:
@@ -59,7 +59,7 @@ def test_a_slider_moved_while_a_run_holds_the_scope_writes_its_setting(monkeypat
     panel, writes = _panel(monkeypatch, initializing=False)
 
     for handler, *_ in _HANDLERS:
-        getattr(LayerControl, handler)(panel)
+        getattr(ChannelControl, handler)(panel)
 
     assert writes == [(f'{LED0}.{key}', value) for *_, key, value in _HANDLERS]
 
@@ -68,6 +68,6 @@ def test_a_display_of_a_step_during_a_run_writes_no_setting(monkeypatch):
     panel, writes = _panel(monkeypatch, initializing=True)
 
     for handler, *_ in _HANDLERS:
-        getattr(LayerControl, handler)(panel)
+        getattr(ChannelControl, handler)(panel)
 
     assert writes == []

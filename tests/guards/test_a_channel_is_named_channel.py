@@ -39,22 +39,7 @@ THE_OLD_WORD = Words({'layer', 'layers'})
 
 # Each guarded file holding a `layer` identifier, and how many it holds.
 _PIN: dict[str, int] = {
-    'lumaviewpro.py': 7,
-    'src/_lumascope/modules/scope_display_thread.py': 1,
-    'ui/composite_capture.py': 4,
-    'ui/histogram.py': 12,
-    'ui/image_settings.py': 154,
-    'ui/layer_control.py': 79,
-    'ui/listener_bridge.py': 12,
-    'ui/main_display.py': 4,
-    'ui/microscope_settings.py': 30,
-    'ui/motion_settings.py': 9,
-    'ui/protocol_settings.py': 15,
-    'ui/scope_display.py': 17,
-    'ui/step_navigation.py': 11,
-    'ui/ui_helpers.py': 31,
-    'ui/vertical_control.py': 9,
-    'ui/zstack.py': 4,
+    'lumaviewpro.py': 5,
 }
 
 _WORD = re.compile(r'[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+')

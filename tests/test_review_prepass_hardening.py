@@ -147,13 +147,13 @@ class TestEngUiNoneGuard:
     """#7: set_engineering_ui returns early when the layer is no longer
     resolvable (accordion collapsed before the scheduled main-thread call)."""
 
-    def test_source_guards_open_layer_none_before_ids(self):
+    def test_source_guards_open_channel_none_before_ids(self):
         src = _method_src('ui/scope_display.py', 'ScopeDisplay', 'set_engineering_ui')
-        guard_idx = src.find('open_layer_obj is None')
+        guard_idx = src.find('open_channel_control is None')
         ids_idx = src.find('.ids[')
-        assert guard_idx != -1, 'set_engineering_ui must guard open_layer_obj is None.'
+        assert guard_idx != -1, 'set_engineering_ui must guard open_channel_control is None.'
         assert ids_idx != -1 and guard_idx < ids_idx, (
-            'the None-guard must precede any open_layer_obj.ids access.'
+            'the None-guard must precede any open_channel_control.ids access.'
         )
 
 

@@ -598,14 +598,14 @@ class ScopeDisplay(Image):
     pass
 
     @staticmethod
-    def _eng_stats_due(open_layer, use_bullseye, now, last_time, interval=0.5):
+    def _eng_stats_due(open_channel, use_bullseye, now, last_time, interval=0.5):
         """Whether engineering stats should be computed this frame.
 
-        open_layer is None when every layer accordion is collapsed, so the
+        open_channel is None when every channel accordion is collapsed, so the
         stats are off-screen. Gate the whole compute on it -- not just the UI
         dispatch -- so mean / std / focus do not run on hidden frames.
         """
-        if open_layer is None or use_bullseye:
+        if open_channel is None or use_bullseye:
             return False
         return now - last_time >= interval
 
@@ -643,24 +643,24 @@ class ScopeDisplay(Image):
         """
         return bool(ctx is not None and ctx.settings['debug_mode'])
 
-    def set_engineering_ui(self, mean, stddev, af_score, open_layer):
+    def set_engineering_ui(self, mean, stddev, af_score, open_channel):
         ctx = _app_ctx.ctx
-        open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
-        # The layer accordion can collapse between the worker-thread compute
+        open_channel_control = ctx.image_settings.channel_control_lookup(channel=open_channel)
+        # The channel accordion can collapse between the worker-thread compute
         # that scheduled this update and the main-thread callback firing, in
-        # which case the layer is no longer resolvable and there is nothing
+        # which case the channel is no longer resolvable and there is nothing
         # on screen to update.
-        if open_layer_obj is None:
+        if open_channel_control is None:
             return
         new_mean_text = f'Mean: {mean}'
-        if open_layer_obj.ids['image_stats_mean_id'].text != new_mean_text:
-            open_layer_obj.ids['image_stats_mean_id'].text = new_mean_text
+        if open_channel_control.ids['image_stats_mean_id'].text != new_mean_text:
+            open_channel_control.ids['image_stats_mean_id'].text = new_mean_text
         new_stddev_text = f'StdDev: {stddev}'
-        if open_layer_obj.ids['image_stats_stddev_id'].text != new_stddev_text:
-            open_layer_obj.ids['image_stats_stddev_id'].text = new_stddev_text
+        if open_channel_control.ids['image_stats_stddev_id'].text != new_stddev_text:
+            open_channel_control.ids['image_stats_stddev_id'].text = new_stddev_text
         new_af_text = f'AF Score: {af_score}'
-        if open_layer_obj.ids['image_af_score_id'].text != new_af_text:
-            open_layer_obj.ids['image_af_score_id'].text = new_af_text
+        if open_channel_control.ids['image_af_score_id'].text != new_af_text:
+            open_channel_control.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
         # Edge-logged so the post-mortem shows the moment the user was given
@@ -683,7 +683,7 @@ class ScopeDisplay(Image):
     def _render_one_frame(
         self,
         *,
-        open_layer,
+        open_channel,
         dispatch_time=0,
         generation=0,
         intentional_wait_ms=0.0,
@@ -804,7 +804,7 @@ class ScopeDisplay(Image):
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
             if self._eng_stats_due(
-                open_layer, self.use_bullseye, now_eng, self._eng_stats_last_time
+                open_channel, self.use_bullseye, now_eng, self._eng_stats_last_time
             ):
                 self._eng_stats_last_time = now_eng
                 t_eng_start = time.monotonic()
@@ -823,7 +823,7 @@ class ScopeDisplay(Image):
 
                 schedule_ui_latest(
                     (self, 'engineering_stats'),
-                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer),
+                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_channel),
                 )
 
         if self.use_bullseye:

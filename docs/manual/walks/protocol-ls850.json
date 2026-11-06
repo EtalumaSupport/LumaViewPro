@@ -3,7 +3,7 @@
   {"do":"wait","settle_s":3},
   {"do":"press","path":"MotionSettings/motionsettings_protocol_accordion_id","settle_s":2},
   {"do":"select","path":"ProtocolSettings/labware_spinner","value":"6 well microplate","settle_s":2},
-  {"do":"press","path":"ChannelDrawer[layer=BF]/control/acquire_image","note":"one channel set to acquire"},
+  {"do":"press","path":"ChannelDrawer[channel=BF]/control/acquire_image","note":"one channel set to acquire"},
   {"do":"select","path":"ProtocolSettings/tiling_size_spinner","value":"2x2","settle_s":1},
   {"do":"press","path":"ProtocolSettings/RoundedButton[text=New]","settle_s":2,"note":"6 wells x 4 tiles x 1 channel = 24 steps"},
   {"do":"wait","timeout_s":30},

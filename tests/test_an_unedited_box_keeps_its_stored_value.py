@@ -23,7 +23,7 @@ import pytest
 
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules.notification_center import notifications
-from ui.layer_control import LayerControl
+from ui.channel_control import ChannelControl
 from tests.gesture_fakes import inline_submit_reported
 from tests.settings_fixtures import settings_writer
 from tests.stock_channels import LED0
@@ -53,11 +53,11 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
             io_executor=object(),
         ),
     )
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
-    monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
-    layer = LayerControl.__new__(LayerControl)
-    layer.layer = LED0
+    monkeypatch.setattr(channel_control, 'submit_reported', inline_submit_reported)
+    layer = ChannelControl.__new__(ChannelControl)
+    layer.channel = LED0
     layer._initializing = False
     layer.ids = {
         'exp_slider': _Slider(0.01, 1000.0, 1000.0),

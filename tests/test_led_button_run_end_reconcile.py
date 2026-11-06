@@ -26,7 +26,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
 # ui.protocol_settings is a Kivy widget module; conftest mocks `kivy` but
-# not the uix submodules, and ProtocolSettings/LayerControl subclass
+# not the uix submodules, and ProtocolSettings/ChannelControl subclass
 # FloatLayout/BoxLayout (a bare MagicMock can't be subclassed). Real
 # minimal bases for those; permissive MagicMocks for the rest.
 
@@ -90,15 +90,15 @@ class _Stand:
 
 def _build_env(monkeypatch, scope, files_draining=False, run_in_progress=False):
     """Fake ctx + real bridge over ``scope``; returns (stand, layers) with BF stale 'down'."""
-    layers = {}
+    channels = {}
 
-    def layer_lookup(layer):
-        if layer not in layers:
-            layers[layer] = SimpleNamespace(
+    def channel_control_lookup(channel):
+        if channel not in channels:
+            channels[channel] = SimpleNamespace(
                 ids={'enable_led_btn': _Button()},
                 set_step_state=lambda step: None,
             )
-        return layers[layer]
+        return channels[channel]
 
     ctx = SimpleNamespace(
         ready=True,
@@ -106,8 +106,8 @@ def _build_env(monkeypatch, scope, files_draining=False, run_in_progress=False):
         file_io_executor=MagicMock(),
         stage=MagicMock(),
         image_settings=SimpleNamespace(
-            layer_lookup=layer_lookup,
-            set_expanded_layer=lambda layer: None,
+            channel_control_lookup=channel_control_lookup,
+            set_expanded_layer=lambda channel: None,
             ids={'toggle_imagesettings': _Button(state='down')},
             toggle_settings=lambda: None,
         ),
@@ -137,12 +137,12 @@ def _build_env(monkeypatch, scope, files_draining=False, run_in_progress=False):
 
     stand = _Stand()
     # The stale state under test: BF's toggle claims ON, driver says dark.
-    layer_lookup('BF').ids['enable_led_btn'].state = 'down'
-    return stand, layers
+    channel_control_lookup('BF').ids['enable_led_btn'].state = 'down'
+    return stand, channels
 
 
 def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch, sim_scope):
-    _stand, layers = _build_env(monkeypatch, sim_scope)
+    _stand, channels = _build_env(monkeypatch, sim_scope)
     # The run left a channel lit: its toggle is drawn ON from the same read.
     sim_scope.illumination.led_on(LED1, 50.0)
 
@@ -152,22 +152,24 @@ def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch, sim_scope)
         LiveWork(work=(), closing=False, closed=False),
     )
 
-    assert layers['BF'].ids['enable_led_btn'].state == 'normal', (
+    assert channels['BF'].ids['enable_led_btn'].state == 'normal', (
         'run-complete must reconcile enable-toggles from driver truth; '
         'the stale ON indicator survived the run end'
     )
-    assert layers[LED1].ids['enable_led_btn'].state == 'down', 'a lit LED is drawn ON'
+    assert channels[LED1].ids['enable_led_btn'].state == 'down', 'a lit LED is drawn ON'
 
 
 def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch, sim_scope):
     """Writing-files window: lockout flag still set, runner idle. A manual
     step must NOT force the indicator 'down' -- nothing later heals it."""
-    _stand, layers = _build_env(monkeypatch, sim_scope, files_draining=True, run_in_progress=False)
-    layers['BF'].ids['enable_led_btn'].state = 'normal'
+    _stand, channels = _build_env(
+        monkeypatch, sim_scope, files_draining=True, run_in_progress=False
+    )
+    channels['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'channel': 'BF'})
 
-    assert layers['BF'].ids['enable_led_btn'].state == 'normal', (
+    assert channels['BF'].ids['enable_led_btn'].state == 'normal', (
         'the run indicator must gate on runner truth; the lockout flag '
         'outlives the run through the writing-files window'
     )
@@ -176,9 +178,9 @@ def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch, sim_sco
 def test_a_live_runs_step_leaves_the_led_button_to_the_led(monkeypatch, sim_scope):
     """During a run, going to a step with its LED still dark leaves the
     button off: it is drawn from the LED, not from the step."""
-    _stand, layers = _build_env(monkeypatch, sim_scope, run_in_progress=True)
-    layers['BF'].ids['enable_led_btn'].state = 'normal'
+    _stand, channels = _build_env(monkeypatch, sim_scope, run_in_progress=True)
+    channels['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'channel': 'BF'})
 
-    assert layers['BF'].ids['enable_led_btn'].state == 'normal'
+    assert channels['BF'].ids['enable_led_btn'].state == 'normal'

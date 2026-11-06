@@ -1,7 +1,7 @@
 [
   {"do":"answer","button":"OK","optional":true,"timeout_s":15},
   {"do":"wait","settle_s":3},
-  {"do":"press","path":"ChannelDrawer[layer=Lumi]","settle_s":3,"note":"the Lumi channel has no LED: no Illumination section, no Auto Gain/Exp; Sum shown"},
-  {"do":"shot","name":"../images/channels-lumi","path":"ChannelDrawer[layer=Lumi]","note":"the drawer alone"},
+  {"do":"press","path":"ChannelDrawer[channel=Lumi]","settle_s":3,"note":"the Lumi channel has no LED: no Illumination section, no Auto Gain/Exp; Sum shown"},
+  {"do":"shot","name":"../images/channels-lumi","path":"ChannelDrawer[channel=Lumi]","note":"the drawer alone"},
   {"do":"quit"}
 ]

@@ -28,7 +28,7 @@ from tests.stock_channels import LED0
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
-LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
+LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'channel_control.py'
 SCOPE_SESSION_PATH = REPO_ROOT / 'src/_lumascope/modules' / 'scope_session.py'
 
 
@@ -93,7 +93,7 @@ class TestTheCappedValueIsWhatReachesTheDriver:
 
 class TestTheGuiNeverNarrowsTheStore:
     def test_the_reconcile_writes_neither_stored_value(self):
-        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_channels_to_camera_caps')
         written = {
             t.slice.value
             for n in ast.walk(fn)

@@ -38,7 +38,7 @@ a side effect of a slider write.
 
 Test approach
 -------------
-Source-level structural locks. ``LayerControl`` is a Kivy ``BoxLayout`` and is
+Source-level structural locks. ``ChannelControl`` is a Kivy ``BoxLayout`` and is
 MagicMock'd under the test mocks, so there is no real-widget harness; the
 behavioural proof is the simulator run recorded with the change. These pin the
 structure a future cleanup would have to break on purpose.
@@ -53,16 +53,16 @@ import re
 from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 
 
-LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
+LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'channel_control.py'
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'
 # pin-justified: the kv is declarative source with no headless seam, so the
 # absence of a binding can only be read off the text.
 KV_LINES = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text(encoding='utf-8').splitlines()
 
-RENDERER = 'render_layer_values_from_settings'
+RENDERER = 'render_channel_values_from_settings'
 PRIMITIVE = '_show_value_on_widgets'
-VALUE_SLIDERS = MemberNames('ui/layer_control.py', {'ill_slider', 'gain_slider', 'exp_slider'})
+VALUE_SLIDERS = MemberNames('ui/channel_control.py', {'ill_slider', 'gain_slider', 'exp_slider'})
 UI_SOURCES = [REPO_ROOT / rel for rel in tracked_files(('ui',))]
 
 
@@ -326,7 +326,7 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
     def test_it_writes_neither_stored_value(self):
         # The store is the user's intent and outlives the attached camera;
         # the cap belongs on what is written to hardware, which the API owns.
-        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_channels_to_camera_caps')
         written = {
             t.slice.value
             for n in ast.walk(fn)
@@ -339,7 +339,7 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
         assert written == set(), f'reconcile must not write the store; found {sorted(written)}'
 
     def test_it_renders_and_leaves_the_camera_to_the_session(self):
-        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_channels_to_camera_caps')
         assert _calls(fn, RENDERER), 'The reconcile must re-render both widgets from the store.'
         assert not _calls(fn, 'apply_settings'), (
             'The Session caps each value as it puts a layer on the camera, and '
@@ -355,7 +355,7 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
             for n in ast.walk(fn)
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'reconcile_layers_to_camera_caps'
+            and n.func.attr == 'reconcile_channels_to_camera_caps'
         ]
         render_lines = [
             n.lineno
@@ -367,7 +367,7 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
         assert reconcile_lines, 'load_settings must still delegate to the reconcile owner.'
         assert render_lines, 'load_settings must still fill the widgets.'
         assert max(reconcile_lines) < min(render_lines), (
-            'reconcile_layers_to_camera_caps must run BEFORE the widgets are filled; '
+            'reconcile_channels_to_camera_caps must run BEFORE the widgets are filled; '
             f'reconcile at {reconcile_lines}, render at {render_lines}.'
         )
 

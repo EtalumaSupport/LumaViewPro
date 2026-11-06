@@ -20,8 +20,8 @@ def test_every_template_leaf_is_routed_or_named_as_not_shown():
 
     def covered(path: str, table) -> bool:
         first = path.split('.')[0]
-        # A layer's own settings are routed by the layer row.
-        candidates = ('<layer>' + path[len(first) :],) if first in layers else ()
+        # A channel's own settings are routed by the channel row.
+        candidates = ('<channel>' + path[len(first) :],) if first in layers else ()
         return any(
             path == p or path.startswith(f'{p}.') or c == p or c.startswith(f'{p}.')
             for p in table

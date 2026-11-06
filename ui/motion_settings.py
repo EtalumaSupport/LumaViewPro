@@ -39,7 +39,7 @@ class MotionSettings(BoxLayout):
     # scope-model transitions (LS850 <-> LS820 <-> LS620, etc.) keep the
     # accordion items in canonical order regardless of which were
     # hidden / re-shown along the way.
-    _LAYER_DISPLAY_ORDER = (
+    _PANEL_DISPLAY_ORDER = (
         'microscope',
         'objective',
         'xystage',
@@ -160,19 +160,19 @@ class MotionSettings(BoxLayout):
         accordion = self.ids.get('motionsettings_accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
             return
-        widget_for_layer = {
+        widget_for_panel = {
             'microscope': self.ids.get('motionsettings_microscope_accordion_id'),
             'objective': self.ids.get('objective_control_accordion_id'),
             'xystage': self._accordion_item_xystagecontrol,
             'protocol': self.ids.get('motionsettings_protocol_accordion_id'),
             'postproc': self.ids.get('motionsettings_postprocessing_accordion_id'),
         }
-        shown_for_layer = {'xystage': self._accordion_item_xystagecontrol_visible}
+        shown_for_panel = {'xystage': self._accordion_item_xystagecontrol_visible}
         resort_accordion(
             accordion,
             [
-                (widget_for_layer[layer], shown_for_layer.get(layer, True))
-                for layer in self._LAYER_DISPLAY_ORDER
+                (widget_for_panel[panel], shown_for_panel.get(panel, True))
+                for panel in self._PANEL_DISPLAY_ORDER
             ],
         )
 

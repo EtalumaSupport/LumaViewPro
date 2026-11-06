@@ -11,7 +11,7 @@ drawer records only from its touch handler, and a trigger leaves a focused
 field uncommitted.
 
 A control is named by its place on screen, not by a kv rule: one rule can be
-instantiated many times (a ``LayerControl`` per layer), so the first segment
+instantiated many times (a ``ChannelControl`` per channel), so the first segment
 of a path names a live widget class that must have exactly one instance, and
 each later segment walks ``.ids`` from there (``ImageSettings/BF/acquire_image``),
 or, for a control with no id, ``Class[attr=value]`` among the descendants

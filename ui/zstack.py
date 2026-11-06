@@ -18,7 +18,7 @@ from ui.ui_helpers import (
     show_captured_frame,
     show_video_progress,
     submit_reported,
-    sync_layer_widgets_from_settings,
+    sync_channel_widgets_from_settings,
     typed_number,
 )
 from _lumascope.modules.zstack_config import ZStackConfig, ZStackReference
@@ -173,7 +173,7 @@ class ZStack(FloatLayout):
             return
 
         runner = ctx.session.protocol_runner()
-        layer = ctx.session.shown_channel.channel
+        channel = ctx.session.shown_channel.channel
         enable_image_saving = not ctx.motion_settings.ids['protocol_settings_id'].saving_disabled
         events = RunEvents(
             frame_captured=show_captured_frame,
@@ -181,13 +181,13 @@ class ZStack(FloatLayout):
             # engine: a redraw from any other edge draws the same thing.
             step_started=lambda step_index: self.draw_zstack_button(),
             video_progress=show_video_progress,
-            run_ended=lambda *ended: sync_layer_widgets_from_settings(),
+            run_ended=lambda *ended: sync_channel_widgets_from_settings(),
             on_ui_thread=True,
         )
 
         def _start():
             started = runner.start_zstack(
-                channel=layer,
+                channel=channel,
                 events=events,
                 enable_image_saving=enable_image_saving,
             )

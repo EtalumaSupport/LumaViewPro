@@ -42,14 +42,14 @@ class _FakeWidget:
     def _render_one_frame(
         self,
         *,
-        open_layer,
+        open_channel,
         dispatch_time,
         generation,
         intentional_wait_ms=0.0,
     ):
         self.calls.append(
             {
-                'open_layer': open_layer,
+                'open_channel': open_channel,
                 'dispatch_time': dispatch_time,
                 'generation': generation,
                 'intentional_wait_ms': intentional_wait_ms,
@@ -163,7 +163,7 @@ def test_update_layer_config_publishes_to_loop():
     t.start(widget, fps=60)
     time.sleep(0.1)
     t.stop()
-    seen = [c for c in widget.calls if c['open_layer'] == 'BF']
+    seen = [c for c in widget.calls if c['open_channel'] == 'BF']
     assert seen, 'thread did not pick up the published layer config'
 
 
@@ -261,7 +261,7 @@ def test_layer_config_thread_safe_under_high_publish_rate():
     # neither deadlocked nor tore a published value.
     assert published, 'the publisher never published'
     assert widget.calls, 'thread ran zero iterations under load'
-    assert all(c['open_layer'] is None or c['open_layer'].startswith('L') for c in widget.calls)
+    assert all(c['open_channel'] is None or c['open_channel'].startswith('L') for c in widget.calls)
 
 
 def test_add_frame_listener_called_per_frame():

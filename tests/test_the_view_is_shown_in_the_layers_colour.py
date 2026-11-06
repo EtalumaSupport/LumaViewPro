@@ -20,7 +20,7 @@ import pytest
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.scope_session import ShownChannel
-from ui.layer_control import LayerControl
+from ui.channel_control import ChannelControl
 from ui.microscope_settings import MicroscopeSettings
 from ui.shader import ShaderViewer
 from tests.stock_channels import LED0, LED2
@@ -80,15 +80,17 @@ def test_a_drawer_shows_its_layers_colour_with_false_colour_on_and_grey_off(
     viewer, layer, false_color, shown
 ):
     # parametrize-justified: false colour on, off, and a layer whose colour is grey
-    drawer = SimpleNamespace(layer=layer, ids={'false_color': SimpleNamespace(active=false_color)})
+    drawer = SimpleNamespace(
+        channel=layer, ids={'false_color': SimpleNamespace(active=false_color)}
+    )
 
-    LayerControl.update_shader(drawer, dt=0)
+    ChannelControl.update_shader(drawer, dt=0)
 
     viewer.update_shader.assert_called_once_with(shown)
 
 
 def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypatch):
-    shown_layer = MagicMock()
+    shown_channel = MagicMock()
     viewer = MagicMock()
     ctx = SimpleNamespace(
         viewer=viewer,
@@ -97,7 +99,9 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
             shown_channel=ShownChannel(LED2, lit=False),
             channel_colors=channel_record.release_colors,
         ),
-        image_settings=SimpleNamespace(layer_lookup=lambda layer: {LED2: shown_layer}[layer]),
+        image_settings=SimpleNamespace(
+            channel_control_lookup=lambda channel: {LED2: shown_channel}[channel]
+        ),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     button = SimpleNamespace(state='down')
@@ -109,5 +113,5 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
 
     button.state = 'normal'
     MicroscopeSettings.update_bullseye_state(panel)
-    shown_layer.update_shader.assert_called_once_with(dt=0)
+    shown_channel.update_shader.assert_called_once_with(dt=0)
     assert ctx.scope_display.use_bullseye is False

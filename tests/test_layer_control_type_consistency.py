@@ -16,9 +16,9 @@ stim_pulse_train), so the paths diverged silently.
 Test approach
 -------------
 Kivy's BoxLayout is MagicMock'd in the test env, which means
-`class LayerControl(BoxLayout)` produces a MagicMock at class-body time and
+`class ChannelControl(BoxLayout)` produces a MagicMock at class-body time and
 its real method bodies are unreachable via attribute lookup. To test the
-actual method bodies we parse `ui/layer_control.py` with `ast`, extract the
+actual method bodies we parse `ui/channel_control.py` with `ast`, extract the
 two handler FunctionDef nodes, and exec them into a clean namespace with the
 globals the methods need (numpy, logger, gui_logger, _app_ctx stub). The
 resulting plain functions can then be called against a SimpleNamespace "self".
@@ -42,11 +42,11 @@ from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+LAYER_CONTROL_SRC = REPO / 'ui' / 'channel_control.py'
 
 
 # ---------------------------------------------------------------------------
-# Extract bare functions from the LayerControl class source
+# Extract bare functions from the ChannelControl class source
 # ---------------------------------------------------------------------------
 
 
@@ -62,19 +62,19 @@ def _extract_method_source(source: str, class_name: str, method_name: str) -> st
 
 
 def _compile_handler(method_name: str, extra_globals: dict):
-    """Compile a LayerControl method into a standalone callable.
+    """Compile a ChannelControl method into a standalone callable.
 
     The method's body is unparsed (no decorator, no class indentation) and
     exec'd into a namespace holding the module-scope names it uses: numpy,
     logger, gui_logger, and _app_ctx.
     """
     src = LAYER_CONTROL_SRC.read_text()
-    fn_src = _extract_method_source(src, 'LayerControl', method_name)
+    fn_src = _extract_method_source(src, 'ChannelControl', method_name)
     ns = {
         'np': np,
         **extra_globals,
     }
-    exec(compile(fn_src, f'<layer_control::{method_name}>', 'exec'), ns)
+    exec(compile(fn_src, f'<channel_control::{method_name}>', 'exec'), ns)
     return ns[method_name]
 
 
@@ -100,7 +100,7 @@ def _make_text_mock(text: str) -> MagicMock:
 
 def _make_fake_self(layer: str) -> SimpleNamespace:
     fake = SimpleNamespace()
-    fake.layer = layer
+    fake.channel = layer
     fake._initializing = False
     fake.ids = {}
     fake.apply_settings = MagicMock()
@@ -200,7 +200,7 @@ class TestCrossPathConsistency:
     """After any mix of slider and text updates, settings value stays int.
 
     The text path goes through `_validate_and_apply_text_input` which already
-    has `cast=int` wiring (see layer_control.py lines 119+127). Stubbing it
+    has `cast=int` wiring (see channel_control.py lines 119+127). Stubbing it
     here would only re-test our stub, so we model the text path's final
     settings write in-line -- the thing under test is that the slider path
     does not later clobber the int with a float.
@@ -214,7 +214,7 @@ class TestCrossPathConsistency:
         assert type(settings[LED0]['stim_config']['pulse_count']) is int
 
         # Simulate the text path's final write (cast=int, see
-        # _validate_and_apply_text_input lines 119+127 in layer_control.py)
+        # _validate_and_apply_text_input lines 119+127 in channel_control.py)
         settings[LED0]['stim_config']['pulse_count'] = int(float('12'))
         assert type(settings[LED0]['stim_config']['pulse_count']) is int
 

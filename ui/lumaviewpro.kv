@@ -3,7 +3,7 @@
 #:import build_file _lumascope.lib.build_files.build_file
 # The share of its row that a button or box alone in that row takes, centred.
 #:set NARROW_WIDTH 0.6
-# The label column of a layer slider row (illumination, stimulation, camera, video).
+# The label column of a channel slider row (illumination, stimulation, camera, video).
 #:set SLIDER_LABEL_WIDTH '70dp'
 
 #-------------------------------------------------------------------------------
@@ -82,7 +82,7 @@
 # an image. A disabled Kivy button draws background_disabled_*, whose default
 # is a plain grey square, so a locked icon would vanish; these keep the icon
 # and dim it instead. icon_tint colours the image (the LED toggle lights in
-# its layer's colour); the dim is applied on top of it.
+# its channel's colour); the dim is applied on top of it.
 <IconButton@Button>:
     icon_tint: 1, 1, 1, 1
     background_disabled_normal: self.background_normal
@@ -2147,7 +2147,7 @@
 # Shared scroll wrapper for every post-processing panel: the accordion
 # viewport is shorter than several panels at the 1024x600 minimum window,
 # and an unwrapped panel silently clips its lower controls. Same idiom as
-# the ProtocolSettings / MicroscopeSettings / LayerControl wrappers; each
+# the ProtocolSettings / MicroscopeSettings / ChannelControl wrappers; each
 # panel rule declares its own minimum height so any instantiation scrolls.
 <PostProcessingPanelScroll@ModSliderAwareScrollView>:
 	scroll_type: ['bars']
@@ -2310,15 +2310,15 @@
 			rectangle: (self.x, self.y, self.width, self.height)
 
 
-# ChannelDrawer - one layer's drawer, the same for every catalogue key;
+# ChannelDrawer - one channel's drawer, the same for every catalogue key;
 # ImageSettings.show_drawers fills in its record.
 # ------------------------------------------
 <ChannelDrawer>:
-	log_group: 'IMAGE_LAYER'
+	log_group: 'CHANNEL'
 	# A run moves the shown channel; a person opens a drawer between runs.
 	disabled: app.lock.run_lockout
-	log_item: root.layer
-	# A swatch of the layer's colour before its label, drawn over the title bar:
+	log_item: root.channel
+	# A swatch of the channel's colour before its label, drawn over the title bar:
 	# a rounded rectangle with the buttons' corner radius.
 	canvas.after:
 		Color:
@@ -2327,9 +2327,9 @@
 			pos: (self.container_title.x + dp(10), self.container_title.center_y - dp(8)) if self.container_title else (0, 0)
 			size: (dp(28), dp(16)) if self.container_title else (0, 0)
 			radius: [dp(6)]
-	LayerControl:
+	ChannelControl:
 		id: control
-		layer: root.layer
+		channel: root.channel
 		bg_color: root.chrome_rgba
 
 
@@ -2840,9 +2840,9 @@
 					pos_hint: {'center_x': 0.5}
 					on_release: root.zip_logs_only()
 
-# LayerControl - Settings for Layers within ImageSettings
+# ChannelControl - Settings for Channels within ImageSettings
 # ------------------------------------------
-<LayerControl>:
+<ChannelControl>:
     padding: '10dp'
     spacing: '5dp'
     orientation: 'vertical'
@@ -2910,7 +2910,7 @@
 					border: 0, 0, 0, 0
 					valign: 'middle'
 					background_normal: build_file('data/icons/ToggleL.png')
-					# One white image, lit in the layer's colour while on.
+					# One white image, lit in the channel's colour while on.
 					background_down: build_file('data/icons/ToggleRW.png')
 					icon_tint: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
 					on_release: root.led_toggle()
@@ -2994,7 +2994,7 @@
 				CheckBox:
 					id: stim_enable_btn
 					disabled: app.lock.run_lockout
-					group: f'{root.layer}_stim_group'
+					group: f'{root.channel}_stim_group'
 					size_hint_x: None
 					width: '30dp'
 					active: False
@@ -3010,7 +3010,7 @@
 				CheckBox:
 					id: stim_disable_btn
 					disabled: app.lock.run_lockout
-					group: f'{root.layer}_stim_group'
+					group: f'{root.channel}_stim_group'
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3403,7 +3403,7 @@
 				orientation: 'horizontal'
 				size_hint_y: None
 				# Shown (toggled via sum_depth_hint_active from _refresh_sum_depth_hint)
-				# only when this layer sums in an 8-bit mode: the summed range is
+				# only when this channel sums in an 8-bit mode: the summed range is
 				# downconverted to 8 bits on save. The row height follows the label's
 				# wrapped texture so the multi-line warning is not clipped.
 				height: sum_depth_hint_label.texture_size[1] + dp(6) if root.sum_depth_hint_active else 0
@@ -3610,7 +3610,7 @@
 				CheckBox:
 					id: acquire_none
 					disabled: app.lock.run_lockout
-					group: f'{root.layer}_acquire_group'
+					group: f'{root.channel}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3628,7 +3628,7 @@
 				CheckBox:
 					id: acquire_image
 					disabled: app.lock.run_lockout
-					group: f'{root.layer}_acquire_group'
+					group: f'{root.channel}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3646,7 +3646,7 @@
 				CheckBox:
 					id: acquire_video
 					disabled: app.lock.run_lockout
-					group: f'{root.layer}_acquire_group'
+					group: f'{root.channel}_acquire_group'
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3721,7 +3721,7 @@
 					id: histo_id
 					pos_hint:{'center_x':0.5, 'center_y':0.5}
 					bg_color: root.bg_color
-					layer: root.layer
+					channel: root.channel
 
 			Label:
 			    id: image_stats_mean_id

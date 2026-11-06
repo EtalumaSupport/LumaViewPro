@@ -4,12 +4,12 @@
 The per-0.5s mean / std / focus-score compute in the scope-display loop is
 expensive (a full pass over the frame plus a Vollath focus convolution). It
 must not run when every layer accordion is collapsed -- in that state the
-stat labels are off-screen and the result is discarded. open_layer is None
+stat labels are off-screen and the result is discarded. open_channel is None
 exactly when no accordion is expanded, so the gate keys on it.
 
 ScopeDisplay is a Kivy widget that cannot be imported headless (its class
 body evaluates Kivy properties), so this locks the decision seam by parsing
-the source: the _eng_stats_due predicate carries the open_layer-None gate,
+the source: the _eng_stats_due predicate carries the open_channel-None gate,
 and the render loop routes the compute through it -- not through a bare
 time-interval check that runs while the panel is closed.
 """
@@ -37,11 +37,11 @@ def test_eng_stats_due_predicate_exists():
     )
 
 
-def test_predicate_gates_on_open_layer_none():
+def test_predicate_gates_on_open_channel_none():
     fn = _find_func('_eng_stats_due')
     body = ast.get_source_segment(SRC, fn)
     # The off-screen case (no expanded accordion) must short-circuit to False.
-    assert 'open_layer is None' in body
+    assert 'open_channel is None' in body
     assert 'return False' in body
 
 

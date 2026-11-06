@@ -3,7 +3,7 @@
 
 Bug
 ---
-LayerControl's auto_gain CheckBox has no Kivy binding from
+ChannelControl's auto_gain CheckBox has no Kivy binding from
 settings[layer]['auto_gain']. The .kv ships the CheckBox with active=False
 as a static default and only binds on_release to update_auto_gain. So when
 LVP starts with settings loaded from disk that have auto_gain=True for some
@@ -31,7 +31,7 @@ clears and overwrites whatever Python last wrote.
 Test approach
 -------------
 The sync runs the real show_as_shown over a stand-in widget, since
-LayerControl(BoxLayout) is MagicMock'd in the test env; the kv rule is
+ChannelControl(BoxLayout) is MagicMock'd in the test env; the kv rule is
 read from source.
 """
 
@@ -48,7 +48,7 @@ from tests.stock_channels import LED1
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+LAYER_CONTROL_SRC = REPO / 'ui' / 'channel_control.py'
 # pin-justified: the kv is declarative source with no headless seam; the
 # per-widget event binds and disabled expressions below are the contract.
 KV_LINES = (REPO / 'ui' / 'lumaviewpro.kv').read_text().splitlines()
@@ -117,18 +117,18 @@ class TestTheShownLayerSyncsItsAutoGainCheckbox:
     def test_showing_a_layer_syncs_checkbox_active(self, monkeypatch):
         import _lumascope.modules.app_context as _app_ctx
         import ui.image_settings as image_settings
-        import ui.layer_control as layer_control
+        import ui.channel_control as channel_control
 
-        monkeypatch.setattr(image_settings, 'set_histogram_layer', lambda active_layer: None)
+        monkeypatch.setattr(image_settings, 'set_histogram_channel', lambda active_channel: None)
         # a stand-in by design: Kivy is stubbed in the test process; the subject is the sync
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display_thread=None))
         widget = SimpleNamespace(
-            layer=LED1,
+            channel=LED1,
             ids={'auto_gain': SimpleNamespace(active=False)},
             effective_auto_gain=lambda: True,
         )
 
-        layer_control.LayerControl.show_as_shown(widget)
+        channel_control.ChannelControl.show_as_shown(widget)
 
         assert widget.ids['auto_gain'].active is True
 
@@ -150,13 +150,13 @@ class TestTheShownLayerSyncsItsAutoGainCheckbox:
         source = LAYER_CONTROL_SRC.read_text()
         for pattern in ('.disabled = auto_gain_enabled', '.disabled = state'):
             assert pattern not in source, (
-                f'{pattern!r} in ui/layer_control.py: the kv rule owns the '
+                f'{pattern!r} in ui/channel_control.py: the kv rule owns the '
                 "gain/exposure widgets' disabled state"
             )
 
 
 class TestSetStepStateWidgetWiring:
-    """What makes ``LayerControl.set_step_state`` a pure widget setter is
+    """What makes ``ChannelControl.set_step_state`` a pure widget setter is
     the kv wiring, not the ``_initializing`` flag: of the widgets it sets,
     only the illumination / gain / exposure sliders bind ``on_value`` (and
     each handler opens with the ``_initializing`` guard); the other sliders
@@ -185,7 +185,7 @@ class TestSetStepStateWidgetWiring:
     def test_value_handlers_open_with_the_initializing_guard(self, handler):
         """Before the guard, only a plain name assignment or an
         early-return ``if`` may appear -- no settings write, no call."""
-        fn = find_def('ui/layer_control.py', handler, class_name='LayerControl')
+        fn = find_def('ui/channel_control.py', handler, class_name='ChannelControl')
         assert fn is not None, handler
 
         def _is_guard(stmt):

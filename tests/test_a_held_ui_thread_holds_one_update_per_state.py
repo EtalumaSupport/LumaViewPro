@@ -73,7 +73,7 @@ def _bridge(session, drawn):
         session=session,
         image_settings=SimpleNamespace(
             draw_shown_channel=lambda: drawn.append(('shown_channel',)),
-            layer_lookup=lambda layer: layer_of(layer),
+            channel_control_lookup=lambda channel: layer_of(channel),
         ),
         motion_settings=SimpleNamespace(
             ids={'verticalcontrol_id': z_ctrl},

@@ -152,7 +152,7 @@ def test_the_guard_sees_every_form_it_refuses():
         "mp.setitem(sys.modules, '_lumascope.drivers.registry', registry_mod)",
         "sys.modules['lumaviewpro'] = fake",
         "for _name in ('kivy.uix', '_lumascope.modules.settings_init'):\n    sys.modules.setdefault(_name, MagicMock())",
-        "for _name, _attr in (('ui.layer_control', 'LayerControl'),):\n    sys.modules[_name] = _module",
+        "for _name, _attr in (('ui.channel_control', 'ChannelControl'),):\n    sys.modules[_name] = _module",
     ]
     assert [len(_forms(source)) for source in refused] == [1] * len(refused)
 

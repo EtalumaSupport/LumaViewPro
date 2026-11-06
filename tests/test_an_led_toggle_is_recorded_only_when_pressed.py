@@ -32,21 +32,23 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 
 @pytest.fixture
 def layer(monkeypatch):
-    import ui.layer_control as layer_control
+    import ui.channel_control as channel_control
 
     context = SimpleNamespace(
         session=SimpleNamespace(light_shown_channel=MagicMock(), show_channel=MagicMock()),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
-    monkeypatch.setattr(layer_control, 'submit_reported', lambda call, *a, **kw: call())
+    monkeypatch.setattr(channel_control, 'submit_reported', lambda call, *a, **kw: call())
     widget = SimpleNamespace(
-        layer=LED1,
+        channel=LED1,
         _initializing=False,
         ids={'enable_led_btn': SimpleNamespace(state='down')},
         show_as_shown=MagicMock(),
     )
-    return SimpleNamespace(widget=widget, session=context.session, cls=layer_control.LayerControl)
+    return SimpleNamespace(
+        widget=widget, session=context.session, cls=channel_control.ChannelControl
+    )
 
 
 def _toggles(caplog):

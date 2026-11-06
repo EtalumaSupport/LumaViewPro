@@ -2,7 +2,7 @@
 """
 Protocol step navigation logic extracted from lumaviewpro.py.
 
-These functions show a protocol step on the panel and the layer widgets
+These functions show a protocol step on the panel and the channel widgets
 once the Session has gone to it. They are GUI-coupled (Kivy widgets,
 Clock) and live in ui/; protocol execution reaches them only through the
 panel's step_started handler, so the protocol layer never imports this
@@ -29,8 +29,8 @@ def go_to_step(
     the run moves the scope itself, so this only moves the step pointer.
     ``include_move=True`` is a person going to a step: the Session goes to
     it (``ScopeSession.start_go_to_step``: the moves started, the step's
-    settings into its layer, the LED preview and the step's layer on the
-    camera); the pointer, the step panel and the layer's widgets follow only
+    settings into its channel, the LED preview and the step's channel on the
+    camera); the pointer, the step panel and the channel's widgets follow only
     once it has returned without a refusal. A click is a gesture: it does
     not wait for the stage to arrive.
     """
@@ -101,16 +101,16 @@ def go_to_step(
 def go_to_step_update_ui(step):
     """Update UI widgets to reflect a protocol step.
 
-    Delegates per-layer widget updates to LayerControl.set_step_state(),
+    Delegates per-channel widget updates to ChannelControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
-    cross-layer concerns: opening the settings panel. The drawer is the
+    cross-channel concerns: opening the settings panel. The drawer is the
     listener bridge's, which draws the shown channel, and so is the LED
     button, which draws the LED.
     """
     ctx = _app_ctx.ctx
 
     color = step['channel']
-    layer_obj = ctx.image_settings.layer_lookup(layer=color)
+    channel_control = ctx.image_settings.channel_control_lookup(channel=color)
 
     # Open the ImageSettings panel so the step's settings are visible.
     # Act only when it is not already open: this runs on every step
@@ -122,17 +122,17 @@ def go_to_step_update_ui(step):
         imagesettings_toggle.state = 'down'
         ctx.image_settings.place_settings()
 
-    # Delegate all per-layer widget updates to LayerControl
-    layer_obj.set_step_state(step)
+    # Delegate all per-channel widget updates to ChannelControl
+    channel_control.set_step_state(step)
 
-    # Stim config spans multiple layers -- update non-current layers too
+    # Stim config spans multiple channels -- update non-current channels too
     sc = step.get('Stim_Config')
     if isinstance(sc, dict):
-        for layer in sc:
-            if layer != color:
-                other_obj = ctx.image_settings.layer_lookup(layer=layer)
-                # Build a minimal step dict for the other layer's stim only
-                other_obj.set_step_state({'Stim_Config': {layer: sc[layer]}})
+        for channel in sc:
+            if channel != color:
+                other_obj = ctx.image_settings.channel_control_lookup(channel=channel)
+                # Build a minimal step dict for the other channel's stim only
+                other_obj.set_step_state({'Stim_Config': {channel: sc[channel]}})
 
     # The LED button is not written here: it shows the LED, and the listener
     # bridge, the button's one writer, draws it from the LED state store --

@@ -1,7 +1,7 @@
 """A typed commit in a layer panel is recorded once, as typed, under its channel's name.
 
 Every numeric text box in the layer panel commits through one shared helper,
-``LayerControl._validate_and_apply_text_input``, and the helper -- not each of
+``ChannelControl._validate_and_apply_text_input``, and the helper -- not each of
 its callers -- writes the record, so a new box records by routing through it.
 The record name is derived from the box's id and the panel's channel
 (``exp_text`` on LED 0's panel records ``EXP_`` and its key); no caller passes one.
@@ -10,7 +10,7 @@ The record is ``gui_logger.text_input``, synchronous and unconditional, with
 ``<NAME>_APPLIED`` beside it only when what is stored differs from what was
 typed: the writer refused it, or it was not a number and the box went back.
 
-Each test drives the helper on a ``LayerControl`` built without Kivy, with the
+Each test drives the helper on a ``ChannelControl`` built without Kivy, with the
 real range check behind the settings write (``settings_writer``), and reads
 what landed on the ``LVP.gui_interactions`` logger.
 """
@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import _lumascope.modules.app_context as _app_ctx
 from tests.settings_fixtures import settings_writer
-from ui.layer_control import LayerControl
+from ui.channel_control import ChannelControl
 from tests.stock_channels import LED0
 
 _GUI_LOG = 'LVP.gui_interactions'
@@ -56,8 +56,8 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
         _app_ctx, 'ctx', SimpleNamespace(settings=settings, update_settings=update_settings)
     )
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
-    panel = LayerControl.__new__(LayerControl)
-    panel.layer = LED0
+    panel = ChannelControl.__new__(ChannelControl)
+    panel.channel = LED0
     panel._initializing = False
     panel.ids = {
         'exp_slider': _Slider(0.01, 1000.0, stored),
@@ -75,7 +75,7 @@ def _commit(panel):
 def test_layer_owned_records_carry_the_channel_suffix(monkeypatch, caplog):
     """A layer box and the log-histogram box each name the channel they belong to.
 
-    LayerControl is built once per channel with identical child ids, so a record
+    ChannelControl is built once per channel with identical child ids, so a record
     name without the channel would leave a bundle unable to say which channel
     was edited. The helper is called with no record name, as its callers call
     it, so a name that went unpassed would leave no line here either.

@@ -241,9 +241,9 @@ def cold_start(tmp_path, monkeypatch, caplog):
             }
         ),
         image_settings=SimpleNamespace(
-            layer_lookup=lambda layer: layer_widget,
-            set_layer_exposure_ranges=lambda: None,
-            reconcile_layers_to_camera_caps=lambda: None,
+            channel_control_lookup=lambda channel: layer_widget,
+            set_channel_exposure_ranges=lambda: None,
+            reconcile_channels_to_camera_caps=lambda: None,
         ),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)

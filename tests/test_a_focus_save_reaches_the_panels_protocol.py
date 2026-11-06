@@ -31,17 +31,17 @@ from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.stock_channels import LED0
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+LAYER_CONTROL_SRC = REPO / 'ui' / 'channel_control.py'
 
 
 def _compile(method_name: str, globals_: dict):
     tree = ast.parse(LAYER_CONTROL_SRC.read_text())
     cls = next(
-        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'LayerControl'
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'ChannelControl'
     )
     fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == method_name)
     ns = dict(globals_)
-    exec(compile(ast.unparse(fn), f'<layer_control::{method_name}>', 'exec'), ns)
+    exec(compile(ast.unparse(fn), f'<channel_control::{method_name}>', 'exec'), ns)
     return ns[method_name]
 
 
@@ -60,7 +60,7 @@ def _panel_with(protocol, selected_step):
         'logger': MagicMock(),
         'run_reported': lambda call, redraw, label: call(),
     }
-    me = SimpleNamespace(layer=LED0, _refresh_step_views=MagicMock())
+    me = SimpleNamespace(channel=LED0, _refresh_step_views=MagicMock())
     return me, globals_, session
 
 

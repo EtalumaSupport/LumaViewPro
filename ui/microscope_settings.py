@@ -242,7 +242,7 @@ class MicroscopeSettings(BoxLayout):
 
         # Stimulation is firmware-gated. The enable toggle lives in
         # Advanced Settings now; startup just establishes the setting and
-        # pushes the persisted state down to every layer via the single
+        # pushes the persisted state down to every channel via the single
         # owner (which forces it off on unsupported firmware).
         self.apply_stimulation_support()
 
@@ -250,21 +250,23 @@ class MicroscopeSettings(BoxLayout):
         # Kivy slider clamps the displayed value to its max). A stored value
         # above the cap stays in the store and is pinned on the slider; the
         # box keeps the real number.
-        for layer in common_utils.get_channels():
-            ctx.image_settings.layer_lookup(layer=layer).ids['gain_slider'].max = max_gain
-        ctx.image_settings.set_layer_exposure_ranges()
+        for channel in common_utils.get_channels():
+            ctx.image_settings.channel_control_lookup(channel=channel).ids[
+                'gain_slider'
+            ].max = max_gain
+        ctx.image_settings.set_channel_exposure_ranges()
 
-        # Render and re-apply any layer the camera cannot fully reach --
+        # Render and re-apply any channel the camera cannot fully reach --
         # the single owner, shared with the capability resync. Ordering:
         # this runs BEFORE the widgets are filled, so the pinned slider and
         # the stored value agree the first time they are drawn. Its
-        # explicit apply is a no-op here (the layers are still initializing
+        # explicit apply is a no-op here (the channels are still initializing
         # from construction); the startup push to the camera is bring-up's
         # (ScopeSession.configure_scope applies BF).
-        ctx.image_settings.reconcile_layers_to_camera_caps()
+        ctx.image_settings.reconcile_channels_to_camera_caps()
 
-        for layer in common_utils.get_channels():
-            ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
+        for channel in common_utils.get_channels():
+            ctx.image_settings.channel_control_lookup(channel=channel).sync_widgets_from_settings()
 
         self.set_ui_features_for_scope()
 
@@ -315,8 +317,8 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.viewer.update_shader(channel_record.GREY)
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
-            layer = _app_ctx.ctx.session.shown_channel.channel
-            _app_ctx.ctx.image_settings.layer_lookup(layer=layer).update_shader(dt=0)
+            channel = _app_ctx.ctx.session.shown_channel.channel
+            _app_ctx.ctx.image_settings.channel_control_lookup(channel=channel).update_shader(dt=0)
             _app_ctx.ctx.scope_display.use_bullseye = False
 
     def load_image_modes(self):
@@ -500,7 +502,7 @@ class MicroscopeSettings(BoxLayout):
     def apply_stimulation_support(self):
         """Show or hide every channel's stimulation controls.
 
-        Single owner of the per-layer stimulation display. Reads
+        Single owner of the per-channel stimulation display. Reads
         ``settings['stimulation_enabled']`` (populated by the settings load)
         rather than a widget, so the startup load and the Advanced Settings
         toggle both drive the same path. Firmware without stim support never
@@ -512,23 +514,25 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.scope.capabilities.has_firmware_stim and settings['stimulation_enabled']
         )
 
-        # Update all layer controls
-        for layer in common_utils.get_channels():
-            if layer in common_utils.get_fluorescence_channels():
-                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
-                if layer_obj:
+        # Update all channel controls
+        for channel in common_utils.get_channels():
+            if channel in common_utils.get_fluorescence_channels():
+                channel_control = _app_ctx.ctx.image_settings.channel_control_lookup(
+                    channel=channel
+                )
+                if channel_control:
                     if stimulation_enabled:
                         # Enable stimulation features
-                        layer_obj.stimulation_support = True
+                        channel_control.stimulation_support = True
                         # Don't automatically show stim controls, just enable support
                     else:
                         # Disable stimulation features
-                        layer_obj.stimulation_support = False
-                        layer_obj.show_stim_controls = False
-                        layer_obj.show_camera_controls = True
+                        channel_control.stimulation_support = False
+                        channel_control.show_stim_controls = False
+                        channel_control.show_camera_controls = True
                         # Set stim to disabled
-                        if 'stim_disable_btn' in layer_obj.ids:
-                            layer_obj.ids['stim_disable_btn'].active = True
+                        if 'stim_disable_btn' in channel_control.ids:
+                            channel_control.ids['stim_disable_btn'].active = True
 
     def load_binning_sizes(self):
         sizes = _app_ctx.ctx.lumaview.scope.capabilities.camera_binning_sizes
@@ -636,12 +640,12 @@ class MicroscopeSettings(BoxLayout):
         ctx.lumaview.stage_has_motors = caps.has_xy_stage or caps.has_focus or caps.has_turret
 
         image_settings = ctx.image_settings
-        # Which layers exist comes from the scope's resolved identity --
+        # Which channels exist comes from the scope's resolved identity --
         # the one path that also serves headless callers -- refreshed by
         # reconfigure_for_scope before this runs.
         identity = ctx.lumaview.scope.channel_identity
         image_settings.show_drawers(identity)
-        image_settings.set_layer_focus_visibility(visible=caps.has_focus)
+        image_settings.set_channel_focus_visibility(visible=caps.has_focus)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=caps.has_xy_stage)
@@ -655,7 +659,7 @@ class MicroscopeSettings(BoxLayout):
             f'model={microscope_settings.current_scope_model} '
             f'next_start={microscope_settings.next_start_model or None} '
             f'turret={caps.has_turret} xy_stage={caps.has_xy_stage} focus={caps.has_focus} '
-            f'channels={",".join(layer.key_name for layer in identity.channels)}',
+            f'channels={",".join(channel.key_name for channel in identity.channels)}',
         )
 
         if not caps.has_xy_stage:

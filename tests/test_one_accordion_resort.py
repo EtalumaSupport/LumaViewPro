@@ -100,12 +100,12 @@ def test_both_panels_resort_through_the_helper(monkeypatch):
         ids={'motionsettings_accordion_id': left_accordion},
         _accordion_item_xystagecontrol=None,
         _accordion_item_xystagecontrol_visible=False,
-        _LAYER_DISPLAY_ORDER=motion_settings.MotionSettings._LAYER_DISPLAY_ORDER,
+        _PANEL_DISPLAY_ORDER=motion_settings.MotionSettings._PANEL_DISPLAY_ORDER,
     )
     right = SimpleNamespace(
         ids={'accordion_id': right_accordion},
         _drawers={},
-        _shown_layers=frozenset(),
+        _shown_channels=frozenset(),
     )
 
     motion_settings.MotionSettings._resort_accordion(left)

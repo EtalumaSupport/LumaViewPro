@@ -51,25 +51,25 @@ def _reconcile(monkeypatch, *, shown, capped):
     imaging.applied_exposure_ms_for.side_effect = _applied_exposure
     monkeypatch.setattr(_app_ctx, 'ctx', context)
 
-    layer_objs = {layer: MagicMock(name=layer) for layer in settings}
-    stand_in = SimpleNamespace(layer_lookup=lambda layer: layer_objs[layer])
-    image_settings.ImageSettings.reconcile_layers_to_camera_caps(stand_in)
-    return layer_objs
+    channel_controls = {layer: MagicMock(name=layer) for layer in settings}
+    stand_in = SimpleNamespace(channel_control_lookup=lambda channel: channel_controls[channel])
+    image_settings.ImageSettings.reconcile_channels_to_camera_caps(stand_in)
+    return channel_controls
 
 
 def test_every_capped_layer_is_rendered_and_none_applied(monkeypatch):
-    layer_objs = _reconcile(monkeypatch, shown=LED0, capped={LED0, LED2})
+    channel_controls = _reconcile(monkeypatch, shown=LED0, capped={LED0, LED2})
 
     for layer in (LED0, LED2):
-        layer_objs[layer].render_layer_values_from_settings.assert_called_once_with()
-    for layer_obj in layer_objs.values():
-        layer_obj.apply_settings.assert_not_called()
+        channel_controls[layer].render_channel_values_from_settings.assert_called_once_with()
+    for channel_control in channel_controls.values():
+        channel_control.apply_settings.assert_not_called()
 
 
 def test_with_no_capped_layer_shown_nothing_is_applied(monkeypatch):
-    layer_objs = _reconcile(monkeypatch, shown='BF', capped={LED1, LED2})
+    channel_controls = _reconcile(monkeypatch, shown='BF', capped={LED1, LED2})
 
-    for layer_obj in layer_objs.values():
-        layer_obj.apply_settings.assert_not_called()
-    layer_objs[LED1].render_layer_values_from_settings.assert_called_once_with()
-    layer_objs[LED2].render_layer_values_from_settings.assert_called_once_with()
+    for channel_control in channel_controls.values():
+        channel_control.apply_settings.assert_not_called()
+    channel_controls[LED1].render_channel_values_from_settings.assert_called_once_with()
+    channel_controls[LED2].render_channel_values_from_settings.assert_called_once_with()

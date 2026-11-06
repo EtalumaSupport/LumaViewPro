@@ -199,16 +199,16 @@ def test_a_frames_changes_are_redrawn_once_each_on_the_ui_thread():
 
     class _Layer:
         def __init__(self, layer):
-            self.layer = layer
+            self.channel = layer
 
         def sync_widgets_from_settings(self):
-            drawn.append(f'layer {self.layer}')
+            drawn.append(f'layer {self.channel}')
 
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the routing
     ctx = SimpleNamespace(
         ready=True,
         settings={'live_view_fps': 12, 'show_tooltips': True},
-        image_settings=SimpleNamespace(layer_lookup=lambda layer: _Layer(layer)),
+        image_settings=SimpleNamespace(channel_control_lookup=lambda channel: _Layer(channel)),
         motion_settings=SimpleNamespace(
             ids={
                 'microscope_settings_id': SimpleNamespace(

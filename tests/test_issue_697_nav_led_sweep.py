@@ -68,8 +68,8 @@ def test_nav_drives_no_camera_and_no_led_itself(stepnav_env, preview_on):
     if preview_on:
         bf = channel_reading(session.scope.illumination, 'BF')
         assert bf.illumination_ma == session.get_setting('BF.illumination_ma')
-    stepnav_env.layer_obj.apply_settings.assert_not_called()
-    assert stepnav_env.layer_obj.ids['enable_led_btn'].state == 'normal'
+    stepnav_env.channel_control.apply_settings.assert_not_called()
+    assert stepnav_env.channel_control.ids['enable_led_btn'].state == 'normal'
 
 
 # ---------------------------------------------------------------------------

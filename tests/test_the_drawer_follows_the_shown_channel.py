@@ -33,7 +33,7 @@ def _bridge(session, *, ready=True):
     led_button = SimpleNamespace(ids={'enable_led_btn': SimpleNamespace(state='normal')})
     image_settings = SimpleNamespace(
         draw_shown_channel=lambda: drawn.append(session.shown_channel.channel),
-        layer_lookup=lambda layer: led_button,
+        channel_control_lookup=lambda channel: led_button,
     )
     ctx = SimpleNamespace(ready=ready, session=session, image_settings=image_settings)
     bridge = UIListenerBridge(scope=session.scope, ctx=ctx, stage=SimpleNamespace())

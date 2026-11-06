@@ -204,9 +204,9 @@ def _ill_slider_max_writes_in(fn_node) -> int:
 def test_the_capability_grouping_owns_the_slider_bound():
     grouping = find_def('ui/image_settings.py', 'sync_camera_capability_ranges', 'ImageSettings')
     assert grouping is not None
-    assert 'self.set_layer_illumination_ranges' in _calls_in(grouping)
+    assert 'self.set_channel_illumination_ranges' in _calls_in(grouping)
 
-    setter = find_def('ui/image_settings.py', 'set_layer_illumination_ranges', 'ImageSettings')
+    setter = find_def('ui/image_settings.py', 'set_channel_illumination_ranges', 'ImageSettings')
     assert setter is not None
     assert _ill_slider_max_writes_in(setter) == 1
     assert 'session.channel_slider_maxima' in _calls_in(setter)
@@ -219,17 +219,17 @@ def test_nothing_else_in_the_panel_writes_the_slider_bound():
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and _ill_slider_max_writes_in(node)
     ]
-    assert writers == ['set_layer_illumination_ranges'], writers
+    assert writers == ['set_channel_illumination_ranges'], writers
 
 
 def test_the_text_box_carries_no_bound_of_its_own():
     # The board's maximum is the writer's refusal (ScopeSession.update_settings
     # hands check_write capabilities.led_max_ma); the box neither clips to a
     # UI constant nor resolves a ceiling of its own.
-    tree = parse_module('ui/layer_control.py')
+    tree = parse_module('ui/channel_control.py')
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert 'BF_MAX_ILLUMINATION' not in names
     assert 'get_layer_illumination_text_max' not in names
-    ill_text = find_def('ui/layer_control.py', 'ill_text', 'LayerControl')
+    ill_text = find_def('ui/channel_control.py', 'ill_text', 'ChannelControl')
     assert ill_text is not None
     assert 'get_layer_illumination_text_max' not in _calls_in(ill_text)

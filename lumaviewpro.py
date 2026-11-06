@@ -499,7 +499,7 @@ from ui.image_settings import (
     ChannelDrawer,
     ImageSettings,
 )
-from ui.layer_control import LayerControl
+from ui.channel_control import ChannelControl
 from ui.main_display import MainDisplay
 from ui.microscope_settings import MicroscopeSettings
 from ui.mod_slider import ModSlider
