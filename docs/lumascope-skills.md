@@ -251,6 +251,15 @@ for part in record.parts:
 assert record.missing == ()                # the simulator has every part
 ```
 
+**Hearing it come up.** Bring-up takes a few seconds on hardware. To say what
+it is doing while it runs -- a progress bar, a status line -- pass
+`on_progress=`, the same callback the support report takes: it is called
+before each step, on the thread that called `create`, with the share of the
+steps already done and the step's words (`Connecting the Motor Controller`,
+`Connecting the LED Board`, `Connecting the Camera`, `Configuring the scope`).
+LumaViewPro calls `create` on a thread of its own and shows these steps while
+its window stays live.
+
 **The plate, the objective and the model.** The plate is chosen by
 `select_labware`, which answers whether it changed. The objective is
 `select_objective` on a scope without a turret; on one with a turret it is the
