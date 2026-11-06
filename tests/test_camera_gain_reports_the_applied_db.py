@@ -105,11 +105,6 @@ class TestIDS:
     def test_an_in_range_gain_answers_its_db(self):
         assert self._cam(maximum=31.62).gain(20.0) == pytest.approx(20.0)
 
-    def test_a_gain_the_node_clamps_answers_the_clamped_db(self):
-        """The node's maximum factor is 10x (20 dB); a 30 dB request is
-        written as 10x, so the answer is 20 dB, not the 30 asked for."""
-        assert self._cam(maximum=10.0).gain(30.0) == pytest.approx(20.0)
-
 
 @pytest.mark.skipif(
     not fx2driver._FX2_GATE.available,

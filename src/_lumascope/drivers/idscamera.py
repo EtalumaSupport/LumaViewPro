@@ -128,6 +128,11 @@ _TEARDOWN_ASSUME_DEAD_STALL_S = 15.0
 # complete frame resets the count.
 _MAX_BAD_FRAMES_BEFORE_WEDGE = 120
 
+# How far a dB->factor round trip of a Gain limit can land from the limit: a
+# few float ulps (about 1e-15 relative). 1e-9 is wide of that and a millionth of
+# a 0.01 dB difference (1.2e-3 relative), so it snaps only a round trip.
+_GAIN_ROUND_TRIP_REL_TOL = 1e-9
+
 # Frame time added to the free-run rate's period when the camera bins. The
 # U3-34L has no image memory, and binned at the exact AcquisitionFrameRate
 # maximum it skips whole sensor slots (measured on two bodies, Mono10 and
@@ -1280,7 +1285,7 @@ class IDSCamera(Camera):
                     f'({min_factor:.2f}-{max_factor:.2f}x)'
                 )
             except Exception as e:
-                logger.debug(f'[CAM Class ] Could not query gain range: {e}')
+                _cam_log.warning(f'[CAM Class ] Could not query gain range: {e}')
 
             # Exposure range
             try:
@@ -1292,7 +1297,7 @@ class IDSCamera(Camera):
                     f'{self.profile.exposure_max_us:.0f} us'
                 )
             except Exception as e:
-                logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
+                _cam_log.warning(f'[CAM Class ] Could not query exposure range: {e}')
 
             # Sensor pixel pitch (micrometers). Read live so the micron scale
             # bar and click-to-center distance are correct for ANY IDS body,
@@ -3158,16 +3163,15 @@ class IDSCamera(Camera):
         factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
         the node's 1.0x unity minimum, which is why the previous unconverted
         write of 0.0 was rejected as out-of-range. The valid dB range is
-        published through the profile (see _query_dynamic_capabilities). The
-        converted factor is reconciled to the Gain node's reported [Minimum,
-        Maximum] before writing: the dB->factor round-trip overshoots the node
-        maximum by a float epsilon exactly at the cap, so without this the camera
-        rejects its own reported maximum gain (the same self-clamp the FX2
-        register conversion does). A genuine SDK failure still returns False.
+        published through the profile (see _query_dynamic_capabilities), and
+        the range is the API's to judge. A factor within a float epsilon of the
+        Gain node's reported Minimum or Maximum is written as that limit: the
+        dB->factor round trip of the reported cap lands an epsilon off it, and
+        the camera rejects its own reported maximum gain without the snap.
+        Anything past it is written as asked, and the camera refuses it.
 
-        Returns the gain in dB actually written -- the factor after that
-        reconciliation, converted back -- so a request the node clamps is
-        answered with the clamped gain, not the one asked for. False on a
+        Returns the gain in dB actually written, converted back from the
+        factor. False on a
         confirmed hardware rejection: per-frame chunk metadata is not yet
         wired, so a swallowed write failure here would stream frames at the
         stale gain with no downstream backstop; the caller needs the failure
@@ -3203,10 +3207,12 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(selector)
             gain_node = self.remote_nodemap.FindNode('Gain')
             access = 'read'
-            # Reconcile to the node's reported range: the dB->factor conversion
-            # overshoots Gain.Maximum() by a float epsilon at the cap, so the
-            # camera rejects its own reported maximum gain without this clamp.
-            factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
+            # Snap the round trip of a reported limit onto the limit itself: the
+            # dB->factor conversion lands a float epsilon off Gain.Maximum() at
+            # the cap, and the camera rejects its own reported maximum gain.
+            for limit in (gain_node.Minimum(), gain_node.Maximum()):
+                if math.isclose(factor, limit, rel_tol=_GAIN_ROUND_TRIP_REL_TOL):
+                    factor = limit
             _cam_log.log(
                 VERBOSE, f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
             )

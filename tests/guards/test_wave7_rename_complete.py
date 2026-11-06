@@ -352,7 +352,6 @@ CAMERA_ONLY_METHODS = MemberNames(
         'set_frame_size',
         'set_gain_db',
         'set_image_mode',
-        'suppress_value_warnings',
     },
 )
 

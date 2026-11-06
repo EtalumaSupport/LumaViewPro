@@ -329,7 +329,7 @@ class PylonCamera(Camera):
                         f'{self.profile.gain.total_max_db:.1f} dB'
                     )
             except Exception as e:
-                logger.debug(f'[CAM Class ] Could not query gain range: {e}')
+                _cam_log.warning(f'[CAM Class ] Could not query gain range: {e}')
 
             # Exposure range
             try:
@@ -343,7 +343,7 @@ class PylonCamera(Camera):
                         f'{self.profile.exposure_max_us:.0f} us'
                     )
             except Exception as e:
-                logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
+                _cam_log.warning(f'[CAM Class ] Could not query exposure range: {e}')
 
             # The formats this body offers, as the IDS driver records them: the
             # profile's list is what capabilities publish, so it is the camera's
@@ -3107,8 +3107,9 @@ class PylonCamera(Camera):
 
         Lower bound is opened to the sensor minimum so AG can drop
         exposure on bright scenes. The UPPER bound is the per-channel
-        AG/AE ceiling (`max_exposure_ms`, converted to microseconds and
-        clamped to the node's physical range), NOT the sensor max.
+        AG/AE ceiling (`max_exposure_ms`, converted to microseconds; the
+        API resolves it against the camera's range before it arrives),
+        NOT the sensor max.
         Capping the upper bound keeps AG from driving exposure to the
         sensor maximum on dim scenes -- which washes out brightfield
         and makes the live auto loop hunt (the flicker / "both go to
@@ -3141,13 +3142,10 @@ class PylonCamera(Camera):
             return True
         try:
             exp_min = self.active.AutoExposureTimeLowerLimit.Min
-            node_max = self.active.AutoExposureTimeUpperLimit.Max
             if max_exposure_ms is not None:
-                requested_us = max_exposure_ms * 1000.0
-                node_min = self.active.AutoExposureTimeUpperLimit.Min
-                exp_max = min(max(requested_us, node_min), node_max)
+                exp_max = max_exposure_ms * 1000.0
             else:
-                exp_max = node_max
+                exp_max = self.active.AutoExposureTimeUpperLimit.Max
             self.active.AutoExposureTimeLowerLimit.SetValue(exp_min)
             self.active.AutoExposureTimeUpperLimit.SetValue(exp_max)
             _cam_log.info(
@@ -3752,15 +3750,12 @@ class PylonCamera(Camera):
         """Set the camera's exposure time in milliseconds.
 
         Pylon's ``ExposureTime`` node uses microseconds; this method
-        accepts milliseconds and converts. Values exceeding
-        ``self.max_exposure`` are rejected with a warning. Sub-minimum
-        values are clamped to ``ExposureTime.Min``.
+        accepts milliseconds and converts. The range is the API's to judge
+        (``CameraAPI.set_exposure_ms``); a value the camera will not take
+        is refused by the SDK and answered ``False``.
 
-        Because the clamp means the applied value can differ from the
-        request, the microseconds actually in effect are RETURNED -- the
-        caller stamps them as the frame-validity chunk target, and a
-        request-derived target would never match the chunk the camera
-        reports.
+        The microseconds written are RETURNED -- the caller stamps them as
+        the frame-validity chunk target.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
@@ -3771,33 +3766,17 @@ class PylonCamera(Camera):
                 ``False`` where the write was refused or failed.
 
         Raises:
-            CameraNoAnswerError: The ExposureTime write, or the
-                ExposureTime.Min read its clamp needs, timed out (after the
-                read nothing was written); the camera is not marked
-                disconnected.
+            CameraNoAnswerError: The ExposureTime write timed out; the
+                camera is not marked disconnected.
         """
         if self.active is None:
             _cam_log.warning(f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
 
-        if exposure_ms > self.max_exposure:
-            _cam_log.warning(
-                f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: '
-                f'exceeds max {self.max_exposure}ms'
-            )
-            _cam_log.warning(
-                f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
-            )
-            return False
-
         # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
-            try:
-                floor_us = self.active.ExposureTime.Min
-            except genicam.TimeoutException as e:
-                raise _no_answer(f'exposure_t({exposure_ms}ms)', e, read='ExposureTime.Min') from e
-            us_value = max(float(exposure_ms) * 1000, floor_us)
+            us_value = float(exposure_ms) * 1000
             # Short-circuit when already at target us. SDK rounds to its clock
             # grid so same target ms maps to same us count; 1 us tolerance is
             # below ExposureTime increment on ace 2 / dart.

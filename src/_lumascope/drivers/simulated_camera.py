@@ -1233,23 +1233,23 @@ class SimulatedCamera(Camera):
         actually in effect.
 
         Refuses (``False``) rather than silently no-opping when the
-        simulator is inactive or the request exceeds ``max_exposure``: the
-        hardware value does not move on either path, so a caller that treated
-        those as applied would record a chunk-match target the simulator never
-        stamps.
+        simulator is inactive or the request is outside the range the profile
+        declares, below its floor or above ``max_exposure``, as a real body's
+        ExposureTime node does: the hardware value does not move on any of
+        these paths, so a caller that treated them as applied would record a
+        chunk-match target the simulator never stamps.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
         """
         if not self.active:
             return False
-        if exposure_ms > self.max_exposure:
+        low, high = self.get_min_exposure(), self.max_exposure
+        if (low is not None and exposure_ms < low) or exposure_ms > high:
             _cam_log.warning(
-                f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms'
+                f'sim ExposureTime.SetValue({exposure_ms}ms) REFUSED range=[{low}, {high}]ms'
             )
-            logger.warning(
-                f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
-            )
+            logger.warning(f'[CAM Sim   ] Exposure {exposure_ms}ms outside [{low}, {high}] ms')
             return False
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0

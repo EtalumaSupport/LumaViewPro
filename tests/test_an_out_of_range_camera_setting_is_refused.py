@@ -70,10 +70,15 @@ def test_an_exposure_above_the_maximum_is_refused(sim_camera):
 
 
 def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
-    camera, _cam = sim_camera
+    """A camera that declares no floor: the API refuses nothing below, and
+    the camera takes what it is given."""
+    camera, cam = sim_camera
+    monkeypatch.setattr(cam.profile, 'exposure_min_us', None)
     set_camera_limits(monkeypatch, camera._scope, exposure_min_ms=None)
 
     camera.set_exposure_ms(0.001)
+
+    assert cam.get_exposure_t() == 0.001
 
 
 def test_a_value_in_range_is_applied(sim_camera):

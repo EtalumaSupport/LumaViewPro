@@ -128,6 +128,16 @@ class TestExposureShortCircuit(unittest.TestCase):
 
         cam.active.ExposureTime.SetValue.assert_called_once_with(20000.0)
 
+    def test_a_request_below_the_floor_reaches_the_camera_as_asked(self):
+        """The driver encodes; the API judges. A value under ExposureTime.Min
+        is not raised to it here: the camera refuses it."""
+        cam = self._cam()
+        cam.active.ExposureTime.GetValue.return_value = 15000.0
+
+        assert cam.exposure_t(0.005) == 5.0
+
+        cam.active.ExposureTime.SetValue.assert_called_once_with(5.0)
+
 
 class TestFrameSizeShortCircuit(unittest.TestCase):
     def test_short_circuits_when_geometry_matches(self):

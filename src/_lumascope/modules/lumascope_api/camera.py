@@ -12,14 +12,13 @@ resume and dispatch members.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import enum
 import functools
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import _lumascope.modules.binning as binning
@@ -677,13 +676,6 @@ class CameraAPI:
         # raw camera door clears it (``_no_channels_write``). Under _state_lock.
         self._held_channel: _HeldChannel | None = None
 
-        # When True, programmatic value-range warnings (sub-0.1ms exposure,
-        # future similar setters) are silenced. Internal callers that sweep
-        # full ranges (camera characterization, dynamic-range tests) enter
-        # this via suppress_value_warnings(); the warnings exist for L1
-        # researchers who type microsecond values thinking ms.
-        self._suppress_value_warnings = False
-
         # Camera state cache -- the single store every held read answers
         # from. Updated when the camera connects, after every write the
         # camera took, and by each fresh read. Every entry is a validated
@@ -1132,23 +1124,6 @@ class CameraAPI:
         # frame at a stale exposure as valid. Always invalidate + drive the
         # setter; the cache-equality check gates only the UI listener + log.
         prior = self.exposure_ms
-        # Sanity-check threshold: 5 microseconds. Pylon physical
-        # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
-        # below 5 us is impossible on any sensor we ship with and
-        # indicates a unit-confusion bug (e.g. seconds-treated-as-ms).
-        # Bright-field captures legitimately use 0.03 ms (30 us) on
-        # bright samples, so the threshold sits below that range.
-        if exposure_ms < 0.005 and not self._suppress_value_warnings:
-            import traceback
-
-            _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(
-                f'[SCOPE API ] set_exposure_ms({exposure_ms}ms) is below '
-                f'any Basler sensor physical minimum -- camera '
-                f'will clamp the request. Confirm the value is '
-                f'in milliseconds, not seconds or microseconds.\n'
-                f'Call stack:\n{_caller}'
-            )
 
         # Record the applied exposure for chunk-match. ChunkExposureTime is
         # microseconds; the API takes milliseconds. Convert at the seam so the
@@ -4273,33 +4248,6 @@ class CameraAPI:
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
-
-    @api(in_process=True, engineering=True)
-    @contextlib.contextmanager
-    def suppress_value_warnings(self) -> Iterator[None]:
-        """Suppress programmatic value-range warnings (sub-0.1ms exposure
-        and similar) for the duration of the `with` block.
-
-        Used by sweep-style internal callers (camera characterization
-        dynamic_range / linearity stages) that walk the full setting
-        range deliberately. The warnings exist for L1 researchers who
-        type microsecond values thinking ms; they're noise when the
-        char tool is exercising the API as designed.
-
-        Restores the prior flag value (not unconditionally False) so
-        nested `with` blocks behave correctly. Restoration runs on
-        exception too -- exiting an exception-aborted char run leaves
-        the API in a clean state for the next user action.
-
-        Raises:
-            Nothing.
-        """
-        prior = self._suppress_value_warnings
-        self._suppress_value_warnings = True
-        try:
-            yield
-        finally:
-            self._suppress_value_warnings = prior
 
     # --- Frame-flow listeners ---
     @api(in_process=True, event=GainChanged)

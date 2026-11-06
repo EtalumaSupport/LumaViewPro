@@ -119,12 +119,13 @@ def test_bound_helper_converts_ms_cap_to_microseconds():
     cam.active.AutoExposureTimeLowerLimit.SetValue.assert_called_once_with(20.0)
 
 
-def test_bound_helper_clamps_cap_to_node_max():
-    """A cap above the node's physical range must clamp to the node Max
-    -- never exceed it (the SDK would raise)."""
+def test_bound_helper_writes_the_ceiling_it_is_given():
+    """The ceiling arrives resolved against the camera's range by the API
+    (``CameraAPI._applied_ae_ceiling_ms``); the driver writes it as given
+    and does not clamp it to the node's range a second time."""
     cam = _bounded_camera(node_max=1_000_000.0)
     cam._set_auto_exposure_time_bounds(max_exposure_ms=2000.0)
-    cam.active.AutoExposureTimeUpperLimit.SetValue.assert_called_once_with(1_000_000.0)
+    cam.active.AutoExposureTimeUpperLimit.SetValue.assert_called_once_with(2_000_000.0)
 
 
 def test_bound_helper_opens_to_node_max_when_uncapped():

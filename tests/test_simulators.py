@@ -767,6 +767,17 @@ class TestSimulatedCamera:
         cam.exposure_t(999_999)  # way over max
         assert cam.get_exposure_t() == original  # unchanged
 
+    def test_exposure_refuses_under_its_floor(self):
+        """A body refuses an exposure below its floor; the simulated one
+        does too, so the refusal is reachable without a bench."""
+        cam = SimulatedCamera()
+        cam.exposure_t(50.0)
+        floor_ms = cam.get_min_exposure()
+        assert floor_ms is not None and floor_ms > 0.001, 'the test needs a camera with a floor'
+
+        assert cam.exposure_t(floor_ms / 2) is False
+        assert cam.get_exposure_t() == 50.0
+
     # -- Gain --
 
     def test_set_get_gain(self):

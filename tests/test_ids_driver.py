@@ -14,6 +14,7 @@ The live grab loop and real conversion are bench-gated.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from types import SimpleNamespace
@@ -333,16 +334,24 @@ class TestGainDbConversion:
         assert cam.gain(30.0) == pytest.approx(30.0, abs=0.01)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(31.62, abs=0.05)
 
-    def test_gain_at_cap_clamps_factor_to_node_maximum(self):
-        """The reported max gain converts back to a factor a float epsilon ABOVE
-        Gain.Maximum(), so the camera rejected its own cap (OUT_OF_RANGE). The
-        written factor must be reconciled to the node maximum, never exceed it."""
-        cam = self._cam_with_gain_node(maximum=31.622776)
-        # 30 dB -> 10**(30/20) = 31.6227766..., just over the 31.622776 cap.
-        assert cam.gain(30.0) == pytest.approx(30.0, abs=1e-3)
+    def test_the_reported_maximum_is_written_as_the_node_maximum(self):
+        """The gain the camera reports as its maximum, 20 * log10(Maximum()),
+        converts back to a factor a float epsilon off Gain.Maximum(), which
+        the camera refuses past its cap (OUT_OF_RANGE). That round trip is
+        written as the node's own maximum."""
+        maximum = 31.622776
+        cam = self._cam_with_gain_node(maximum=maximum)
+        cam.gain(20.0 * math.log10(maximum))
+        assert cam.remote_nodemap.nodes['Gain'].value == maximum
+
+    def test_a_gain_past_the_maximum_reaches_the_camera_as_asked(self):
+        """The driver encodes; the API judges. A factor past the node's range
+        by more than the round trip is not clamped: the camera refuses it."""
+        maximum = 31.622776
+        cam = self._cam_with_gain_node(maximum=maximum)
+        cam.gain(20.0 * math.log10(maximum) + 0.5)
         written = cam.remote_nodemap.nodes['Gain'].value
-        assert written <= 31.622776  # clamped, not the overshoot
-        assert written == pytest.approx(31.622776)
+        assert written == pytest.approx(maximum * 10.0 ** (0.5 / 20.0))
 
     def test_selects_analog_all(self):
         cam = self._cam_with_gain_node()

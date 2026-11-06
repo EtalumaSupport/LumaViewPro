@@ -10,9 +10,8 @@ the poisoned target then mismatches every frame the camera can produce and
 captures are refused until the next applied gain write; on a camera without
 chunk data the frames pass unverified at a gain nobody achieved.
 
-The trigger is not the disconnect path. ``gain`` has no range reconciliation
-(``exposure_t`` clamps to ``ExposureTime.Min``; ``idscamera.gain`` reconciles
-against the node range), and the GenICam rejection classes are SIBLINGS of
+The trigger is not the disconnect path. ``gain`` has no range reconciliation,
+and the GenICam rejection classes are SIBLINGS of
 ``RuntimeException``, not subclasses -- checked against the installed pypylon,
 and mirrored by ``tests/pypylon_stub.py``. So an out-of-range gain on a LIVE,
 streaming camera lands in the method's bare ``except Exception``. The
@@ -31,8 +30,6 @@ bus, so removal is not latched, and the API may send the write again. A timeout
 on a read the setter only uses to skip a redundant write is tolerated, and one
 on the read-back after the write took is the write applied.
 """
-
-from unittest.mock import PropertyMock
 
 import pytest
 from pypylon import genicam
@@ -219,8 +216,6 @@ def _gain(cam):
 
 
 def _exposure_t(cam):
-    cam.profile = None  # the default exposure ceiling, well above the 10 ms asked for
-    cam.active.ExposureTime.Min = 20.0
     _no_answer_on_write(cam, 'ExposureTime')
     return cam.exposure_t(10.0)
 
@@ -438,12 +433,6 @@ class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
         cam.active.GainAuto.SetValue.assert_called_with('Continuous')
 
 
-def _exposure_min_unread(cam):
-    cam.profile = None  # the default exposure ceiling, well above the 10 ms asked for
-    type(cam.active.ExposureTime).Min = PropertyMock(side_effect=_timeout('ExposureTime.Min'))
-    return cam.exposure_t(10.0)
-
-
 def _frame_grid_unread(cam):
     cam.active.Width.GetInc.side_effect = _timeout('Width.GetInc')
     return cam.set_frame_size(1000, 1000)
@@ -472,7 +461,6 @@ def _pixel_formats_unread(cam):
 # Reads a setter must make before it can send its write at all: the value is
 # computed from them, or the node they probe is the one written.
 READS_BEFORE_THE_WRITE = {
-    'exposure_t (ExposureTime.Min)': _exposure_min_unread,
     'set_frame_size (the Width/Height grid)': _frame_grid_unread,
     'set_conversion_gain_mode (the node probe)': _conversion_gain_probe_unread,
     'set_line_noise_reduction (the node probe)': _line_noise_probe_unread,
