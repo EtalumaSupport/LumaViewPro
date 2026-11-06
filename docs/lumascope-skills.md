@@ -115,7 +115,7 @@ sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
   instrument, in the areas below.
 - **Python and REST are one API**: `scope.motion.move_z` is
   `POST /api/v1/scope/motion/move_z`, with the same refusals, faults and
-  events. Commands from every caller run one at a time, in order.
+  events. Each part's commands, from every caller, run one at a time, in order.
 - **Every outcome is an exception** with a `reason`: a refusal (nothing was
   done), a fault (something broke) or a notice.
 - **One client at a time may hold the scope** in a control session; a run, a

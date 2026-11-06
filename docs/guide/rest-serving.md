@@ -24,8 +24,9 @@ runs from this installation, simulated or not. A failed startup home is
 reported and the server still serves, so a client can home again. Ctrl-C or
 SIGTERM closes it: new calls are refused (`'server_closing'`), the session
 shuts down with the event stream open, and the stream's last event is
-`closing`. It exits `0`, or `1`, printing why, when it could not take the lock
-or serve, stopped before it served, or the session did not close cleanly.
+`closing`. It exits `0`, or `1` when it could not take the lock or serve
+(printing why), stopped before it served, or the session did not close cleanly
+(the log says why).
 
 To serve a session your own program has brought up, build its server, the one
 every host serves through:
