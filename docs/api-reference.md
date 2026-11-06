@@ -158,6 +158,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`build_app`](#build_app)
 - [`build_server`](#build_server)
 - [`outcome_of`](#outcome_of)
+- [`start_logging`](#start_logging)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
 - [Routes](#routes)
@@ -1070,9 +1071,10 @@ protocol_thread (started) and scope_display_thread (constructed,
 not started).
 
 A process that has not started its logging starts the log folder
-here, as `load_user_settings` does. The settings' log level and
-autofocus score log are applied to the process's logging first, so
-every host logs as its settings say, bring-up included.
+here, as `load_user_settings` does; `lumascope.start_logging`
+called first starts it earlier, or opens no file. The settings' log
+level and autofocus score log are applied to the process's logging
+first, so every host logs as its settings say, bring-up included.
 
 The scope is brought up before this returns (`configure_scope`,
 then the camera start gate released) and is torn down by
@@ -1823,7 +1825,8 @@ simulate=...)``. Reading is its own call rather than a default of
 `create` so a caller that meant to pass settings and forgot is
 refused for the missing argument instead of quietly configured
 from whatever is on disk. A process that has not started its logging
-starts the log folder here.
+starts the log folder here; `lumascope.start_logging(log_files=False)`
+called first opens no file.
 
 **Args**
 
@@ -13203,6 +13206,38 @@ What *exception* is, as its type says: the one reading of an outcome's kind and 
 **Raises**
 
 Nothing.
+
+<a id="start_logging"></a>
+## `lumascope.start_logging`
+
+```python
+def start_logging(*, log_files: bool = True) -> None
+```
+
+Marks: in-process.
+
+Start LumaViewPro's log files in this process, or say there will be none.
+
+A script logs by default: its first `ScopeSession.load_user_settings`
+or `ScopeSession.create` starts the log folder, so it leaves the support
+bundle. Call this before that only to catch what comes earlier, or with
+`log_files=False` to open no file at all. The files hang off
+LumaViewPro's own loggers (`LVP` and `lvp_logger`): the root logger,
+`logging.basicConfig()` and the script's own records stay the
+script's, and LumaViewPro's records also reach the script's logging as
+any library's do.
+
+**Args**
+
+- `log_files`: False to open no log file in this process; the session then starts none either.
+
+**Raises**
+
+- `LoggingStartRefusedError`: `'logging_started_otherwise'`, the process already started logging another way: a decline after the files opened, the files after a decline, or either in a LumaViewPro program, which owns its process's logging. Nothing was changed. Asking for what the process has is a no-op.
+
+**Refusals**
+
+- [`LoggingStartRefusedError`](#LoggingStartRefusedError): `logging_started_otherwise`
 
 ## Closed sets
 

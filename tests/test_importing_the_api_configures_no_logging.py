@@ -104,7 +104,6 @@ heard = []
 logging.basicConfig(level=logging.INFO)
 logging.getLogger().handlers[0].emit = lambda record: heard.append(record.getMessage())
 import lumascope
-import _lumascope.lvp_logger
 from lumascope import ScopeSession
 {before}
 ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True).shutdown()
@@ -151,9 +150,7 @@ def test_a_scripts_first_session_call_starts_the_bundle_on_lumascopes_own_logger
 def test_a_script_that_declines_the_files_opens_none_and_still_hears_lumascope(tmp_path):
     folder = _installation(tmp_path)
 
-    state = _run(
-        _SCRIPT.format(before='_lumascope.lvp_logger.start_logging(log_files=False)'), folder
-    )
+    state = _run(_SCRIPT.format(before='lumascope.start_logging(log_files=False)'), folder)
 
     assert not pathlib.Path(state['log_dir']).exists(), 'a declined process made the log folder'
     assert 'a support report line' in state['heard']

@@ -224,6 +224,21 @@ model into the dict you passed: the hardware outranks the stored selection.
 itself, within a second and at shutdown. Without it nothing is saved, which is
 what a test or a one-off script usually wants.
 
+**Logging.** Importing the API configures no logging: your `basicConfig()`,
+the root logger and your own records stay yours. The session's first call
+(`load_user_settings` or `create`) starts LumaViewPro's log folder,
+`logs/LVP_Log` under the data root, so a script leaves the support bundle
+without a line of setup. The files hang off LumaViewPro's own loggers (`LVP`
+and `lvp_logger`), and their main-log records also reach your logging as any
+library's do; `logging.getLogger('LVP').setLevel(logging.WARNING)`, and the
+same for the `lvp_logger` logger, quiets them to warnings. The trace lanes (serial,
+camera, protocol, ...) stay in their own files. Call
+`lumascope.start_logging(log_files=False)` before the first session call to
+open no file at all, or `lumascope.start_logging()` to start the folder before
+it. Logging starts once per process: a start asking for another logging than
+the process already has is refused (`LoggingStartRefusedError`,
+`'logging_started_otherwise'`), and changes nothing.
+
 **Hearing bring-up.** Bring-up has happened by the time `create` returns. What
 it found -- a camera not found, a stored value replaced, a part missing -- is
 reported as outcomes; to hear them, pass your listener to `create`

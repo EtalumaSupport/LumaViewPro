@@ -49,6 +49,7 @@ from _lumascope.modules.path_utils import (
     read_version,
 )
 
+from _lumascope.modules.api_surface import api
 from _lumascope.modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, make_formatter
 
 version, build_timestamp = read_version()
@@ -285,6 +286,7 @@ _started: str | None = None
 _start_lock = threading.Lock()
 
 
+@api(in_process=True)
 def start_logging(*, log_files: bool = True) -> None:
     """Start LumaViewPro's log files in this process, or say there will be none.
 

@@ -52,6 +52,9 @@ from _lumascope.lib.lumascope_error import (
     LumascopeError,
     RefusalCause,
 )
+from _lumascope.lvp_logger import (
+    start_logging,
+)
 from _lumascope.modules.acquire_mode import (
     AcquireMode,
 )
@@ -861,4 +864,5 @@ __all__ = [
     'build_app',
     'build_server',
     'outcome_of',
+    'start_logging',
 ]

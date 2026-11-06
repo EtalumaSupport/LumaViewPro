@@ -1585,9 +1585,10 @@ class ScopeSession:
         not started).
 
         A process that has not started its logging starts the log folder
-        here, as ``load_user_settings`` does. The settings' log level and
-        autofocus score log are applied to the process's logging first, so
-        every host logs as its settings say, bring-up included.
+        here, as ``load_user_settings`` does; ``lumascope.start_logging``
+        called first starts it earlier, or opens no file. The settings' log
+        level and autofocus score log are applied to the process's logging
+        first, so every host logs as its settings say, bring-up included.
 
         The scope is brought up before this returns (``configure_scope``,
         then the camera start gate released) and is torn down by
@@ -1879,7 +1880,8 @@ class ScopeSession:
         ``create`` so a caller that meant to pass settings and forgot is
         refused for the missing argument instead of quietly configured
         from whatever is on disk. A process that has not started its logging
-        starts the log folder here.
+        starts the log folder here; ``lumascope.start_logging(log_files=False)``
+        called first opens no file.
 
         Args:
             source_path: The installation folder whose settings are read:
