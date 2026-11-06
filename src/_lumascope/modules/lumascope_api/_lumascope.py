@@ -96,6 +96,8 @@ from _lumascope.modules.lumascope_api.bring_up import (
     Part,
     PartStatus,
     Substitution,
+    connecting,
+    report_step,
 )
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
@@ -128,7 +130,7 @@ if TYPE_CHECKING:
 
 # Import additional libraries
 from _lumascope.modules.notification_center import notifications
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
 
 _api_log = logging.getLogger('LVP.api')
 
@@ -719,6 +721,7 @@ class Lumascope:
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
         sim_slide: Slide = Slide.CELLS,
+        on_progress: ProgressCallback | None = None,
     ):
         """Initialize Microscope.
 
@@ -810,6 +813,10 @@ class Lumascope:
                 stage whether or not a camera is there, so with
                 ``sim_camera_present`` False it is accepted and nothing images
                 it. Refused on real hardware.
+            on_progress: Called before each part is connected, with the
+                share of bring-up's steps already done and the step's words
+                (``bring_up.STEPS``), on this thread; a raise from it is a
+                raise from here. None (the default) reports to the log only.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``, a simulator
@@ -888,6 +895,8 @@ class Lumascope:
         # the capture's (_focusing_event, _camera_temp_event,
         # _camera_temp_unschedule_fn) on ImagingAPI; frame_validity here.
 
+        report_step(on_progress, connecting(Part.MOTOR))
+
         # ----- Motion Control Board -----
         # Constructed BEFORE MotionAPI so MotionAPI._driver resolves on
         # the first call. Driver selection goes through the motor registry
@@ -927,6 +936,8 @@ class Lumascope:
         present_axes = self._motion_driver.detect_present_axes()
         self.motion._init_axes(present_axes, self._motion_driver.detect_homed_axes())
         self.motion._start_monitor()
+
+        report_step(on_progress, connecting(Part.LED))
 
         # ----- LED Control Board -----
         # Same selection as motion: the simulated board on the session's tier.
@@ -1074,6 +1085,8 @@ class Lumascope:
                 'auto', debug_wire=fx2_debug_wire
             )
             parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
+
+        report_step(on_progress, connecting(Part.CAMERA))
 
         # ----- Camera -----
         # The registry picks the camera for the scope's mode, in priority

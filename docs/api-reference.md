@@ -1051,6 +1051,7 @@ def create(
     simulated: SimulatedScope | None = None,
     outcome_listener: Callable[[Notification], None] | None = None,
     settings_file: FilePath | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> ScopeSession
 ```
 
@@ -1091,6 +1092,7 @@ then the camera start gate released) and is torn down by
 - `simulated`: the scope a simulated session is built as and the faults it shows from bring-up on (`SimulatedScope`, the simulator surface's); None (the default) is the declared model with no fault. Refused unless `simulate`.
 - `outcome_listener`: heard from before the scope is built, so it hears what bring-up reports; the session's `add_outcome_listener` says what it receives. A factory that raises takes it back; otherwise the session's `shutdown()` does.
 - `settings_file`: the file the session saves its settings to, one second after the first unsaved write and once at `shutdown()`, whole or not at all; the hosts name the installation's `user_settings_file(source_path)`. None (the default) saves nothing: a script's or a test's handed dict stays in memory. Writes are kept unsaved, and the session says so once (`SettingsNotSavedNotice`), while the settings are provisional or when the scope found no hardware at bring-up. Saving starts once the scope is up, so a factory that raises writes no file.
+- `on_progress`: told before each of bring-up's steps (each part connected, then the scope configured), with the share of the steps already done, 0 to 75, and the step's words, on this call's thread, so a caller running this off its UI thread can say what bring-up is doing. A raise from it is a raise from here, and the teardown runs as for any other. None (the default) reports the steps to the log only.
 
 **Raises**
 

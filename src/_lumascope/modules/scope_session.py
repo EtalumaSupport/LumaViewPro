@@ -91,7 +91,7 @@ from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.live_work import LiveWork, WorkItem, WorkKind
 from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
 from _lumascope.modules.lumascope_api._constants import refuse_unless_turret_slot
-from _lumascope.modules.lumascope_api.bring_up import PartStatus
+from _lumascope.modules.lumascope_api.bring_up import CONFIGURING, PartStatus, report_step
 from _lumascope.modules.lumascope_api.illumination import (
     LedState,
     LedTransition,
@@ -1569,6 +1569,7 @@ class ScopeSession:
         simulated: 'SimulatedScope | None' = None,
         outcome_listener: Callable[['Notification'], None] | None = None,
         settings_file: FilePath | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -1633,6 +1634,13 @@ class ScopeSession:
                 provisional or when the scope found no hardware at
                 bring-up. Saving starts once the scope is up, so a factory
                 that raises writes no file.
+            on_progress: told before each of bring-up's steps (each part
+                connected, then the scope configured), with the share of
+                the steps already done, 0 to 75, and the step's words, on
+                this call's thread, so a caller running this off its UI
+                thread can say what bring-up is doing. A raise from it is a
+                raise from here, and the teardown runs as for any other.
+                None (the default) reports the steps to the log only.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``, ``simulated``
@@ -1749,6 +1757,7 @@ class ScopeSession:
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
                 sim_slide=simulated.slide,
+                on_progress=on_progress,
             )
             # Armed before the bring-up below, which is what they are for.
             if simulated.model_answer is not None:
@@ -1785,6 +1794,7 @@ class ScopeSession:
             )
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
+            report_step(on_progress, CONFIGURING)
             cls._bring_up(session, replaced, old_channel_blocks)
             if simulated.file_stall is not None:
                 session._hold_the_file_lane(simulated.file_stall)

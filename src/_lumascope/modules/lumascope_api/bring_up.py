@@ -14,7 +14,8 @@ import enum
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.lvp_logger import logger
+from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
 from _lumascope.modules.exceptions import MissingPart
 
 if TYPE_CHECKING:
@@ -43,6 +44,32 @@ _PART_NOUNS = {
 }
 
 PART_LABELS = {Part.MOTOR: 'Motor Controller', Part.LED: 'LED Board', Part.CAMERA: 'Camera'}
+
+
+def connecting(part: Part) -> str:
+    """The bring-up step that connects ``part``, as its progress report words it."""
+    return f'Connecting the {PART_LABELS[part]}'
+
+
+# Bring-up's steps, in the order they run: each part connected, in the
+# record's order, then the scope configured. Their words are the progress
+# report's status lines, so a part is named one way.
+CONFIGURING = 'Configuring the scope'
+STEPS = (*(connecting(part) for part in Part), CONFIGURING)
+
+
+def report_step(on_progress: ProgressCallback | None, step: str) -> None:
+    """Tell the log, and the caller who asked, that bring-up starts ``step``.
+
+    The percentage is the share of bring-up's steps already done, not a
+    time estimate. Called before the step, on bring-up's own thread; a
+    raise from ``on_progress`` is a raise from bring-up.
+    """
+    percent = 100 * STEPS.index(step) / len(STEPS)
+    logger.info(f'[SCOPE API ] Bring-up step: {step} ({percent:.0f}%)')
+    if on_progress is not None:
+        on_progress(percent, step)
+
 
 # A cause's words inside a list of parts: "Motor Controller (port in use)".
 CAUSE_PHRASES = {
