@@ -141,7 +141,7 @@ _FRAGILE_PIN = {
     'tests/test_issue_684_jpg_quality_row.py': 1,
     'tests/test_issue_691_video_duration.py': 1,
     'tests/test_issue_697_nav_led_sweep.py': 3,
-    'tests/test_issue_749_color2ch_contract.py': 1,
+    'tests/test_issue_749_led_address_of_contract.py': 1,
     'tests/test_least_astonishment_fixes.py': 7,
     'tests/test_led_ack_and_tsr_filename.py': 1,
     'tests/test_manual_recording_controller.py': 1,

@@ -67,7 +67,7 @@ def _preview(scope_io, ch, illumination_ma):
     """Drive the production manual-nav preview path; returns once the io lane ran it."""
     scope_io.illumination.apply_transition(
         LedTransition.MANUAL_STEP,
-        LedTransitionCtx(channel=ch, illumination_ma=illumination_ma, preview_on=True),
+        LedTransitionCtx(led_address=ch, illumination_ma=illumination_ma, preview_on=True),
     )
 
 

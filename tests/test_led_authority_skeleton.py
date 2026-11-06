@@ -114,12 +114,14 @@ def scope():
 
 
 def _ch(scope, color: str) -> int:
-    return scope.illumination.color2ch(color)
+    return scope.illumination.led_address_of(color)
 
 
 def _ctx(scope, color: str, illumination_ma: float, **kwargs) -> LedTransitionCtx:
     """Build a ctx for a single primary channel, plus any overrides."""
-    return LedTransitionCtx(channel=_ch(scope, color), illumination_ma=illumination_ma, **kwargs)
+    return LedTransitionCtx(
+        led_address=_ch(scope, color), illumination_ma=illumination_ma, **kwargs
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,14 +144,14 @@ def _td(transition, **ctx_kwargs) -> frozenset:
 
 
 def test_target_step_light_is_exclusive_primary():
-    assert _td(LedTransition.STEP_LIGHT, channel=GREEN_CH, illumination_ma=GREEN_MA) == frozenset(
-        {(GREEN_CH, GREEN_MA)}
-    )
+    assert _td(
+        LedTransition.STEP_LIGHT, led_address=GREEN_CH, illumination_ma=GREEN_MA
+    ) == frozenset({(GREEN_CH, GREEN_MA)})
 
 
 def test_target_af_enter_off_when_no_color():
-    assert _td(LedTransition.AF_ENTER, channel=None, illumination_ma=None) == frozenset()
-    assert _td(LedTransition.AF_ENTER, channel=GREEN_CH, illumination_ma=GREEN_MA) == frozenset(
+    assert _td(LedTransition.AF_ENTER, led_address=None, illumination_ma=None) == frozenset()
+    assert _td(LedTransition.AF_ENTER, led_address=GREEN_CH, illumination_ma=GREEN_MA) == frozenset(
         {(GREEN_CH, GREEN_MA)}
     )
 
@@ -157,13 +159,16 @@ def test_target_af_enter_off_when_no_color():
 def test_target_af_to_capture_holds_or_restores():
     # keep_led_on: hold the AF channel for the capture.
     assert _td(
-        LedTransition.AF_TO_CAPTURE, channel=GREEN_CH, illumination_ma=GREEN_MA, keep_led_on=True
+        LedTransition.AF_TO_CAPTURE,
+        led_address=GREEN_CH,
+        illumination_ma=GREEN_MA,
+        keep_led_on=True,
     ) == frozenset({(GREEN_CH, GREEN_MA)})
     # interactive AF: restore the pre-AF snapshot instead.
     assert (
         _td(
             LedTransition.AF_TO_CAPTURE,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             keep_led_on=False,
             snapshot_lit=SNAPSHOT,
@@ -176,7 +181,7 @@ def test_target_step_boundary_zstack_always_holds():
     # Unconditional hold within a z-stack group, regardless of the across-move flag.
     assert _td(
         LedTransition.STEP_BOUNDARY,
-        channel=GREEN_CH,
+        led_address=GREEN_CH,
         illumination_ma=GREEN_MA,
         same_zstack_group=True,
         keep_led_across_moves=False,
@@ -184,7 +189,7 @@ def test_target_step_boundary_zstack_always_holds():
 
 
 def test_target_step_boundary_across_move_is_opt_in():
-    base = {'channel': GREEN_CH, 'illumination_ma': GREEN_MA, 'same_color': True}
+    base = {'led_address': GREEN_CH, 'illumination_ma': GREEN_MA, 'same_color': True}
     # Default (opt-in OFF): extinguish on the stage move (photobleaching-safe).
     assert _td(LedTransition.STEP_BOUNDARY, **base, keep_led_across_moves=False) == frozenset()
     # Opt-in ON + same color: hold across the move.
@@ -195,7 +200,7 @@ def test_target_step_boundary_across_move_is_opt_in():
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             same_color=False,
             keep_led_across_moves=True,
@@ -210,7 +215,7 @@ def test_target_step_boundary_scan_boundary_forces_off():
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             same_zstack_group=True,
             same_color=True,
@@ -227,7 +232,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
     # not a separate flag -- so the boundary and the cleanup cannot disagree.
     assert _td(
         LedTransition.STEP_BOUNDARY,
-        channel=GREEN_CH,
+        led_address=GREEN_CH,
         illumination_ma=GREEN_MA,
         is_run_end_boundary=True,
         end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
@@ -237,7 +242,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.OFF,
@@ -249,7 +254,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
@@ -261,7 +266,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
-            channel=GREEN_CH,
+            led_address=GREEN_CH,
             illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
@@ -318,9 +323,9 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
     # The snapshot (pre-run) and the run-end restore must define "which addresses
     # count as lit" from one place, so a tightened criterion cannot leave the
     # restore re-lighting an address the snapshot treated as dark. Both route
-    # through _lit_channel_pairs; only the drop-nonpositive filter differs.
+    # through _lit_address_pairs; only the drop-nonpositive filter differs.
     from _lumascope.modules.lumascope_api.illumination import (
-        _lit_channel_pairs,
+        _lit_address_pairs,
         resolve_end_state,
         snapshot_lit_pairs,
     )
@@ -339,13 +344,13 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
     # lit address counts by its address.
     snap = snapshot_lit_pairs(readings)
     assert snap == frozenset({(GREEN_CH, GREEN_MA), (UNNAMED_CH, 99.0)})
-    assert snap == _lit_channel_pairs(readings, drop_nonpositive=True)
+    assert snap == _lit_address_pairs(readings, drop_nonpositive=True)
 
     # drop_nonpositive=False (the restore path): every lit address is taken
     # verbatim, so the zero-current BLUE_CH address is restored as-is.
     restore = resolve_end_state(LedEndPolicy.RETURN_TO_ORIGINAL, readings)
     assert restore == frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, 0.0), (UNNAMED_CH, 99.0)})
-    assert restore == _lit_channel_pairs(readings, drop_nonpositive=False)
+    assert restore == _lit_address_pairs(readings, drop_nonpositive=False)
 
     # When every lit address carries a positive current both sites agree
     # exactly -- the common case where snapshot and restore must not disagree.
@@ -360,10 +365,15 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
 
 def test_target_manual_step_preview_gate():
     assert _td(
-        LedTransition.MANUAL_STEP, channel=GREEN_CH, illumination_ma=GREEN_MA, preview_on=True
+        LedTransition.MANUAL_STEP, led_address=GREEN_CH, illumination_ma=GREEN_MA, preview_on=True
     ) == frozenset({(GREEN_CH, GREEN_MA)})
     assert (
-        _td(LedTransition.MANUAL_STEP, channel=GREEN_CH, illumination_ma=GREEN_MA, preview_on=False)
+        _td(
+            LedTransition.MANUAL_STEP,
+            led_address=GREEN_CH,
+            illumination_ma=GREEN_MA,
+            preview_on=False,
+        )
         == frozenset()
     )
 

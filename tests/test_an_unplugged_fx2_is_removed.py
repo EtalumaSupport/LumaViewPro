@@ -267,10 +267,10 @@ def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_
     try:
         scope.imaging.disable_streaming()
         lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-        channel = scope.illumination.color2ch(color='BF')
+        address = scope.illumination.led_address_of('BF')
         lease.apply(
             LedTransition.MANUAL_STEP,
-            LedTransitionCtx(channel=channel, illumination_ma=10.0, preview_on=True),
+            LedTransitionCtx(led_address=address, illumination_ma=10.0, preview_on=True),
         )
         assert channel_reading(scope.illumination, 'BF').state is LedState.LIT
         scope.simulation.remove_camera()

@@ -3951,7 +3951,7 @@ class ScopeSession:
         is one that drives an LED elsewhere, that is logged, since its
         preview would otherwise just not light with nothing naming why.
         """
-        address = self.scope.illumination.color2ch(layer)
+        address = self.scope.illumination.led_address_of(layer)
         if (
             address is None
             and self.scope.led_connected
@@ -3974,7 +3974,7 @@ class ScopeSession:
         self.scope.illumination.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
-                channel=self._led_address(layer),
+                led_address=self._led_address(layer),
                 illumination_ma=illumination_ma,
                 preview_on=lit,
             ),
@@ -3982,7 +3982,7 @@ class ScopeSession:
 
     def _layer_lit(self, layer: str) -> bool:
         """Whether ``layer``'s LED reads lit in the LED store."""
-        address = self.scope.illumination.color2ch(layer)
+        address = self.scope.illumination.led_address_of(layer)
         if address is None or not self.scope.led_connected:
             return False
         readings = self.scope.illumination.get_led_states()

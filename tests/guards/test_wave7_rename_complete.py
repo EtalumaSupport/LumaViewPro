@@ -194,12 +194,11 @@ ILLUMINATION_ONLY_METHODS = MemberNames(
     'src/_lumascope/modules/lumascope_api/illumination.py',
     {
         'add_led_listener',
-        'ch2color',
-        'color2ch',
         'get_led_states',
         'led_off',
         'led_on',
         'leds_off',
+        'led_address_of',
         'remove_led_listener',
         'restore_led_state',
     },

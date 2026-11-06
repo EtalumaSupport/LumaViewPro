@@ -1,17 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """#749 regression: colours a scope cannot drive must not light other LEDs.
 
-Bug class: an undrivable colour represented in-band. `color2ch` returned a
-real channel number (3 on RP2040-family boards, -1 on FX2) for colours the
-scope has no LED for, so a luminescence acquire silently lit the brightfield
-LED on EL-0940 boards and raised a range error on FX2 -- and the dark-floor
-capture guard, keyed on `illumination > 0` alone, would reject a genuinely
-dark luminescence frame as a failed capture once the LED correctly stays
-dark.
+Bug class: an undrivable colour represented in-band. `color2ch` (since
+renamed `led_address_of`) returned a real channel number (3 on RP2040-family
+boards, -1 on FX2) for colours the scope has no LED for, so a luminescence
+acquire silently lit the brightfield LED on EL-0940 boards and raised a range
+error on FX2 -- and the dark-floor capture guard, keyed on `illumination > 0`
+alone, would reject a genuinely dark luminescence frame as a failed capture
+once the LED correctly stays dark.
 
 Coverage (the driver contract retired with the drivers' colour tables:
-a driver names no address, and the API's identity `color2ch` is the one
-place a colour becomes a channel): the
+a driver names no address, and the API's `led_address_of` is the one
+place a channel becomes an LED address): the
 named-colour / idempotent-off seam behavior through the real illumination
 API, the dark-floor drivability predicate driven through the real
 ProtocolImageWriter.capture(), the consecutive-failure abort wording, the
@@ -253,7 +253,7 @@ class TestCaptureAbortWording:
     everything else (incl. a board-less run) keeps the camera wording."""
 
     @staticmethod
-    def _run_abort(centre_posts, *, color, led_connected, channel):
+    def _run_abort(centre_posts, *, color, led_connected, led_address):
         from unittest.mock import MagicMock
 
         from _lumascope.modules.notification_center import Severity
@@ -265,7 +265,7 @@ class TestCaptureAbortWording:
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
-        scope.illumination.color2ch.return_value = channel
+        scope.illumination.led_address_of.return_value = led_address
         scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
@@ -284,14 +284,14 @@ class TestCaptureAbortWording:
         return criticals[0]
 
     def test_undrivable_colour_names_the_colour(self, centre_posts):
-        body = self._run_abort(centre_posts, color='PC', led_connected=True, channel=None)
+        body = self._run_abort(centre_posts, color='PC', led_connected=True, led_address=None)
         assert 'PC' in body
         assert 'Camera' not in body
 
     def test_no_led_board_keeps_camera_wording(self, centre_posts):
-        body = self._run_abort(centre_posts, color='BF', led_connected=False, channel=None)
+        body = self._run_abort(centre_posts, color='BF', led_connected=False, led_address=None)
         assert body.startswith('The camera failed 3 steps in a row; the last: '), body
 
     def test_drivable_colour_keeps_camera_wording(self, centre_posts):
-        body = self._run_abort(centre_posts, color='BF', led_connected=True, channel=3)
+        body = self._run_abort(centre_posts, color='BF', led_connected=True, led_address=3)
         assert body.startswith('The camera failed 3 steps in a row; the last: '), body

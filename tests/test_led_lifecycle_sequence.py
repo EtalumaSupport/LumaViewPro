@@ -538,7 +538,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
-    ill._led_on_impl(ill.color2ch(LED1), 250.0, member='led_on', _lease=lease)
+    ill._led_on_impl(ill.led_address_of(LED1), 250.0, member='led_on', _lease=lease)
 
     # Out-of-turn live writes (no lease) while the run holds the lease. Both
     # are refused by the LEASE check (_lease_violation) -- the lease is the
@@ -594,7 +594,9 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
         return ill.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
-                channel=ill.color2ch(color), illumination_ma=illumination_ma, preview_on=True
+                led_address=ill.led_address_of(color),
+                illumination_ma=illumination_ma,
+                preview_on=True,
             ),
         )
 
@@ -706,7 +708,10 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     # Next-color step light (the protocol's STEP_LIGHT for an LED 2 step): the
     # exclusive-LED 2 diff the run drives on the held lease.
     ill._emit_led_diff(
-        frozenset({(ill.color2ch(LED2), 350.0)}), lease=lease, block=False, member='LedLease.apply'
+        frozenset({(ill.led_address_of(LED2), 350.0)}),
+        lease=lease,
+        block=False,
+        member='LedLease.apply',
     )
 
     assert sub.on_events() == [(LED1, 250.0), (LED2, 350.0)], sub.render()
@@ -1003,7 +1008,7 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
     )
 
     ill._emit_led_diff(
-        frozenset({(ill.color2ch(LED2), 350.0)}),
+        frozenset({(ill.led_address_of(LED2), 350.0)}),
         lease=None,
         block=False,
         member='apply_transition',
@@ -1028,7 +1033,7 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
         ill.led_on(channel=color, illumination_ma=illumination_ma)
 
     ill._emit_led_diff(
-        frozenset({(ill.color2ch(LED1), 250.0), (ill.color2ch(LED2), 350.0)}),
+        frozenset({(ill.led_address_of(LED1), 250.0), (ill.led_address_of(LED2), 350.0)}),
         lease=None,
         block=False,
         member='apply_transition',

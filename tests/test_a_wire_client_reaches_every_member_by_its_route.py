@@ -402,8 +402,8 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
 
 def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client, session):
     """C11: a board address is the in-process engineering members', so a
-    number for ``channel`` is refused and the address-to-name seams have no
-    route."""
+    number for ``channel`` is refused and the name-to-address seam
+    (``led_address_of``) has no route."""
     answer = client.post(
         '/api/v1/scope/illumination/led_on', json={'channel': 3, 'illumination_ma': 10.0}
     )
@@ -412,9 +412,8 @@ def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client,
     assert [
         r for r in session.scope.illumination.get_led_states() if r.state != LedState.DARK
     ] == []
-    for seam in ('ch2color', 'color2ch'):
-        for ask in (client.get, client.post):
-            assert ask(f'/api/v1/scope/illumination/{seam}').status_code == 404, seam
+    for ask in (client.get, client.post):
+        assert ask('/api/v1/scope/illumination/led_address_of').status_code == 404
 
 
 @pytest.mark.parametrize(

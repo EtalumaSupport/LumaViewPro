@@ -164,7 +164,7 @@ class LEDBoardProtocol(Protocol):
     # --- Channel discovery ---
     # The LED addresses the board drives: FX2 / Lumaview Classic 4, the
     # EL-0940 board 8. A driver names no address; which layer an address
-    # lights is the unit's layer identity's (IlluminationAPI.ch2color).
+    # lights is the unit's channel identity's (ChannelIdentity.key_at).
     def available_channels(self) -> tuple[int, ...]: ...
 
     # --- Bounds ---

@@ -702,7 +702,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
         # The identity resolves the step's layer to the address the
         # run-end snapshot holds: the hold decision compares the two, and a
         # bare MagicMock would hand back a sentinel object instead.
-        runner._scope.illumination.color2ch.side_effect = {'BF': 3}.get
+        runner._scope.illumination.led_address_of.side_effect = {'BF': 3}.get
 
         runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()

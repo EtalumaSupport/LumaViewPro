@@ -474,12 +474,12 @@ def channel_reading(illumination, channel):
     """The reading of the LED ``channel`` lights, from ``get_led_states()``; None with no LED board.
 
     ``channel`` is a layer name, mapped to its address through the unit's
-    identity (``color2ch``).
+    identity (``led_address_of``).
     """
     readings = illumination.get_led_states()
     if readings is None:
         return None
-    address = illumination.color2ch(channel)
+    address = illumination.led_address_of(channel)
     (reading,) = [r for r in readings if r.address == address]
     return reading
 

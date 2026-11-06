@@ -329,7 +329,9 @@ class TestTheThreeStrikeFatalAbort:
             # PC is an LED layer this run does not acquire, so it can only
             # be lit at the end by the return-to-original restore.
             session.scope.illumination.led_on('PC', 30.0)
-            assert led_board.read_led_current(session.scope.illumination.color2ch('PC')) > 0, (
+            assert (
+                led_board.read_led_current(session.scope.illumination.led_address_of('PC')) > 0
+            ), (
                 'the pre-run channel never lit, so the restore this test '
                 'exists to override was never armed'
             )

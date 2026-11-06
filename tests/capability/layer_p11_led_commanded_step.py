@@ -81,7 +81,7 @@ def main():
             figure(f'{request} mA: commanded', commanded)
             figure(f'{request} mA: state', state)
             figure(f'{request} mA: frame mean', mean)
-            recorded = record.illumination_ma.get(illumination.color2ch(LAYER))
+            recorded = record.illumination_ma.get(illumination.led_address_of(LAYER))
             figure(f'{request} mA: frame record', recorded)
             check(f'{request} mA is commanded on the step', commanded == expected, commanded)
             check(

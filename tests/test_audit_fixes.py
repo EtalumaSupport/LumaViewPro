@@ -2691,7 +2691,7 @@ def _sim_backed_imaging():
     # dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(get_led_states=lambda: (), color2ch=lambda c: None)
+    scope.illumination = SimpleNamespace(get_led_states=lambda: (), led_address_of=lambda c: None)
     give_camera_capabilities(scope, cam)
     scope.capabilities = dataclasses.replace(
         scope.capabilities, pixel_size_um=None, lens_focal_length_mm=None

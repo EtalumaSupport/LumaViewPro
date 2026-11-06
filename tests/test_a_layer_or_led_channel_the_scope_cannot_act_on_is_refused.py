@@ -61,7 +61,7 @@ def _lit(session):
 NAME_MEMBERS = {
     'led_on': lambda s, v: s.scope.illumination.led_on(v, 10.0),
     'led_off': lambda s, v: s.scope.illumination.led_off(v),
-    'color2ch': lambda s, v: s.scope.illumination.color2ch(v),
+    'led_address_of': lambda s, v: s.scope.illumination.led_address_of(v),
     'set_channel_acquire': lambda s, v: s.set_channel_acquire(v, 'image'),
     'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
     'saved_focus_z_um': lambda s, v: s.saved_focus_z_um(v),
@@ -99,7 +99,6 @@ def test_an_address_off_the_boards_table_lights_nothing(session, address):
 
     assert refusal.offered == (0, 1, 2, 3, 4, 5, 6, 7)
     assert _lit(session) == []
-    _refused(lambda: session.scope.illumination.ch2color(address), 'led_address_unknown')
 
 
 @pytest.mark.parametrize('member', ['led_on', 'led_off'])
@@ -129,7 +128,7 @@ def test_a_layer_the_model_lacks_is_a_name_and_keeps_its_answers(session):
     """A layer with no LED maps to no address, and turning it off has
     nothing to darken."""
     illumination = session.scope.illumination
-    assert illumination.color2ch('Lumi') is None
+    assert illumination.led_address_of('Lumi') is None
     illumination.led_off('Lumi')
 
 

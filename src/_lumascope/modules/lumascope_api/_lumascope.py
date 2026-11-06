@@ -963,7 +963,7 @@ class Lumascope:
             after the illumination API, the identity and runtime_state exist."""
             from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION, release_channel
 
-            name = self.illumination.ch2color(address)
+            name = self.channel_identity.key_at(address)
             if name is None:
                 return 0.0
             layer = release_channel(name)

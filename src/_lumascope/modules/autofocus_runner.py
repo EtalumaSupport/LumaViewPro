@@ -502,13 +502,13 @@ class AutofocusRunner:
             # every channel. Pre-AF state was snapshotted into
             # self._saved_led_state above; the exit restores it via
             # AF_TO_CAPTURE.
-            af_channel = (
-                self._scope.illumination.color2ch(self._led_color)
+            af_address = (
+                self._scope.illumination.led_address_of(self._led_color)
                 if self._led_color is not None
                 else None
             )
-            if af_channel is None and self._led_color is not None and self._scope.led_connected:
-                # A named AF colour that resolves to no channel on a
+            if af_address is None and self._led_color is not None and self._scope.led_connected:
+                # A named AF channel that resolves to no LED address on a
                 # connected board means this unit's identity has no such
                 # layer: the metric would scan an ambient field and focus
                 # on the wrong thing. Loud, then proceed ambient -- an
@@ -519,7 +519,7 @@ class AutofocusRunner:
                 )
             self._led_lease.apply(
                 LedTransition.AF_ENTER,
-                LedTransitionCtx(channel=af_channel, illumination_ma=self._led_illumination),
+                LedTransitionCtx(led_address=af_address, illumination_ma=self._led_illumination),
             )
             # Drop Z precision for the coarse passes; the fine pass restores
             # precision ON, and all exit paths (success, abort, exception)
@@ -729,8 +729,8 @@ class AutofocusRunner:
                     # sweep left it; the run-end diff in protocol cleanup is
                     # unconditional and darkens whatever is still lit.
                     try:
-                        af_channel = (
-                            illumination.color2ch(self._led_color)
+                        af_address = (
+                            illumination.led_address_of(self._led_color)
                             if self._led_color is not None
                             else None
                         )
@@ -738,7 +738,7 @@ class AutofocusRunner:
                         self._led_lease.apply(
                             LedTransition.AF_TO_CAPTURE,
                             LedTransitionCtx(
-                                channel=af_channel,
+                                led_address=af_address,
                                 illumination_ma=self._led_illumination,
                                 keep_led_on=keep_for_capture,
                                 snapshot_lit=snapshot_lit,

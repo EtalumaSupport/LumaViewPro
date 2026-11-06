@@ -233,7 +233,7 @@ class TestTheLights:
     def test_every_write_that_would_light_is_refused_and_the_leds_stay(self, lit_bf):
         session = lit_bf
         illumination = session.scope.illumination
-        led0 = illumination.color2ch(LED0)
+        led0 = illumination.led_address_of(LED0)
         illumination.led_on(LED0, 80.0)
         lit_led0 = illumination.get_led_states()
         illumination.led_off(LED0)
@@ -247,7 +247,7 @@ class TestTheLights:
                 'apply_transition',
                 lambda: illumination.apply_transition(
                     LedTransition.MANUAL_STEP,
-                    LedTransitionCtx(channel=led0, illumination_ma=60.0, preview_on=True),
+                    LedTransitionCtx(led_address=led0, illumination_ma=60.0, preview_on=True),
                 ),
             ),
             ('light_shown_channel', lambda: session.light_shown_channel(True)),
@@ -276,7 +276,7 @@ class TestTheLights:
             ('led_off', lambda: illumination.led_off('BF')),
             (
                 'led_off_by_address',
-                lambda: illumination.led_off_by_address(illumination.color2ch('BF')),
+                lambda: illumination.led_off_by_address(illumination.led_address_of('BF')),
             ),
             ('leds_off', illumination.leds_off),
             ('light_shown_channel(False)', lambda: session.light_shown_channel(False)),

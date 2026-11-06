@@ -230,7 +230,7 @@ def test_a_lease_release_darkens_the_led_its_unanswered_write_left_unknown(scope
     with pytest.raises(BoardNoReplyError):
         lease.apply(
             LedTransition.MANUAL_STEP,
-            LedTransitionCtx(channel=1, illumination_ma=10.0, preview_on=True),
+            LedTransitionCtx(led_address=1, illumination_ma=10.0, preview_on=True),
         )
     assert 1 in _driven(board)
     lease.release()

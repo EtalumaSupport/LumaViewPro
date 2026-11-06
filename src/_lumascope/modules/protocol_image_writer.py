@@ -1108,7 +1108,7 @@ class ProtocolImageWriter:
             undrivable = (
                 step_color in common_utils.get_layers_with_led()
                 and self._scope.led_connected
-                and self._scope.illumination.color2ch(step_color) is None
+                and self._scope.illumination.led_address_of(step_color) is None
             )
             if undrivable:
                 # The failures were guaranteed by the scope's

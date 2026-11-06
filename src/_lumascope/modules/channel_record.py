@@ -957,19 +957,19 @@ def _record(
     form and full brightness (`parse_display_color`); without one the
     channel takes the catalogue's.
     """
-    raw_channel = row.get('led_channel')
-    if raw_channel is None:
-        channel: tuple[int, ...] = ()
-    elif isinstance(raw_channel, int) and not isinstance(raw_channel, bool):
-        channel = (raw_channel,)
-    elif isinstance(raw_channel, list) and all(
-        isinstance(c, int) and not isinstance(c, bool) for c in raw_channel
+    raw_addresses = row.get('led_channel')
+    if raw_addresses is None:
+        led_addresses: tuple[int, ...] = ()
+    elif isinstance(raw_addresses, int) and not isinstance(raw_addresses, bool):
+        led_addresses = (raw_addresses,)
+    elif isinstance(raw_addresses, list) and all(
+        isinstance(a, int) and not isinstance(a, bool) for a in raw_addresses
     ):
-        channel = tuple(raw_channel)
+        led_addresses = tuple(raw_addresses)
     else:
-        return f'has malformed led_channel {raw_channel!r}'
-    if len(channel) > 1:
-        return f'drives multiple LED addresses {channel}; a channel on several LEDs is not supported yet'
+        return f'has malformed led_channel {raw_addresses!r}'
+    if len(led_addresses) > 1:
+        return f'drives multiple LED addresses {led_addresses}; a channel on several LEDs is not supported yet'
     raw_nm = row.get('excitation_nm')
     if raw_nm is None:
         excitation: float | None = None
@@ -1002,7 +1002,7 @@ def _record(
         id=position,
         key_name=key_name,
         display_name=display,
-        led_addresses=channel,
+        led_addresses=led_addresses,
         excitation_nm=excitation,
         modality=release.modality,
         background=release.background,

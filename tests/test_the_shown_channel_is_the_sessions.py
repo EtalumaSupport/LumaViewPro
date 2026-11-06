@@ -69,7 +69,7 @@ def test_a_refused_light_turns_nothing_off(session):
         illumination.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
-                channel=illumination.color2ch(LED0),
+                led_address=illumination.led_address_of(LED0),
                 illumination_ma=session.scope.capabilities.led_max_ma + 1,
                 preview_on=True,
             ),

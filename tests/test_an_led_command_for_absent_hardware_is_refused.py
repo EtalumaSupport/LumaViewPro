@@ -78,7 +78,7 @@ def _led_lines(caplog) -> list[str]:
 
 
 def _preview(lit: bool) -> LedTransitionCtx:
-    return LedTransitionCtx(channel=3, illumination_ma=10.0, preview_on=lit)
+    return LedTransitionCtx(led_address=3, illumination_ma=10.0, preview_on=lit)
 
 
 # --- Board present: nothing changes but an LED the model lacks --------------------

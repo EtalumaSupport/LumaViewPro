@@ -102,8 +102,8 @@ class LedEndPolicy(enum.Enum):
 class LedTransitionCtx:
     """Primitives the LED authority needs to decide a transition's target set.
 
-    Every field is a channel number, a current, a boolean, or a set of
-    (channel, illumination_ma) pairs -- never a protocol Step. The protocol-layer caller reads
+    Every field is an LED board address, a current, a boolean, or a set of
+    (address, illumination_ma) pairs -- never a protocol Step. The protocol-layer caller reads
     the Step and precomputes the booleans (same color as the next step, same
     z-stack group, the resolved across-move setting), then calls down with this
     context. Keeping the illumination layer free of Step parsing keeps it
@@ -112,9 +112,10 @@ class LedTransitionCtx:
     to do.
 
     Fields:
-        channel: The transition's primary channel (the step / AF / preview
-            color), or None when the transition lights nothing.
-        illumination_ma: The primary channel's current, paired with ``channel``.
+        led_address: The board address of the transition's primary LED (the
+            step's, autofocus's or the preview's channel's), or None when the
+            transition lights nothing.
+        illumination_ma: The primary LED's current, paired with ``led_address``.
         same_zstack_group: This step and the next are in one z-stack group, so
             illumination is held unconditionally across the boundary.
         same_color: This step and the next request the same color.
@@ -134,11 +135,11 @@ class LedTransitionCtx:
             not produce a visible end-of-acquire flicker. The hold derives from
             the run-end target itself, not a separately-computed flag.
         end_policy: The run's end-state when the run finishes.
-        snapshot_lit: The (channel, illumination_ma) pairs lit at the moment a snapshot was
+        snapshot_lit: The (address, illumination_ma) pairs lit at the moment a snapshot was
             taken -- the pre-run / pre-autofocus live state to restore.
     """
 
-    channel: int | None = None
+    led_address: int | None = None
     illumination_ma: float | None = None
     same_zstack_group: bool = False
     same_color: bool = False
@@ -231,27 +232,27 @@ class LedLease:
     def target_leds(
         transition: LedTransition, ctx: LedTransitionCtx
     ) -> frozenset[tuple[int, float]]:
-        """The single LED decision: which channels should be lit after a transition.
+        """The single LED decision: which addresses should be lit after a transition.
 
         Internal lease mechanics -- not part of the L2 API surface.
 
         Pure function of the transition and its context -- it reads no hardware
         and holds no state, so the policy is testable in isolation and identical
-        for every caller. An empty set means "all channels dark."
+        for every caller. An empty set means "all LEDs dark."
 
         Args:
             transition: The lifecycle moment being decided.
             ctx: The precomputed primitives for this transition.
 
         Returns:
-            The set of (channel, illumination_ma) pairs that should be lit afterward.
+            The set of (address, illumination_ma) pairs that should be lit afterward.
 
         Raises:
             ValueError: If the transition is not one the authority handles.
         """
         primary: frozenset[tuple[int, float]] = (
-            frozenset({(ctx.channel, ctx.illumination_ma)})
-            if ctx.channel is not None and ctx.illumination_ma is not None
+            frozenset({(ctx.led_address, ctx.illumination_ma)})
+            if ctx.led_address is not None and ctx.illumination_ma is not None
             else frozenset()
         )
         if transition is LedTransition.STEP_LIGHT:
@@ -271,8 +272,10 @@ class LedLease:
             # so the boundary and the cleanup never derive the end state from
             # the same inputs in two places.
             if ctx.is_run_end_boundary:
-                run_end_lit = {ch for ch, _ in LedLease.target_leds(LedTransition.RUN_END, ctx)}
-                return primary if ctx.channel in run_end_lit else frozenset()
+                run_end_lit = {
+                    address for address, _ in LedLease.target_leds(LedTransition.RUN_END, ctx)
+                }
+                return primary if ctx.led_address in run_end_lit else frozenset()
             # Otherwise hold within a z-stack group always, and hold across a
             # stage move only for a same-color step when the opt-in is on. Else
             # extinguish, so the default never leaves a channel lit across a move.
@@ -347,7 +350,7 @@ class LedLease:
         self._api._emit_led_diff(target, lease=self, block=block, member='LedLease.apply')
 
 
-def _lit_channel_pairs(
+def _lit_address_pairs(
     readings: tuple[LedReading, ...] | None, *, drop_nonpositive: bool
 ) -> frozenset[tuple[int, float]]:
     """Build the lit (address, illumination_ma) set from LED readings.
@@ -393,7 +396,7 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
     address counts as lit only if it is lit at a positive current. Used to
     feed readings saved from get_led_states into apply() as snapshot_lit.
     """
-    return _lit_channel_pairs(readings, drop_nonpositive=True)
+    return _lit_address_pairs(readings, drop_nonpositive=True)
 
 
 def lit_other_than(
@@ -425,7 +428,7 @@ def resolve_end_state(
     end_policy: LedEndPolicy,
     original_led_states: tuple[LedReading, ...] | None,
 ) -> frozenset[tuple[int, float]]:
-    """The channels a run's end lights, from its end policy and pre-run snapshot.
+    """The addresses a run's end lights, from its end policy and pre-run snapshot.
 
     The single derivation of a run's end LED state, shared by run cleanup (the
     RUN_END transition) and the final-step boundary (which holds a channel only
@@ -438,11 +441,11 @@ def resolve_end_state(
         original_led_states: The pre-run readings (``get_led_states``).
 
     Returns:
-        The (channel, illumination_ma) set to restore, empty for the OFF policy.
+        The (address, illumination_ma) set to restore, empty for the OFF policy.
     """
     if end_policy is LedEndPolicy.OFF:
         return frozenset()
-    return _lit_channel_pairs(original_led_states, drop_nonpositive=False)
+    return _lit_address_pairs(original_led_states, drop_nonpositive=False)
 
 
 class LedState(enum.StrEnum):
@@ -541,7 +544,7 @@ class IlluminationAPI:
         self.refuse_controller_not_connected(member)
         self._refuse_not_a_board_address(address, 'address')
         identity = self._scope.channel_identity
-        if identity.source != IdentitySource.UNRESOLVED and self._identity_name(address) is None:
+        if identity.source != IdentitySource.UNRESOLVED and identity.key_at(address) is None:
             part = MissingPart.led_address(address)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
@@ -555,7 +558,7 @@ class IlluminationAPI:
         the attached board lacks -- lighting that address anyway would light
         whatever occupies it on this board.
         """
-        address = self.color2ch(color=channel)
+        address = self.led_address_of(channel)
         if address is None or address not in self._driver.available_channels():
             return None
         return address
@@ -1265,19 +1268,16 @@ class IlluminationAPI:
             self._led_lock.release()
 
     # --- State ---
-    def _identity_name(self, address: int) -> str | None:
-        """The layer the unit's identity names for *address*, else None."""
-        return self._scope.channel_identity.key_at(address)
-
     def _reading(self, address: int) -> LedReading:
         """*address* as the store holds it, named through the identity now.
 
         The caller holds ``_led_state_lock``.
         """
+        name = self._scope.channel_identity.key_at(address)
         held = self._led_state.get(address)
         if held is None:
-            return LedReading(address, self._identity_name(address), LedState.DARK, None)
-        return LedReading(address, self._identity_name(address), held.state, held.illumination_ma)
+            return LedReading(address, name, LedState.DARK, None)
+        return LedReading(address, name, held.state, held.illumination_ma)
 
     def _readings(self) -> tuple[LedReading, ...]:
         """Every address of the board and every address the store holds, by address.
@@ -1348,38 +1348,40 @@ class IlluminationAPI:
         )
 
     def _leds_off_lit_by(self, lease: LedLease) -> None:
-        """Turn off only the LED channels *lease* lit.
+        """Turn off only the LED addresses *lease* lit.
 
-        Channels lit by another lease or by an unleased write are left
+        Addresses lit by another lease or by an unleased write are left
         alone.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the lease lit
-                a channel and no LED controller is connected to darken it;
-                the channel stays believed lit, or unknown when the write
+                an address and no LED controller is connected to darken it;
+                the address stays believed lit, or unknown when the write
                 that found the controller gone went unanswered.
             BoardNoReplyError: the board did not answer an off; that
-                channel is unknown and still the lease's (``_write``), and
-                the channels after it are left as they were.
+                address is unknown and still the lease's (``_write``), and
+                the addresses after it are left as they were.
         """
         with self._led_state_lock:
-            channels_to_off = [address for address, by in self._lit_by.items() if by is lease]
-        if not channels_to_off:
+            addresses_to_off = [address for address, by in self._lit_by.items() if by is lease]
+        if not addresses_to_off:
             return
         self.refuse_controller_not_connected('LedLease.release')
-        for ch in channels_to_off:
-            began_ns = self._write((ch,), functools.partial(self._driver.led_off, ch), lease)
+        for address in addresses_to_off:
+            began_ns = self._write(
+                (address,), functools.partial(self._driver.led_off, address), lease
+            )
             # Dark once written, never before: a write that finds the
-            # controller gone leaves the channel believed lit, or unknown
+            # controller gone leaves the address believed lit, or unknown
             # when the board did not answer it, and the release asked
             # again is refused for it.
             with self._led_state_lock:
-                self._lit_by.pop(ch, None)
-                self._led_state.pop(ch, None)
+                self._lit_by.pop(address, None)
+                self._led_state.pop(address, None)
             self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
-            _api_log.log(VERBOSE, f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
+            _api_log.log(VERBOSE, f'led_off ch={address} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
-                reading = self._reading(ch)
+                reading = self._reading(address)
             self._fire_led_listeners(reading)
 
     def _forget_led_state(self) -> None:
@@ -1604,20 +1606,20 @@ class IlluminationAPI:
         block: bool,
         member: str,
     ) -> None:
-        """Turn off lit channels not in the target, then assert the target.
+        """Turn off lit addresses not in the target, then assert the target.
 
         The single diff-and-emit every transition drives through -- both the
         leased run callers (via LedLease) and the unleased live-UI callers (via
         apply_transition). Trusts the state cache to skip already-correct
-        channels: led_on self-skips a channel already at its current and led_off
+        addresses: led_on self-skips an address already at its current and led_off
         self-skips a dark one, so re-asserting a correct target emits nothing (no
-        off-then-on blink). The off clears the channel regardless of who lit it
+        off-then-on blink). The off clears the address regardless of who lit it
         but writes as ``lease`` so it is permitted while that lease is the
         active holder (or, with None, while no lease is held, for an unleased
         UI write).
         ``block`` waits for the board to confirm each illuminate before
         returning -- set for a transition whose LED must be on before the
-        camera grabs; the off does not block (clearing a channel never gates a
+        camera grabs; the off does not block (clearing an address never gates a
         grab). ``restore_led_state`` drives this diff over saved readings.
         ``member`` is the member whose call this is, named by its refusals.
 
@@ -1634,19 +1636,19 @@ class IlluminationAPI:
         # The whole target is judged before anything is turned off, so a
         # refused light leaves every LED as it was.
         self._refuse_unless_lease_holds(lease, member)
-        for ch, illumination_ma in target:
-            self._judge_light(ch, illumination_ma, member)
-        target_channels = {ch for ch, _ in target}
+        for address, illumination_ma in target:
+            self._judge_light(address, illumination_ma, member)
+        target_addresses = {address for address, _ in target}
         # Snapshot under the lock, then release before emitting: the off/on
         # primitives re-acquire _led_state_lock (not reentrant) and _led_off_impl
         # pops from _led_state as it clears each address.
         with self._led_state_lock:
             held = list(self._led_state)
-        for ch in held:
-            if ch not in target_channels:
-                self._led_off_impl(ch, member=member, _lease=lease)
-        for ch, illumination_ma in target:
-            self._led_on_impl(ch, illumination_ma, block=block, member=member, _lease=lease)
+        for address in held:
+            if address not in target_addresses:
+                self._led_off_impl(address, member=member, _lease=lease)
+        for address, illumination_ma in target:
+            self._led_on_impl(address, illumination_ma, block=block, member=member, _lease=lease)
 
     def _apply_transition_impl(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an unleased LED transition through the authority.
@@ -1703,34 +1705,18 @@ class IlluminationAPI:
     # --- Enable / disable ---
     # --- Wait ---
     # --- Channel mapping ---
-    # One mapping, the unit's resolved layer identity: what a layer IS on
+    # One mapping, the unit's resolved channel identity: what a channel IS on
     # this unit. The state store, restore snapshots and extinguish sweeps
     # are keyed by address, so a physically lit address is always
     # recordable and extinguishable even when the identity cannot name it
     # (a mid-session identity change must never strand a lit LED or drop
-    # it from a restore set).
-    def ch2color(self, channel: int) -> str | None:
-        """The stable layer name whose record drives *channel*, else None.
+    # it from a restore set). The channel an address lights is the
+    # identity's own answer (`ChannelIdentity.key_at`).
+    def led_address_of(self, channel: str) -> int | None:
+        """The LED board address of *channel*, else None.
 
-        Answers from the unit's resolved layer identity -- the same
-        records `scope.channel_identity` exposes.
-
-        A consult seam, not part of the L2 API surface: an L2 caller names
-        a channel, and reads which addresses it drives from its record's
-        ``led_addresses``.
-
-        Raises:
-            ArgumentRefusedError: ``'led_address_unknown'``, *channel* is
-                not on the attached board's table.
-        """
-        self._refuse_not_a_board_address(channel, 'channel')
-        return self._identity_name(channel)
-
-    def color2ch(self, color: str) -> int | None:
-        """The LED board address of the layer named *color*, else None.
-
-        Answers from the unit's resolved layer identity by stable
-        `key_name`. None means the layer is unknown to this unit's
+        Answers from the unit's resolved channel identity by stable
+        `key_name`. None means the channel is unknown to this unit's
         identity OR drives no LED (luminescence): on-paths turn that
         into a named refusal at `_address_to_light`, off-paths no-op.
 
@@ -1738,10 +1724,11 @@ class IlluminationAPI:
         the channel itself.
 
         Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.
+            ArgumentRefusedError: ``'channel_unknown'``, *channel* is not a
+                channel of this release.
         """
-        refuse_unknown_channel(color, argument='color')
-        record = self._scope.channel_identity.find(color)
+        refuse_unknown_channel(channel, argument='channel')
+        record = self._scope.channel_identity.find(channel)
         if record is None or not record.led_addresses:
             return None
         return record.led_addresses[0]

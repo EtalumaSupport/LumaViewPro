@@ -1391,18 +1391,18 @@ class FirmwareDiagnostics:
         if not currents:
             return {'error': 'The LED board reported no channels to read', 'passed': False}
 
-        channels = {}
-        for ch in sorted(currents):
-            reading = currents[ch]
+        by_address = {}
+        for address in sorted(currents):
+            reading = currents[address]
             if reading is None:
                 status = 'NOT MEASURED'
             elif abs(reading) > LED_LEAKAGE_WARN_MA:
                 status = 'WARN'
             else:
                 status = 'PASS'
-            channels[f'CH{ch}'] = {'i_sens_mA': reading, 'status': status}
-        passed = all(c['status'] == 'PASS' for c in channels.values())
-        return {'channels': channels, 'passed': passed}
+            by_address[f'CH{address}'] = {'i_sens_mA': reading, 'status': status}
+        passed = all(c['status'] == 'PASS' for c in by_address.values())
+        return {'channels': by_address, 'passed': passed}
 
     def verify_fan_tachometer(self) -> dict:
         """Set fan to known duty, wait, read tachometer.

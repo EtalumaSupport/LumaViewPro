@@ -450,7 +450,7 @@ class ProtocolStepRunner:
                 # this unit's identity lacks (the light seam already said
                 # so loudly) -- in every case there is nothing to keep lit.
                 boundary_ctx = LedTransitionCtx(
-                    channel=p._scope.illumination.color2ch(step['Color']),
+                    led_address=p._scope.illumination.led_address_of(step['Color']),
                     illumination_ma=step['Illumination'],
                     same_color=same_color,
                     same_zstack_group=same_zstack_group,
@@ -751,8 +751,8 @@ class ProtocolStepRunner:
             # abort path is turning the LEDs off, and a stray on here flashes
             # the sample at cancel time.
             return
-        channel = p._scope.illumination.color2ch(step['Color'])
-        if channel is None and step['Color'] in common_utils.get_layers_with_led():
+        address = p._scope.illumination.led_address_of(step['Color'])
+        if address is None and step['Color'] in common_utils.get_layers_with_led():
             # The layer is one that drives an LED, so an unresolvable name
             # here means this unit's identity has no such layer: the step
             # will capture dark, deterministically, every scan. Say so per step -- a
@@ -765,7 +765,7 @@ class ProtocolStepRunner:
         self.apply_led_transition(
             LedTransition.STEP_LIGHT,
             LedTransitionCtx(
-                channel=channel,
+                led_address=address,
                 illumination_ma=step['Illumination'],
             ),
         )

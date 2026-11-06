@@ -56,7 +56,7 @@ def _lit_channels(session):
     """Layer -> mA for every address the simulated board has driven on,
     named through the unit's layer identity."""
     driver = session.scope._led_driver
-    layer_of = session.scope.illumination.ch2color
+    layer_of = session.scope.channel_identity.key_at
     return {layer_of(ch): ma for ch, ma in driver._channel_states.items() if ma and ma > 0}
 
 
@@ -70,7 +70,7 @@ def _record_led_commands(monkeypatch, session):
     implementation detail this file must not depend on.
     """
     driver = session.scope._led_driver
-    layer_of = session.scope.illumination.ch2color
+    layer_of = session.scope.channel_identity.key_at
     events = []
 
     def _wrap_on(name):

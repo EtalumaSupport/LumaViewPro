@@ -63,17 +63,17 @@ class TestFusion:
     def test_no_led_layer_resolves_to_no_channel_without_error(self, scope):
         scope.refresh_layer_identity(override_model='Lumi')
         assert scope.channel_identity.find('Lumi') is not None
-        assert scope.illumination.color2ch('Lumi') is None
+        assert scope.illumination.led_address_of('Lumi') is None
         scope.illumination.led_off(channel='Lumi')
 
 
 class TestTwoResolverSplit:
     def test_identity_answers_by_record(self, scope):
-        assert scope.illumination.color2ch(LED1) == 1
-        assert scope.illumination.ch2color(1) == LED1
+        assert scope.illumination.led_address_of(LED1) == 1
+        assert scope.channel_identity.key_at(1) == LED1
         scope.refresh_layer_identity(override_model='LS850-0')
-        assert scope.illumination.color2ch(LED1) is None
-        assert scope.illumination.ch2color(1) is None
+        assert scope.illumination.led_address_of(LED1) is None
+        assert scope.channel_identity.key_at(1) is None
 
     def test_lit_channel_stays_recorded_under_narrowed_identity(self, scope):
         """An address lit before the identity narrowed stays in the state
