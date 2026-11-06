@@ -72,9 +72,10 @@ def complete_settings(**overrides) -> dict:
     """
     merged = copy.deepcopy(overrides)
     template = shipped_template()
-    # The template ships the firmware tier; the suite runs the fast one
-    # unless a test asks for the other by name. Moving a test class to the
-    # firmware tier is a decision taken per class, not by the template.
+    # The template ships the realistic tier; the suite runs the fast one
+    # unless a test asks for another by name. Moving a test class to the
+    # firmware or realistic tier is a decision taken per class, not by the
+    # template.
     template['simulator_tier'] = 'fast'
     if 'live_folder' not in merged:
         merged['live_folder'] = _fresh_live_folder()
