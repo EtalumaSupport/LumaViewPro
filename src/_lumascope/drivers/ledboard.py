@@ -271,9 +271,9 @@ class LEDBoard(SerialBoard):
     # The driver holds no LED state: which address is lit is
     # IlluminationAPI's store.
 
-    # Safety limits -- defense-in-depth validation at driver level.
-    # The API layer (lumascope_api.py) also validates, but the driver
-    # must enforce independently in case of direct calls.
+    # The board's addresses and current cap, published through
+    # available_channels() and max_ma(); IlluminationAPI refuses a light
+    # outside them before anything reaches this driver.
     _MAX_CHANNEL = 7
     _MAX_MA = FIRMWARE_LED_CH_MAX_MA
 
@@ -283,15 +283,8 @@ class LEDBoard(SerialBoard):
     def commanded_ma(self, mA: float) -> float:
         return firmware_commanded_ma(mA)
 
-    def _validate_and_build_led_cmd(self, channel, mA) -> str:
-        """Validate channel/mA and return the command string.
-
-        Shared by led_on() and led_on_fast() to eliminate duplicate validation.
-        """
-        if not (0 <= int(channel) <= self._MAX_CHANNEL):
-            raise ValueError(f'LED channel {channel} out of range [0-{self._MAX_CHANNEL}]')
-        if not (0 <= int(mA) <= self._MAX_MA):
-            raise ValueError(f'LED current {mA} mA out of safe range [0-{self._MAX_MA}]')
+    def _build_led_cmd(self, channel, mA) -> str:
+        """The firmware command that lights ``channel`` at ``mA``."""
         return 'LED' + str(int(channel)) + '_' + str(int(mA))
 
     def led_on(self, channel: int, mA: int, block: bool = False, timeout_s: float = 5.0) -> None:
@@ -305,14 +298,13 @@ class LEDBoard(SerialBoard):
             timeout_s: Block timeout in seconds.
 
         Raises:
-            ValueError: ``channel`` or ``mA`` is outside the safe range.
             HardwareError: the board did not answer, or its port failed;
                 with ``block``, its last ask before the poll gave up.
             BoardReplyUnreadableError: with ``block``, the board answered
                 until the poll gave up but never confirmed the command, so
                 the LED is not known to be lit.
         """
-        command = self._validate_and_build_led_cmd(channel, mA)
+        command = self._build_led_cmd(channel, mA)
         if mA == 0:
             # The field firmware drives ``LEDn_0`` at its DAC offset, not off;
             # only the board's off command darkens the channel.
@@ -377,10 +369,9 @@ class LEDBoard(SerialBoard):
             mA: Drive current in milliamps (0-1000).
 
         Raises:
-            ValueError: ``channel`` or ``mA`` is outside the safe range.
             HardwareError: the write timed out, or the port failed.
         """
-        self._write_command_fast(self._validate_and_build_led_cmd(channel, mA))
+        self._write_command_fast(self._build_led_cmd(channel, mA))
 
     def led_off_fast(self, channel: int) -> None:
         """Fast write-only version of led_off for time-critical toggling.
