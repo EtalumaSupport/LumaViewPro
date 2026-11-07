@@ -36,7 +36,9 @@ shuts down with the event stream open, and the stream's last event is
 `closing`. It exits `0`, or `1` when it could not take the lock or serve
 (printing why), stopped before it served, or the session did not close cleanly
 (the log says why). The log is `logs/LVP_Log/` under the source folder,
-`lumaviewpro.log` and `lumaviewpro_errors.log`.
+`lumaviewpro.log` and `lumaviewpro_errors.log`, and captures go to the live
+folder, `capture/` under the source folder as shipped (`live_folder`
+`./capture`, a relative path being the source folder's).
 
 To serve a session your own program has brought up, build its server, the one
 every host serves through:
@@ -59,10 +61,11 @@ A program that mounts the API in an ASGI application of its own takes it from
 is installation-only: no call changes it, from any caller
 (`'installation_only'`), so it is edited in the installation's
 `data/current.json` ([Settings](python.md#bringing-a-session-up-in-python)),
-with LumaViewPro closed, since LumaViewPro writes its whole settings file back
-as it runs. A source copy that LumaViewPro has never run has no
-`current.json` and serves from the template's `rest_api`; to change it there,
-copy `data/settings.json` to `data/current.json` and edit the copy. The port is
+with LumaViewPro and the server closed, since each writes the whole settings
+file back as it runs and when it closes, over an edit made meanwhile. A source
+copy neither has run has no `current.json` and serves from the template's
+`rest_api`; to change it there, copy `data/settings.json` to
+`data/current.json` and edit the copy. The port is
 `rest_api.port`, 1024 to 65535, and the command takes no port of its own: to
 serve on another, change the setting. A `rest_api` the server cannot use, or
 an address and port it cannot take, is refused `RestServerNotStartedError`
@@ -246,7 +249,7 @@ event is `closing`.
   (`'no_frame_yet'`, with `Retry-After`) when the camera sends none in time.
 - `GET /api/v1/live_folder_listing?name=<folder>` -- what a folder in the live
   folder holds, one level, each entry by its full name, which a download
-  takes as it is. A run's folder is its job's `progress.run_dir`
+  takes as it is, its `/` sent as `/`. A run's folder is its job's `progress.run_dir`
   ([`RunProgress`](../api-reference.md#RunProgress)), there from the run's
   start, so list it once the run's `files` job has ended.
 - `GET /api/v1/files/<name>` -- a file in the live folder, as an attachment; a
