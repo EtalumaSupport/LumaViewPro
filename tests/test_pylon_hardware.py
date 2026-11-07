@@ -6,7 +6,10 @@ These tests require:
   2. A connected Basler camera
 
 Skipped by default. Run with:
-    pytest tests/test_pylon_hardware.py --run-pylon-hardware
+    pytest tests/test_pylon_hardware.py --run-pylon-hardware --run-hardware --driver-log
+
+The last test builds a real scope, which also looks for its serial boards;
+without --run-hardware the suite's serial guard fails it at setup.
 
 The `pylon_hardware` marker is gated by conftest.pytest_collection_modifyitems --
 test bodies do NOT need their own skip dance.
