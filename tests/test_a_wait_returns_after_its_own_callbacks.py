@@ -214,6 +214,11 @@ class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
         first.add_done_callback(_blocks)
         try:
             assert entered.wait(BOUND_S), 'the done-callback never ran'
+            # A scan that saves no images still writes its record row, and a
+            # next run is refused until the last run's writes land; waited
+            # for here so the next run meets only the blocked callback.
+            first_writes = runner.sequenced_capture_runner.write_batch()
+            assert first_writes.wait_complete(BOUND_S), "the first run's writes never landed"
             second = _scan(runner, runs, RunEvents(), save=False, sequence_name='second')
             assert second.progress().is_live or second.done()
         finally:
@@ -265,8 +270,9 @@ class TestInsideItsOwnRunEnded:
         # A's run_ended starts B, which fails after it commits (its
         # protocol copy cannot be written): B's cleanup runs inline, and its
         # run_ended is delivered inside A's on A's thread. B's delivery
-        # ending must not end A's. A saves nothing, so B is not refused for
-        # A's files first.
+        # ending must not end A's. A saves no images but still writes its
+        # record row, and B would be refused until it lands, so A's
+        # run_ended waits for A's writes before it starts B.
         runner, runs = scope
         answers = {}
         run_box = {'ready': threading.Event()}
@@ -282,6 +288,8 @@ class TestInsideItsOwnRunEnded:
         def _a_run_ended(*args):
             assert run_box['ready'].wait(BOUND_S)
             nested['a_thread'] = threading.current_thread()
+            a_writes = runner.sequenced_capture_runner.write_batch()
+            nested['a_writes_landed'] = a_writes.wait_complete(BOUND_S)
             with monkeypatch.context() as patched:
                 patched.setattr(Protocol, 'to_file', _copy_refused)
                 try:
@@ -294,6 +302,7 @@ class TestInsideItsOwnRunEnded:
         _run_box_ready(run_box, _scan(runner, runs, RunEvents(run_ended=_a_run_ended), save=False))
 
         assert run_box['run'].result(BOUND_S) is not None
+        assert nested.get('a_writes_landed'), f"A's writes never landed ({nested})"
         assert nested.get('inside_a') and nested['thread'] is nested['a_thread'], (
             "the failed start's run_ended was not delivered inside A's: "
             f'the shape under test is absent ({nested})'
