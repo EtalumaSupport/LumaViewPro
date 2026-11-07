@@ -91,9 +91,15 @@ class ReadOnlyDict(dict):
     dict)`` and a proxy would read to them as no config at all. A write
     raises TypeError, so a caller holding a cell from ``steps()``, ``step()``
     or a run's copy cannot change the protocol, or another copy, behind its
-    writers. A deep copy is a plain dict, all the way down, for the caller
-    that means to edit its own.
+    writers. What it is built from is frozen as it is built (``_read_only``):
+    a dict inside it is one, a list a tuple, every value a Python one, so
+    nothing in it can change and a cell can be shared by every step built
+    from it. A deep copy is a plain dict, all the way down, its tuples
+    lists again, for the caller that means to edit its own.
     """
+
+    def __init__(self, items=()):
+        dict.__init__(self, {key: _read_only(value) for key, value in dict(items).items()})
 
     def _refuse(self, *args, **kwargs):
         raise TypeError(
@@ -105,7 +111,7 @@ class ReadOnlyDict(dict):
     clear = pop = popitem = setdefault = update = _refuse
 
     def __deepcopy__(self, memo):
-        return {key: copy.deepcopy(value, memo) for key, value in self.items()}
+        return {key: _editable(value) for key, value in self.items()}
 
     def __copy__(self):
         return dict(self)
@@ -115,10 +121,29 @@ class ReadOnlyDict(dict):
 
 
 def _read_only(value):
-    """``value`` with every dict in it, nested ones included, read-only."""
-    if isinstance(value, dict) and not isinstance(value, ReadOnlyDict):
-        return ReadOnlyDict({key: _read_only(item) for key, item in value.items()})
-    return value
+    """``value`` made unchangeable all the way down: a dict a ``ReadOnlyDict``, a list a tuple, a numpy scalar its Python value.
+
+    Each dict and list is built anew, so nothing the caller holds is shared
+    with the protocol; a ``ReadOnlyDict`` is returned as it is, since it was
+    frozen when it was built and nothing can change it. A tuple is written
+    to a protocol's file as JSON writes a list, so the file is unchanged.
+    """
+    if isinstance(value, ReadOnlyDict):
+        return value
+    if isinstance(value, dict):
+        return ReadOnlyDict(value)
+    if isinstance(value, list | tuple):
+        return tuple(_read_only(item) for item in value)
+    return python_values(value)
+
+
+def _editable(value):
+    """A frozen cell's value as plain, editable data: the inverse of ``_read_only``."""
+    if isinstance(value, dict):
+        return {key: _editable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_editable(item) for item in value]
+    return copy.deepcopy(value)
 
 
 def _refuse_build(*, reason: str, message: str) -> NoReturn:
@@ -576,8 +601,12 @@ def _dict_cell(value: object) -> dict:
     repr of the dict (single quotes, True/False), read by literal_eval. A
     dict is read as a copy whose numpy scalars are the Python values they
     hold, so a step's config is copied into the settings and written to the
-    protocol's file as Python values; the caller's dict is not changed.
+    protocol's file as Python values; the caller's dict is not changed. A
+    ``ReadOnlyDict`` is returned as it is: it was read when it was made, and
+    nothing can change it, so a step built from another shares its cell.
     """
+    if isinstance(value, ReadOnlyDict):
+        return value
     if isinstance(value, dict):
         return python_values(copy.deepcopy(value))
     if isinstance(value, str):
@@ -2678,8 +2707,8 @@ class Protocol:
             'Objective': objective_id,
             'Turret Slot': turret_slot,
             'Acquire': channel_config['acquire'],
-            'Video Config': copy.deepcopy(channel_config['video_config']),
-            'Stim_Config': copy.deepcopy(stim_configs),
+            'Video Config': channel_config['video_config'],
+            'Stim_Config': stim_configs,
         }
         typed = {column: self._typed_value(column, value) for column, value in values.items()}
         if label is not None:
@@ -2792,7 +2821,7 @@ class Protocol:
             zstack_group_id=zstack_group_id,
             acquire=channel_config['acquire'],
             video_config=channel_config['video_config'],
-            stim_config=copy.deepcopy(stim_configs),
+            stim_config=stim_configs,
             auto_named=auto_named,
             channel_group_id=channel_group_id,
             turret_slot=turret_slot,
@@ -3592,8 +3621,8 @@ class Protocol:
             'Tile Group ID': tile_group_id,
             'Z-Stack Group ID': zstack_group_id,
             'Acquire': acquire,
-            'Video Config': copy.deepcopy(video_config),
-            'Stim_Config': copy.deepcopy(stim_config),
+            'Video Config': video_config,
+            'Stim_Config': stim_config,
             'Auto_Named': auto_named,
             'Label': label,
             'Channel Group ID': channel_group_id,

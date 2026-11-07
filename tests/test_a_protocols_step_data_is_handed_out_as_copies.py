@@ -23,11 +23,12 @@ import pandas as pd
 import pytest
 
 from _lumascope.modules.acquire_mode import AcquireMode
-from _lumascope.modules.protocol import ChannelSettings, Protocol
+from _lumascope.modules.protocol import ChannelSettings, Protocol, ReadOnlyDict
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0
 from tests.protocol_fixtures import protocol_from_file
+from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
 DICT_COLUMNS = ['Stim_Config', 'Video Config']
 
@@ -197,3 +198,93 @@ class TestTheRunsCopyIsItsOwn:
             run_copy._config['steps'].iloc[0][column]['written'] = True
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
+
+
+class TestACellIsFrozenAllTheWayDown:
+    """A list in a config cell is a tuple: a cell cannot change through anything it holds."""
+
+    @pytest.fixture
+    def with_a_list(self) -> Protocol:
+        return _build_protocol(
+            [_make_step(name='A1_BF', color='BF', video_config={'duration': 5, 'notes': [1, 2]})]
+        )
+
+    def test_a_list_in_a_cell_cannot_be_appended_to(self, with_a_list):
+        notes = with_a_list.step_row(0)['Video Config']['notes']
+
+        assert notes == (1, 2)
+        with pytest.raises(AttributeError):
+            notes.append(99)
+
+    def test_a_list_in_a_cell_is_saved_and_loaded_as_the_list_it_was(self, tmp_path, with_a_list):
+        path = tmp_path / 'list.tsv'
+        with_a_list.to_file(path)
+
+        assert '""notes"": [1, 2]' in path.read_text()
+        loaded = protocol_from_file(path)
+        assert loaded.step_row(0)['Video Config'] == {'duration': 5, 'notes': (1, 2)}
+
+    def test_a_deep_copy_of_a_cell_gives_its_lists_back(self, with_a_list):
+        own = copy.deepcopy(with_a_list.step_row(0)['Video Config'])
+
+        own['notes'].append(3)
+
+        assert own == {'duration': 5, 'notes': [1, 2, 3]}
+        assert with_a_list.step_row(0)['Video Config']['notes'] == (1, 2)
+
+    def test_a_cell_built_from_a_mutable_dict_shares_nothing_with_it(self):
+        given = {'stim': {'enabled': False}, 'notes': [1]}
+        cell = ReadOnlyDict(given)
+        given['stim']['enabled'] = True
+        given['notes'].append(2)
+
+        assert cell == {'stim': {'enabled': False}, 'notes': (1,)}
+        with pytest.raises(TypeError):
+            cell['stim']['enabled'] = True
+
+
+class TestAWritersConfigIsCopiedOnce:
+    """A writer's plain dict is copied where it is read; a stored cell is shared, never copied again."""
+
+    def test_a_write_to_the_callers_config_after_a_modify_leaves_the_protocol(self, protocol):
+        step = protocol.step_row(0)
+        video_config = {'duration': 5}
+        stim_configs = {LED0: {'enabled': False}}
+        protocol.modify_step(
+            turret_slot=-1,
+            step_index=0,
+            channel='BF',
+            channel_config={
+                'autofocus': False,
+                'false_color': False,
+                'illumination_ma': 5.0,
+                'gain_db': 0.0,
+                'auto_gain': False,
+                'exposure_ms': 2.0,
+                'sum': 1,
+                'acquire': 'image',
+                'video_config': video_config,
+            },
+            plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
+            objective_id=step['Objective'],
+            stim_configs=stim_configs,
+        )
+
+        video_config['duration'] = 99
+        stim_configs[LED0]['enabled'] = True
+
+        assert protocol.step_row(0)['Video Config'] == {'duration': 5}
+        assert protocol.step_row(0)['Stim_Config'] == {LED0: {'enabled': False}}
+
+    def test_the_tiles_of_one_step_share_its_config_cells(self, session):
+        protocol = session.create_empty_protocol()
+        session.add_step(
+            protocol, channels=('BF',), at=PlateLocation(x_mm=40.0, y_mm=40.0, z_um=5000.0)
+        )
+
+        session.apply_tiling(protocol, '2x2')
+
+        assert protocol.num_steps() == 4
+        for column in DICT_COLUMNS:
+            cells = [protocol.step_row(i)[column] for i in range(4)]
+            assert all(cell is cells[0] for cell in cells), column
