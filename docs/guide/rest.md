@@ -25,9 +25,9 @@ python -m lumascope.rest --simulate      # a simulated scope; leave out --simula
 
 It brings the scope up as LumaViewPro does -- the user's settings, the startup
 home, the plugins -- and serves where `rest_api` says (shipped
-`127.0.0.1:8000`, this computer only). It takes the installation's
-single-instance lock, so it will not start while LumaViewPro or another server
-runs from this installation, simulated or not. A failed startup home is
+`127.0.0.1:8000`, this computer only). It takes the single-instance lock, so
+it will not start while LumaViewPro or another server runs on this computer,
+simulated or not ([One session per scope](concepts.md#bringing-a-session-up)). A failed startup home is
 reported and the server still serves, so a client can home again. Ctrl-C or
 SIGTERM closes it: new calls are refused (`'server_closing'`), the session
 shuts down with the event stream open, and the stream's last event is

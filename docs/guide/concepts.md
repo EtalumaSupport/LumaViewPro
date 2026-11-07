@@ -170,8 +170,10 @@ while LumaViewPro, a REST server or another script drives the microscope, or
 another real scope is open in the same process, `create(..., simulate=False)`
 is refused `ScopeInUseError` (`'scope_in_use'`) with nothing opened. A
 simulated scope takes no such lock. LumaViewPro and the REST server also run
-one at a time per installation, simulated or not: a second one says another is
-already running and does not start.
+one at a time on a computer, simulated or not: a second one says another is
+already running and does not start. The lock is a port on this computer,
+`lvp_lock_port` in the installation's settings (shipped `43101`), so two
+installations on one computer share it unless one's port is changed.
 
 ## Who may act
 
