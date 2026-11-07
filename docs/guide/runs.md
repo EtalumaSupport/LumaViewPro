@@ -76,8 +76,11 @@ assert protocol.num_scans() == 6
 **The protocol file** is tab-separated. Its first row is
 `Protocol.PROTOCOL_FILE_HEADER`, then the version, the period (minutes), the
 duration (hours), the plate and the capture root; then a Layer Settings block,
-a row of each channel's settings the protocol carries; then a table of steps
-whose columns are `Protocol.CURRENT_COLUMNS`:
+a row of each channel's settings; then a table of steps whose columns are
+`Protocol.CURRENT_COLUMNS`. `save_protocol` writes the block from each channel
+acquiring in the settings; the copy a run saves in its folder has it only when
+its protocol was read from a file that had one, so a protocol built in memory
+runs to a file with none:
 
 ```python
 from lumascope import Protocol
@@ -133,7 +136,12 @@ always ends with a `RunOutcome` -- it does not raise -- whose `status` is one of
 its operation ends with the run, and `files`, its own operation, once they are
 written ([Operations](python.md#operations); over REST, the run's job and its
 `files` job, [Jobs](rest.md#jobs)). Read the run's folder, or start the next
-run, after `files`. In a time-lapse each autofocus step starts its next
+run, after `files`. Its result, a
+[`RunFiles`](../api-reference.md#RunFiles), counts the run's images:
+`outcome` is `written` when every image captured is on disk, else
+`incomplete`, with `not_written` and `not_written_reason`; `written` is the
+images on disk, so a folder of two images and its protocol and record says
+`written` 2. In a time-lapse each autofocus step starts its next
 interval's sweep from the focus it last found, kept in the run's copy; the
 protocol you passed keeps its Z.
 
@@ -165,7 +173,9 @@ capture taken with saving off is named `unsaved`.
 **Where a run stands** is its operation's `progress`, a
 [`RunProgress`](../api-reference.md#RunProgress) -- `is_live`, `step_index`,
 `scans_remaining`, `run_dir` and the rest; over REST it is the run's job's
-`progress`, as a poll of the job reads it.
+`progress`, as a poll of the job reads it. Its `period_s` is the protocol's
+schedule, which a single scan reports and does not keep: an empty protocol
+takes the settings' (`protocol.period`, shipped 20 minutes, `period_s` 1200).
 
 **Post-processing** builds derived files from a run's folder:
 `session.post_processing.build(folder, zproject=..., stitch=..., composite=...,
