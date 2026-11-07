@@ -5,7 +5,10 @@ The simulated scope: its tiers, its models, and the faults it injects.
 `simulate=True` builds a scope whose boards and camera are simulated, and every
 member works on it as on the hardware, so a program can be written and tested
 before it meets a scope. The camera images a specimen fixed to the stage, so moving the
-stage moves the image.
+stage moves the image. It is the model the settings declare (`microscope`,
+shipped `LS850`), so a source copy's simulated scope is an LS850, its camera
+`SimulatedCamera-3840x2160` on an EL-0940 model and the FX2 camera on a
+Classic one.
 
 The simulator's own surface, `scope.simulation`, is outside what `4.0.0`
 freezes: it may change in any 4.x release. It carries no version of its own; it
