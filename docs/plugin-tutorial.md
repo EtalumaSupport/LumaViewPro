@@ -396,7 +396,7 @@ def register(ctx):
 The handler is called `handler(frame)` with the camera's `Frame`
 record. The record's fields, the read-only frame, the per-frame time
 budget and the auto-removal of a handler that overruns it or keeps
-raising are in the guide's [Live frames](guide/python-events.md#live-frames). With no
+raising are in the guide's [Live frames](guide/python.md#live-frames). With no
 camera connected, registration raises and nothing is registered.
 
 ### The reserved namespace
@@ -581,7 +581,7 @@ the folder they share, without normalizing them.
   and every member in [`api-reference.md`](api-reference.md).
 - For per-frame listeners (running on the live stream, not after a
   run), see **Live frame listeners** above and
-  [Live frames](guide/python-events.md#live-frames) in the guide.
+  [Live frames](guide/python.md#live-frames) in the guide.
 - HTTP endpoints under `/plugins/<name>/` are not yet available; the
   namespace name is reserved.
 

@@ -134,8 +134,9 @@ The detail is [concepts.md](guide/concepts.md).
 | Protocols and runs | A protocol of steps (`create_empty_protocol`, `add_step`), run by `protocol_runner()` (`start_single_scan`, `start_protocol`), then post-processed (`post_processing.build`). | [runs](guide/runs.md) |
 | `scope.simulation` | Faults injected into a simulated scope. | [simulator](guide/simulator.md) |
 | The control session | `take_control`, `acting_in_control`, `end_control`. | [concepts](guide/concepts.md) |
-| REST's own routes | Jobs, handles, problems, events, the live view and files. | [rest](guide/rest.md) |
-| In-process Python | Operations, outcome listeners, a still as an image, live frames. | [python](guide/python.md) |
+| REST's own routes | Serving it, jobs, handles, problems, events, the live view and files, a walkthrough with `curl`, a client on another computer. | [rest](guide/rest.md) |
+| In-process Python | Operations, outcome listeners, live frames and events, a still as an image. | [python](guide/python.md) |
+| Another acquisition engine | What Micro-Manager, pymmcore-plus or a lab's own sequencer needs to drive the scope as it sets it. | [outside-engines](guide/outside-engines.md) |
 
 ## Examples
 
@@ -175,9 +176,9 @@ it needs them. Every member, field and outcome is in the
 | Move the stage, the focus or the turret, over REST | [concepts.md](guide/concepts.md), [motion.md](guide/motion.md), [rest.md](guide/rest.md) |
 | Light a channel or set the camera, in Python | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
 | Light a channel or set the camera, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [rest.md](guide/rest.md) |
-| Learn the REST API from a worked session with `curl` | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-walkthrough.md](guide/rest-walkthrough.md) |
-| Start a REST server, on this computer or for a client on another | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md), [rest-serving.md](guide/rest-serving.md) |
-| Hear live frames or events, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md), [python-events.md](guide/python-events.md) |
+| Learn the REST API from a worked session with `curl` | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
+| Start a REST server, on this computer or for a client on another | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
+| Hear live frames or events, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md) |
 | Test against the simulator or inject a fault, in Python | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [python.md](guide/python.md) |
 | Test against the simulator or inject a fault, over REST | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [rest.md](guide/rest.md) |
 | Drive the scope from another acquisition engine, in Python | [concepts.md](guide/concepts.md), [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
