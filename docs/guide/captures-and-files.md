@@ -109,10 +109,11 @@ reach, its record's `significant_bits` -- 12 for a 12-bit `SCIENTIFIC` frame,
 16 for a `SCALED` one -- so divide by `(1 << significant_bits) - 1` to scale
 it. Every TIFF also carries it in private tag 65123, and an OME-TIFF in its
 schema's `SignificantBits`, so a reader that knows neither LVP's record nor
-OME still finds it. A full-depth sum states the bits it can reach -- 14 for
-four 12-bit frames -- with private tag 65124 giving the depth one frame's
-white is at (12), and every sum states `frames_summed` (`FramesSummed`), how
-many it holds.
+OME still finds it. A still's or a run's image also carries private tag 65124,
+the depth one frame's white is at: for one frame the same as 65123 (8 and 8 for
+an 8-bit still), and for a full-depth sum below it -- the sum states the bits
+it can reach, 14 for four 12-bit frames, and 65124 is 12. Every sum states
+`frames_summed` (`FramesSummed`), how many it holds.
 
 **The record in the file.** Each TIFF and OME-TIFF carries what the instrument
 was when the frame was taken: the instrument (model, serial, camera), the
@@ -122,23 +123,41 @@ excitation, the exposure, gain, black level and binning, whether the frame was
 dark or saturated, the timestamps and where they came from, whether the camera
 held the channel's settings, and the frame-validity judgments. An OME-TIFF keeps the exposure and position in
 its OME `Plane` and the rest in a `MapAnnotation` (namespace `etaluma.com/lvp`);
-a plain TIFF carries the same keys in its `Plane` block. Those are the typed
-record LVP reads back. Every file also carries the record as a person reads it,
-plain `key = value` pairs under the record's own names (`plate.well_label = D6`,
-`exposure_time_ms = 50.0`), which an image viewer lists with the file's
-metadata (in Fiji, the Bio-Formats importer's *Display metadata*).
-Every key, its unit and what a sum does to it is the reference's [saved-file
+a plain TIFF carries the same keys as JSON, its `Plane` block, in its second
+`ImageDescription`. Those are the typed record LVP reads back. Every file also
+carries the record as a person reads it, plain `key = value` pairs (a plain
+TIFF's first `ImageDescription`, an ImageJ TIFF's `Info`), which an image
+viewer lists with the file's metadata (in Fiji, the Bio-Formats importer's
+*Display metadata*). Its keys are the file's own, not `FrameRecord`'s fields:
+`exposure_time_ms` where the record has `exposure_ms`, `camera_held_channel`
+where it has `held_channel`, and `illumination_ma` the one current, with
+`illumination_by_channel_ma.<channel>` each lit channel's, where the record
+keys its currents by LED address. The channel and its light are `channel`,
+`camera_held_channel`, `illumination_ma` and `dark`; `filterset` is the scope's
+filter set, whatever channel was imaged. Every key, its unit and what a sum
+does to it is the reference's [saved-file
 facts](../api-reference.md#saved-file-facts). A fact the frame did not know is
 absent, never a stand-in. A few values name a type of the reference:
 `illumination_timing` is a [`LightTiming`](../api-reference.md#LightTiming),
-when the currents were read; each `frame_validity` judgment is a
-[`Change`](../api-reference.md#Change) -- `skip` the frames it needed, and
-`counted_by` each counted frame's number and who counted it, a
-[`Counter`](../api-reference.md#Counter).
+when the currents were read; each `frame_validity.<n>` is a
+[`Judgment`](../api-reference.md#Judgment) of the frame against one change --
+`counts`, `frames_after`, `after_write_ms`, `after_in_force_ms` -- with its
+[`Change`](../api-reference.md#Change)'s `source` and `skip`, the frames it
+needed, and `counted_by`, each counted frame's number and the
+[`Counter`](../api-reference.md#Counter) that counted it (`287:drain`).
 
-The API has no reader of a saved file's record: read it with any TIFF reader
-(in Python, `tifffile`), or keep the `SavedStill` or the run's record the
-capture answered.
+The API has no reader of a saved file's record: read it with any TIFF reader,
+or keep the `SavedStill` or the run's record the capture answered. In Python:
+
+```python norun
+import tifffile
+
+with tifffile.TiffFile(path) as tif:
+    view = dict(
+        line.split(' = ', 1) for line in tif.pages[0].description.splitlines() if ' = ' in line
+    )
+print(view['channel'], view['illumination_ma'], view['dark'])
+```
 
 **Derived files.** A z-projection, a stitch, a composite or a video states a
 fact only when every input states the same: a composite of several channels
