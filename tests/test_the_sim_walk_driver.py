@@ -72,7 +72,7 @@ walk_times = {}
 class _CollectWalk(logging.Handler):
     def emit(self, record):
         walk_lines.append(record.getMessage())
-        walk_times[record.getMessage()] = record.created
+        walk_times[record.getMessage()] = time.perf_counter()
 logging.getLogger('LVP.sim_walk').addHandler(_CollectWalk())
 logging.getLogger('LVP.sim_walk').setLevel(logging.INFO)
 
@@ -288,7 +288,7 @@ def field_focus(field, focused):
         frames['commit'] = Clock.frames
 ids.field.bind(focus=field_focus)
 
-# When a popup leaves the window, its fade run, in wall time: read in the
+# When a popup leaves the window, its fade run, on the steady clock: read in the
 # window's own change of children, so in the same call that removes it.
 def record_gone(p, key):
     shown = []
@@ -296,7 +296,7 @@ def record_gone(p, key):
         if p in children:
             shown.append(True)
         elif shown and key not in frames:
-            frames[key] = time.time()
+            frames[key] = time.perf_counter()
     Window.bind(children=check)
 
 def open_popup(*_):
@@ -339,25 +339,25 @@ def open_spinner_popup(*_):
 ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
 # A gesture that waits on a lane, standing in for a turret pick or a build:
-# a real lane, one sleeping task per press, its end recorded in wall time.
+# a real lane, one sleeping task per press, its end recorded on the steady clock.
 from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
 lane.start()
 def busy(seconds):
     time.sleep(seconds)
-    frames['busy_end'] = time.time()
+    frames['busy_end'] = time.perf_counter()
 ids.busybtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(1.5,))))
 ids.longbtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(5.0,))))
 def in_flight():
     return [f'the IO lane ({lane.describe_running_task()})'] if lane.is_busy() else []
 
 # The app's progress popup, as a build opens it: it closes itself when the
-# work behind it ends, so a wait holds for it; its close recorded in wall time.
+# work behind it ends, so a wait holds for it; its close recorded on the steady clock.
 from ui.progress_popup import CustomPopup
 def open_progress(*_):
     p = CustomPopup(title='Building', auto_dismiss=False)
-    p.bind(on_dismiss=lambda *_: frames.__setitem__('progress_closed', time.time()))
+    p.bind(on_dismiss=lambda *_: frames.__setitem__('progress_closed', time.perf_counter()))
     p.open()
     Clock.schedule_once(lambda dt: p.dismiss(), 1.0)
 ids.progbtn.bind(on_release=open_progress)
@@ -400,10 +400,10 @@ class _Simulation:
             )
         hits.append('unplug ' + board)
 
-# The clock's own ticks, in wall time: the longest gap between two is how
+# The clock's own ticks, on the steady clock: the longest gap between two is how
 # long the UI thread ran nothing.
 ticks = []
-Clock.schedule_interval(lambda dt: ticks.append(time.time()), 0)
+Clock.schedule_interval(lambda dt: ticks.append(time.perf_counter()), 0)
 
 def run(steps, shot_dir, bring_up):
     (pathlib.Path(shot_dir) / 'logs').mkdir(exist_ok=True)
@@ -433,8 +433,8 @@ def run(steps, shot_dir, bring_up):
             break
     # A lane task the walk did not wait for still ends, so the result holds
     # its end time either way and a test compares, never asks whether.
-    deadline = time.time() + 10
-    while lane.is_busy() and time.time() < deadline:
+    deadline = time.monotonic() + 10
+    while lane.is_busy() and time.monotonic() < deadline:
         time.sleep(0.05)
     for p in [w for w in Window.children if isinstance(w, Popup)]:
         p.dismiss()

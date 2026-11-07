@@ -58,9 +58,9 @@ try:
     print('run_dir         :', run_dir)
 
     banner('5. did it actually write files?')
-    deadline = time.time() + 60
+    deadline = time.monotonic() + 60
     files = []
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         if run_dir and pathlib.Path(run_dir).exists():
             files = sorted(p for p in pathlib.Path(run_dir).rglob('*') if p.is_file())
             if any(p.suffix.lower() in ('.tiff', '.tif', '.png', '.jpg') for p in files):

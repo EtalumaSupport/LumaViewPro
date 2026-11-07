@@ -67,9 +67,9 @@ try:
     s = out.result(timeout=300)
     print('status:', s.status, s.reason)
     rd = out.progress().run_dir
-    deadline = time.time() + 90
+    deadline = time.monotonic() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.controls_lock.run_lockout:
+    while time.monotonic() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     imgs = sorted(p.name for p in pathlib.Path(rd).rglob('*') if p.suffix.lower() == '.tiff')
     print('images:', len(imgs), imgs[:8])

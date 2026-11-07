@@ -37,9 +37,9 @@ try:
         sequence_name='earlier',
     )
     print('earlier:', earlier.result(timeout=120).status)
-    deadline = time.time() + 90
+    deadline = time.monotonic() + 90
     # A new run is refused while the earlier run's files still write.
-    while time.time() < deadline and session.controls_lock.run_lockout:
+    while time.monotonic() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
 
     banner('start a long protocol, then stop it')

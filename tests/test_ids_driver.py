@@ -1444,8 +1444,8 @@ class TestDeviceLostCallback:
         cam.disconnect = MagicMock()
         cam._schedule_async_teardown()
         cam._schedule_async_teardown()  # second is a no-op via the latch
-        deadline = time.time() + 2.0
-        while cam.disconnect.call_count < 1 and time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while cam.disconnect.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.01)
         assert cam.disconnect.call_count == 1  # exactly once despite two schedules
 
@@ -1770,8 +1770,8 @@ class TestPipelineLifecycle:
 
     @staticmethod
     def _wait_until(pred, timeout=2.0):
-        deadline = time.time() + timeout
-        while not pred() and time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while not pred() and time.monotonic() < deadline:
             time.sleep(0.01)
 
     def test_complete_buffer_stored_and_requeued_once(self):

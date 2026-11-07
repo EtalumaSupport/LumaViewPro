@@ -122,8 +122,8 @@ def body(session, runner):
         session.light_shown_channel(False)
         outcome = runner.run_single_scan(here, sequence_name='p13_run', timeout_s=300)
         figure('run outcome', (outcome.status, outcome.reason))
-        deadline = time.time() + 90
-        while time.time() < deadline and session.controls_lock.run_lockout:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline and session.controls_lock.run_lockout:
             time.sleep(0.25)
         judge(session, 'run then still', _still(session), expect=fluor)
 

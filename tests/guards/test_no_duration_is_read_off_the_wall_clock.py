@@ -9,11 +9,13 @@ the timeouts' clock; a duration that is logged or set against frame stamps
 reads ``host_clock.steady_ns()``.
 
 This guard fails the build on a ``time.time()`` call that is an operand of
-an addition, a subtraction or a comparison in production: a deadline
-(``time.time() + timeout``), an elapsed check (``time.time() - start``), a
-wait (``while time.time() < deadline``). Its limit: two wall reads kept in
-names and subtracted later (``end - start`` over two ``wall_time.now()``
-values) take dataflow to see, and this guard does not see them.
+an addition, a subtraction or a comparison in production or in the tests:
+a deadline (``time.time() + timeout``), an elapsed check
+(``time.time() - start``), a wait (``while time.time() < deadline``). Its
+limits: two wall reads kept in names and subtracted later (``end - start``
+over two ``wall_time.now()`` values) take dataflow to see, and code held in
+a string (a test's script for a child process) parses as one constant; this
+guard sees neither.
 """
 
 from __future__ import annotations
@@ -22,13 +24,21 @@ import ast
 
 from tests.ast_seams import REPO_ROOT, Packages, tracked_files
 
-_PRODUCTION = Packages({'src', 'ui', 'tools'})
+_SCANNED = Packages({'src', 'ui', 'tools', 'tests'})
 
-# Measured against an instant that has only a wall form, so the wall clock
-# is the one to read: uptime is now less the boot instant, and the host
-# states its boot (``psutil.boot_time()``) on the wall clock alone.
+# Set against an instant that has only a wall form, so the wall clock is the
+# one to read.
 _WALL_AGAINST_WALL = {
+    # Uptime is now less the boot instant, and the host states its boot
+    # (``psutil.boot_time()``) on the wall clock alone.
     ('src/_lumascope/modules/common_utils.py', 'host_boot'),
+    # A wall clock stepped ahead is the test's subject: a recording's start
+    # read on it must not move the start against the frames' stated times.
+    ('tests/test_a_recordings_start_is_on_its_frames_clock.py', '_stepped_wall_clock'),
+    # A file's modification time set back, which the report orders by.
+    ('tests/test_tech_support_report_video_receipts.py', 'test_newest_first_and_capped'),
+    # A log banner's stated start set back, against the process's start.
+    ('tests/test_profile_session.py', 'test_a_banner_older_than_the_process_is_not_its_own'),
 }
 
 
@@ -80,8 +90,8 @@ def offences(tree: ast.AST) -> list[tuple[int, str | None]]:
     return found
 
 
-def _production_files() -> list[str]:
-    return tracked_files(_PRODUCTION) + tracked_files(pattern='*.py')
+def _scanned_files() -> list[str]:
+    return tracked_files(_SCANNED) + tracked_files(pattern='*.py')
 
 
 def test_every_spelling_of_a_wall_clock_duration_is_found():
@@ -104,9 +114,9 @@ def test_every_spelling_of_a_wall_clock_duration_is_found():
         assert offences(ast.parse(clean)) == [], clean
 
 
-def test_no_production_duration_or_timeout_reads_the_wall_clock():
+def test_no_duration_or_timeout_reads_the_wall_clock():
     offenders = []
-    for path in _production_files():
+    for path in _scanned_files():
         source = (REPO_ROOT / path).read_text(encoding='utf-8')
         for lineno, function in offences(ast.parse(source, filename=path)):
             if (path, function) not in _WALL_AGAINST_WALL:
