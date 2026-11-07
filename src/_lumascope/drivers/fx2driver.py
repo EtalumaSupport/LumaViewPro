@@ -1840,15 +1840,15 @@ class _FX2Connection:
 
     def _check_bindings(self, identity: str) -> None:
         """Log which driver each device of ``identity`` is bound to; refuse
-        one that cannot work.
+        one not on LumaViewPro's package.
 
         Windows binds each identity on its own, and pyusb sees a device only
         through a driver libusb can drive, so a device on no driver or the
         wrong one would otherwise read as no camera at all.
 
         Raises:
-            CameraUsbDriverUnusableError: A present device's driver cannot
-                serve what LumaViewPro does with it, naming each such device.
+            CameraUsbDriverUnusableError: A present device is on no driver
+                or another package, naming each such device.
             CameraUsbLookupFailedError: The bindings could not be read.
         """
         devices = self._transport.bindings(identity)

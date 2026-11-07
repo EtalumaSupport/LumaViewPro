@@ -1029,7 +1029,7 @@ class CameraNotAvailableError(Fault, BringUpError):
             ``'camera_firmware_missing'`` -- the firmware file a Classic's
             driver uploads to the camera is not installed.
             ``'camera_driver_unusable'`` -- Windows has a Classic on no
-            driver, or on one LumaViewPro cannot use.
+            driver, or on a package not LumaViewPro's.
             ``'camera_not_initialized'`` -- the camera did not come up for any
             other hardware cause, among them a camera that was found and could
             not be opened, one another application holds included.
@@ -1058,7 +1058,7 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_driver_unusable': (
             'Camera driver not usable',
-            'Windows has the camera on no driver, or on one LumaViewPro cannot use.',
+            "Windows has the camera on no driver, or on a driver that is not LumaViewPro's.",
         ),
         'camera_not_initialized': (
             'Camera not initialized',
@@ -1139,8 +1139,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             ``'repair_declined'`` -- the administrator's prompt was not
             approved. ``'driver_not_accepted'`` -- Windows did not take the
             package: installing it was declined at its question, or Windows
-            refused it. ``'driver_already_usable'`` -- a camera is up, or
-            every present device is on a driver LumaViewPro can use.
+            refused it. ``'driver_already_ours'`` -- a camera is up, or
+            every present device is on LumaViewPro's driver.
     """
 
     title = 'Camera Driver Not Repaired'
@@ -1154,7 +1154,7 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
         'no_classic_bindings': RefusalCause.REQUEST,
         'repair_declined': RefusalCause.STATE,
         'driver_not_accepted': RefusalCause.STATE,
-        'driver_already_usable': RefusalCause.REQUEST,
+        'driver_already_ours': RefusalCause.REQUEST,
     }
     _WORDS: ClassVar[dict[str, str]] = {
         'repair_needs_windows': (
@@ -1183,8 +1183,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             "question, or Windows refused the package (the driver step's log, in the logs "
             'folder of the LumaViewPro installation, says which). Try again to be asked again.'
         ),
-        'driver_already_usable': (
-            'The camera is up, or its USB devices are already on drivers LumaViewPro can use; '
+        'driver_already_ours': (
+            "The camera is up, or its USB devices are already on LumaViewPro's driver; "
             'there is nothing to repair.'
         ),
     }

@@ -63,7 +63,15 @@ _PROBE_DURATION_S = (0, 3_600)
 
 
 @api_fields(
-    'instance_id', 'present', 'service', 'provider', 'inf', 'version', 'date', 'problem_code'
+    'instance_id',
+    'present',
+    'service',
+    'provider',
+    'inf',
+    'version',
+    'date',
+    'problem_code',
+    'ours',
 )
 @dataclass(frozen=True)
 class UsbDeviceBinding:
@@ -82,6 +90,7 @@ class UsbDeviceBinding:
         version: The bound package's version.
         date: The bound package's date.
         problem_code: Device Manager's problem code; None for none.
+        ours: Whether the bound package is LumaViewPro's.
     """
 
     instance_id: str
@@ -92,9 +101,10 @@ class UsbDeviceBinding:
     version: str | None
     date: str | None
     problem_code: int | None
+    ours: bool
 
 
-@api_fields('hardware_id', 'name', 'needs', 'usable', 'devices')
+@api_fields('hardware_id', 'name', 'usable', 'devices')
 @dataclass(frozen=True)
 class UsbIdentityBindings:
     """A USB identity of a Lumascope Classic and each of its devices' drivers.
@@ -103,16 +113,15 @@ class UsbIdentityBindings:
         hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or
             ``USB\\VID_04B4&PID_EA17`` (the running firmware).
         name: Its name in Device Manager.
-        needs: The drivers LumaViewPro can use it on, lower case.
-        usable: False when a present device is on none of them; a device
-            seen before does not count, since it is matched afresh when
-            plugged.
+        usable: False when a present device is on no driver or on a package
+            not LumaViewPro's, which the camera's connect refuses whatever
+            else could drive it; a device seen before does not count, since
+            it is matched afresh when plugged.
         devices: Every device of it, present or seen before.
     """
 
     hardware_id: str
     name: str
-    needs: tuple[str, ...]
     usable: bool
     devices: tuple[UsbDeviceBinding, ...]
 
@@ -375,7 +384,6 @@ class DiagnosticsAPI:
             DEVICE_NAMES,
             FX2_BOOTLOADER,
             FX2_FIRMWARE,
-            USABLE_SERVICES,
             unusable,
         )
 
@@ -388,8 +396,7 @@ class DiagnosticsAPI:
                 UsbIdentityBindings(
                     hardware_id=identity,
                     name=DEVICE_NAMES[identity],
-                    needs=tuple(sorted(USABLE_SERVICES[identity])),
-                    usable=not unusable(identity, devices),
+                    usable=not unusable(devices),
                     # Built field by field, so a field the driver's record
                     # gains or loses fails here rather than going unpublished.
                     devices=tuple(UsbDeviceBinding(**dataclasses.asdict(d)) for d in devices),

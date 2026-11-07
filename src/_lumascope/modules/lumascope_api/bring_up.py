@@ -81,7 +81,7 @@ CAUSE_PHRASES = {
     'camera_driver_unavailable': 'not detected; a driver did not load',
     'led_driver_unavailable': 'not detected; a driver did not load',
     'camera_firmware_missing': 'firmware file missing',
-    'camera_driver_unusable': 'on no driver, or one LumaViewPro cannot use',
+    'camera_driver_unusable': "on no driver, or one not LumaViewPro's",
     'camera_not_initialized': 'not initialized',
     'camera_bring_up_failed': 'LumaViewPro failed bringing it up',
     'safety_off_failed': 'safety LEDs-off not confirmed',

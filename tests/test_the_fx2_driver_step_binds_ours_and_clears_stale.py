@@ -86,6 +86,7 @@ class _Machine:
                 version=None,
                 date=None,
                 problem_code=None if package else 28,
+                ours=package.ours if package else False,
             )
         )
 
@@ -116,7 +117,7 @@ class _Machine:
                 )
             (self.store / rest[0]).unlink()
             self.devices = [
-                dataclasses.replace(d, inf=None, service=None, provider=None)
+                dataclasses.replace(d, inf=None, service=None, provider=None, ours=False)
                 if d.inf == rest[0]
                 else d
                 for d in self.devices
@@ -152,6 +153,7 @@ class _Machine:
                     service='WinUSB',
                     provider=best.provider,
                     problem_code=None,
+                    ours=best.ours,
                 )
             bound.append(device)
         self.devices = bound

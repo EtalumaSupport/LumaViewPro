@@ -2104,7 +2104,7 @@ class ScopeSession:
         if bindings is None:
             raise CameraDriverRepairRefusedError('no_classic_bindings')
         if self.scope.camera_connected or all(identity.usable for identity in bindings):
-            raise CameraDriverRepairRefusedError('driver_already_usable')
+            raise CameraDriverRepairRefusedError('driver_already_ours')
         step = launch_root() / fx2_driver_step.DRIVER_STEP_EXE
         exit_code = fx2_driver_step.run_as_administrator(
             step, 'install', fx2_driver_step.REPAIR_WAIT_S
@@ -2126,7 +2126,7 @@ class ScopeSession:
         after = self.scope.diagnostics.get_camera_usb_bindings()
         if not all(identity.usable for identity in after):
             raise CameraDriverRepairFailedError(
-                'the driver step finished and a device is still on a driver LumaViewPro cannot use',
+                "the driver step finished and a device is still not on LumaViewPro's driver",
                 logs,
             )
         notifications.report_outcome(
@@ -2172,15 +2172,15 @@ class ScopeSession:
             CameraDriverRepairRefusedError: the repair's
                 ``'repair_needs_windows'``, ``'repair_needs_installed_build'``,
                 ``'repair_needs_driver_package'`` (built without the Classic
-                driver), ``'no_classic_bindings'``, ``'driver_already_usable'``
-                (a camera is up, or every present device is on a driver
-                LumaViewPro can use), ``'repair_declined'`` when the
+                driver), ``'no_classic_bindings'``, ``'driver_already_ours'``
+                (a camera is up, or every present device is on LumaViewPro's
+                driver), ``'repair_declined'`` when the
                 administrator's approval was not given, or
                 ``'driver_not_accepted'`` when Windows did not take the
                 package (declined at its question, or refused).
             CameraDriverRepairFailedError: The repair's step could not start,
                 could not write its log, did not finish, ended unsuccessfully,
-                or left a present device on a driver LumaViewPro cannot use;
+                or left a present device off LumaViewPro's driver;
                 the words name its log folder.
             CameraUsbLookupFailedError: The bindings could not be read.
         """

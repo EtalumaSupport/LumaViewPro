@@ -213,12 +213,13 @@ class CameraUsbLookupFailedError(Fault, HardwareError):
 
 
 class CameraUsbDriverUnusableError(Fault, HardwareError):
-    """The camera's USB device is bound to a driver LumaViewPro cannot use.
+    """The camera's USB device is not bound to LumaViewPro's driver.
 
     Windows binds each of the Lumascope Classic's two USB identities to a
-    driver on its own; a device with none, or one the firmware upload or
-    the stream cannot drive, cannot come up however it is cabled. The words
-    name the device, the driver it is bound to and what it needs.
+    driver on its own; a device with none, or on another package, is
+    refused however it is cabled, so a package installed later that takes
+    an identity is caught here and taken back by Repair. The words name the
+    device and the driver it is bound to.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_driver_unusable': None}

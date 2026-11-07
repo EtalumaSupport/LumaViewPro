@@ -28,15 +28,15 @@ def fx2_session():
     session.shutdown()
 
 
-def test_a_classic_on_libusbk_is_written_unusable_naming_its_driver(fx2_session, tmp_path):
+def test_a_classic_on_libusbk_is_written_not_ours_naming_its_driver(fx2_session, tmp_path):
     fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
 
     TechSupportReport(session=fx2_session)._step_camera_usb_bindings(tmp_path)
 
     written = (tmp_path / 'camera_usb_bindings' / 'camera_usb_bindings.txt').read_text()
-    assert f'Lumascope Classic ({FX2_FIRMWARE}): NOT USABLE; needs one of winusb' in written
+    assert f"Lumascope Classic ({FX2_FIRMWARE}): NOT on LumaViewPro's driver" in written
     assert f'{FX2_FIRMWARE}\\SIMULATED (present): libusbK from simulated' in written
-    assert f'Lumascope Classic (Bootloader) ({FX2_BOOTLOADER}): usable' in written
+    assert f"Lumascope Classic (Bootloader) ({FX2_BOOTLOADER}): on LumaViewPro's driver" in written
     recorded = json.loads(
         (tmp_path / 'camera_usb_bindings' / 'camera_usb_bindings.json').read_text()
     )

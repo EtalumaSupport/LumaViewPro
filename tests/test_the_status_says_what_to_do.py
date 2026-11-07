@@ -32,7 +32,7 @@ def test_each_reason_answers_the_status_its_cause_says():
     members = {
         'control_session_ended': (ControlSessionRefusedError('control_session_ended'), 422),
         'file_exists': (LiveFolderPathRefusedError('file_exists', 'a.txt', 'x'), 422),
-        'driver_already_usable': (CameraDriverRepairRefusedError('driver_already_usable'), 422),
+        'driver_already_ours': (CameraDriverRepairRefusedError('driver_already_ours'), 422),
         'scope_disconnected': (HardwareCommandRefusedError('scope_disconnected', 'led_on'), 503),
         'monitor_ended': (HardwareCommandRefusedError('monitor_ended', 'move_z'), 503),
         'session_closing': (SessionClosingError('run'), 503),

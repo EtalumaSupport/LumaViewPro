@@ -125,7 +125,7 @@ def test_a_scope_with_no_classic_device_is_refused_not_crashed(on_installed_wind
     assert refused.value.reason == 'no_classic_bindings'
 
 
-def test_a_usable_binding_is_not_repaired(
+def test_a_binding_already_ours_is_not_repaired(
     fx2_session, on_installed_windows, camera_never_came_up, monkeypatch
 ):
     run, runs = _approved_step(fx2_session)
@@ -135,7 +135,7 @@ def test_a_usable_binding_is_not_repaired(
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
         fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
-    assert refused.value.reason == 'driver_already_usable'
+    assert refused.value.reason == 'driver_already_ours'
     assert runs == []
 
 
@@ -151,7 +151,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
         fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
-    assert refused.value.reason == 'driver_already_usable'
+    assert refused.value.reason == 'driver_already_ours'
     assert runs == []
 
 
@@ -159,7 +159,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
     'exit_code, binds, said',
     [
         (1, False, 'exit code 1'),
-        (0, False, 'still on a driver'),
+        (0, False, 'still not on'),
         (fx2_driver_step.LOG_UNWRITABLE_EXIT, False, 'could not write a log'),
     ],
 )

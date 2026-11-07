@@ -5,7 +5,7 @@
 bootloader (8613) and the running firmware (EA17), from the same read the
 camera's connect checks, so REST, the SDK and the support report see what
 the connect saw, also when the camera did not come up. A present device on
-none of the drivers its identity needs is unusable.
+no driver, or on a package not LumaViewPro's, is unusable.
 
 The simulated FX2 answers on a simulated LS620, its binding the simulation's
 fault door; the Windows read is stood in where SetupAPI is absent.
@@ -36,16 +36,11 @@ def test_a_simulated_classic_reports_its_running_firmware_on_winusb(fx2_session)
     assert bootloader == UsbIdentityBindings(
         hardware_id=FX2_BOOTLOADER,
         name='Lumascope Classic (Bootloader)',
-        needs=('libusb0', 'libusbk', 'winusb'),
         usable=True,
         devices=(),
     )
-    assert (firmware.hardware_id, firmware.needs, firmware.usable) == (
-        FX2_FIRMWARE,
-        ('winusb',),
-        True,
-    )
-    assert [(d.present, d.service) for d in firmware.devices] == [(True, 'WinUSB')]
+    assert (firmware.hardware_id, firmware.usable) == (FX2_FIRMWARE, True)
+    assert [(d.present, d.service, d.ours) for d in firmware.devices] == [(True, 'WinUSB', True)]
 
 
 def test_a_running_firmware_rebound_to_libusbk_reads_unusable(fx2_session):
@@ -78,6 +73,7 @@ def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch)
         version='6.1.7600.16385',
         date='2024-01-01',
         problem_code=None,
+        ours=False,
     )
     # a stand-in by design: SetupAPI, absent off Windows.
     monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [seen])

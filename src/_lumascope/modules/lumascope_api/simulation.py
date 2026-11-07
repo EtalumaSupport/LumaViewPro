@@ -985,8 +985,9 @@ class SimulationAPI:
         """Windows binds a USB identity of the simulated FX2 to ``service``.
 
         The simulated FX2 comes up on WinUSB, as Windows binds it with
-        LumaViewPro's package installed; this rebinds one identity, as a
-        Zadig run or LumaView Classic's package would. The camera already up
+        LumaViewPro's package installed, and WinUSB stands for that package;
+        any other driver stands for another package, as LumaView's libusbK
+        package binds both identities. The camera already up
         keeps running: the binding is read by
         ``diagnostics.get_camera_usb_bindings`` and checked at the next
         connect.

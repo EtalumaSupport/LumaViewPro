@@ -33,7 +33,7 @@ from _lumascope.drivers.exceptions import (
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
 )
-from _lumascope.drivers.usb_driver_binding import DeviceBinding
+from _lumascope.drivers.usb_driver_binding import DeviceBinding, store_inf_folder, store_packages
 
 # Under LVP, never ``__name__``: a session's logging hangs the bundle on
 # LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
@@ -340,7 +340,8 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
 
     Read without elevation. A device seen before on another port keeps the
     binding it had there until it is matched afresh, so the past ones are
-    read too.
+    read too. A device is on ours when its bound INF is one of our packages
+    in the driver store.
 
     Args:
         hardware_id: ``USB\\VID_xxxx&PID_xxxx``; a device's instance ID is
@@ -354,6 +355,7 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
     if dev_info == INVALID_HANDLE_VALUE:
         raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
     prefix = hardware_id.upper() + '\\'
+    ours = {p.inf.lower() for p in store_packages(hardware_id, store_inf_folder()) if p.ours}
     bindings = []
     try:
         index = 0
@@ -370,16 +372,18 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
             if not instance_id.upper().startswith(prefix):
                 continue
             service = _device_property(dev_info, devinfo, DEVPKEY_Device_Service)
+            inf = _device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath)
             bindings.append(
                 DeviceBinding(
                     instance_id=instance_id,
                     present=bool(_device_property(dev_info, devinfo, DEVPKEY_Device_IsPresent)),
                     service=service,
                     provider=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverProvider),
-                    inf=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath),
+                    inf=inf,
                     version=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverVersion),
                     date=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverDate),
                     problem_code=_device_property(dev_info, devinfo, DEVPKEY_Device_ProblemCode),
+                    ours=(inf or '').lower() in ours,
                 )
             )
     finally:

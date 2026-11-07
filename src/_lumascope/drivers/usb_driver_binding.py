@@ -28,14 +28,6 @@ DEVICE_NAMES = {
     FX2_BOOTLOADER: 'Lumascope Classic (Bootloader)',
     FX2_FIRMWARE: 'Lumascope Classic',
 }
-# The drivers each identity can be bound to, by what LumaViewPro does with
-# it, never by whose package it is: the firmware upload reaches the
-# bootloader through libusb, which drives a device on any of the three; the
-# stream reads the running firmware through WinUSB itself.
-USABLE_SERVICES = {
-    FX2_BOOTLOADER: frozenset({'winusb', 'libusbk', 'libusb0'}),
-    FX2_FIRMWARE: frozenset({'winusb'}),
-}
 # Ours is named by its catalog as well as its provider: an older Etaluma
 # package (LumaView Classic's, or the unsigned LumaScope_WinUSB.inf the
 # installer once carried) is another package to replace.
@@ -51,6 +43,8 @@ class DeviceBinding:
     ``libusb0``), None when no driver is bound; the package fields are None
     with it. ``present`` is False for a device seen before on another port or
     at another time, which keeps its binding until it is matched afresh.
+    ``ours`` is whether the bound package is LumaViewPro's, as the store
+    names it (``StorePackage.ours``).
     """
 
     instance_id: str
@@ -61,14 +55,17 @@ class DeviceBinding:
     version: str | None
     date: str | None
     problem_code: int | None
+    ours: bool
 
     def describe(self) -> str:
         where = 'present' if self.present else 'not present'
         if self.service is None:
             driver = 'no driver'
         else:
+            whose = "LumaViewPro's" if self.ours else "not LumaViewPro's"
             driver = (
                 f'{self.service} from {self.provider} {self.inf} {self.version} dated {self.date}'
+                f', {whose}'
             )
         problem = f', problem code {self.problem_code}' if self.problem_code else ''
         return f'{self.instance_id} ({where}): {driver}{problem}'
@@ -96,31 +93,32 @@ class StorePackage:
         return self.provider == OUR_PROVIDER and self.catalog.lower() == OUR_CATALOG.lower()
 
 
-def unusable(identity: str, bindings: list[DeviceBinding]) -> list[DeviceBinding]:
-    """The present devices of ``identity`` bound to a driver LumaViewPro cannot use.
+def unusable(bindings: list[DeviceBinding]) -> list[DeviceBinding]:
+    """The present devices bound to anything but LumaViewPro's package.
 
-    A device with no driver is one. A past device is not: it is matched
-    afresh when it is plugged in.
+    Ours alone, on both identities, whatever else could drive the device: a
+    package installed after ours that takes an identity back is refused
+    here and taken back by Repair, so ours always wins. A device with no
+    driver is one. A past device is not: it is matched afresh when it is
+    plugged in.
     """
-    usable = USABLE_SERVICES[identity]
-    return [b for b in bindings if b.present and (b.service or '').lower() not in usable]
+    return [b for b in bindings if b.present and not b.ours]
 
 
 def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
-    """Refuse the FX2 when a present device of either identity cannot be driven.
+    """Refuse the FX2 when a present device of either identity is not on our package.
 
     Args:
         bindings: Each identity's devices, as ``device_bindings`` reads them.
 
     Raises:
         CameraUsbDriverUnusableError: Naming each such device, the driver it
-            is bound to, what it needs, and the fix.
+            is bound to, and the fix.
     """
     refused = [
-        f'{DEVICE_NAMES[identity]} {b.describe()} needs one of: '
-        f'{", ".join(sorted(USABLE_SERVICES[identity]))}'
+        f'{DEVICE_NAMES[identity]} {b.describe()}'
         for identity, devices in bindings.items()
-        for b in unusable(identity, devices)
+        for b in unusable(devices)
     ]
     if refused:
         raise CameraUsbDriverUnusableError(

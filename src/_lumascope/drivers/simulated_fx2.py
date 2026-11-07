@@ -512,7 +512,8 @@ class SimulatedFX2Transport:
         self._stream: _ByteStream | None = None
         self._on_gone: Callable[[], None] | None = None
         # The driver each identity is bound to, as Windows would bind it
-        # with LumaViewPro's package installed.
+        # with LumaViewPro's package installed. WinUSB here is our package;
+        # any other driver is another package's.
         self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
 
     def bindings(self, identity: str) -> list[DeviceBinding]:
@@ -529,6 +530,7 @@ class SimulatedFX2Transport:
             version=None,
             date=None,
             problem_code=None if service is not None else 28,
+            ours=service == 'WinUSB',
         )
         return [binding]
 
