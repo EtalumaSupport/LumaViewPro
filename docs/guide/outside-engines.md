@@ -64,13 +64,13 @@ records a frame at the position it asked for; over REST that is the move's job,
 
 ```python
 held = scope.simulation.hold_axis('Z')             # the next Z move halts on its way
-moving = scope.motion.start_move_z(5000.0)
+moving = scope.motion.start_move_z(6000.0)
 held.result(timeout=10)
 moving.stop()                                      # as the person at the window can
 ```
 
 ```python raises=MoveStoppedError:stopped
-moving.result(timeout=30)                          # stopped: Z is not at 5000 um
+moving.result(timeout=30)                          # stopped: Z is not at 6000 um
 ```
 
 **A host that has not homed refuses moves.** A session's axes have no position

@@ -2563,6 +2563,14 @@ class MotionAPI:
         The one drive of a move to a place or by a distance, once its
         refusals have passed. ``said`` is the move as the API log names it.
 
+        An axis IDLE where its current move arrived, at exactly
+        ``position``, is not driven: the board is sent nothing and frame
+        validity is not invalidated, since re-sending the target the
+        open-loop board already holds moves nothing and tells nothing. The
+        arrived move's own operation is returned, settled with its arrival.
+        A STOP that ended the move, a home, a fault, or another move each
+        end or replace that arrival, so the axis is driven again after them.
+
         Raises:
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
                 with overshoot whose position the board did not report;
@@ -2571,7 +2579,21 @@ class MotionAPI:
             MoveFaultError: ``'driver_failed'``, the board did not take the
                 command;
                 ``'board_lost'``, the board is no longer connected.
+            None of these for a move to the target the axis holds, which
+            reads and sends nothing.
         """
+        with self._axis_state_lock:
+            held = self._current_move.get(axis)
+            if not (
+                self._axis_state.get(axis) == AxisState.IDLE
+                and held is not None
+                and held.outcome == 'arrived'
+                and held.target == float(position)
+            ):
+                held = None
+        if held is not None:
+            _api_log.log(VERBOSE, f'{said}: held already, not driven')
+            return held.operation
         leg = self._backlash_leg(axis, position, overshoot_enabled, member)
         stop_generation = self._generation_asked()
         try:
@@ -3856,7 +3878,11 @@ class MotionAPI:
         On a board with a backlash, a Z move down to a target clear of the
         bottom first drives to the backlash below it, so the backlash is always taken the same way.
         Decided from the board's position, before the move disarms the
-        axis: a refusal here leaves the axis as it was.
+        axis: a refusal here leaves the axis as it was. "Down" is compared
+        in microsteps, through the drive's own conversion of the target, so
+        a target that rounds to the microstep Z holds takes no leg: the
+        position read back in um lands a few nm either side of the float
+        asked for.
 
         Raises:
             HardwareCommandRefusedError: ``'position_unread'``, the board
@@ -3866,12 +3892,16 @@ class MotionAPI:
         if not (overshoot_enabled and axis == 'Z'):
             return None
         try:
-            current = self._driver.current_pos('Z')
+            current_steps = self._driver.current_pos_steps('Z')
         except HardwareError as e:
             raise self._position_unread(member) from e
         backlash = self._driver.backlash_um()
         # A board with no backlash has no approach leg.
-        if backlash > 0 and current > position and position > backlash + 50:
+        if (
+            backlash > 0
+            and current_steps > self._driver.z_um2ustep(position)
+            and position > backlash + 50
+        ):
             return position - backlash
         return None
 

@@ -25,7 +25,8 @@ from tests.stock_channels import LED1
 import ui.composite_capture as cc
 import ui.ui_helpers as ui_helpers
 
-_HOLD_WAIT_S = 10.0
+# Far past any test here; the teardown's clear() lifts it.
+_STALL_S = 600.0
 _END_WAIT_S = 60.0
 
 
@@ -103,8 +104,9 @@ def homed(app_ctx):
     home_sim_scope(scope)
     scope.motion.move_z(5000.0)
     yield app_ctx
+    for run in app_ctx.started:
+        run.stop()
     scope.simulation.clear()
-    scope.motion.stop_motion()
     for run in app_ctx.started:
         run.result(timeout=_END_WAIT_S)
 
@@ -129,12 +131,14 @@ def _click(starter):
 
 
 def _click_held(homed, starter):
-    """Click with Z's next move held: the composite it starts stays live until
-    the test or the teardown ends it."""
-    reached = homed.scope.simulation.hold_axis('Z')
+    """Click with the camera's stream stalled: the composite it starts, built
+    around where the stage already is, moves nothing and waits for its first
+    frame, so it stays live until the test or the teardown ends it."""
+    homed.scope.simulation.stall_stream(0.0, _STALL_S)
     _click(starter)
-    reached.result(_HOLD_WAIT_S)
-    return starter._composite_run
+    run = starter._composite_run
+    assert run is not None and not run.done(), 'the press started no live composite'
+    return run
 
 
 def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(homed):

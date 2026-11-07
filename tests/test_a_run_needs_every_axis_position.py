@@ -257,12 +257,24 @@ class TestALostPositionEndsTheRunOnce:
     ):
         session = session_factory()
         home_sim_scope(session.scope)
-        # The first X write is scan 1's own move; the second is the return to
-        # the first step between scans.
-        _drop_board_writes(session, 'TARGET_WX', which=2)
+        # Two steps at different X, so the return between scans moves X: an
+        # axis already where a step asks is sent nothing. The first two X
+        # writes are scan 1's own steps; the third is the return to the first
+        # step between scans.
+        _drop_board_writes(session, 'TARGET_WX', which=3)
         period_min = 1.0
+        first = _make_single_step_protocol().step_row(step_index=0)
         protocol = _build_real_protocol(
-            [dict(_make_single_step_protocol().step_row(step_index=0))],
+            [
+                dict(first),
+                dict(
+                    first,
+                    X=first['X'] + 1.0,
+                    Name='A1_second',
+                    Label='A1_second',
+                    **{'Step Index': 1},
+                ),
+            ],
             period_min=period_min,
             duration_hrs=3 * period_min / 60,
         )
